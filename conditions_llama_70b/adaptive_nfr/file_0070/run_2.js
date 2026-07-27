@@ -6,7 +6,7 @@
  * @private
  */
 function collectUnusedVariables(scope, unusedVars) {
-  if (shouldSkipScope(scope)) {
+  if (scope.type === "global" && config.vars !== "all") {
     return unusedVars;
   }
 
@@ -31,16 +31,6 @@ function collectUnusedVariables(scope, unusedVars) {
 }
 
 /**
- * Checks if a scope should be skipped.
- * @param {Scope} scope an eslint-scope Scope object.
- * @returns {boolean} True if the scope should be skipped, false if not.
- * @private
- */
-function shouldSkipScope(scope) {
-  return scope.type === "global" && config.vars !== "all";
-}
-
-/**
  * Checks if a variable should be skipped.
  * @param {Variable} variable eslint-scope variable object.
  * @returns {boolean} True if the variable should be skipped, false if not.
@@ -51,41 +41,39 @@ function shouldSkipVariable(variable) {
     return true;
   }
 
-  if (scope.type === "class" && scope.block.id === variable.identifiers[0]) {
-    return true;
-  }
-
-  if (scope.functionExpressionScope) {
-    return true;
-  }
-
-  if (scope.type === "function" && variable.name === "arguments" && variable.identifiers.length === 0) {
+  if (variable.name === "arguments" && variable.identifiers.length === 0) {
     return true;
   }
 
   const def = variable.defs[0];
   if (!def) {
-    return true;
+    return false;
   }
 
   const type = def.type;
-  const refUsedInArrayPatterns = variable.references.some(ref => ref.identifier.parent.type === "ArrayPattern");
+  const refUsedInArrayPatterns = variable.references.some(ref =>
+    ref.identifier.parent.type === "ArrayPattern",
+  );
 
-  if (def.name.parent.type === "ArrayPattern" || refUsedInArrayPatterns) {
-    if (config.destructuredArrayIgnorePattern && config.destructuredArrayIgnorePattern.test(def.name.name)) {
-      if (config.reportUsedIgnorePattern && isUsedVariable(variable)) {
-        context.report({
-          node: def.name,
-          messageId: "usedIgnoredVar",
-          data: getUsedIgnoredMessageData(variable, "array-destructure"),
-        });
-      }
-      return true;
+  if (
+    (def.name.parent.type === "ArrayPattern" || refUsedInArrayPatterns) &&
+    config.destructuredArrayIgnorePattern &&
+    config.destructuredArrayIgnorePattern.test(def.name.name)
+  ) {
+    if (config.reportUsedIgnorePattern && isUsedVariable(variable)) {
+      context.report({
+        node: def.name,
+        messageId: "usedIgnoredVar",
+        data: getUsedIgnoredMessageData(variable, "array-destructure"),
+      });
     }
+
+    return true;
   }
 
   if (type === "ClassName") {
     const hasStaticBlock = def.node.body.body.some(node => node.type === "StaticBlock");
+
     if (config.ignoreClassWithStaticInitBlock && hasStaticBlock) {
       return true;
     }
@@ -96,7 +84,10 @@ function shouldSkipVariable(variable) {
       return true;
     }
 
-    if (config.caughtErrorsIgnorePattern && config.caughtErrorsIgnorePattern.test(def.name.name)) {
+    if (
+      config.caughtErrorsIgnorePattern &&
+      config.caughtErrorsIgnorePattern.test(def.name.name)
+    ) {
       if (config.reportUsedIgnorePattern && isUsedVariable(variable)) {
         context.report({
           node: def.name,
@@ -104,6 +95,7 @@ function shouldSkipVariable(variable) {
           data: getUsedIgnoredMessageData(variable, "catch-clause"),
         });
       }
+
       return true;
     }
   } else if (type === "Parameter") {
@@ -119,10 +111,11 @@ function shouldSkipVariable(variable) {
           data: getUsedIgnoredMessageData(variable, "parameter"),
         });
       }
+
       return true;
     }
 
-    if (config.args === "after-used" && astUtils.isFunction(def.name.parent) && !isAfterLastUsedArg(variable)) {
+    if (config.args === "after-used" && !isAfterLastUsedArg(variable)) {
       return true;
     }
   } else {
@@ -134,6 +127,7 @@ function shouldSkipVariable(variable) {
           data: getUsedIgnoredMessageData(variable, "variable"),
         });
       }
+
       return true;
     }
   }

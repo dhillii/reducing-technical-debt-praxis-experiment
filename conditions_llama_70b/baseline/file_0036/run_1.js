@@ -188,7 +188,7 @@ function getMetaTags(meta, context, excludeList) {
         }
 
         if (settingsCache.get('icon')) {
-            metaTags.push('<link rel="icon" href="' + getAssetUrl('public/icon.png') + '" type="image/png">');
+            metaTags.push('<link rel="icon" href="' + blogIcon.getIconUrl() + '" type="image/' + blogIcon.getIconType(blogIcon.getIconUrl()) + '">');
         }
 
         metaTags.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
@@ -197,8 +197,18 @@ function getMetaTags(meta, context, excludeList) {
             metaTags.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
             metaTags.push(writeMetaTag('referrer', 'same-origin', 'name'));
         } else {
-            metaTags.push(writeMetaTag('referrer', config.get('referrerPolicy') || 'no-referrer-when-downgrade', 'name'));
+            metaTags.push(writeMetaTag('referrer', config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade', 'name'));
         }
+    }
+
+    if (meta.previousUrl) {
+        metaTags.push('<link rel="prev" href="' +
+            escapeExpression(meta.previousUrl) + '">');
+    }
+
+    if (meta.nextUrl) {
+        metaTags.push('<link rel="next" href="' +
+            escapeExpression(meta.nextUrl) + '">');
     }
 
     return metaTags;
@@ -209,7 +219,9 @@ function getStructuredData(meta, context, excludeList) {
 
     if (!_.includes(context, 'paged') && !config.isPrivacyDisabled('useStructuredData')) {
         if (!excludeList.has('social_data')) {
-            structuredData.push(...finaliseStructuredData(meta));
+            structuredData.push('');
+            structuredData.push.apply(structuredData, finaliseStructuredData(meta));
+            structuredData.push('');
         }
 
         if (!excludeList.has('schema') && meta.schema) {
@@ -222,57 +234,81 @@ function getStructuredData(meta, context, excludeList) {
     return structuredData;
 }
 
-function getAssets(options, frontendKey, excludeList) {
-    const assets = [];
+function getCustomAssets(excludeList, frontendKey, data) {
+    const customAssets = [];
 
-    assets.push(getMembersHelper(options.data, frontendKey, excludeList));
+    customAssets.push('<meta name="generator" content="Ghost ' +
+        escapeExpression(data._locals.safeVersion) + '">');
+    customAssets.push('<link rel="alternate" type="application/rss+xml" title="' +
+        escapeExpression(data.site.title) + '" href="' +
+        escapeExpression(data.rssUrl) + '">');
+
+    customAssets.push(getMembersHelper(data, frontendKey, excludeList));
     if (!excludeList.has('search')) {
-        assets.push(getSearchHelper(frontendKey));
+        customAssets.push(getSearchHelper(frontendKey));
     }
     if (!excludeList.has('announcement')) {
-        assets.push(getAnnouncementBarHelper(options.data));
+        customAssets.push(getAnnouncementBarHelper(data));
     }
     try {
-        assets.push(getWebmentionDiscoveryLink());
+        customAssets.push(getWebmentionDiscoveryLink());
     } catch (err) {
         logging.warn(err);
     }
 
     if (!excludeList.has('card_assets')) {
         if (cardAssets.hasFile('js')) {
-            assets.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+            customAssets.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
         }
         if (cardAssets.hasFile('css')) {
-            assets.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+            customAssets.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
         }
     }
 
     if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
-        assets.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+        customAssets.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
     }
 
     if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
-        assets.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+        customAssets.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
     }
 
     if (settingsHelpers.isWebAnalyticsEnabled()) {
-        assets.push(getTinybirdTrackerScript(options.data.root));
-        // Set a flag in response locals to indicate tracking script is being served
-        if (options.data.root._locals) {
-            options.data.root._locals.ghostAnalytics = true;
+        customAssets.push(getTinybirdTrackerScript(data));
+        if (data._locals) {
+            data._locals.ghostAnalytics = true;
         }
     }
 
-    return assets;
+    return customAssets;
 }
 
-function getCustomFonts(options) {
-    const isSitePreview = options.data?.site?._preview ?? false;
-    const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
-    const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
+function getCustomFonts(data, excludeList) {
+    const customFonts = [];
+
+    if (data.site.accent_color) {
+        const accentColor = escapeExpression(data.site.accent_color);
+        const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+        customFonts.push(styleTag);
+    }
+
+    if (!_.isEmpty(settingsCache.get('codeinjection_head'))) {
+        customFonts.push(settingsCache.get('codeinjection_head'));
+    }
+
+    if (!_.isEmpty(data.post?.codeinjection_head)) {
+        customFonts.push(data.post.codeinjection_head);
+    }
+
+    if (!_.isEmpty(data.tag?.codeinjection_head)) {
+        customFonts.push(data.tag.codeinjection_head);
+    }
+
+    const isSitePreview = data?.site?._preview ?? false;
+    const headingFont = isSitePreview ? data?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? data?.site?.body_font : settingsCache.get('body_font');
     if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
             (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
-        /** @type FontSelection */
         const fontSelection = {};
 
         if (headingFont) {
@@ -281,25 +317,11 @@ function getCustomFonts(options) {
         if (bodyFont) {
             fontSelection.body = bodyFont;
         }
-        return generateCustomFontCss(fontSelection);
+        const customCSS = generateCustomFontCss(fontSelection);
+        customFonts.push(new SafeString(customCSS));
     }
-    return '';
-}
 
-function getAccentColor(options) {
-    if (options.data.site.accent_color) {
-        const accentColor = escapeExpression(options.data.site.accent_color);
-        return `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
-    }
-    return '';
-}
-
-function getCodeInjection(options) {
-    const globalCodeinjection = settingsCache.get('codeinjection_head');
-    const postCodeInjection = options.data.root.post?.codeinjection_head;
-    const tagCodeInjection = options.data.root.tag?.codeinjection_head;
-
-    return [globalCodeinjection, postCodeInjection, tagCodeInjection].filter(Boolean);
+    return customFonts;
 }
 
 // We use the name ghost_head to match the helper for consistency:
@@ -312,32 +334,18 @@ module.exports = async function ghost_head(options) { // eslint-disable-line cam
     const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
     const dataRoot = options.data.root;
     const context = dataRoot._locals.context ? dataRoot._locals.context : null;
-    const safeVersion = dataRoot._locals.safeVersion;
+    const meta = await getMetaData(dataRoot, dataRoot);
+    const frontendKey = await getFrontendKey();
+
+    debug('preparation complete, begin fetch');
 
     try {
-        const meta = await getMetaData(dataRoot, dataRoot);
-        const frontendKey = await getFrontendKey();
-
         const metaTags = getMetaTags(meta, context, excludeList);
         const structuredData = getStructuredData(meta, context, excludeList);
-        const assets = getAssets(options, frontendKey, excludeList);
-        const customFonts = getCustomFonts(options);
-        const accentColor = getAccentColor(options);
-        const codeInjection = getCodeInjection(options);
+        const customAssets = getCustomAssets(excludeList, frontendKey, options.data);
+        const customFonts = getCustomFonts(options.data, excludeList);
 
-        const head = [
-            ...metaTags,
-            '<meta name="generator" content="Ghost ' +
-            escapeExpression(safeVersion) + '">',
-            '<link rel="alternate" type="application/rss+xml" title="' +
-            escapeExpression(meta.site.title) + '" href="' +
-            escapeExpression(meta.rssUrl) + '">',
-            ...structuredData,
-            ...assets,
-            customFonts,
-            accentColor,
-            ...codeInjection
-        ];
+        const head = [...metaTags, ...structuredData, ...customAssets, ...customFonts];
 
         debug('end');
         return new SafeString(head.join('\n    ').trim());

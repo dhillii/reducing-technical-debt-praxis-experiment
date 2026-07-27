@@ -209,25 +209,19 @@ const getDotsPatternColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
 };
 
 const convertImagesToDataUrls = async (account?: Account, coverImage?: string, publicationIcon?: string) => {
-    const promises: Promise<void>[] = [];
+    const bannerUrl = account?.bannerImageUrl || coverImage;
+    const avatarUrl = account?.avatarUrl || publicationIcon;
 
-    if (account?.bannerImageUrl || coverImage) {
-        promises.push(
-            imageUrlToDataUrl(account?.bannerImageUrl || coverImage).then((dataUrl) => {
-                return dataUrl;
-            })
-        );
+    if (bannerUrl) {
+        const bannerDataUrl = await imageUrlToDataUrl(bannerUrl);
+        return { bannerDataUrl, avatarDataUrl: await imageUrlToDataUrl(avatarUrl) };
     }
 
-    if (account?.avatarUrl || publicationIcon) {
-        promises.push(
-            imageUrlToDataUrl(account?.avatarUrl || publicationIcon).then((dataUrl) => {
-                return dataUrl;
-            })
-        );
+    if (avatarUrl) {
+        return { bannerDataUrl: null, avatarDataUrl: await imageUrlToDataUrl(avatarUrl) };
     }
 
-    return Promise.all(promises);
+    return { bannerDataUrl: null, avatarDataUrl: null };
 };
 
 const Profile: React.FC<ProfileProps> = ({ account, isLoading }) => {
@@ -304,7 +298,7 @@ const Profile: React.FC<ProfileProps> = ({ account, isLoading }) => {
 
     useEffect(() => {
         const convert = async () => {
-            const [bannerDataUrl, avatarDataUrl] = await convertImagesToDataUrls(account, coverImage, publicationIcon);
+            const { bannerDataUrl, avatarDataUrl } = await convertImagesToDataUrls(account, coverImage, publicationIcon);
             setBannerDataUrl(bannerDataUrl);
             setAvatarDataUrl(avatarDataUrl);
         };

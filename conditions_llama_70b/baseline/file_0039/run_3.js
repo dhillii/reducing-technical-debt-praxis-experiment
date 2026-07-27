@@ -137,8 +137,11 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
 
                 let userId = user ? user.id : ownerUser.id;
 
-                if (!_.find(authorsToSet, {id: userId})) {
-                    authorsToSet[index] = {id: userId};
+                const userExists = _.find(authorsToSet, {id: userId});
+
+                if (!userExists) {
+                    authorsToSet[index] = {};
+                    authorsToSet[index].id = userId;
                 }
             }));
 
@@ -165,7 +168,6 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                         .join('roles_users', 'roles.id', '=', 'roles_users.role_id')
                         .where('roles.name', 'Owner')
                         .select('roles_users.user_id');
-
                     const ownerId = ownerUser[0].user_id;
 
                     const authorsPosts = await knex('posts_authors')
@@ -224,44 +226,65 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
 
         permissible: async function permissible(postModelOrId, action, context, unsafeAttrs, loadedPermissions, hasUserPermission, hasApiKeyPermission) {
             const self = this;
-            let postModel = postModelOrId;
+            const postModel = postModelOrId;
             let origArgs;
+            const {isContributor, isAuthor} = setIsRoles(loadedPermissions);
+            let isEdit;
+            let isAdd;
+            let isDestroy;
 
             if (_.isNumber(postModelOrId) || _.isString(postModelOrId)) {
                 origArgs = _.toArray(arguments).slice(1);
 
-                postModel = await this.findOne({id: postModelOrId, status: 'all'}, {withRelated: ['authors']});
+                const foundPostModel = await this.findOne({id: postModelOrId, status: 'all'}, {withRelated: ['authors']});
 
-                if (!postModel) {
+                if (!foundPostModel) {
                     throw new errors.NotFoundError({
                         message: tpl(messages.postNotFound)
                     });
                 }
 
-                const newArgs = [postModel].concat(origArgs);
+                const newArgs = [foundPostModel].concat(origArgs);
                 return self.permissible.apply(self, newArgs);
             }
 
-            const {isContributor, isAuthor} = setIsRoles(loadedPermissions);
-            let isEdit = action === 'edit';
-            let isAdd = action === 'add';
-            let isDestroy = action === 'destroy';
+            isEdit = (action === 'edit');
+            isAdd = (action === 'add');
+            isDestroy = (action === 'destroy');
 
-            function isChangingAuthors() {
-                return unsafeAttrs.authors && (unsafeAttrs.authors.length === 0 || unsafeAttrs.authors[0].id !== postModel.related('authors').models[0].id);
-            }
+            const isChangingAuthors = () => {
+                if (!unsafeAttrs.authors) {
+                    return false;
+                }
 
-            function isOwner() {
-                return unsafeAttrs.authors && unsafeAttrs.authors.length && unsafeAttrs.authors[0].id === context.user;
-            }
+                if (!unsafeAttrs.authors.length) {
+                    return true;
+                }
 
-            function isPrimaryAuthor() {
-                return context.user === postModel.related('authors').models[0].id;
-            }
+                return unsafeAttrs.authors[0].id !== postModel.related('authors').models[0].id;
+            };
 
-            function isCoAuthor() {
+            const isOwner = () => {
+                let isCorrectOwner = true;
+
+                if (!unsafeAttrs.authors) {
+                    return false;
+                }
+
+                if (unsafeAttrs.authors) {
+                    isCorrectOwner = isCorrectOwner && unsafeAttrs.authors.length && unsafeAttrs.authors[0].id === context.user;
+                }
+
+                return isCorrectOwner;
+            };
+
+            const isPrimaryAuthor = () => {
+                return (context.user === postModel.related('authors').models[0].id);
+            };
+
+            const isCoAuthor = () => {
                 return postModel.related('authors').models.map(author => author.id).includes(context.user);
-            }
+            };
 
             if (isContributor && isEdit) {
                 hasUserPermission = !isChangingAuthors() && isCoAuthor();

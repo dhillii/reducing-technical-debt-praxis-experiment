@@ -105,8 +105,8 @@ const handleTargetChange = (state, action) => {
     selectedContentTypeFriendlyName,
     keys,
     value,
-    oneThatIsCreatingARelationWithAnother,
     targetContentTypeAllowedRelations,
+    oneThatIsCreatingARelationWithAnother,
   } = action;
   let didChangeNatureBecauseOfRestrictedRelation = false;
 

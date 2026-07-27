@@ -24,7 +24,7 @@ const fillMissingDataPoints = (data: {date: string; signups: number; cancellatio
     const seenKeys = new Set<string>();
 
     const aggregationStrategies: { [key: string]: (startDate: string, endDate: string) => void } = {
-        'monthly': (startDate: string, endDate: string) => {
+        'monthly': (startDate, endDate) => {
             const currentPeriod = moment(startDate).startOf('month');
             const endPeriod = moment(endDate).startOf('month');
 
@@ -46,7 +46,7 @@ const fillMissingDataPoints = (data: {date: string; signups: number; cancellatio
                 currentPeriod.add(1, 'month');
             }
         },
-        'weekly': (startDate: string, endDate: string) => {
+        'weekly': (startDate, endDate) => {
             const currentPeriod = moment(startDate).startOf('week');
             const endPeriod = moment(endDate).startOf('week');
 
@@ -68,7 +68,7 @@ const fillMissingDataPoints = (data: {date: string; signups: number; cancellatio
                 currentPeriod.add(1, 'week');
             }
         },
-        'none': (startDate: string, endDate: string) => {
+        'none': (startDate, endDate) => {
             const currentDate = moment(startDate);
             const endMoment = moment(endDate);
 

@@ -125,8 +125,8 @@ module.exports = function(God) {
    * @return
    */
   God.dumpProcessList = function(cb) {
-    const process_list = [];
-    const apps = Utility.clone(God.getFormatedProcesses());
+    let process_list = [];
+    let apps = Utility.clone(God.getFormatedProcesses());
     const that = this;
 
     // Don't override the actual dump file if process list is empty
@@ -232,7 +232,6 @@ module.exports = function(God) {
 
     const proc = Utility.clone(God.clusters_db[id].pm2_env);
 
-
     delete proc.created_at;
     delete proc.pm_id;
     delete proc.unique_id;
@@ -272,7 +271,6 @@ module.exports = function(God) {
       return cb(err, Utility.clone(proc));
     });
   };
-
 
   /**
    * Stop a process and set it on state 'stopped'
@@ -380,7 +378,7 @@ module.exports = function(God) {
    * If the process is online it will not put it on state stopped
    * but directly kill it and let God restart it
    * @method restartProcessId
-   * @param {} id
+   * @param {} opts
    * @param {} cb
    * @return Literal
    */
@@ -423,7 +421,6 @@ module.exports = function(God) {
       return God.startProcessId(id, cb);
     }
   };
-
 
   /**
    * Restart all process by name
@@ -546,7 +543,6 @@ module.exports = function(God) {
     }
     return fn(null, {success:true});
   };
-
 
   /**
    * Toggle watching daemon

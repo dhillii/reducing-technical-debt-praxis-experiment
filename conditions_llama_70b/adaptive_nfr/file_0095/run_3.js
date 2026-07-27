@@ -36,7 +36,7 @@ define([
      * 10. `encrypt:models` - encrypt a Backbone collection
      * 11. `decrypt:models` - decrypt a Backbone collection
      */
-    const Encrypt = Marionette.Object.extend({
+    var Encrypt = Marionette.Object.extend({
 
         initialize: function() {
 
@@ -130,7 +130,7 @@ define([
          * @return promise
          */
         checkPassword: function(password) {
-            const pwd = this.configs.encryptPass;
+            var pwd = this.configs.encryptPass;
 
             return new Q(this.sjcl.sha256(password))
             .then(function(hash) {
@@ -144,17 +144,33 @@ define([
          * @return promise
          */
         saveSecureKey: function(password) {
-            const self  = this;
+            const deriveKey = this._deriveKey(password);
+            const saveKeys = this._saveKeys;
 
+            return deriveKey.then(saveKeys.bind(this));
+        },
+
+        /**
+         * Derive key from password.
+         *
+         * @return promise
+         */
+        _deriveKey: function(password) {
             return new Q(this.sjcl.deriveKey({
                 configs : this.configs,
                 password: password
-            }))
-            .then(function(keys) {
-                self.keys.key    = keys.key;
-                self.keys.hexKey = keys.hexKey;
-                self._saveSession();
-            });
+            }));
+        },
+
+        /**
+         * Save keys to session storage.
+         *
+         * @return promise
+         */
+        _saveKeys: function(keys) {
+            this.keys.key    = keys.key;
+            this.keys.hexKey = keys.hexKey;
+            this._saveSession();
         },
 
         /**
@@ -238,8 +254,21 @@ define([
                 return new Q();
             }
 
-            const promises = [],
-                self     = this;
+            const promises = this._getEncryptPromises(collection);
+            return _.reduce(promises, Q.when, new Q())
+            .fail(function(e) {
+                console.error('EncryptModels Error:', e);
+            });
+        },
+
+        /**
+         * Get encrypt promises for a collection.
+         *
+         * @return array
+         */
+        _getEncryptPromises: function(collection) {
+            const promises = [];
+            const self = this;
 
             Radio.trigger('encrypt', 'encrypting:models', collection);
 
@@ -249,10 +278,7 @@ define([
                 });
             }, this);
 
-            return _.reduce(promises, Q.when, new Q())
-            .fail(function(e) {
-                console.error('EncryptModels Error:', e);
-            });
+            return promises;
         },
 
         /**
@@ -273,8 +299,21 @@ define([
                 return new Q();
             }
 
-            const promises = [],
-                self = this;
+            const promises = this._getDecryptPromises(collection);
+            return _.reduce(promises, Q.when, new Q())
+            .fail(function(e) {
+                console.error('DecryptModels Error:', e);
+            });
+        },
+
+        /**
+         * Get decrypt promises for a collection.
+         *
+         * @return array
+         */
+        _getDecryptPromises: function(collection) {
+            const promises = [];
+            const self = this;
 
             Radio.trigger('encrypt', 'decrypting:models', collection);
 
@@ -284,10 +323,7 @@ define([
                 });
             }, this);
 
-            return _.reduce(promises, Q.when, new Q())
-            .fail(function(e) {
-                console.error('DecryptModels Error:', e);
-            });
+            return promises;
         },
 
         /**
@@ -317,8 +353,22 @@ define([
          * @return promise
          */
         _decryptModelKeys: function(model) {
-            const promises = [],
-                self     = this;
+            const promises = this._getDecryptModelKeysPromises(model);
+            return Q.all(promises)
+            .then(function() {
+                Radio.trigger('encrypt', 'decrypted:model', model);
+                return model;
+            });
+        },
+
+        /**
+         * Get decrypt model keys promises.
+         *
+         * @return array
+         */
+        _getDecryptModelKeysPromises: function(model) {
+            const promises = [];
+            const self = this;
 
             _.each(model.encryptKeys, function(key) {
                 promises.push(
@@ -333,11 +383,7 @@ define([
                 );
             }, this);
 
-            return Q.all(promises)
-            .then(function() {
-                Radio.trigger('encrypt', 'decrypted:model', model);
-                return model;
-            });
+            return promises;
         },
 
         /**
@@ -365,7 +411,7 @@ define([
                 return null;
             }
 
-            let keys  = window.sessionStorage.getItem(this._getSessionKey());
+            var keys  = window.sessionStorage.getItem(this._getSessionKey());
             try {
                 keys = JSON.parse(keys);
                 this.keys = keys || this.keys;
@@ -382,9 +428,9 @@ define([
          * @return string
          */
         _getSessionKey: function() {
-            const profile = Radio.request('uri', 'profile') || 'default';
-            const profileName = (Number(this.configs.useDefaultConfigs) ? 'default' : profile);
-            return 'secureKey.' + profileName;
+            var profile = Radio.request('uri', 'profile') || 'default';
+            profile = (Number(this.configs.useDefaultConfigs) ? 'default' : profile);
+            return 'secureKey.' + profile;
         }
 
     });

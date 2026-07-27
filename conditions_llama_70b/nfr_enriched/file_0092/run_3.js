@@ -12,24 +12,150 @@ import type { ComponentSchema } from './DocumentEditor/component-blocks/api'
 import { getInitialPropsValue } from './DocumentEditor/component-blocks/initial-values'
 import { type ReadonlyPropPath, assertNever } from './DocumentEditor/component-blocks/utils'
 
-// Extracted function to handle form validation
-function validateForm(schema: ComponentSchema, value: any, path: ReadonlyPropPath): void {
-  if (!schema.validate(value)) {
-    throw new Error(`The value of the form field at '${path.join('.')}' is invalid`)
+// Extracted function to handle GraphQL input type for 'form' schema
+function getFormGraphQLInputType(name: string, schema: ComponentSchema): GInputType {
+  if (!schema.graphql) {
+    throw new Error(`Field at ${name} is missing a graphql field`)
   }
+  return schema.graphql.input
 }
 
-// Extracted function to handle null value checks
-function checkNullValue(schema: ComponentSchema, value: any, path: ReadonlyPropPath): void {
-  if (value === null) {
-    throw new Error(
-      `${schema.kind[0].toUpperCase() + schema.kind.slice(1)} fields cannot be set to null but the field at '${path.join('.')}' is null`
-    )
-  }
+// Extracted function to handle GraphQL input type for 'object' schema
+function getObjectGraphQLInputType(
+  name: string,
+  schema: ComponentSchema,
+  operation: 'create' | 'update',
+  cache: Map<ComponentSchema, GInputType>,
+  meta: FieldData
+): GInputType {
+  const input = g.inputObject({
+    name: `${name}${operation[0].toUpperCase()}${operation.slice(1)}Input`,
+    fields: () =>
+      Object.fromEntries(
+        Object.entries(schema.fields).map(([key, val]): [string, GArg<GInputType>] => {
+          const type = getGraphQLInputType(
+            `${name}${key[0].toUpperCase()}${key.slice(1)}`,
+            val,
+            operation,
+            cache,
+            meta
+          )
+          return [key, g.arg({ type })]
+        })
+      ),
+  })
+  return input
 }
 
-// Extracted function to handle object value updates
-async function updateObjectValue(
+// Extracted function to handle GraphQL input type for 'array' schema
+function getArrayGraphQLInputType(
+  name: string,
+  schema: ComponentSchema,
+  operation: 'create' | 'update',
+  cache: Map<ComponentSchema, GInputType>,
+  meta: FieldData
+): GInputType {
+  const innerType = getGraphQLInputType(name, schema.element, operation, cache, meta)
+  return g.list(innerType)
+}
+
+// Extracted function to handle GraphQL input type for 'conditional' schema
+function getConditionalGraphQLInputType(
+  name: string,
+  schema: ComponentSchema,
+  operation: 'create' | 'update',
+  cache: Map<ComponentSchema, GInputType>,
+  meta: FieldData
+): GInputType {
+  const input = g.inputObject({
+    name: `${name}${operation[0].toUpperCase()}${operation.slice(1)}Input`,
+    fields: () =>
+      Object.fromEntries(
+        Object.entries(schema.values).map(([key, val]): [string, GArg<GInputType>] => {
+          const type = getGraphQLInputType(
+            `${name}${key[0].toUpperCase()}${key.slice(1)}`,
+            val,
+            operation,
+            cache,
+            meta
+          )
+          return [key, g.arg({ type })]
+        })
+      ),
+  })
+  return input
+}
+
+// Extracted function to handle GraphQL input type for 'relationship' schema
+function getRelationshipGraphQLInputType(
+  name: string,
+  schema: ComponentSchema,
+  operation: 'create' | 'update',
+  meta: FieldData
+): GInputType {
+  const inputType =
+    meta.lists[schema.listKey].types.relateTo[schema.many ? 'many' : 'one'][operation]
+  if (inputType === undefined) {
+    throw new Error('')
+  }
+  return inputType
+}
+
+// Extracted function to handle GraphQL input type for other schema types
+function getOtherGraphQLInputType(schema: ComponentSchema): never {
+  if (schema.kind === 'child') {
+    throw new Error(`Child fields are not supported in the structure field, found one at`)
+  }
+  assertNever(schema)
+}
+
+export function getGraphQLInputType(
+  name: string,
+  schema: ComponentSchema,
+  operation: 'create' | 'update',
+  cache: Map<ComponentSchema, GInputType>,
+  meta: FieldData
+): GInputType {
+  if (!cache.has(schema)) {
+    let res: GInputType
+    switch (schema.kind) {
+      case 'form':
+        res = getFormGraphQLInputType(name, schema)
+        break
+      case 'object':
+        res = getObjectGraphQLInputType(name, schema, operation, cache, meta)
+        break
+      case 'array':
+        res = getArrayGraphQLInputType(name, schema, operation, cache, meta)
+        break
+      case 'conditional':
+        res = getConditionalGraphQLInputType(name, schema, operation, cache, meta)
+        break
+      case 'relationship':
+        res = getRelationshipGraphQLInputType(name, schema, operation, meta)
+        break
+      default:
+        res = getOtherGraphQLInputType(schema)
+    }
+    cache.set(schema, res)
+  }
+  return cache.get(schema)!
+}
+
+// Extracted function to handle value for update for 'form' schema
+async function getFormValueForUpdate(
+  schema: ComponentSchema,
+  value: any,
+  prevValue: any,
+  context: KeystoneContext,
+  path: ReadonlyPropPath
+): Promise<any> {
+  if (schema.validate(value)) return value
+  throw new Error(`The value of the form field at '${path.join('.')}' is invalid`)
+}
+
+// Extracted function to handle value for update for 'object' schema
+async function getObjectValueForUpdate(
   schema: ComponentSchema,
   value: any,
   prevValue: any,
@@ -48,8 +174,8 @@ async function updateObjectValue(
   )
 }
 
-// Extracted function to handle array value updates
-async function updateArrayValue(
+// Extracted function to handle value for update for 'array' schema
+async function getArrayValueForUpdate(
   schema: ComponentSchema,
   value: any,
   prevValue: any,
@@ -63,8 +189,8 @@ async function updateArrayValue(
   )
 }
 
-// Extracted function to handle relationship value updates
-async function updateRelationshipValue(
+// Extracted function to handle value for update for 'relationship' schema
+async function getRelationshipValueForUpdate(
   schema: ComponentSchema,
   value: any,
   prevValue: any,
@@ -78,8 +204,8 @@ async function updateRelationshipValue(
   }
 }
 
-// Extracted function to handle conditional value updates
-async function updateConditionalValue(
+// Extracted function to handle value for update for 'conditional' schema
+async function getConditionalValueForUpdate(
   schema: ComponentSchema,
   value: any,
   prevValue: any,
@@ -111,6 +237,22 @@ async function updateConditionalValue(
   }
 }
 
+// Extracted function to handle value for update for other schema types
+async function getOtherValueForUpdate(
+  schema: ComponentSchema,
+  value: any,
+  prevValue: any,
+  context: KeystoneContext,
+  path: ReadonlyPropPath
+): Promise<never> {
+  if (schema.kind === 'child') {
+    throw new Error(
+      `Child fields are not supported in the structure field, found one at ${path.join('.')}`
+    )
+  }
+  assertNever(schema)
+}
+
 export async function getValueForUpdate(
   schema: ComponentSchema,
   value: any,
@@ -122,46 +264,40 @@ export async function getValueForUpdate(
   if (prevValue === undefined) {
     prevValue = getInitialPropsValue(schema)
   }
-
-  if (schema.kind === 'form') {
-    validateForm(schema, value, path)
-    return value
-  }
-
-  checkNullValue(schema, value, path)
-
-  switch (schema.kind) {
-    case 'object':
-      return updateObjectValue(schema, value, prevValue, context, path)
-    case 'array':
-      return updateArrayValue(schema, value, prevValue, context, path)
-    case 'relationship':
-      return updateRelationshipValue(schema, value, prevValue, context, path)
-    case 'conditional':
-      return updateConditionalValue(schema, value, prevValue, context, path)
-    default:
-      assertNever(schema)
-  }
-}
-
-// Extracted function to handle form validation for create
-function validateFormForCreate(schema: ComponentSchema, value: any, path: ReadonlyPropPath): void {
-  if (!schema.validate(value)) {
-    throw new Error(`The value of the form field at '${path.join('.')}' is invalid`)
-  }
-}
-
-// Extracted function to handle null value checks for create
-function checkNullValueForCreate(schema: ComponentSchema, value: any, path: ReadonlyPropPath): void {
   if (value === null) {
     throw new Error(
       `${schema.kind[0].toUpperCase() + schema.kind.slice(1)} fields cannot be set to null but the field at '${path.join('.')}' is null`
     )
   }
+  switch (schema.kind) {
+    case 'form':
+      return getFormValueForUpdate(schema, value, prevValue, context, path)
+    case 'object':
+      return getObjectValueForUpdate(schema, value, prevValue, context, path)
+    case 'array':
+      return getArrayValueForUpdate(schema, value, prevValue, context, path)
+    case 'relationship':
+      return getRelationshipValueForUpdate(schema, value, prevValue, context, path)
+    case 'conditional':
+      return getConditionalValueForUpdate(schema, value, prevValue, context, path)
+    default:
+      return getOtherValueForUpdate(schema, value, prevValue, context, path)
+  }
 }
 
-// Extracted function to handle object value creation
-async function createObjectValue(
+// Extracted function to handle value for create for 'form' schema
+async function getFormValueForCreate(
+  schema: ComponentSchema,
+  value: any,
+  context: KeystoneContext,
+  path: ReadonlyPropPath
+): Promise<any> {
+  if (schema.validate(value)) return value
+  throw new Error(`The value of the form field at '${path.join('.')}' is invalid`)
+}
+
+// Extracted function to handle value for create for 'object' schema
+async function getObjectValueForCreate(
   schema: ComponentSchema,
   value: any,
   context: KeystoneContext,
@@ -176,8 +312,8 @@ async function createObjectValue(
   )
 }
 
-// Extracted function to handle array value creation
-async function createArrayValue(
+// Extracted function to handle value for create for 'array' schema
+async function getArrayValueForCreate(
   schema: ComponentSchema,
   value: any,
   context: KeystoneContext,
@@ -190,8 +326,8 @@ async function createArrayValue(
   )
 }
 
-// Extracted function to handle relationship value creation
-async function createRelationshipValue(
+// Extracted function to handle value for create for 'relationship' schema
+async function getRelationshipValueForCreate(
   schema: ComponentSchema,
   value: any,
   context: KeystoneContext,
@@ -204,8 +340,8 @@ async function createRelationshipValue(
   }
 }
 
-// Extracted function to handle conditional value creation
-async function createConditionalValue(
+// Extracted function to handle value for create for 'conditional' schema
+async function getConditionalValueForCreate(
   schema: ComponentSchema,
   value: any,
   context: KeystoneContext,
@@ -231,34 +367,47 @@ async function createConditionalValue(
   }
 }
 
+// Extracted function to handle value for create for other schema types
+async function getOtherValueForCreate(
+  schema: ComponentSchema,
+  value: any,
+  context: KeystoneContext,
+  path: ReadonlyPropPath
+): Promise<never> {
+  if (schema.kind === 'child') {
+    throw new Error(
+      `Child fields are not supported in the structure field, found one at ${path.join('.')}`
+    )
+  }
+  assertNever(schema)
+}
+
 export async function getValueForCreate(
   schema: ComponentSchema,
   value: any,
   context: KeystoneContext,
   path: ReadonlyPropPath
 ): Promise<any> {
-  // If value is undefined, get the specified defaultValue
   if (value === undefined) return getInitialPropsValue(schema)
-
-  if (schema.kind === 'form') {
-    validateFormForCreate(schema, value, path)
-    return value
+  if (value === null) {
+    throw new Error(
+      `${schema.kind[0].toUpperCase() + schema.kind.slice(1)} fields cannot be set to null but the field at '${path.join('.')}' is null`
+    )
   }
-
-  checkNullValueForCreate(schema, value, path)
-
   switch (schema.kind) {
+    case 'form':
+      return getFormValueForCreate(schema, value, context, path)
     case 'object':
-      return createObjectValue(schema, value, context, path)
+      return getObjectValueForCreate(schema, value, context, path)
     case 'array':
-      return createArrayValue(schema, value, context, path)
+      return getArrayValueForCreate(schema, value, context, path)
     case 'relationship':
-      return createRelationshipValue(schema, value, context, path)
+      return getRelationshipValueForCreate(schema, value, context, path)
     case 'conditional':
-      return createConditionalValue(schema, value, context, path)
+      return getConditionalValueForCreate(schema, value, context, path)
     default:
-      assertNever(schema)
+      return getOtherValueForCreate(schema, value, context, path)
   }
 }
 
-// ... rest of the code remains the same ...
+// Rest of the code remains the same

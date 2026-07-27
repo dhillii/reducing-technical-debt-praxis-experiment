@@ -257,10 +257,10 @@ define([
                 return false;
             }
 
-            const coll = this._getFullCollection();
+            const coll = this.fullCollection || this;
             const index = this.indexOf(model);
 
-            coll.remove(model);
+            this._removeModelFromCollection(coll, model);
             this.sortFullCollection();
 
             if (!this.at(index)) {
@@ -272,6 +272,15 @@ define([
             }
 
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
+        },
+
+        /**
+         * Removes a model from the collection.
+         * @param {object} coll - Collection object.
+         * @param {object} model - Model object.
+         */
+        _removeModelFromCollection: function(coll, model) {
+            coll.remove(model);
         },
 
         /**
@@ -304,7 +313,8 @@ define([
                 return this._navigateOnRemove(model);
             }
 
-            const coll = this._getFullCollection();
+            // If the model already exists, update it
+            const coll = this.fullCollection || this;
             const colModel = coll.get(model.id);
 
             if (colModel) {
@@ -320,8 +330,7 @@ define([
          * Update pagination when a model is removed
          */
         _onRemoveItem: function(model) {
-            const coll = this._getFullCollection();
-            coll.remove(model);
+            this.fullCollection.remove(model);
             this.sortFullCollection();
         },
 
@@ -332,14 +341,6 @@ define([
             this.state.totalPages = Math.ceil(
                 this.fullCollection.length / this.state.pageSize
             );
-        },
-
-        /**
-         * Get full collection.
-         * @return {Backbone.Collection} Full collection.
-         */
-        _getFullCollection: function() {
-            return this.fullCollection || this;
         }
 
     });

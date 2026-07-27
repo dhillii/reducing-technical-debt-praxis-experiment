@@ -37,15 +37,15 @@ const MSG_PART_TYPE_HTML = 'html';
  * High-level data access object that orchestrates everything around the handling of encrypted mails:
  * PGP de-/encryption, receiving via IMAP, sending via SMTP, MIME parsing, local db persistence
  *
- * @param {Object} params - Parameters object
- * @param {Object} params.keychain - The keychain DAO handles keys transparently
- * @param {Object} params.pgp - Orchestrates decryption
- * @param {Object} params.accountStore - Handles persistence to the local indexed db
- * @param {Object} params.pgpbuilder - Generates and encrypts MIME and SMTP messages
- * @param {Object} params.mailreader - Parses MIME messages received from IMAP
- * @param {Object} params.dialog - Dialog object
- * @param {Object} params.appConfig - App configuration
- * @param {Object} params.auth - Authentication object
+ * @param {Object} params The parameters object
+ * @param {Object} params.keychain The keychain DAO handles keys transparently
+ * @param {Object} params.pgp Orchestrates decryption
+ * @param {Object} params.accountStore Handles persistence to the local indexed db
+ * @param {Object} params.pgpbuilder Generates and encrypts MIME and SMTP messages
+ * @param {Object} params.mailreader Parses MIME messages received from IMAP
+ * @param {Object} params.dialog Handles dialog interactions
+ * @param {Object} params.appConfig The application configuration
+ * @param {Object} params.auth Handles authentication
  */
 function Email({
     keychain,
@@ -73,9 +73,9 @@ function Email({
  * - assigns _account
  * - initializes _account.folders with the content from memory
  *
- * @param {Object} params - Parameters object
- * @param {String} params.account.emailAddress - The user's id
- * @param {String} params.account.realname - The user's id
+ * @param {Object} params The parameters object
+ * @param {String} params.account.emailAddress The user's id
+ * @param {String} params.account.realname The user's id
  * @return {Promise}
  * @resolve {Object} keypair
  */
@@ -104,10 +104,10 @@ Email.prototype.init = function({
 
 /**
  * Unlocks the keychain by either decrypting an existing private key or generating a new keypair
- * @param {Object} params - Parameters object
- * @param {String} params.passphrase - The passphrase to decrypt the private key
- * @param {Object} [params.keypair] - Existing key pair
- * @param {String} [params.realname] - Real name for key generation
+ * @param {Object} params The parameters object
+ * @param {String} params.passphrase The passphrase to decrypt the private key
+ * @param {Object} [params.keypair] The existing keypair
+ * @param {String} [params.realname] The real name for the new keypair
  */
 Email.prototype.unlock = function({
     passphrase,

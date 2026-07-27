@@ -263,7 +263,6 @@
       var newTidyText = tidyText;
       var count = 0;
       var index;
-
       do {
         if (index !== undefined) {
           newTidyText = tidyText + '-' + count;

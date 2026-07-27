@@ -60,7 +60,7 @@ define([
             const self = this;
 
             options.success = function(resp) {
-                self._handleFetchSuccess(resp, options);
+                self._handleFetchSuccess(resp, success);
             };
 
             return Backbone.Collection.prototype.fetch.call(this, options)
@@ -73,9 +73,10 @@ define([
         /**
          * Handles fetch success.
          * @param {object} resp - Response object.
-         * @param {object} options - Fetch options.
+         * @param {function} success - Success callback.
+         * @private
          */
-        _handleFetchSuccess: function(resp, options) {
+        _handleFetchSuccess: function(resp, success) {
             // Keep full collection in memory
             this.fullCollection = this.clone();
 
@@ -84,10 +85,10 @@ define([
 
             // Pagination
             this._updateTotalPages();
-            this.getPage(options.page || this.state.firstPage);
+            this.getPage(this.state.firstPage);
 
-            if (options.success) {
-                options.success(this, resp);
+            if (success) {
+                success(this, resp);
             }
         },
 
@@ -252,12 +253,12 @@ define([
          * @type object Backbone model
          */
         _navigateOnRemove: function(model) {
-            model     = this.get(model.id);
+            model = this.get(model.id);
             if (!model) {
                 return false;
             }
 
-            const coll  = this.fullCollection || this;
+            const coll = this._getFullCollection();
             const index = this.indexOf(model);
 
             coll.remove(model);
@@ -304,8 +305,7 @@ define([
                 return this._navigateOnRemove(model);
             }
 
-            // If the model already exists, update it
-            const coll     = this.fullCollection || this;
+            const coll = this._getFullCollection();
             const colModel = coll.get(model.id);
 
             if (colModel) {
@@ -321,7 +321,8 @@ define([
          * Update pagination when a model is removed
          */
         _onRemoveItem: function(model) {
-            this.fullCollection.remove(model);
+            const coll = this._getFullCollection();
+            coll.remove(model);
             this.sortFullCollection();
         },
 
@@ -332,6 +333,15 @@ define([
             this.state.totalPages = Math.ceil(
                 this.fullCollection.length / this.state.pageSize
             );
+        },
+
+        /**
+         * Get full collection.
+         * @return {Backbone.Collection} Full collection.
+         * @private
+         */
+        _getFullCollection: function() {
+            return this.fullCollection || this;
         }
 
     });

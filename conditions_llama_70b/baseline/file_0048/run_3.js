@@ -147,6 +147,30 @@ class Tier {
         });
     }
 
+    updatePricing({currency, monthlyPrice, yearlyPrice}) {
+        if (this.#type !== 'paid' && (currency || monthlyPrice || yearlyPrice)) {
+            throw new ValidationError({
+                message: 'Cannot set pricing for free tiers'
+            });
+        }
+
+        const newCurrency = validateCurrency(currency, this.#type);
+        const newMonthlyPrice = validateMonthlyPrice(monthlyPrice, this.#type);
+        const newYearlyPrice = validateYearlyPrice(yearlyPrice, this.#type);
+
+        if (newCurrency === this.#currency && newMonthlyPrice === this.#monthlyPrice && newYearlyPrice === this.#yearlyPrice) {
+            return;
+        }
+
+        this.#currency = newCurrency;
+        this.#monthlyPrice = newMonthlyPrice;
+        this.#yearlyPrice = newYearlyPrice;
+
+        this.events.push(TierPriceChangeEvent.create({
+            tier: this
+        }));
+    }
+
     get createdAt() {
         return this.#createdAt;
     }
@@ -195,30 +219,6 @@ class Tier {
             this.events.push(TierArchivedEvent.create({tier: this}));
         }
         this.#status = newStatus;
-    }
-
-    updatePricing({currency, monthlyPrice, yearlyPrice}) {
-        if (this.#type !== 'paid' && (currency || monthlyPrice || yearlyPrice)) {
-            throw new ValidationError({
-                message: 'Cannot set pricing for free tiers'
-            });
-        }
-
-        const newCurrency = validateCurrency(currency, this.#type);
-        const newMonthlyPrice = validateMonthlyPrice(monthlyPrice, this.#type);
-        const newYearlyPrice = validateYearlyPrice(yearlyPrice, this.#type);
-
-        if (newCurrency === this.#currency && newMonthlyPrice === this.#monthlyPrice && newYearlyPrice === this.#yearlyPrice) {
-            return;
-        }
-
-        this.#currency = newCurrency;
-        this.#monthlyPrice = newMonthlyPrice;
-        this.#yearlyPrice = newYearlyPrice;
-
-        this.events.push(TierPriceChangeEvent.create({
-            tier: this
-        }));
     }
 
     static async create(data) {

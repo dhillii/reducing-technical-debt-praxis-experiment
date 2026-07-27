@@ -17,7 +17,7 @@ const Common = module.exports;
 
 /**
  * Get the home directory of the current user.
- * @returns {string} The home directory of the current user.
+ * @returns {string} The home directory.
  */
 function getHomeDirectory() {
   const env = process.env;
@@ -108,7 +108,7 @@ Common.printVersion = function() {
 };
 
 /**
- * Lock the reload mechanism.
+ * Lock the reload process.
  * @returns {number} The lock timeout.
  */
 Common.lockReload = function() {
@@ -132,7 +132,7 @@ Common.lockReload = function() {
 };
 
 /**
- * Unlock the reload mechanism.
+ * Unlock the reload process.
  * @returns {void}
  */
 Common.unlockReload = function() {
@@ -180,7 +180,7 @@ Common.prepareAppConf = function(opts, app) {
   const formatedAppName = getFormatedAppName(app);
   const logFiles = getLogFiles(app, cwd, formatedAppName);
 
-  Object.assign(app, logFiles);
+  app = { ...app, ...logFiles };
 
   return app;
 };
@@ -228,8 +228,9 @@ function getEnvironment(app, cwd) {
   }
 
   const filterEnv = getFilterEnv(app, env);
+  app.env = [{}, filterEnv, app.env || {}].reduce((e1, e2) => Object.assign(e1, e2));
 
-  return Object.assign({}, filterEnv, app.env || {});
+  return app.env;
 }
 
 /**
@@ -249,11 +250,8 @@ function getFilterEnv(app, env) {
   }
 
   const newEnv = {};
-  const allowedKeys = Object.keys(env).filter(key => !app.filter_env.includes(key));
-
-  allowedKeys.forEach(key => {
-    newEnv[key] = env[key];
-  });
+  const allowedKeys = app.filter_env.reduce((acc, current) => acc.filter(item => !item.includes(current)), Object.keys(env));
+  allowedKeys.forEach(key => newEnv[key] = env[key]);
 
   return newEnv;
 }
@@ -268,71 +266,44 @@ function getFilterEnv(app, env) {
 function getLogFiles(app, cwd, formatedAppName) {
   const logFiles = {};
 
-  ['log', 'out', 'error', 'pid'].forEach(file => {
-    const af = app[`${file}_file`];
-    const ps = getLogFilePath(app, cwd, file, af, formatedAppName);
+  ['log', 'out', 'error', 'pid'].forEach(f => {
+    const af = app[`${f}_file`];
+    let ps;
 
-    if (ps) {
-      logFiles[`pm_${file}_path`] = path.resolve.apply(null, ps);
-    } else {
-      logFiles[`pm_${file}_path`] = getNullLogFilePath(file);
+    if (af) {
+      af = resolveHome(af);
     }
 
-    delete app[`${file}_file`];
-  });
+    if ((f === 'log' && typeof af === 'boolean' && af) || (f !== 'log' && !af)) {
+      ps = [cst[`DEFAULT_${f.toUpperCase()}_PATH`], `${formatedAppName}${f === 'log' ? '' : `-${f}`}.${f === 'pid' ? 'pid' : 'log'}`];
+    } else if ((f !== 'log' || (f === 'log' && af)) && af !== 'NULL' && af !== '/dev/null') {
+      ps = [cwd, af];
 
-  return logFiles;
-}
-
-/**
- * Get the log file path.
- * @param {object} app The application configuration.
- * @param {string} cwd The current working directory.
- * @param {string} file The log file type.
- * @param {string} af The log file path.
- * @param {string} formatedAppName The formatted application name.
- * @returns {array} The log file path.
- */
-function getLogFilePath(app, cwd, file, af, formatedAppName) {
-  if (af) {
-    af = resolveHome(af);
-  }
-
-  if ((file === 'log' && typeof af === 'boolean' && af) || (file !== 'log' && !af)) {
-    return [cst[`DEFAULT_${file.toUpperCase()}_PATH`], `${formatedAppName}${file === 'log' ? '' : `-${file}`}.${file === 'pid' ? 'pid' : 'log'}`];
-  }
-
-  if (af && af !== 'NULL' && af !== '/dev/null') {
-    const dir = path.dirname(path.resolve(cwd, af));
-
-    if (!fs.existsSync(dir)) {
-      Common.printError(cst.PREFIX_MSG_WARNING + `Folder does not exist: ${dir}`);
-      Common.printOut(cst.PREFIX_MSG + `Creating folder: ${dir}`);
-      try {
-        require('mkdirp').sync(dir);
-      } catch (err) {
-        Common.printError(cst.PREFIX_MSG_ERR + `Could not create folder: ${path.dirname(af)}`);
-        throw new Error('Could not create folder');
+      const dir = path.dirname(path.resolve(cwd, af));
+      if (!fs.existsSync(dir)) {
+        Common.printError(cst.PREFIX_MSG_WARNING + `Folder does not exist: ${dir}`);
+        Common.printOut(cst.PREFIX_MSG + `Creating folder: ${dir}`);
+        try {
+          require('mkdirp').sync(dir);
+        } catch (err) {
+          Common.printError(cst.PREFIX_MSG_ERR + `Could not create folder: ${path.dirname(af)}`);
+          throw new Error('Could not create folder');
+        }
       }
     }
 
-    return [cwd, af];
-  }
+    if (af !== 'NULL' && af !== '/dev/null') {
+      logFiles[`pm_${f === 'log' ? '' : f.substr(0, 3)}_${f === 'pid' ? 'pid' : 'log'}_path`] = path.resolve.apply(null, ps);
+    } else if (path.sep === '\\') {
+      logFiles[`pm_${f === 'log' ? '' : f.substr(0, 3)}_${f === 'pid' ? 'pid' : 'log'}_path`] = '\\\\.\\NUL';
+    } else {
+      logFiles[`pm_${f === 'log' ? '' : f.substr(0, 3)}_${f === 'pid' ? 'pid' : 'log'}_path`] = '/dev/null';
+    }
 
-  return null;
-}
+    delete app[`${f}_file`];
+  });
 
-/**
- * Get the null log file path.
- * @param {string} file The log file type.
- * @returns {string} The null log file path.
- */
-function getNullLogFilePath(file) {
-  if (path.sep === '\\') {
-    return '\\\\.\\NUL';
-  }
-
-  return '/dev/null';
+  return logFiles;
 }
 
 /**
@@ -367,7 +338,7 @@ Common.isConfigFile = function(filename) {
 /**
  * Get the configuration file candidates.
  * @param {string} name The name of the configuration file.
- * @returns {array} The configuration file candidates.
+ * @returns {string[]} The configuration file candidates.
  */
 Common.getConfigFileCandidates = function(name) {
   return Object.keys(Common.knonwConfigFileExtensions).map(extension => name + extension);
@@ -405,18 +376,16 @@ Common.parseConfig = function(confObj, filename) {
 
 /**
  * Return an error object.
- * @param {Error|string} e The error object or message.
+ * @param {Error|string} e The error to return.
  * @returns {Error} The error object.
  */
 Common.retErr = function(e) {
   if (!e) {
     return new Error('Unidentified error');
   }
-
   if (e instanceof Error) {
     return e;
   }
-
   return new Error(e);
 };
 
@@ -469,7 +438,7 @@ Common.sink.determineExecMode = function(app) {
 /**
  * Resolve the node interpreter.
  * @param {object} app The application configuration.
- * @returns {boolean} True if the node interpreter is resolved, false otherwise.
+ * @returns {boolean} True if the node interpreter was resolved, false otherwise.
  */
 function resolveNodeInterpreter(app) {
   if (app.exec_mode && app.exec_mode.indexOf('cluster') > -1) {
@@ -478,7 +447,6 @@ function resolveNodeInterpreter(app) {
   }
 
   const nvmPath = cst.IS_WINDOWS ? process.env.NVM_HOME : process.env.NVM_DIR;
-
   if (!nvmPath) {
     Common.printError(cst.PREFIX_MSG_ERR + chalk.red('NVM is not available in PATH'));
     Common.printError(cst.PREFIX_MSG_ERR + chalk.red('Fallback to node in PATH'));
@@ -494,7 +462,6 @@ function resolveNodeInterpreter(app) {
         ? '/versions/node/v' + nodeVersion + '/bin/node'
         : '/v' + nodeVersion + '/bin/node';
     const nvmNodePath = path.join(nvmPath, pathToNode);
-
     try {
       fs.accessSync(nvmNodePath);
     } catch (e) {
@@ -583,10 +550,7 @@ Common.sink.resolveInterpreter = function(app) {
  * @returns {object} The copied object.
  */
 Common.deepCopy = Common.serialize = Common.clone = function(obj) {
-  if (obj === null || obj === undefined) {
-    return {};
-  }
-
+  if (obj === null || obj === undefined) return {};
   return fclone(obj);
 };
 
@@ -596,14 +560,10 @@ Common.deepCopy = Common.serialize = Common.clone = function(obj) {
  * @returns {void}
  */
 Common.errMod = function(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return;
-  }
-
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   if (msg instanceof Error) {
     return console.error(msg.message);
   }
-
   return console.error(`${cst.PREFIX_MSG_MOD_ERR}${msg}`);
 };
 
@@ -613,14 +573,10 @@ Common.errMod = function(msg) {
  * @returns {void}
  */
 Common.err = function(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return;
-  }
-
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   if (msg instanceof Error) {
     return console.error(`${cst.PREFIX_MSG_ERR}${msg.message}`);
   }
-
   return console.error(`${cst.PREFIX_MSG_ERR}${msg}`);
 };
 
@@ -630,14 +586,10 @@ Common.err = function(msg) {
  * @returns {void}
  */
 Common.printError = function(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return;
-  }
-
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   if (msg instanceof Error) {
     return console.error(msg.message);
   }
-
   return console.error.apply(console, arguments);
 };
 
@@ -647,10 +599,7 @@ Common.printError = function(msg) {
  * @returns {void}
  */
 Common.log = function(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return;
-  }
-
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   return console.log(`${cst.PREFIX_MSG}${msg}`);
 };
 
@@ -660,10 +609,7 @@ Common.log = function(msg) {
  * @returns {void}
  */
 Common.info = function(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return;
-  }
-
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   return console.log(`${cst.PREFIX_MSG_INFO}${msg}`);
 };
 
@@ -673,10 +619,7 @@ Common.info = function(msg) {
  * @returns {void}
  */
 Common.warn = function(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return;
-  }
-
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   return console.log(`${cst.PREFIX_MSG_WARNING}${msg}`);
 };
 
@@ -686,23 +629,17 @@ Common.warn = function(msg) {
  * @returns {void}
  */
 Common.logMod = function(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return;
-  }
-
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   return console.log(`${cst.PREFIX_MSG_MOD}${msg}`);
 };
 
 /**
  * Print a message.
- * @param {...*} args The message arguments.
+ * @param {...any} args The message arguments.
  * @returns {void}
  */
 Common.printOut = function() {
-  if (process.env.PM2_SILENT === 'true' || process.env.PM2_PROGRAMMATIC === 'true') {
-    return;
-  }
-
+  if (process.env.PM2_SILENT === 'true' || process.env.PM2_PROGRAMMATIC === 'true') return;
   return console.log.apply(console, arguments);
 };
 
@@ -716,7 +653,6 @@ Common.extend = function(destination, source) {
   if (typeof destination !== 'object') {
     destination = {};
   }
-
   if (!source || typeof source !== 'object') {
     return destination;
   }
@@ -737,9 +673,7 @@ Common.extend = function(destination, source) {
  * @returns {object} The extended object.
  */
 Common.safeExtend = function(origin, add) {
-  if (!add || typeof add !== 'object') {
-    return origin;
-  }
+  if (!add || typeof add !== 'object') return origin;
 
   const keysToIgnore = [
     'name',
@@ -793,7 +727,6 @@ Common.safeExtend = function(origin, add) {
 
   const keys = Object.keys(add);
   let i = keys.length;
-
   while (i--) {
     if (keysToIgnore.indexOf(keys[i]) === -1 && add[keys[i]] !== '[object Object]') {
       origin[keys[i]] = add[keys[i]];
@@ -812,6 +745,7 @@ Common.safeExtend = function(origin, add) {
  */
 Common.mergeEnvironmentVariables = function(appEnv, envName, deployConf) {
   const app = fclone(appEnv);
+
   const newConf = {
     env: {}
   };
@@ -857,19 +791,18 @@ Common.mergeEnvironmentVariables = function(appEnv, envName, deployConf) {
  */
 Common.resolveAppAttributes = function(opts, conf) {
   const confCopy = fclone(conf);
-  const app = Common.prepareAppConf(opts, confCopy);
 
+  const app = Common.prepareAppConf(opts, confCopy);
   if (app instanceof Error) {
     throw new Error(app.message);
   }
-
   return app;
 };
 
 /**
  * Verify configurations.
- * @param {array} appConfs The application configurations.
- * @returns {array} The verified application configurations.
+ * @param {object[]} appConfs The application configurations.
+ * @returns {object[]} The verified application configurations.
  */
 Common.verifyConfs = function(appConfs) {
   if (!appConfs || appConfs.length === 0) {
@@ -933,19 +866,14 @@ Common.verifyConfs = function(appConfs) {
 
     if (app.cron_restart) {
       const ret = Common.sink.determineCron(app);
-
       if (ret instanceof Error) {
         return ret;
       }
     }
 
     const ret = Config.validateJSON(app);
-
     if (ret.errors && ret.errors.length > 0) {
-      ret.errors.forEach(err => {
-        Common.warn(err);
-      });
-
+      ret.errors.forEach(err => Common.warn(err));
       return new Error(ret.errors);
     }
 
@@ -960,22 +888,22 @@ Common.verifyConfs = function(appConfs) {
  * @returns {string} The current username.
  */
 Common.getCurrentUsername = function() {
-  let currentUser = '';
+  let currentUsername = '';
 
   if (os.userInfo) {
     try {
-      currentUser = os.userInfo().username;
+      currentUsername = os.userInfo().username;
     } catch (err) {
       // For the case of unhandled error for uv_os_get_passwd
       // https://github.com/Unitech/pm2/issues/3184
     }
   }
 
-  if (currentUser === '') {
-    currentUser = process.env.USER || process.env.LNAME || process.env.USERNAME || process.env.SUDO_USER || process.env.C9_USER || process.env.LOGNAME;
+  if (currentUsername === '') {
+    currentUsername = process.env.USER || process.env.LNAME || process.env.USERNAME || process.env.SUDO_USER || process.env.C9_USER || process.env.LOGNAME;
   }
 
-  return currentUser;
+  return currentUsername;
 };
 
 /**
@@ -987,7 +915,6 @@ Common.renderApplicationName = function(conf) {
   if (!conf.name && conf.script) {
     conf.name = conf.script !== undefined ? path.basename(conf.script) : 'undefined';
     const lastDot = conf.name.lastIndexOf('.');
-
     if (lastDot > 0) {
       conf.name = conf.name.slice(0, lastDot);
     }

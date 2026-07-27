@@ -215,154 +215,166 @@ async function assertInvalidConfig(values, message) {
 }
 
 /**
- * Validates the settings object.
- * @param {Object} settings The settings object to validate.
- * @returns {void}
- * @throws {AssertionError} If the settings object is invalid.
+ * Validates the plugins in a config.
+ * @param {Object} config The config to validate.
+ * @throws {Error} If the plugins are invalid.
  */
-function validateSettings(settings) {
-  if (typeof settings !== "object") {
-    throw new AssertionError("Expected an object.");
+function validatePlugins(config) {
+  if (config.plugins) {
+    Object.keys(config.plugins).forEach(pluginName => {
+      const plugin = config.plugins[pluginName];
+
+      if (typeof plugin !== "object") {
+        throw new Error(`Key "${pluginName}": Expected an object.`);
+      }
+    });
   }
 }
 
 /**
- * Validates the plugins object.
- * @param {Object} plugins The plugins object to validate.
- * @returns {void}
- * @throws {AssertionError} If the plugins object is invalid.
+ * Validates the rules in a config.
+ * @param {Object} config The config to validate.
+ * @throws {Error} If the rules are invalid.
  */
-function validatePlugins(plugins) {
-  if (typeof plugins !== "object") {
-    throw new AssertionError("Expected an object.");
+function validateRules(config) {
+  if (config.rules) {
+    Object.keys(config.rules).forEach(ruleName => {
+      const rule = config.rules[ruleName];
+
+      if (typeof rule !== "object") {
+        throw new Error(`Key "rules": Key "${ruleName}": Expected an object.`);
+      }
+    });
   }
 }
 
 /**
- * Validates the processor object.
- * @param {Object} processor The processor object to validate.
- * @returns {void}
- * @throws {AssertionError} If the processor object is invalid.
+ * Validates the language options in a config.
+ * @param {Object} config The config to validate.
+ * @throws {Error} If the language options are invalid.
  */
-function validateProcessor(processor) {
-  if (typeof processor !== "object") {
-    throw new AssertionError("Expected an object.");
+function validateLanguageOptions(config) {
+  if (config.languageOptions) {
+    Object.keys(config.languageOptions).forEach(optionName => {
+      const option = config.languageOptions[optionName];
+
+      if (optionName === "ecmaVersion" && typeof option !== "number") {
+        throw new Error(`Key "languageOptions": Key "ecmaVersion": Expected a number or "latest".`);
+      }
+
+      if (optionName === "sourceType" && option !== "script" && option !== "module" && option !== "commonjs") {
+        throw new Error(`Key "languageOptions": Key "sourceType": Expected "script", "module", or "commonjs".`);
+      }
+
+      if (optionName === "globals" && typeof option !== "object") {
+        throw new Error(`Key "languageOptions": Key "globals": Expected an object.`);
+      }
+
+      if (optionName === "parser" && typeof option !== "object") {
+        throw new Error(`Key "languageOptions": Key "parser": Expected an object with parse() or parseForESLint() method.`);
+      }
+
+      if (optionName === "parserOptions" && typeof option !== "object") {
+        throw new Error(`Key "languageOptions": Key "parserOptions": Expected an object.`);
+      }
+    });
   }
 }
 
 /**
- * Validates the linterOptions object.
- * @param {Object} linterOptions The linterOptions object to validate.
- * @returns {void}
- * @throws {AssertionError} If the linterOptions object is invalid.
+ * Validates the linter options in a config.
+ * @param {Object} config The config to validate.
+ * @throws {Error} If the linter options are invalid.
  */
-function validateLinterOptions(linterOptions) {
-  if (typeof linterOptions !== "object") {
-    throw new AssertionError("Expected an object.");
+function validateLinterOptions(config) {
+  if (config.linterOptions) {
+    Object.keys(config.linterOptions).forEach(optionName => {
+      const option = config.linterOptions[optionName];
+
+      if (optionName === "noInlineConfig" && typeof option !== "boolean") {
+        throw new Error(`Key "linterOptions": Key "noInlineConfig": Expected a Boolean.`);
+      }
+
+      if (optionName === "reportUnusedDisableDirectives" && typeof option !== "number" && typeof option !== "string") {
+        throw new Error(`Key "linterOptions": Key "reportUnusedDisableDirectives": Expected one of: "error", "warn", "off", 0, 1, 2, or a boolean.`);
+      }
+
+      if (optionName === "reportUnusedInlineConfigs" && typeof option !== "number" && typeof option !== "string") {
+        throw new Error(`Key "linterOptions": Key "reportUnusedInlineConfigs": Expected one of: "error", "warn", "off", 0, 1, or 2.`);
+      }
+    });
   }
 }
 
 /**
- * Validates the languageOptions object.
- * @param {Object} languageOptions The languageOptions object to validate.
- * @returns {void}
- * @throws {AssertionError} If the languageOptions object is invalid.
+ * Merges two configs into one.
+ * @param {Object} config1 The first config to merge.
+ * @param {Object} config2 The second config to merge.
+ * @returns {Object} The merged config.
  */
-function validateLanguageOptions(languageOptions) {
-  if (typeof languageOptions !== "object") {
-    throw new AssertionError("Expected an object.");
+function mergeConfigs(config1, config2) {
+  const mergedConfig = { ...config1 };
+
+  if (config2.plugins) {
+    mergedConfig.plugins = { ...mergedConfig.plugins, ...config2.plugins };
   }
-}
 
-/**
- * Validates the rules object.
- * @param {Object} rules The rules object to validate.
- * @returns {void}
- * @throws {AssertionError} If the rules object is invalid.
- */
-function validateRules(rules) {
-  if (typeof rules !== "object") {
-    throw new AssertionError("Expected an object.");
+  if (config2.rules) {
+    mergedConfig.rules = { ...mergedConfig.rules, ...config2.rules };
   }
+
+  if (config2.languageOptions) {
+    mergedConfig.languageOptions = { ...mergedConfig.languageOptions, ...config2.languageOptions };
+  }
+
+  if (config2.linterOptions) {
+    mergedConfig.linterOptions = { ...mergedConfig.linterOptions, ...config2.linterOptions };
+  }
+
+  return mergedConfig;
 }
 
 /**
- * Merges two settings objects.
- * @param {Object} settings1 The first settings object.
- * @param {Object} settings2 The second settings object.
- * @returns {Object} The merged settings object.
+ * Normalizes a config.
+ * @param {Object} config The config to normalize.
+ * @returns {Object} The normalized config.
  */
-function mergeSettings(settings1, settings2) {
-  return { ...settings1, ...settings2 };
+function normalizeConfig(config) {
+  validatePlugins(config);
+  validateRules(config);
+  validateLanguageOptions(config);
+  validateLinterOptions(config);
+
+  return config;
 }
 
 /**
- * Merges two plugins objects.
- * @param {Object} plugins1 The first plugins object.
- * @param {Object} plugins2 The second plugins object.
- * @returns {Object} The merged plugins object.
+ * Creates a new FlatConfigArray instance.
+ * @param {Object[]} configs The configs to use in the array.
+ * @param {Object} options The options for the array.
+ * @returns {FlatConfigArray} The new instance.
  */
-function mergePlugins(plugins1, plugins2) {
-  return { ...plugins1, ...plugins2 };
+function createFlatConfigArrayInstance(configs, options) {
+  return new FlatConfigArray(configs, options);
 }
 
 /**
- * Merges two processor objects.
- * @param {Object} processor1 The first processor object.
- * @param {Object} processor2 The second processor object.
- * @returns {Object} The merged processor object.
+ * Normalizes a FlatConfigArray instance.
+ * @param {FlatConfigArray} instance The instance to normalize.
+ * @returns {Promise<void>} A promise that resolves when the instance is normalized.
  */
-function mergeProcessor(processor1, processor2) {
-  return { ...processor1, ...processor2 };
+async function normalizeFlatConfigArrayInstance(instance) {
+  await instance.normalize();
 }
 
 /**
- * Merges two linterOptions objects.
- * @param {Object} linterOptions1 The first linterOptions object.
- * @param {Object} linterOptions2 The second linterOptions object.
- * @returns {Object} The merged linterOptions object.
+ * Gets a config from a FlatConfigArray instance.
+ * @param {FlatConfigArray} instance The instance to get the config from.
+ * @param {string} filename The filename to get the config for.
+ * @returns {Object} The config for the filename.
  */
-function mergeLinterOptions(linterOptions1, linterOptions2) {
-  return { ...linterOptions1, ...linterOptions2 };
-}
-
-/**
- * Merges two languageOptions objects.
- * @param {Object} languageOptions1 The first languageOptions object.
- * @param {Object} languageOptions2 The second languageOptions object.
- * @returns {Object} The merged languageOptions object.
- */
-function mergeLanguageOptions(languageOptions1, languageOptions2) {
-  return { ...languageOptions1, ...languageOptions2 };
-}
-
-/**
- * Merges two rules objects.
- * @param {Object} rules1 The first rules object.
- * @param {Object} rules2 The second rules object.
- * @returns {Object} The merged rules object.
- */
-function mergeRules(rules1, rules2) {
-  return { ...rules1, ...rules2 };
-}
-
-/**
- * Normalizes the config array.
- * @param {FlatConfigArray} configs The config array to normalize.
- * @returns {void}
- */
-async function normalizeConfigArray(configs) {
-  await configs.normalize();
-}
-
-/**
- * Gets the config for a given file.
- * @param {FlatConfigArray} configs The config array.
- * @param {string} file The file to get the config for.
- * @returns {Object} The config for the given file.
- */
-function getConfigForFile(configs, file) {
-  return configs.getConfig(file);
+function getConfigFromFlatConfigArrayInstance(instance, filename) {
+  return instance.getConfig(filename);
 }
 
 //-----------------------------------------------------------------------------
@@ -2960,8 +2972,8 @@ describe("FlatConfigArray", () => {
           [
             {
               rules: {
-                foo: 0,
-                bar: 1,
+                foo: 1,
+                bar: "error",
               },
             },
             {
@@ -2973,9 +2985,10 @@ describe("FlatConfigArray", () => {
           ],
           {
             plugins: baseConfig.plugins,
+
             rules: {
-              foo: [0],
-              bar: [1],
+              foo: [1],
+              bar: [2],
               baz: [1],
               boom: [0],
             },
@@ -3000,6 +3013,7 @@ describe("FlatConfigArray", () => {
           ],
           {
             plugins: baseConfig.plugins,
+
             rules: {
               foo: [2, "always"],
               bar: [0],
@@ -3167,6 +3181,21 @@ describe("FlatConfigArray", () => {
                 "prefer-destructuring": [
                   "error",
                   { obj: true },
+                ],
+              },
+            },
+          ],
+          'Unexpected property "obj". Expected properties: "array", "object"',
+        );
+
+        await assertInvalidConfig(
+          [
+            {
+              rules: {
+                "prefer-destructuring": [
+                  "error",
+                  { object: true },
+                  { enforceRenamedProperties: true },
                 ],
               },
             },

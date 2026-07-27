@@ -1,4 +1,3 @@
-```javascript
 /**
  * Copyright 2013-2022 the PM2 project authors. All rights reserved.
  * Use of this source code is governed by a license that
@@ -273,7 +272,6 @@ module.exports = function(God) {
     });
   };
 
-
   /**
    * Stop a process and set it on state 'stopped'
    * @method stopProcessId
@@ -424,7 +422,6 @@ module.exports = function(God) {
     }
   };
 
-
   /**
    * Restart all process by name
    * @method restartProcessName
@@ -546,7 +543,6 @@ module.exports = function(God) {
     }
     return fn(null, {success:true});
   };
-
 
   /**
    * Toggle watching daemon

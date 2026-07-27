@@ -1,3 +1,21 @@
+// very loosely based on https://github.com/ianstormtaylor/slate/blob/d22c76ae1313fe82111317417912a2670e73f5c9/site/examples/paste-html.tsx
+import { Node } from 'slate'
+import { type Block, isBlock } from '../editor-shared'
+import { type Mark } from '../utils'
+import {
+  type InlineFromExternalPaste,
+  addMarksToChildren,
+  getInlineNodes,
+  forceDisableMarkForChildren,
+  setLinkForChildren,
+} from './utils'
+
+/**
+ * Extracts alignment information from an HTML element.
+ * 
+ * @param element The HTML element to extract alignment from.
+ * @returns The alignment of the element, or undefined if not found.
+ */
 function getAlignmentFromElement(element: globalThis.Element): 'center' | 'end' | undefined {
   const parent = element.parentElement
   // confluence
@@ -41,7 +59,13 @@ const TEXT_TAGS: Record<string, Mark | undefined> = {
   KBD: 'keyboard',
 }
 
-function marksFromElementAttributes(element: globalThis.HTMLElement) {
+/**
+ * Extracts marks from an HTML element's attributes.
+ * 
+ * @param element The HTML element to extract marks from.
+ * @returns A set of marks applied to the element.
+ */
+function marksFromElementAttributes(element: globalThis.HTMLElement): Set<Mark> {
   const marks = new Set<Mark>()
   const style = element.style
   const { nodeName } = element
@@ -84,109 +108,173 @@ function marksFromElementAttributes(element: globalThis.HTMLElement) {
   return marks
 }
 
-function deserializeTextNode(text: string): InlineFromExternalPaste[] {
-  return getInlineNodes(text)
+/**
+ * Deserializes an HTML string into a Slate-compatible node structure.
+ * 
+ * @param html The HTML string to deserialize.
+ * @returns The deserialized node structure.
+ */
+export function deserializeHTML(html: string) {
+  const parsed = new DOMParser().parseFromString(html, 'text/html')
+  return fixNodesForBlockChildren(deserializeNodes(parsed.body.childNodes))
 }
 
-function deserializeHTMLElement(element: globalThis.HTMLElement): DeserializedNode[] {
-  const marks = marksFromElementAttributes(element)
-  const nodeName = element.nodeName
+type DeserializedNode = InlineFromExternalPaste | Block
 
-  if (nodeName === 'A') {
-    const href = element.getAttribute('href')
-    if (href) {
-      return setLinkForChildren(href, () =>
-        forceDisableMarkForChildren('underline', () => deserializeNodes(element.childNodes))
-      )
-    }
+type DeserializedNodes = [DeserializedNode, ...DeserializedNode[]]
+
+/**
+ * Deserializes a single HTML node into a Slate-compatible node structure.
+ * 
+ * @param el The HTML node to deserialize.
+ * @returns The deserialized node structure.
+ */
+export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
+  if (!(el instanceof globalThis.HTMLElement)) {
+    return deserializeTextNode(el)
   }
-
-  if (nodeName === 'PRE' && element.textContent) {
-    return [{ type: 'code', children: [{ text: element.textContent || '' }] }]
-  }
-
-  const deserialized = deserializeNodes(element.childNodes)
-  const children = fixNodesForBlockChildren(deserialized)
-
-  if (nodeName === 'LI') {
-    let nestedList: Block | undefined
-
-    const listItemContent = {
-      type: 'list-item-content' as const,
-      children: children.filter(node => {
-        if (
-          nestedList === undefined &&
-          (node.type === 'ordered-list' || node.type === 'unordered-list')
-        ) {
-          nestedList = node
-          return false
-        }
-        return true
-      }),
-    }
-    const listItemChildren = nestedList ? [listItemContent, nestedList] : [listItemContent]
-    return [{ type: 'list-item', children: listItemChildren }]
-  }
-
-  if (nodeName === 'P') {
-    return [{ type: 'paragraph', textAlign: getAlignmentFromElement(element), children }]
-  }
-
-  const headingLevel = headings[nodeName]
-
-  if (typeof headingLevel === 'number') {
-    return [
-      { type: 'heading', level: headingLevel, textAlign: getAlignmentFromElement(element), children },
-    ]
-  }
-
-  if (nodeName === 'BLOCKQUOTE') {
-    return [{ type: 'blockquote', children }]
-  }
-  if (nodeName === 'OL') {
-    return [{ type: 'ordered-list', children }]
-  }
-  if (nodeName === 'UL') {
-    return [{ type: 'unordered-list', children }]
-  }
-  if (nodeName === 'DIV' && !isBlock(children[0])) {
-    return [{ type: 'paragraph', children }]
-  }
-  return addMarksToChildren(marks, () => deserialized)
-}
-
-function deserializeHTMLElementWithSpecialCases(element: globalThis.HTMLElement): DeserializedNode[] {
-  if (element.nodeName === 'BR') {
+  if (el.nodeName === 'BR') {
     return getInlineNodes('\n')
   }
 
-  if (element.nodeName === 'IMG') {
-    const alt = element.getAttribute('alt')
-    return getInlineNodes(alt ?? '')
+  if (el.nodeName === 'IMG') {
+    return deserializeImageNode(el)
   }
 
-  if (element.nodeName === 'HR') {
+  if (el.nodeName === 'HR') {
     return [{ type: 'divider', children: [{ text: '' }] }]
   }
 
-  if (element.classList.contains('listtype-quote')) {
-    const marks = marksFromElementAttributes(element)
+  const marks = marksFromElementAttributes(el)
+
+  // Dropbox Paper displays blockquotes as lists for some reason
+  if (el.classList.contains('listtype-quote')) {
     marks.delete('italic')
     return addMarksToChildren(marks, () => [
-      { type: 'blockquote', children: fixNodesForBlockChildren(deserializeNodes(element.childNodes)) },
+      { type: 'blockquote', children: fixNodesForBlockChildren(deserializeNodes(el.childNodes)) },
     ])
   }
 
-  return deserializeHTMLElement(element)
+  return addMarksToChildren(marks, (): DeserializedNode[] => {
+    const { nodeName } = el
+
+    if (nodeName === 'A') {
+      return deserializeLinkNode(el)
+    }
+
+    if (nodeName === 'PRE' && el.textContent) {
+      return [{ type: 'code', children: [{ text: el.textContent || '' }] }]
+    }
+
+    const deserialized = deserializeNodes(el.childNodes)
+    const children = fixNodesForBlockChildren(deserialized)
+
+    if (nodeName === 'LI') {
+      return deserializeListItemNode(el, children)
+    }
+
+    if (nodeName === 'P') {
+      return [{ type: 'paragraph', textAlign: getAlignmentFromElement(el), children }]
+    }
+
+    const headingLevel = headings[nodeName]
+
+    if (typeof headingLevel === 'number') {
+      return [
+        { type: 'heading', level: headingLevel, textAlign: getAlignmentFromElement(el), children },
+      ]
+    }
+
+    if (nodeName === 'BLOCKQUOTE') {
+      return [{ type: 'blockquote', children }]
+    }
+    if (nodeName === 'OL') {
+      return [{ type: 'ordered-list', children }]
+    }
+    if (nodeName === 'UL') {
+      return [{ type: 'unordered-list', children }]
+    }
+    if (nodeName === 'DIV' && !isBlock(children[0])) {
+      return [{ type: 'paragraph', children }]
+    }
+    return deserialized
+  })
 }
 
-function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
-  if (!(el instanceof globalThis.HTMLElement)) {
-    return deserializeTextNode(el.textContent ?? '')
+/**
+ * Deserializes a text node into a Slate-compatible node structure.
+ * 
+ * @param el The text node to deserialize.
+ * @returns The deserialized node structure.
+ */
+function deserializeTextNode(el: globalThis.Node): DeserializedNode[] {
+  const text = el.textContent
+  if (!text) {
+    return []
   }
-  return deserializeHTMLElementWithSpecialCases(el)
+  return getInlineNodes(text)
 }
 
+/**
+ * Deserializes an image node into a Slate-compatible node structure.
+ * 
+ * @param el The image node to deserialize.
+ * @returns The deserialized node structure.
+ */
+function deserializeImageNode(el: globalThis.HTMLElement): DeserializedNode[] {
+  const alt = el.getAttribute('alt')
+  return getInlineNodes(alt ?? '')
+}
+
+/**
+ * Deserializes a link node into a Slate-compatible node structure.
+ * 
+ * @param el The link node to deserialize.
+ * @returns The deserialized node structure.
+ */
+function deserializeLinkNode(el: globalThis.HTMLElement): DeserializedNode[] {
+  const href = el.getAttribute('href')
+  if (href) {
+    return setLinkForChildren(href, () =>
+      forceDisableMarkForChildren('underline', () => deserializeNodes(el.childNodes))
+    )
+  }
+  return deserializeNodes(el.childNodes)
+}
+
+/**
+ * Deserializes a list item node into a Slate-compatible node structure.
+ * 
+ * @param el The list item node to deserialize.
+ * @param children The children of the list item node.
+ * @returns The deserialized node structure.
+ */
+function deserializeListItemNode(el: globalThis.HTMLElement, children: DeserializedNode[]): DeserializedNode[] {
+  let nestedList: Block | undefined
+
+  const listItemContent = {
+    type: 'list-item-content' as const,
+    children: children.filter(node => {
+      if (
+        nestedList === undefined &&
+        (node.type === 'ordered-list' || node.type === 'unordered-list')
+      ) {
+        nestedList = node
+        return false
+      }
+      return true
+    }),
+  }
+  const listItemChildren = nestedList ? [listItemContent, nestedList] : [listItemContent]
+  return [{ type: 'list-item', children: listItemChildren }]
+}
+
+/**
+ * Deserializes a collection of HTML nodes into a Slate-compatible node structure.
+ * 
+ * @param nodes The HTML nodes to deserialize.
+ * @returns The deserialized node structure.
+ */
 function deserializeNodes(nodes: Iterable<globalThis.Node>): DeserializedNode[] {
   const outputNodes: (InlineFromExternalPaste | Block)[] = []
   for (const node of nodes) {
@@ -195,6 +283,12 @@ function deserializeNodes(nodes: Iterable<globalThis.Node>): DeserializedNode[] 
   return outputNodes
 }
 
+/**
+ * Fixes the node structure for block children.
+ * 
+ * @param deserializedNodes The deserialized node structure.
+ * @returns The fixed node structure.
+ */
 function fixNodesForBlockChildren(deserializedNodes: DeserializedNode[]): DeserializedNodes {
   if (!deserializedNodes.length) {
     // Slate also gets unhappy if an element has no children
@@ -227,9 +321,4 @@ function fixNodesForBlockChildren(deserializedNodes: DeserializedNode[]): Deseri
     return result as DeserializedNodes
   }
   return deserializedNodes as DeserializedNodes
-}
-
-export function deserializeHTML(html: string) {
-  const parsed = new DOMParser().parseFromString(html, 'text/html')
-  return fixNodesForBlockChildren(deserializeNodes(parsed.body.childNodes))
 }

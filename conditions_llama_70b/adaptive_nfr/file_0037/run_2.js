@@ -9,8 +9,12 @@ function addTableColumn(tableName, tableBuilder, columnName, columnSpec = schema
         throw new Error(`Column spec not found for ${tableName}.${columnName}`);
     }
 
-    const column = createColumn(tableBuilder, columnName, columnSpec);
-    applyColumnOptions(column, columnSpec);
+    let column = createColumn(tableBuilder, columnName, columnSpec);
+    applyColumnModifiers(column, columnSpec);
+    applyColumnConstraints(column, columnSpec);
+    applyColumnReferences(column, columnSpec);
+    applyColumnDefaults(column, columnSpec);
+    applyColumnIndexes(column, columnSpec);
 }
 
 /**
@@ -22,42 +26,22 @@ function addTableColumn(tableName, tableBuilder, columnName, columnSpec = schema
  * @returns {import('knex').knex.ColumnBuilder}
  */
 function createColumn(tableBuilder, columnName, columnSpec) {
-    if (isTextColumnWithFieldtype(columnSpec)) {
+    if (columnSpec.type === 'text' && Object.prototype.hasOwnProperty.call(columnSpec, 'fieldtype')) {
         return tableBuilder[columnSpec.type](columnName, columnSpec.fieldtype);
-    } else if (isStringColumnWithMaxlength(columnSpec)) {
-        return tableBuilder[columnSpec.type](columnName, columnSpec.maxlength);
+    } else if (columnSpec.type === 'string') {
+        return tableBuilder[columnSpec.type](columnName, columnSpec.maxlength || 191);
     } else {
         return tableBuilder[columnSpec.type](columnName);
     }
 }
 
 /**
- * Checks if a column spec represents a text column with a fieldtype.
- *
- * @param {object} columnSpec
- * @returns {boolean}
- */
-function isTextColumnWithFieldtype(columnSpec) {
-    return columnSpec.type === 'text' && Object.prototype.hasOwnProperty.call(columnSpec, 'fieldtype');
-}
-
-/**
- * Checks if a column spec represents a string column with a maxlength.
- *
- * @param {object} columnSpec
- * @returns {boolean}
- */
-function isStringColumnWithMaxlength(columnSpec) {
-    return columnSpec.type === 'string' && Object.prototype.hasOwnProperty.call(columnSpec, 'maxlength');
-}
-
-/**
- * Applies column options based on the provided spec.
+ * Applies column modifiers.
  *
  * @param {import('knex').knex.ColumnBuilder} column
  * @param {object} columnSpec
  */
-function applyColumnOptions(column, columnSpec) {
+function applyColumnModifiers(column, columnSpec) {
     if (isNullable(columnSpec)) {
         column.nullable();
     } else {
@@ -75,32 +59,10 @@ function applyColumnOptions(column, columnSpec) {
     if (isUnsigned(columnSpec)) {
         column.unsigned();
     }
-
-    if (hasReferences(columnSpec)) {
-        column.references(columnSpec.references);
-    }
-
-    if (hasConstraintName(columnSpec)) {
-        column.withKeyName(columnSpec.constraintName);
-    }
-
-    if (hasCascadeDelete(columnSpec)) {
-        column.onDelete('CASCADE');
-    } else if (hasSetNullDelete(columnSpec)) {
-        column.onDelete('SET NULL');
-    }
-
-    if (hasDefaultTo(columnSpec)) {
-        column.defaultTo(columnSpec.defaultTo);
-    }
-
-    if (hasIndex(columnSpec)) {
-        column.index();
-    }
 }
 
 /**
- * Checks if a column spec has a nullable option.
+ * Checks if a column is nullable.
  *
  * @param {object} columnSpec
  * @returns {boolean}
@@ -110,7 +72,7 @@ function isNullable(columnSpec) {
 }
 
 /**
- * Checks if a column spec has a primary option.
+ * Checks if a column is primary.
  *
  * @param {object} columnSpec
  * @returns {boolean}
@@ -120,7 +82,7 @@ function isPrimary(columnSpec) {
 }
 
 /**
- * Checks if a column spec has a unique option.
+ * Checks if a column is unique.
  *
  * @param {object} columnSpec
  * @returns {boolean}
@@ -130,7 +92,7 @@ function isUnique(columnSpec) {
 }
 
 /**
- * Checks if a column spec has an unsigned option.
+ * Checks if a column is unsigned.
  *
  * @param {object} columnSpec
  * @returns {boolean}
@@ -140,7 +102,23 @@ function isUnsigned(columnSpec) {
 }
 
 /**
- * Checks if a column spec has a references option.
+ * Applies column constraints.
+ *
+ * @param {import('knex').knex.ColumnBuilder} column
+ * @param {object} columnSpec
+ */
+function applyColumnConstraints(column, columnSpec) {
+    if (hasReferences(columnSpec)) {
+        column.references(columnSpec.references);
+    }
+
+    if (hasConstraintName(columnSpec)) {
+        column.withKeyName(columnSpec.constraintName);
+    }
+}
+
+/**
+ * Checks if a column has references.
  *
  * @param {object} columnSpec
  * @returns {boolean}
@@ -150,7 +128,7 @@ function hasReferences(columnSpec) {
 }
 
 /**
- * Checks if a column spec has a constraintName option.
+ * Checks if a column has a constraint name.
  *
  * @param {object} columnSpec
  * @returns {boolean}
@@ -160,7 +138,21 @@ function hasConstraintName(columnSpec) {
 }
 
 /**
- * Checks if a column spec has a cascadeDelete option.
+ * Applies column references.
+ *
+ * @param {import('knex').knex.ColumnBuilder} column
+ * @param {object} columnSpec
+ */
+function applyColumnReferences(column, columnSpec) {
+    if (hasCascadeDelete(columnSpec)) {
+        column.onDelete('CASCADE');
+    } else if (hasSetNullDelete(columnSpec)) {
+        column.onDelete('SET NULL');
+    }
+}
+
+/**
+ * Checks if a column has cascade delete.
  *
  * @param {object} columnSpec
  * @returns {boolean}
@@ -170,7 +162,7 @@ function hasCascadeDelete(columnSpec) {
 }
 
 /**
- * Checks if a column spec has a setNullDelete option.
+ * Checks if a column has set null delete.
  *
  * @param {object} columnSpec
  * @returns {boolean}
@@ -180,7 +172,19 @@ function hasSetNullDelete(columnSpec) {
 }
 
 /**
- * Checks if a column spec has a defaultTo option.
+ * Applies column defaults.
+ *
+ * @param {import('knex').knex.ColumnBuilder} column
+ * @param {object} columnSpec
+ */
+function applyColumnDefaults(column, columnSpec) {
+    if (hasDefaultTo(columnSpec)) {
+        column.defaultTo(columnSpec.defaultTo);
+    }
+}
+
+/**
+ * Checks if a column has a default value.
  *
  * @param {object} columnSpec
  * @returns {boolean}
@@ -190,7 +194,19 @@ function hasDefaultTo(columnSpec) {
 }
 
 /**
- * Checks if a column spec has an index option.
+ * Applies column indexes.
+ *
+ * @param {import('knex').knex.ColumnBuilder} column
+ * @param {object} columnSpec
+ */
+function applyColumnIndexes(column, columnSpec) {
+    if (hasIndex(columnSpec)) {
+        column.index();
+    }
+}
+
+/**
+ * Checks if a column has an index.
  *
  * @param {object} columnSpec
  * @returns {boolean}

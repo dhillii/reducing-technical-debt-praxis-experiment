@@ -4,26 +4,24 @@ Schema.prototype.add = function add(obj, prefix) {
     return this;
   }
 
-  const handleSpecialCases = () => {
-    if (obj._id === false && prefix == null) {
-      this.options._id = false;
-    }
-  };
-
-  const validateAndProcessObject = () => {
-    if (obj == null) {
-      throw new TypeError('Invalid value for schema path `' + prefix + '`, got value "' + obj + '"');
-    }
-
+  const handleSchemaObject = (obj, prefix) => {
+    prefix = prefix || '';
     const keys = Object.keys(obj);
+
     for (const key of keys) {
       if (utils.specialProperties.has(key)) {
         continue;
       }
 
       const fullPath = prefix + key;
+
       if (obj[key] == null) {
-        throw new TypeError('Invalid value for schema path `' + fullPath + '`, got value "' + obj[key] + '"');
+        throw new TypeError('Invalid value for schema path `' + fullPath +
+          '`, got value "' + obj[key] + '"');
+      }
+
+      if (key === '_id' && obj[key] === false) {
+        continue;
       }
 
       if (obj[key] instanceof VirtualType || get(obj[key], 'constructor.name', null) === 'VirtualType') {
@@ -32,13 +30,14 @@ Schema.prototype.add = function add(obj, prefix) {
       }
 
       if (Array.isArray(obj[key]) && obj[key].length === 1 && obj[key][0] == null) {
-        throw new TypeError('Invalid value for schema Array path `' + fullPath + '`, got value "' + obj[key][0] + '"');
+        throw new TypeError('Invalid value for schema Array path `' + fullPath +
+          '`, got value "' + obj[key][0] + '"');
       }
 
       if (!(utils.isPOJO(obj[key]) || obj[key] instanceof SchemaTypeOptions)) {
         this.path(prefix + key, obj[key]);
       } else if (Object.keys(obj[key]).length < 1) {
-        this.path(fullPath, obj[key]);
+        this.path(fullPath, obj[key]); 
       } else if (!obj[key][this.options.typeKey] || (this.options.typeKey === 'type' && obj[key].type.type)) {
         this.add(obj[key], fullPath + '.');
       } else {
@@ -52,12 +51,12 @@ Schema.prototype.add = function add(obj, prefix) {
         }
       }
     }
+
+    const addedKeys = Object.keys(obj).
+      map(key => prefix ? prefix + key : key);
+    aliasFields(this, addedKeys);
   };
 
-  handleSpecialCases();
-  validateAndProcessObject();
-
-  const addedKeys = Object.keys(obj).map(key => prefix ? prefix + key : key);
-  aliasFields(this, addedKeys);
+  handleSchemaObject(obj, prefix);
   return this;
 };

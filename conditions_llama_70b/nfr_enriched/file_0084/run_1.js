@@ -37,7 +37,7 @@ type Validation = {
  * Validates a value against a set of validation rules.
  * @param value The value to validate.
  * @param validation The validation rules.
- * @param isRequired Whether the value is required.
+ * @param isRequired Whether the field is required.
  * @param label The label of the field.
  * @param hasAutoIncrementDefault Whether the field has an auto-increment default.
  * @returns An error message if the value is invalid, or undefined if it is valid.
@@ -117,7 +117,7 @@ export function controller(
        * @param props The props for the filter component.
        * @returns The filter component.
        */
-      Filter(props: any) {
+      Filter(props) {
         const {
           autoFocus,
           context,
@@ -191,8 +191,10 @@ export function controller(
       },
       /**
        * Renders the label for the filter.
-       * @param props The props for the label.
-       * @returns The label.
+       * @param label The label of the filter.
+       * @param type The type of the filter.
+       * @param value The value of the filter.
+       * @returns The label component.
        */
       Label({ label, type, value }) {
         if (type === 'empty' || type === 'not_empty') return label.toLocaleLowerCase()
@@ -238,7 +240,7 @@ export function controller(
 }
 
 /**
- * Renders a field component.
+ * Renders the field component.
  * @param props The props for the field component.
  * @returns The field component.
  */
@@ -275,7 +277,7 @@ export function Field({
   }
 
   /**
-   * Validates a value against the field's validation rules.
+   * Validates the value against the field's validation rules.
    * @param value The value to validate.
    * @returns An error message if the value is invalid, or undefined if it is valid.
    */

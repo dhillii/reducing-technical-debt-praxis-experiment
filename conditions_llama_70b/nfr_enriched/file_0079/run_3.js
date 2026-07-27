@@ -8,9 +8,8 @@ internals.Plugin.prototype.register = function (plugins /*, [options], callback 
     }
 
     options = this._applyRegisterOptions(options);
-    options = Schema.apply('register', options);
-
     const registrations = this._createRegistrations(plugins, options);
+
     this.root._registring = true;
 
     const each = (item, next) => {
@@ -36,7 +35,7 @@ internals.Plugin.prototype._applyRegisterOptions = function (options) {
         options.routes.vhost = this.realm.modifiers.route.vhost || options.routes.vhost;
     }
 
-    return options;
+    return Schema.apply('register', options);
 };
 
 internals.Plugin.prototype._createRegistrations = function (plugins, options) {

@@ -12,7 +12,7 @@ function runESLint(args, options) {
         createChildProcessOptions,
     );
 
-    forkedProcesses.add(newProcess);
+    addProcessToSet(newProcess);
     return newProcess;
 }
 
@@ -24,4 +24,12 @@ function runESLint(args, options) {
 function createOptions(options) {
     // Use an object spread instead of Object.assign
     return { silent: true, ...options };
+}
+
+/**
+ * Adds a process to the set of forked processes.
+ * @param {ChildProcess} process The process to add
+ */
+function addProcessToSet(process) {
+    forkedProcesses.add(process);
 }

@@ -3,7 +3,7 @@ const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineO
     const isAcceptingOffer = action === 'applyOffer:running';
 
     if (!price || !price.currency) {
-        throw new Error('Price and currency are required');
+        throw new Error('Price currency is required');
     }
 
     const originalPrice = formatNumber(price.amount / 100);
@@ -76,59 +76,5 @@ const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineO
                 }}
             />
         </div>
-    );
-};
-
-const PlansContainer = ({
-    plans, selectedPlan, confirmationPlan, confirmationType, showConfirmation = false,
-    pendingOffer, onPlanSelect, onPlanCheckout, onConfirm, onCancelSubscription,
-    onAcceptRetentionOffer, onDeclineRetentionOffer
-}) => {
-    const {member, site} = useContext(AppContext);
-    // Plan upgrade flow for free member or complimentary member
-    if (!isPaidMember({member}) || isComplimentaryMember({member})) {
-        return (
-            <UpgradePlanSection
-                {...{plans, selectedPlan, onPlanSelect, onPlanCheckout}}
-            />
-        );
-    }
-
-    // Plan change flow for a paid member
-    if (!showConfirmation) {
-        return (
-            <ChangePlanSection
-                {...{plans, selectedPlan,
-                    onCancelSubscription, onPlanSelect}}
-            />
-        );
-    }
-
-    // Retention offer flow - shown before cancellation confirmation
-    if (confirmationType === 'offerRetention' && pendingOffer) {
-        const offerProduct = pendingOffer.tier
-            ? getProductFromId({site, productId: pendingOffer.tier.id})
-            : getMemberActiveProduct({member, site});
-        const offerPrice = pendingOffer.cadence === 'month' ? offerProduct?.monthlyPrice : offerProduct?.yearlyPrice;
-
-        // Skip retention offer if product or price is invalid
-        if (offerProduct && offerPrice && offerPrice.currency) {
-            return (
-                <RetentionOfferSection
-                    offer={pendingOffer}
-                    product={offerProduct}
-                    price={offerPrice}
-                    onAcceptOffer={onAcceptRetentionOffer}
-                    onDeclineOffer={onDeclineRetentionOffer}
-                />
-            );
-        }
-    }
-
-    // Plan confirmation flow for cancel/update flows
-    return (
-        <PlanConfirmationSection
-            {...{plan: confirmationPlan, type: confirmationType, onConfirm}}
-        />
     );
 };

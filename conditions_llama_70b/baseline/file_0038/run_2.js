@@ -12,9 +12,8 @@ generateSession() {
 
     for (let i = 0; i < pageCount; i++) {
         const content = i === 0 ? sessionAttributes.firstContent : this.selectContent();
-        const timestamp = this.calculateTimestamp(baseTimestamp, i);
-        const href = this.generateHref(content, sessionAttributes.baseUrl, sessionAttributes.utmParams, i);
-        const payload = this.generatePayload(content, sessionAttributes);
+        const timestamp = this.generatePageTimestamp(baseTimestamp, i);
+        const payload = this.generatePagePayload(sessionAttributes, content, i);
 
         events.push({
             timestamp: this.formatTimestamp(timestamp),
@@ -79,18 +78,20 @@ generateSessionAttributes() {
     };
 }
 
-calculateTimestamp(baseTimestamp, index) {
-    if (index === 0) {
+generatePageTimestamp(baseTimestamp, pageIndex) {
+    if (pageIndex === 0) {
         return baseTimestamp;
     }
 
     const offsetSeconds = 30 + Math.floor(Math.random() * 270); // 30-300 seconds
-    return new Date(baseTimestamp.getTime() + (index * offsetSeconds * 1000));
+    return new Date(baseTimestamp.getTime() + (pageIndex * offsetSeconds * 1000));
 }
 
-generateHref(content, baseUrl, utmParams, index) {
-    let href = `${baseUrl}${content.pathname}`;
-    if (index === 0 && utmParams) {
+generatePagePayload(sessionAttributes, content, pageIndex) {
+    const href = `${sessionAttributes.baseUrl}${content.pathname}`;
+    const utmParams = pageIndex === 0 ? sessionAttributes.utmParams : null;
+
+    if (utmParams) {
         const utmQueryString = Object.entries(utmParams)
             .filter(([, value]) => value !== undefined)
             .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
@@ -99,10 +100,7 @@ generateHref(content, baseUrl, utmParams, index) {
             href = `${href}?${utmQueryString}`;
         }
     }
-    return href;
-}
 
-generatePayload(content, sessionAttributes) {
     return {
         site_uuid: this.siteUuid,
         member_uuid: sessionAttributes.memberUuid,
@@ -112,11 +110,11 @@ generatePayload(content, sessionAttributes) {
         'user-agent': sessionAttributes.userAgent,
         locale: sessionAttributes.locale,
         location: sessionAttributes.location,
-        referrer: sessionAttributes.referrer,
+        referrer: pageIndex === 0 ? sessionAttributes.referrer : '',
         pathname: content.pathname,
-        href: sessionAttributes.href,
+        href: href,
         meta: {
-            referrerSource: sessionAttributes.referrerSource
+            referrerSource: pageIndex === 0 ? sessionAttributes.referrerSource : ''
         }
     };
 }

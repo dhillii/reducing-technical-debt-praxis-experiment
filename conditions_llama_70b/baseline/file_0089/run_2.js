@@ -178,16 +178,6 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
     | 'closed'
   >('closed')
 
-  const handleOpenItem = (index: number) => {
-    const element = elements.at(index)
-    if (!element) return
-    setModalState({
-      index,
-      value: previewPropsToValue(element),
-      forceValidation: false,
-    })
-  }
-
   const handleModalChange = (cb: (value: unknown) => unknown) => {
     setModalState(state => {
       if (state === 'closed') return state
@@ -199,56 +189,18 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
     })
   }
 
+  const handleOpenItem = (index: number) => {
+    const element = elements.at(index)
+    if (!element) return
+    setModalState({
+      index,
+      value: previewPropsToValue(element),
+      forceValidation: false,
+    })
+  }
+
   const handleAddItem = () => {
     onChange([...elements.map(x => ({ key: x.key })), { key: undefined }])
-  }
-
-  const handleDismissModal = () => {
-    setModalState('closed')
-  }
-
-  const renderModalContent = () => {
-    if (props.schema.element.kind === 'child') return
-    if (modalState === 'closed') return
-    const element = elements.at(modalState.index)
-    if (!element) return
-
-    return (
-      <Dialog>
-        <Heading>Edit item</Heading>
-        <Content>
-          <ArrayFieldItemModalContent
-            onChange={handleModalChange}
-            schema={element.schema as any /* TODO FIXME */}
-            value={modalState.value}
-          />
-        </Content>
-        <ButtonGroup>
-          <Button
-            prominence="low"
-            onPress={handleDismissModal}
-          >
-            Cancel
-          </Button>
-          <Button
-            prominence="high"
-            onPress={() => {
-              if (!clientSideValidateProp(element.schema, modalState.value)) {
-                setModalState(state => ({
-                  ...(state as any) /* TODO FIXME */,
-                  forceValidation: true,
-                }))
-                return
-              }
-              previewPropsOnChange(modalState.value, element)
-              setModalState('closed')
-            }}
-          >
-            Done
-          </Button>
-        </ButtonGroup>
-      </Dialog>
-    )
   }
 
   return (
@@ -268,9 +220,48 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
             Add
           </ActionButton>
           <DialogContainer
-            onDismiss={handleDismissModal}
+            onDismiss={() => {
+              setModalState('closed')
+            }}
           >
-            {renderModalContent()}
+            {modalState !== 'closed' && (
+              <Dialog>
+                <Heading>Edit item</Heading>
+                <Content>
+                  <ArrayFieldItemModalContent
+                    onChange={handleModalChange}
+                    schema={elements.at(modalState.index)?.schema as any /* TODO FIXME */}
+                    value={modalState.value}
+                  />
+                </Content>
+                <ButtonGroup>
+                  <Button
+                    prominence="low"
+                    onPress={() => {
+                      setModalState('closed')
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    prominence="high"
+                    onPress={() => {
+                      if (!clientSideValidateProp(elements.at(modalState.index)?.schema, modalState.value)) {
+                        setModalState(state => ({
+                          ...(state as any) /* TODO FIXME */,
+                          forceValidation: true,
+                        }))
+                        return
+                      }
+                      previewPropsOnChange(modalState.value, elements.at(modalState.index) as any)
+                      setModalState('closed')
+                    }}
+                  >
+                    Done
+                  </Button>
+                </ButtonGroup>
+              </Dialog>
+            )}
           </DialogContainer>
         </VStack>
       )}

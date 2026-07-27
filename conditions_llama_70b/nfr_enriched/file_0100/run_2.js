@@ -196,7 +196,7 @@ Email.prototype._extractBody = function(message) {
             root = signedRoot.content;
         }
 
-        let body = _.pluck(filterBodyParts(root, MSG_PART_TYPE_TEXT), MSG_PART_ATTR_CONTENT).join('\n');
+        const body = _.pluck(filterBodyParts(root, MSG_PART_TYPE_TEXT), MSG_PART_ATTR_CONTENT).join('\n');
 
         // if the message is plain text and contains pgp/inline, we are only interested in the encrypted content, the rest (corporate mail footer, attachments, etc.) is discarded.
         const pgpInlineMatch = /^-{5}BEGIN PGP MESSAGE-{5}[\s\S]*-{5}END PGP MESSAGE-{5}$/im.exec(body);
@@ -231,7 +231,7 @@ Email.prototype._extractBody = function(message) {
         return self._checkSignatures(message).then(function(signaturesValid) {
             message.signed = typeof signaturesValid !== 'undefined';
             message.signaturesValid = signaturesValid;
-            return setBody(body, root);
+            setBody(body, root);
         });
     });
 
@@ -244,3 +244,5 @@ Email.prototype._extractBody = function(message) {
         }
     }
 };
+
+// ... rest of the code remains the same ...

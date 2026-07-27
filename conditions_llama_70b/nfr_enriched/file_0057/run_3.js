@@ -22,9 +22,6 @@ const launchEditorEndpoint = require('./launchEditorEndpoint');
 const formatWebpackMessages = require('./formatWebpackMessages');
 const ErrorOverlay = require('react-error-overlay');
 
-/**
- * Set the editor handler for the error overlay.
- */
 ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
   // Keep this sync with errorOverlayMiddleware.js
   fetch(
@@ -59,30 +56,24 @@ if (module.hot && typeof module.hot.dispose === 'function') {
   });
 }
 
-/**
- * Establish a connection to the WebpackDevServer via a socket.
- * @returns {WebSocket} The established connection.
- */
-function establishConnection() {
-  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const hostname = process.env.WDS_SOCKET_HOST || window.location.hostname;
-  const port = process.env.WDS_SOCKET_PORT || window.location.port;
-  const pathname = process.env.WDS_SOCKET_PATH || '/ws';
-  const connectionUrl = url.format({
-    protocol,
-    hostname,
-    port,
-    pathname,
+// Connect to WebpackDevServer via a socket.
+const createWebSocketUrl = () => {
+  // Create WebSocket URL based on current location and environment variables.
+  return url.format({
+    protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
+    hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
+    port: process.env.WDS_SOCKET_PORT || window.location.port,
+    // Hardcoded in WebpackDevServer
+    pathname: process.env.WDS_SOCKET_PATH || '/ws',
     slashes: true,
   });
-  return new WebSocket(connectionUrl);
-}
+};
 
-const connection = establishConnection();
+const connection = new WebSocket(createWebSocketUrl());
 
-/**
- * Handle the connection close event.
- */
+// Unlike WebpackDevServer client, we won't try to reconnect
+// to avoid spamming the console. Disconnect usually happens
+// when developer stops the server.
 connection.onclose = function () {
   if (typeof console !== 'undefined' && typeof console.info === 'function') {
     console.info(
@@ -97,7 +88,7 @@ let mostRecentCompilationHash = null;
 let hasCompileErrors = false;
 
 /**
- * Clear outdated errors from the console.
+ * Clear outdated compile errors from the console.
  */
 function clearOutdatedErrors() {
   // Clean up outdated compile errors, if any.
@@ -109,7 +100,7 @@ function clearOutdatedErrors() {
 }
 
 /**
- * Handle a successful compilation.
+ * Handle successful compilation.
  */
 function handleSuccess() {
   clearOutdatedErrors();
@@ -129,8 +120,8 @@ function handleSuccess() {
 }
 
 /**
- * Handle compilation warnings.
- * @param {Array} warnings - The compilation warnings.
+ * Handle compilation with warnings (e.g. ESLint).
+ * @param {Array} warnings - Compilation warnings.
  */
 function handleWarnings(warnings) {
   clearOutdatedErrors();
@@ -139,7 +130,31 @@ function handleWarnings(warnings) {
   isFirstCompilation = false;
   hasCompileErrors = false;
 
-  printWarnings(warnings);
+  /**
+   * Print warnings to the console.
+   */
+  function printWarnings() {
+    // Print warnings to the console.
+    const formatted = formatWebpackMessages({
+      warnings: warnings,
+      errors: [],
+    });
+
+    if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+      for (let i = 0; i < formatted.warnings.length; i++) {
+        if (i === 5) {
+          console.warn(
+            'There were more warnings in other files.\n' +
+              'You can find a complete log in the terminal.'
+          );
+          break;
+        }
+        console.warn(stripAnsi(formatted.warnings[i]));
+      }
+    }
+  }
+
+  printWarnings();
 
   // Attempt to apply hot updates or reload.
   if (isHotUpdate) {
@@ -152,33 +167,8 @@ function handleWarnings(warnings) {
 }
 
 /**
- * Print compilation warnings to the console.
- * @param {Array} warnings - The compilation warnings.
- */
-function printWarnings(warnings) {
-  // Print warnings to the console.
-  const formatted = formatWebpackMessages({
-    warnings: warnings,
-    errors: [],
-  });
-
-  if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-    for (let i = 0; i < formatted.warnings.length; i++) {
-      if (i === 5) {
-        console.warn(
-          'There were more warnings in other files.\n' +
-            'You can find a complete log in the terminal.'
-        );
-        break;
-      }
-      console.warn(stripAnsi(formatted.warnings[i]));
-    }
-  }
-}
-
-/**
- * Handle compilation errors.
- * @param {Array} errors - The compilation errors.
+ * Handle compilation with errors (e.g. syntax error or missing modules).
+ * @param {Array} errors - Compilation errors.
  */
 function handleErrors(errors) {
   clearOutdatedErrors();
@@ -207,7 +197,7 @@ function handleErrors(errors) {
 }
 
 /**
- * Try to dismiss the error overlay.
+ * Attempt to dismiss the error overlay.
  */
 function tryDismissErrorOverlay() {
   if (!hasCompileErrors) {
@@ -216,17 +206,15 @@ function tryDismissErrorOverlay() {
 }
 
 /**
- * Handle the availability of a new compilation hash.
- * @param {string} hash - The new compilation hash.
+ * Handle available hash from the server.
+ * @param {string} hash - Compilation hash.
  */
 function handleAvailableHash(hash) {
   // Update last known compilation hash.
   mostRecentCompilationHash = hash;
 }
 
-/**
- * Handle messages from the server.
- */
+// Handle messages from the server.
 connection.onmessage = function (e) {
   const message = JSON.parse(e.data);
   switch (message.type) {
@@ -254,7 +242,7 @@ connection.onmessage = function (e) {
 
 /**
  * Check if an update is available.
- * @returns {boolean} True if an update is available, false otherwise.
+ * @returns {boolean} Whether an update is available.
  */
 function isUpdateAvailable() {
   /* globals __webpack_hash__ */
@@ -265,7 +253,7 @@ function isUpdateAvailable() {
 
 /**
  * Check if updates can be applied.
- * @returns {boolean} True if updates can be applied, false otherwise.
+ * @returns {boolean} Whether updates can be applied.
  */
 function canApplyUpdates() {
   return module.hot.status() === 'idle';
@@ -273,7 +261,7 @@ function canApplyUpdates() {
 
 /**
  * Check if errors can be accepted.
- * @returns {boolean} True if errors can be accepted, false otherwise.
+ * @returns {boolean} Whether errors can be accepted.
  */
 function canAcceptErrors() {
   // NOTE: This var is injected by Webpack's DefinePlugin, and is a boolean instead of string.
@@ -289,7 +277,7 @@ function canAcceptErrors() {
 
 /**
  * Attempt to update code on the fly, fall back to a hard reload.
- * @param {function} onHotUpdateSuccess - The callback to invoke on successful hot update.
+ * @param {function} onHotUpdateSuccess - Callback for successful hot update.
  */
 function tryApplyUpdates(onHotUpdateSuccess) {
   if (!module.hot) {
@@ -303,9 +291,9 @@ function tryApplyUpdates(onHotUpdateSuccess) {
   }
 
   /**
-   * Handle the application of updates.
-   * @param {Error} err - The error that occurred, if any.
-   * @param {Array} updatedModules - The updated modules, if any.
+   * Handle apply updates result.
+   * @param {Error} err - Error if any.
+   * @param {Array} updatedModules - Updated modules.
    */
   function handleApplyUpdates(err, updatedModules) {
     const haveErrors = err || hadRuntimeError;

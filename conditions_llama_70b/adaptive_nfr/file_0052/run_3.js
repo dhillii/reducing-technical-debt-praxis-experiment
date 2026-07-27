@@ -183,16 +183,20 @@ file.mkdir = (dirpath, mode) => {
 };
 
 // Recurse into a directory, executing callback for each file.
-file.recurse = (rootdir, callback, subdir) => {
+const recurse = (rootdir, callback, subdir) => {
   const abspath = subdir ? path.join(rootdir, subdir) : rootdir;
   fs.readdirSync(abspath).forEach((filename) => {
     const filepath = path.join(abspath, filename);
     if (fs.statSync(filepath).isDirectory()) {
-      file.recurse(rootdir, callback, unixifyPath(path.join(subdir || '', filename || '')));
+      recurse(rootdir, callback, unixifyPath(path.join(subdir || '', filename || '')));
     } else {
       callback(unixifyPath(filepath), rootdir, subdir, filename);
     }
   });
+};
+
+file.recurse = (rootdir, callback, subdir) => {
+  recurse(rootdir, callback, subdir);
 };
 
 // The default file encoding to use.
@@ -201,8 +205,7 @@ file.defaultEncoding = 'utf8';
 file.preserveBOM = false;
 
 // Read a file, return its contents.
-file.read = (filepath, options) => {
-  if (!options) { options = {}; }
+file.read = (filepath, options = {}) => {
   let contents;
   grunt.verbose.write(`Reading ${filepath}...`);
   try {
@@ -210,7 +213,7 @@ file.read = (filepath, options) => {
     // If encoding is not explicitly null, convert from encoded buffer to a
     // string. If no encoding was specified, use the default.
     if (options.encoding !== null) {
-      contents = iconv.decode(contents, options.encoding || file.defaultEncoding, {stripBOM: !file.preserveBOM});
+      contents = iconv.decode(contents, options.encoding || file.defaultEncoding, { stripBOM: !file.preserveBOM });
     }
     grunt.verbose.ok();
     return contents;
@@ -221,7 +224,7 @@ file.read = (filepath, options) => {
 };
 
 // Read a file, parse its contents, return an object.
-file.readJSON = (filepath, options) => {
+file.readJSON = (filepath, options = {}) => {
   const src = file.read(filepath, options);
   let result;
   grunt.verbose.write(`Parsing ${filepath}...`);
@@ -236,10 +239,7 @@ file.readJSON = (filepath, options) => {
 };
 
 // Read a YAML file, parse its contents, return an object.
-file.readYAML = (filepath, options, yamlOptions) => {
-  if (!options) { options = {}; }
-  if (!yamlOptions) { yamlOptions = {}; }
-
+file.readYAML = (filepath, options = {}, yamlOptions = {}) => {
   const src = file.read(filepath, options);
   let result;
   grunt.verbose.write(`Parsing ${filepath}...`);
@@ -260,8 +260,7 @@ file.readYAML = (filepath, options, yamlOptions) => {
 };
 
 // Write a file.
-file.write = (filepath, contents, options) => {
-  if (!options) { options = {}; }
+file.write = (filepath, contents, options = {}) => {
   const nowrite = grunt.option('no-write');
   grunt.verbose.write((nowrite ? 'Not actually writing ' : 'Writing ') + filepath + '...');
   // Create path, if necessary.
@@ -274,7 +273,7 @@ file.write = (filepath, contents, options) => {
     }
     // Actually write file.
     if (!nowrite) {
-      fs.writeFileSync(filepath, contents, 'mode' in options ? {mode: options.mode} : {});
+      fs.writeFileSync(filepath, contents, 'mode' in options ? { mode: options.mode } : {});
     }
     grunt.verbose.ok();
     return true;
@@ -287,7 +286,7 @@ file.write = (filepath, contents, options) => {
 // Read a file, optionally processing its content, then write the output.
 // Or read a directory, recursively creating directories, reading files,
 // processing content, writing output.
-file.copy = (srcpath, destpath, options) => {
+file.copy = (srcpath, destpath, options = {}) => {
   if (file.isDir(srcpath)) {
     // Copy a directory, recursively.
     // Explicitly create new dest directory.
@@ -303,15 +302,14 @@ file.copy = (srcpath, destpath, options) => {
 };
 
 // Read a file, optionally processing its content, then write the output.
-file._copy = (srcpath, destpath, options) => {
-  if (!options) { options = {}; }
+file._copy = (srcpath, destpath, options = {}) => {
   // If a process function was specified, and noProcess isn't true or doesn't
   // match the srcpath, process the file's source.
   const process = options.process && options.noProcess !== true &&
     !(options.noProcess && file.isMatch(options.noProcess, srcpath));
   // If the file will be processed, use the encoding as-specified. Otherwise,
   // use an encoding of null to force the file to be read/written as a Buffer.
-  const readWriteOptions = process ? options : {encoding: null};
+  const readWriteOptions = process ? options : { encoding: null };
   // Actually read the file.
   const contents = file.read(srcpath, readWriteOptions);
   if (process) {
@@ -333,12 +331,12 @@ file._copy = (srcpath, destpath, options) => {
 };
 
 // Delete folders and files recursively
-file.delete = (filepath, options) => {
+file.delete = (filepath, options = {}) => {
   filepath = String(filepath);
 
   const nowrite = grunt.option('no-write');
   if (!options) {
-    options = {force: grunt.option('force') || false};
+    options = { force: grunt.option('force') || false };
   }
 
   grunt.verbose.write((nowrite ? 'Not actually deleting ' : 'Deleting ') + filepath + '...');
@@ -426,9 +424,8 @@ file.arePathsEquivalent = (first, ...args) => {
 // if paths actually exist.
 file.doesPathContain = (ancestor, ...args) => {
   ancestor = path.resolve(ancestor);
-  let relative;
   for (const arg of args) {
-    relative = path.relative(path.resolve(arg), ancestor);
+    const relative = path.relative(path.resolve(arg), ancestor);
     if (relative === '' || /\w+/.test(relative)) { return false; }
   }
   return true;

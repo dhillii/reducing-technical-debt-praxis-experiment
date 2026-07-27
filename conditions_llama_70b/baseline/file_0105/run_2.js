@@ -8,6 +8,7 @@ const tty = require('tty');
 const diff = require('diff');
 const ms = require('../ms');
 const utils = require('../utils');
+
 const supportsColor = process.browser ? null : require('supports-color');
 
 /**

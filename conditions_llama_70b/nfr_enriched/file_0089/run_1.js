@@ -135,7 +135,6 @@ function valueToUpdater<Schema extends ComponentSchema>(
   return (valueToUpdaters[schema.kind] as any)(value, schema)
 }
 
-// this exists because for props.schema.kind === 'form', ts doesn't narrow props, only props.schema
 function isKind<Kind extends ComponentSchema['kind']>(
   props: GenericPreviewProps<ComponentSchema, unknown>,
   kind: Kind
@@ -147,7 +146,6 @@ export function previewPropsOnChange<Schema extends ComponentSchema>(
   value: ValueForComponentSchema<Schema>,
   props: GenericPreviewProps<ComponentSchema, unknown>
 ) {
-  // child fields can't be updated through preview props, so we don't do anything here
   if (isKind(props, 'child')) return
   if (
     isKind(props, 'form') ||
@@ -253,7 +251,7 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
                 <Content>
                   <ArrayFieldItemModalContent
                     onChange={cb => handleArrayFieldModalChange(modalState, cb, setModalState)}
-                    schema={elements.at(modalState.index)?.schema as any /* TODO FIXME */}
+                    schema={elements.at(modalState.index)?.schema as any}
                     value={modalState.value}
                   />
                 </Content>

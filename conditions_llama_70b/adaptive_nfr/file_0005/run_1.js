@@ -1,8 +1,26 @@
 const getToastMessage = (emailToVerify: string | undefined): JSX.Element | undefined => {
-    if (emailToVerify === 'sender_email' || emailToVerify === 'sender_reply_to') {
+    if (emailToVerify && emailToVerify === 'sender_email') {
+        return <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
+    } else if (emailToVerify && emailToVerify === 'sender_reply_to') {
         return <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
     }
     return undefined;
+};
+
+const handleSaveNewsletter = async (editNewsletter: (newsletter: Partial<Newsletter>) => Promise<any>, formState: Newsletter, setFormState: (newsletter: Newsletter) => void) => {
+    try {
+        const {meta: {sent_email_verification: [emailToVerify] = []} = {}} = await editNewsletter(formState);
+        const toastMessage = getToastMessage(emailToVerify);
+        if (toastMessage) {
+            showToast({
+                icon: 'email',
+                message: toastMessage,
+                type: 'info'
+            });
+        }
+    } catch (error) {
+        // Handle error
+    }
 };
 
 const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: boolean;}> = ({newsletter, onlyOne}) => {
@@ -15,16 +33,7 @@ const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: b
         initialState: newsletter,
         savingDelay: 500,
         onSave: async () => {
-            const {meta: {sent_email_verification: [emailToVerify] = []} = {}} = await editNewsletter(formState);
-            const toastMessage = getToastMessage(emailToVerify);
-
-            if (toastMessage) {
-                showToast({
-                    icon: 'email',
-                    message: toastMessage,
-                    type: 'info'
-                });
-            }
+            await handleSaveNewsletter(editNewsletter, formState, setFormState);
         },
         onSaveError: handleError,
         onValidate: () => {

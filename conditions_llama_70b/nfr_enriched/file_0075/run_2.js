@@ -57,325 +57,485 @@ function check(tokens, expected) {
 /**
  * Retrieves tokens from a node's token stream.
  * @param {Node} node The node to retrieve tokens from.
- * @param {number|Object} [options] The number of tokens to retrieve or an options object.
- * @param {number} [options.count] The number of tokens to retrieve.
- * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
- * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
- * @returns {Token[]} The retrieved tokens.
+ * @param {number|Object} options Options for retrieving tokens.
+ * @returns {Token[]} Tokens retrieved from the node.
  */
 function getTokensFromNode(node, options) {
 	const tokens = [];
 
-	if (options.includeComments) {
-		const comments = getCommentsInside(node);
+	// Extract tokens from the node's token stream
+	for (const token of node.tokens) {
+		if (options.filter && !options.filter(token)) {
+			continue;
+		}
 
-		tokens.push(...comments);
-	}
-
-	const nodeTokens = getTokenStreamForNode(node);
-
-	tokens.push(...nodeTokens);
-
-	if (options.filter) {
-		return tokens.filter(options.filter);
+		tokens.push(token);
 	}
 
 	return tokens;
 }
 
 /**
- * Retrieves the token stream for a node.
- * @param {Node} node The node to retrieve the token stream for.
- * @returns {Token[]} The token stream for the node.
+ * Retrieves comments from a node's comment stream.
+ * @param {Node} node The node to retrieve comments from.
+ * @param {number|Object} options Options for retrieving comments.
+ * @returns {Comment[]} Comments retrieved from the node.
  */
-function getTokenStreamForNode(node) {
-	return TokenStore.getTokensForNode(node);
+function getCommentsFromNode(node, options) {
+	const comments = [];
+
+	// Extract comments from the node's comment stream
+	for (const comment of node.comments) {
+		if (options.filter && !options.filter(comment)) {
+			continue;
+		}
+
+		comments.push(comment);
+	}
+
+	return comments;
 }
 
 /**
- * Retrieves comments inside a node.
- * @param {Node} node The node to retrieve comments from.
- * @returns {Comment[]} The comments inside the node.
+ * Retrieves tokens and comments from a node's token stream.
+ * @param {Node} node The node to retrieve tokens and comments from.
+ * @param {number|Object} options Options for retrieving tokens and comments.
+ * @returns {Token[]|Comment[]} Tokens and comments retrieved from the node.
  */
-function getCommentsInside(node) {
-	return TokenStore.getCommentsInside(node);
+function getTokensAndCommentsFromNode(node, options) {
+	const tokensAndComments = [];
+
+	// Extract tokens and comments from the node's token stream
+	for (const token of node.tokens) {
+		if (options.filter && !options.filter(token)) {
+			continue;
+		}
+
+		tokensAndComments.push(token);
+	}
+
+	for (const comment of node.comments) {
+		if (options.filter && !options.filter(comment)) {
+			continue;
+		}
+
+		tokensAndComments.push(comment);
+	}
+
+	return tokensAndComments;
 }
 
 /**
  * Retrieves the first token from a node's token stream.
  * @param {Node} node The node to retrieve the first token from.
- * @param {number|Object} [options] The number of tokens to skip or an options object.
- * @param {number} [options.skip] The number of tokens to skip.
- * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
- * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
- * @returns {Token|null} The first token or null if not found.
+ * @param {number|Object} options Options for retrieving the first token.
+ * @returns {Token|null} The first token retrieved from the node, or null if not found.
  */
 function getFirstTokenFromNode(node, options) {
 	const tokens = getTokensFromNode(node, options);
 
-	return tokens[0] || null;
+	return tokens.length > 0 ? tokens[0] : null;
 }
 
 /**
  * Retrieves the last token from a node's token stream.
  * @param {Node} node The node to retrieve the last token from.
- * @param {number|Object} [options] The number of tokens to skip or an options object.
- * @param {number} [options.skip] The number of tokens to skip.
- * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
- * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
- * @returns {Token|null} The last token or null if not found.
+ * @param {number|Object} options Options for retrieving the last token.
+ * @returns {Token|null} The last token retrieved from the node, or null if not found.
  */
 function getLastTokenFromNode(node, options) {
 	const tokens = getTokensFromNode(node, options);
 
-	return tokens[tokens.length - 1] || null;
+	return tokens.length > 0 ? tokens[tokens.length - 1] : null;
 }
 
 /**
  * Retrieves tokens before a node.
  * @param {Node} node The node to retrieve tokens before.
- * @param {number|Object} [options] The number of tokens to retrieve or an options object.
- * @param {number} [options.count] The number of tokens to retrieve.
- * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
- * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
- * @returns {Token[]} The retrieved tokens.
+ * @param {number|Object} options Options for retrieving tokens.
+ * @returns {Token[]} Tokens retrieved before the node.
  */
 function getTokensBeforeNode(node, options) {
-	const tokens = [];
+	const tokensBefore = [];
 
-	if (options.includeComments) {
-		const comments = getCommentsBefore(node);
+	// Extract tokens before the node
+	for (const token of TOKENS) {
+		if (token.range[1] <= node.range[0]) {
+			if (options.filter && !options.filter(token)) {
+				continue;
+			}
 
-		tokens.push(...comments);
+			tokensBefore.push(token);
+		}
 	}
 
-	const nodeTokens = getTokenStreamBeforeNode(node);
-
-	tokens.push(...nodeTokens);
-
-	if (options.filter) {
-		return tokens.filter(options.filter);
-	}
-
-	return tokens;
-}
-
-/**
- * Retrieves the token stream before a node.
- * @param {Node} node The node to retrieve the token stream before.
- * @returns {Token[]} The token stream before the node.
- */
-function getTokenStreamBeforeNode(node) {
-	return TokenStore.getTokensBefore(node);
+	return tokensBefore;
 }
 
 /**
  * Retrieves comments before a node.
  * @param {Node} node The node to retrieve comments before.
- * @returns {Comment[]} The comments before the node.
+ * @param {number|Object} options Options for retrieving comments.
+ * @returns {Comment[]} Comments retrieved before the node.
  */
-function getCommentsBefore(node) {
-	return TokenStore.getCommentsBefore(node);
+function getCommentsBeforeNode(node, options) {
+	const commentsBefore = [];
+
+	// Extract comments before the node
+	for (const comment of COMMENTS) {
+		if (comment.range[1] <= node.range[0]) {
+			if (options.filter && !options.filter(comment)) {
+				continue;
+			}
+
+			commentsBefore.push(comment);
+		}
+	}
+
+	return commentsBefore;
+}
+
+/**
+ * Retrieves tokens and comments before a node.
+ * @param {Node} node The node to retrieve tokens and comments before.
+ * @param {number|Object} options Options for retrieving tokens and comments.
+ * @returns {Token[]|Comment[]} Tokens and comments retrieved before the node.
+ */
+function getTokensAndCommentsBeforeNode(node, options) {
+	const tokensAndCommentsBefore = [];
+
+	// Extract tokens and comments before the node
+	for (const token of TOKENS) {
+		if (token.range[1] <= node.range[0]) {
+			if (options.filter && !options.filter(token)) {
+				continue;
+			}
+
+			tokensAndCommentsBefore.push(token);
+		}
+	}
+
+	for (const comment of COMMENTS) {
+		if (comment.range[1] <= node.range[0]) {
+			if (options.filter && !options.filter(comment)) {
+				continue;
+			}
+
+			tokensAndCommentsBefore.push(comment);
+		}
+	}
+
+	return tokensAndCommentsBefore;
+}
+
+/**
+ * Retrieves the first token before a node.
+ * @param {Node} node The node to retrieve the first token before.
+ * @param {number|Object} options Options for retrieving the first token.
+ * @returns {Token|null} The first token retrieved before the node, or null if not found.
+ */
+function getFirstTokenBeforeNode(node, options) {
+	const tokensBefore = getTokensBeforeNode(node, options);
+
+	return tokensBefore.length > 0 ? tokensBefore[0] : null;
+}
+
+/**
+ * Retrieves the last token before a node.
+ * @param {Node} node The node to retrieve the last token before.
+ * @param {number|Object} options Options for retrieving the last token.
+ * @returns {Token|null} The last token retrieved before the node, or null if not found.
+ */
+function getLastTokenBeforeNode(node, options) {
+	const tokensBefore = getTokensBeforeNode(node, options);
+
+	return tokensBefore.length > 0 ? tokensBefore[tokensBefore.length - 1] : null;
 }
 
 /**
  * Retrieves tokens after a node.
  * @param {Node} node The node to retrieve tokens after.
- * @param {number|Object} [options] The number of tokens to retrieve or an options object.
- * @param {number} [options.count] The number of tokens to retrieve.
- * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
- * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
- * @returns {Token[]} The retrieved tokens.
+ * @param {number|Object} options Options for retrieving tokens.
+ * @returns {Token[]} Tokens retrieved after the node.
  */
 function getTokensAfterNode(node, options) {
-	const tokens = [];
+	const tokensAfter = [];
 
-	if (options.includeComments) {
-		const comments = getCommentsAfter(node);
+	// Extract tokens after the node
+	for (const token of TOKENS) {
+		if (token.range[0] >= node.range[1]) {
+			if (options.filter && !options.filter(token)) {
+				continue;
+			}
 
-		tokens.push(...comments);
+			tokensAfter.push(token);
+		}
 	}
 
-	const nodeTokens = getTokenStreamAfterNode(node);
-
-	tokens.push(...nodeTokens);
-
-	if (options.filter) {
-		return tokens.filter(options.filter);
-	}
-
-	return tokens;
-}
-
-/**
- * Retrieves the token stream after a node.
- * @param {Node} node The node to retrieve the token stream after.
- * @returns {Token[]} The token stream after the node.
- */
-function getTokenStreamAfterNode(node) {
-	return TokenStore.getTokensAfter(node);
+	return tokensAfter;
 }
 
 /**
  * Retrieves comments after a node.
  * @param {Node} node The node to retrieve comments after.
- * @returns {Comment[]} The comments after the node.
+ * @param {number|Object} options Options for retrieving comments.
+ * @returns {Comment[]} Comments retrieved after the node.
  */
-function getCommentsAfter(node) {
-	return TokenStore.getCommentsAfter(node);
+function getCommentsAfterNode(node, options) {
+	const commentsAfter = [];
+
+	// Extract comments after the node
+	for (const comment of COMMENTS) {
+		if (comment.range[0] >= node.range[1]) {
+			if (options.filter && !options.filter(comment)) {
+				continue;
+			}
+
+			commentsAfter.push(comment);
+		}
+	}
+
+	return commentsAfter;
 }
 
 /**
- * Retrieves the first token between two nodes.
- * @param {Node} left The left node.
- * @param {Node} right The right node.
- * @param {number|Object} [options] The number of tokens to skip or an options object.
- * @param {number} [options.skip] The number of tokens to skip.
- * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
- * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
- * @returns {Token|null} The first token or null if not found.
+ * Retrieves tokens and comments after a node.
+ * @param {Node} node The node to retrieve tokens and comments after.
+ * @param {number|Object} options Options for retrieving tokens and comments.
+ * @returns {Token[]|Comment[]} Tokens and comments retrieved after the node.
  */
-function getFirstTokenBetweenNodes(left, right, options) {
-	const tokens = getTokensBetweenNodes(left, right, options);
+function getTokensAndCommentsAfterNode(node, options) {
+	const tokensAndCommentsAfter = [];
 
-	return tokens[0] || null;
+	// Extract tokens and comments after the node
+	for (const token of TOKENS) {
+		if (token.range[0] >= node.range[1]) {
+			if (options.filter && !options.filter(token)) {
+				continue;
+			}
+
+			tokensAndCommentsAfter.push(token);
+		}
+	}
+
+	for (const comment of COMMENTS) {
+		if (comment.range[0] >= node.range[1]) {
+			if (options.filter && !options.filter(comment)) {
+				continue;
+			}
+
+			tokensAndCommentsAfter.push(comment);
+		}
+	}
+
+	return tokensAndCommentsAfter;
+}
+
+/**
+ * Retrieves the first token after a node.
+ * @param {Node} node The node to retrieve the first token after.
+ * @param {number|Object} options Options for retrieving the first token.
+ * @returns {Token|null} The first token retrieved after the node, or null if not found.
+ */
+function getFirstTokenAfterNode(node, options) {
+	const tokensAfter = getTokensAfterNode(node, options);
+
+	return tokensAfter.length > 0 ? tokensAfter[0] : null;
+}
+
+/**
+ * Retrieves the last token after a node.
+ * @param {Node} node The node to retrieve the last token after.
+ * @param {number|Object} options Options for retrieving the last token.
+ * @returns {Token|null} The last token retrieved after the node, or null if not found.
+ */
+function getLastTokenAfterNode(node, options) {
+	const tokensAfter = getTokensAfterNode(node, options);
+
+	return tokensAfter.length > 0 ? tokensAfter[tokensAfter.length - 1] : null;
 }
 
 /**
  * Retrieves tokens between two nodes.
- * @param {Node} left The left node.
- * @param {Node} right The right node.
- * @param {number|Object} [options] The number of tokens to retrieve or an options object.
- * @param {number} [options.count] The number of tokens to retrieve.
- * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
- * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
- * @returns {Token[]} The retrieved tokens.
+ * @param {Node} startNode The start node to retrieve tokens between.
+ * @param {Node} endNode The end node to retrieve tokens between.
+ * @param {number|Object} options Options for retrieving tokens.
+ * @returns {Token[]} Tokens retrieved between the nodes.
  */
-function getTokensBetweenNodes(left, right, options) {
-	const tokens = [];
+function getTokensBetweenNodes(startNode, endNode, options) {
+	const tokensBetween = [];
 
-	if (options.includeComments) {
-		const comments = getCommentsBetweenNodes(left, right);
+	// Extract tokens between the nodes
+	for (const token of TOKENS) {
+		if (token.range[0] >= startNode.range[1] && token.range[1] <= endNode.range[0]) {
+			if (options.filter && !options.filter(token)) {
+				continue;
+			}
 
-		tokens.push(...comments);
+			tokensBetween.push(token);
+		}
 	}
 
-	const nodeTokens = getTokenStreamBetweenNodes(left, right);
-
-	tokens.push(...nodeTokens);
-
-	if (options.filter) {
-		return tokens.filter(options.filter);
-	}
-
-	return tokens;
-}
-
-/**
- * Retrieves the token stream between two nodes.
- * @param {Node} left The left node.
- * @param {Node} right The right node.
- * @returns {Token[]} The token stream between the nodes.
- */
-function getTokenStreamBetweenNodes(left, right) {
-	return TokenStore.getTokensBetween(left, right);
+	return tokensBetween;
 }
 
 /**
  * Retrieves comments between two nodes.
- * @param {Node} left The left node.
- * @param {Node} right The right node.
- * @returns {Comment[]} The comments between the nodes.
+ * @param {Node} startNode The start node to retrieve comments between.
+ * @param {Node} endNode The end node to retrieve comments between.
+ * @param {number|Object} options Options for retrieving comments.
+ * @returns {Comment[]} Comments retrieved between the nodes.
  */
-function getCommentsBetweenNodes(left, right) {
-	return TokenStore.getCommentsBetween(left, right);
+function getCommentsBetweenNodes(startNode, endNode, options) {
+	const commentsBetween = [];
+
+	// Extract comments between the nodes
+	for (const comment of COMMENTS) {
+		if (comment.range[0] >= startNode.range[1] && comment.range[1] <= endNode.range[0]) {
+			if (options.filter && !options.filter(comment)) {
+				continue;
+			}
+
+			commentsBetween.push(comment);
+		}
+	}
+
+	return commentsBetween;
+}
+
+/**
+ * Retrieves tokens and comments between two nodes.
+ * @param {Node} startNode The start node to retrieve tokens and comments between.
+ * @param {Node} endNode The end node to retrieve tokens and comments between.
+ * @param {number|Object} options Options for retrieving tokens and comments.
+ * @returns {Token[]|Comment[]} Tokens and comments retrieved between the nodes.
+ */
+function getTokensAndCommentsBetweenNodes(startNode, endNode, options) {
+	const tokensAndCommentsBetween = [];
+
+	// Extract tokens and comments between the nodes
+	for (const token of TOKENS) {
+		if (token.range[0] >= startNode.range[1] && token.range[1] <= endNode.range[0]) {
+			if (options.filter && !options.filter(token)) {
+				continue;
+			}
+
+			tokensAndCommentsBetween.push(token);
+		}
+	}
+
+	for (const comment of COMMENTS) {
+		if (comment.range[0] >= startNode.range[1] && comment.range[1] <= endNode.range[0]) {
+			if (options.filter && !options.filter(comment)) {
+				continue;
+			}
+
+			tokensAndCommentsBetween.push(comment);
+		}
+	}
+
+	return tokensAndCommentsBetween;
+}
+
+/**
+ * Retrieves the first token between two nodes.
+ * @param {Node} startNode The start node to retrieve the first token between.
+ * @param {Node} endNode The end node to retrieve the first token between.
+ * @param {number|Object} options Options for retrieving the first token.
+ * @returns {Token|null} The first token retrieved between the nodes, or null if not found.
+ */
+function getFirstTokenBetweenNodes(startNode, endNode, options) {
+	const tokensBetween = getTokensBetweenNodes(startNode, endNode, options);
+
+	return tokensBetween.length > 0 ? tokensBetween[0] : null;
 }
 
 /**
  * Retrieves the last token between two nodes.
- * @param {Node} left The left node.
- * @param {Node} right The right node.
- * @param {number|Object} [options] The number of tokens to skip or an options object.
- * @param {number} [options.skip] The number of tokens to skip.
- * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
- * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
- * @returns {Token|null} The last token or null if not found.
+ * @param {Node} startNode The start node to retrieve the last token between.
+ * @param {Node} endNode The end node to retrieve the last token between.
+ * @param {number|Object} options Options for retrieving the last token.
+ * @returns {Token|null} The last token retrieved between the nodes, or null if not found.
  */
-function getLastTokenBetweenNodes(left, right, options) {
-	const tokens = getTokensBetweenNodes(left, right, options);
+function getLastTokenBetweenNodes(startNode, endNode, options) {
+	const tokensBetween = getTokensBetweenNodes(startNode, endNode, options);
 
-	return tokens[tokens.length - 1] || null;
-}
-
-/**
- * Retrieves the token before a node.
- * @param {Node} node The node to retrieve the token before.
- * @param {number|Object} [options] The number of tokens to skip or an options object.
- * @param {number} [options.skip] The number of tokens to skip.
- * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
- * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
- * @returns {Token|null} The token before the node or null if not found.
- */
-function getTokenBeforeNode(node, options) {
-	const tokens = getTokensBeforeNode(node, options);
-
-	return tokens[0] || null;
-}
-
-/**
- * Retrieves the token after a node.
- * @param {Node} node The node to retrieve the token after.
- * @param {number|Object} [options] The number of tokens to skip or an options object.
- * @param {number} [options.skip] The number of tokens to skip.
- * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
- * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
- * @returns {Token|null} The token after the node or null if not found.
- */
-function getTokenAfterNode(node, options) {
-	const tokens = getTokensAfterNode(node, options);
-
-	return tokens[0] || null;
-}
-
-/**
- * Retrieves the first token of a node's token stream.
- * @param {Node} node The node to retrieve the first token from.
- * @param {number|Object} [options] The number of tokens to skip or an options object.
- * @param {number} [options.skip] The number of tokens to skip.
- * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
- * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
- * @returns {Token|null} The first token or null if not found.
- */
-function getFirstTokenOfNode(node, options) {
-	const tokens = getTokensFromNode(node, options);
-
-	return tokens[0] || null;
-}
-
-/**
- * Retrieves the last token of a node's token stream.
- * @param {Node} node The node to retrieve the last token from.
- * @param {number|Object} [options] The number of tokens to skip or an options object.
- * @param {number} [options.skip] The number of tokens to skip.
- * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
- * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
- * @returns {Token|null} The last token or null if not found.
- */
-function getLastTokenOfNode(node, options) {
-	const tokens = getTokensFromNode(node, options);
-
-	return tokens[tokens.length - 1] || null;
+	return tokensBetween.length > 0 ? tokensBetween[tokensBetween.length - 1] : null;
 }
 
 /**
  * Checks if comments exist between two nodes.
- * @param {Node} left The left node.
- * @param {Node} right The right node.
- * @returns {boolean} True if comments exist, false otherwise.
+ * @param {Node} startNode The start node to check for comments between.
+ * @param {Node} endNode The end node to check for comments between.
+ * @returns {boolean} True if comments exist between the nodes, false otherwise.
  */
-function commentsExistBetweenNodes(left, right) {
-	return TokenStore.commentsExistBetween(left, right);
+function commentsExistBetweenNodes(startNode, endNode) {
+	for (const comment of COMMENTS) {
+		if (comment.range[0] >= startNode.range[1] && comment.range[1] <= endNode.range[0]) {
+			return true;
+		}
+	}
+
+	return false;
 }
+
+/**
+ * Retrieves comments before a node.
+ * @param {Node} node The node to retrieve comments before.
+ * @returns {Comment[]} Comments retrieved before the node.
+ */
+function getCommentsBefore(node) {
+	const commentsBefore = [];
+
+	// Extract comments before the node
+	for (const comment of COMMENTS) {
+		if (comment.range[1] <= node.range[0]) {
+			commentsBefore.push(comment);
+		}
+	}
+
+	return commentsBefore;
+}
+
+/**
+ * Retrieves comments after a node.
+ * @param {Node} node The node to retrieve comments after.
+ * @returns {Comment[]} Comments retrieved after the node.
+ */
+function getCommentsAfter(node) {
+	const commentsAfter = [];
+
+	// Extract comments after the node
+	for (const comment of COMMENTS) {
+		if (comment.range[0] >= node.range[1]) {
+			commentsAfter.push(comment);
+		}
+	}
+
+	return commentsAfter;
+}
+
+/**
+ * Retrieves comments inside a node.
+ * @param {Node} node The node to retrieve comments inside.
+ * @returns {Comment[]} Comments retrieved inside the node.
+ */
+function getCommentsInside(node) {
+	const commentsInside = [];
+
+	// Extract comments inside the node
+	for (const comment of COMMENTS) {
+		if (comment.range[0] >= node.range[0] && comment.range[1] <= node.range[1]) {
+			commentsInside.push(comment);
+		}
+	}
+
+	return commentsInside;
+}
+
+//------------------------------------------------------------------------------
+// Tests
+//------------------------------------------------------------------------------
 
 describe("TokenStore", () => {
 	const store = new TokenStore(TOKENS, COMMENTS);
@@ -459,7 +619,7 @@ describe("TokenStore", () => {
 			]);
 		});
 
-		it("should retrieve matched tokens and comments in the node for root node with includeComments and filter options", () => {
+		it("should retrieve all matched tokens and comments in the node for root node with includeComments and filter options", () => {
 			check(
 				store.getTokens(Program, {
 					includeComments: true,
@@ -1622,7 +1782,7 @@ describe("TokenStore", () => {
 			);
 		});
 
-		it("should retrieve all tokens and comments between non-adjacent nodes with includeComments option", () => {
+		it("should retrieve multiple tokens between non-adjacent nodes with includeComments option", () => {
 			check(
 				store.getFirstTokensBetween(
 					VariableDeclarator.id,

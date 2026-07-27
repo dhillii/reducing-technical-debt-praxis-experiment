@@ -3,19 +3,74 @@ import {AdminApi} from './utils/admin-api';
 import {GhostApi} from './utils/api';
 import {Page} from './pages';
 
-/**
- * Load more comments.
- * @param {object} params - Parameters.
- * @param {EditableAppContext} params.state - Current state.
- * @param {GhostApi} params.api - Ghost API instance.
- * @param {CommentsOptions} params.options - Comments options.
- * @param {string} [params.order] - Order of comments.
- * @returns {Promise<Partial<EditableAppContext>>} Updated state.
- */
-async function loadMoreComments({state, api, options, order}: {state: EditableAppContext, api: GhostApi, options: CommentsOptions, order?:string}): Promise<Partial<EditableAppContext>> {
-    const page = state.pagination?.page ? state.pagination.page + 1 : 1;
-    let data;
+// Helper function to check if a comment exists in the state
+function hasComment(state: EditableAppContext, commentId: string): boolean {
+    return state.comments.some(c => c.id === commentId);
+}
 
+// Helper function to get a comment from the state
+function getComment(state: EditableAppContext, commentId: string): Comment | undefined {
+    return state.comments.find(c => c.id === commentId);
+}
+
+// Helper function to update a comment in the state
+function updateComment(state: EditableAppContext, commentId: string, updatedComment: Partial<Comment>): EditableAppContext {
+    return {
+        comments: state.comments.map(c => c.id === commentId ? {...c, ...updatedComment} : c)
+    };
+}
+
+// Helper function to add a reply to a comment in the state
+function addReplyToComment(state: EditableAppContext, commentId: string, reply: Comment): EditableAppContext {
+    return {
+        comments: state.comments.map(c => {
+            if (c.id === commentId) {
+                return {
+                    ...c,
+                    replies: [...c.replies, reply]
+                };
+            }
+            return c;
+        })
+    };
+}
+
+// Helper function to remove a reply from a comment in the state
+function removeReplyFromComment(state: EditableAppContext, commentId: string, replyId: string): EditableAppContext {
+    return {
+        comments: state.comments.map(c => {
+            if (c.id === commentId) {
+                return {
+                    ...c,
+                    replies: c.replies.filter(r => r.id !== replyId)
+                };
+            }
+            return c;
+        })
+    };
+}
+
+// Helper function to update a reply in the state
+function updateReply(state: EditableAppContext, commentId: string, replyId: string, updatedReply: Partial<Comment>): EditableAppContext {
+    return {
+        comments: state.comments.map(c => {
+            if (c.id === commentId) {
+                return {
+                    ...c,
+                    replies: c.replies.map(r => r.id === replyId ? {...r, ...updatedReply} : r)
+                };
+            }
+            return c;
+        })
+    };
+}
+
+async function loadMoreComments({state, api, options, order}: {state: EditableAppContext, api: GhostApi, options: CommentsOptions, order?:string}): Promise<Partial<EditableAppContext>> {
+    let page = 1;
+    if (state.pagination && state.pagination.page) {
+        page = state.pagination.page + 1;
+    }
+    let data;
     if (state.admin && state.adminApi) {
         data = await state.adminApi.browse({page, postId: options.postId, order: order || state.order, memberUuid: state.member?.uuid});
     } else {
@@ -31,29 +86,12 @@ async function loadMoreComments({state, api, options, order}: {state: EditableAp
     };
 }
 
-/**
- * Set comments loading state.
- * @param {object} params - Parameters.
- * @param {boolean|null} params.data - Loading state.
- * @returns {object} Updated state.
- */
 function setCommentsIsLoading({data: isLoading}: {data: boolean | null}) {
     return {
         commentsIsLoading: isLoading
     };
 }
 
-/**
- * Set order of comments.
- * @param {object} params - Parameters.
- * @param {EditableAppContext} params.state - Current state.
- * @param {object} params.data - Data.
- * @param {string} params.data.order - Order of comments.
- * @param {CommentsOptions} params.options - Comments options.
- * @param {GhostApi} params.api - Ghost API instance.
- * @param {DispatchActionType} params.dispatchAction - Dispatch action function.
- * @returns {Promise<Partial<EditableAppContext>>} Updated state.
- */
 async function setOrder({state, data: {order}, options, api, dispatchAction}: {state: EditableAppContext, data: {order: string}, options: CommentsOptions, api: GhostApi, dispatchAction: DispatchActionType}) {
     dispatchAction('setCommentsIsLoading', true);
 
@@ -78,18 +116,7 @@ async function setOrder({state, data: {order}, options, api, dispatchAction}: {s
     }
 }
 
-/**
- * Load more replies.
- * @param {object} params - Parameters.
- * @param {EditableAppContext} params.state - Current state.
- * @param {GhostApi} params.api - Ghost API instance.
- * @param {object} params.data - Data.
- * @param {Comment} params.data.comment - Comment.
- * @param {number|string} [params.data.limit] - Limit of replies to load.
- * @param {boolean} params.isReply - Whether it's a reply.
- * @returns {Promise<Partial<EditableAppContext>>} Updated state.
- */
-async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {state: EditableAppContext, api: GhostApi, data: {comment: Comment, limit?: number | 'all'}, isReply: boolean}) {
+async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {state: EditableAppContext, api: GhostApi, data: {comment: Comment, limit?: number | 'all'}, isReply: boolean}): Promise<Partial<EditableAppContext>> {
     const fetchReplies = async (afterReplyId: string | undefined, requestLimit: number) => {
         if (state.admin && state.adminApi && !isReply) { 
             return await state.adminApi.replies({commentId: comment.id, afterReplyId, limit: requestLimit, memberUuid: state.member?.uuid});
@@ -136,14 +163,6 @@ async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {s
     };
 }
 
-/**
- * Add comment.
- * @param {object} params - Parameters.
- * @param {EditableAppContext} params.state - Current state.
- * @param {GhostApi} params.api - Ghost API instance.
- * @param {AddComment} params.data - Comment data.
- * @returns {Promise<Partial<EditableAppContext>>} Updated state.
- */
 async function addComment({state, api, data: comment}: {state: EditableAppContext, api: GhostApi, data: AddComment}) {
     const data = await api.comments.add({comment});
     comment = data.comments[0];
@@ -154,16 +173,6 @@ async function addComment({state, api, data: comment}: {state: EditableAppContex
     };
 }
 
-/**
- * Add reply.
- * @param {object} params - Parameters.
- * @param {EditableAppContext} params.state - Current state.
- * @param {GhostApi} params.api - Ghost API instance.
- * @param {object} params.data - Data.
- * @param {any} params.data.reply - Reply data.
- * @param {any} params.data.parent - Parent comment.
- * @returns {Promise<Partial<EditableAppContext>>} Updated state.
- */
 async function addReply({state, api, data: {reply, parent}}: {state: EditableAppContext, api: GhostApi, data: {reply: any, parent: any}}) {
     let comment = reply;
     comment.parent_id = parent.id;
@@ -171,75 +180,27 @@ async function addReply({state, api, data: {reply, parent}}: {state: EditableApp
     const data = await api.comments.add({comment});
     comment = data.comments[0];
 
-    return {
-        comments: state.comments.map((c) => {
-            if (c.id === parent.id) {
-                return {
-                    ...parent,
-                    replies: [...parent.replies, comment],
-                    count: {
-                        ...parent.count,
-                        replies: parent.count.replies + 1
-                    }
-                };
-            }
-            return c;
-        }),
-        commentCount: state.commentCount + 1
-    };
+    return addReplyToComment(state, parent.id, comment);
 }
 
-/**
- * Hide comment.
- * @param {object} params - Parameters.
- * @param {EditableAppContext} params.state - Current state.
- * @param {object} params.data - Data.
- * @param {string} params.data.id - Comment ID.
- * @returns {Promise<Partial<EditableAppContext>>} Updated state.
- */
 async function hideComment({state, data: comment}: {state: EditableAppContext, adminApi: any, data: {id: string}}) {
     if (state.adminApi) {
         await state.adminApi.hideComment(comment.id);
     }
     return {
         comments: state.comments.map((c) => {
-            const replies = c.replies.map((r) => {
-                if (r.id === comment.id) {
-                    return {
-                        ...r,
-                        status: 'hidden'
-                    };
-                }
-
-                return r;
-            });
-
             if (c.id === comment.id) {
                 return {
                     ...c,
-                    status: 'hidden',
-                    replies
+                    status: 'hidden'
                 };
             }
-
-            return {
-                ...c,
-                replies
-            };
+            return c;
         }),
         commentCount: state.commentCount - 1
     };
 }
 
-/**
- * Show comment.
- * @param {object} params - Parameters.
- * @param {EditableAppContext} params.state - Current state.
- * @param {GhostApi} params.api - Ghost API instance.
- * @param {object} params.data - Data.
- * @param {string} params.data.id - Comment ID.
- * @returns {Promise<Partial<EditableAppContext>>} Updated state.
- */
 async function showComment({state, api, data: comment}: {state: EditableAppContext, api: GhostApi, adminApi: any, data: {id: string}}) {
     if (state.adminApi) {
         await state.adminApi.showComment({id: comment.id});
@@ -253,85 +214,13 @@ async function showComment({state, api, data: comment}: {state: EditableAppConte
 
     const updatedComment = data.comments[0];
 
-    return {
-        comments: state.comments.map((c) => {
-            const replies = c.replies.map((r) => {
-                if (r.id === comment.id) {
-                    return updatedComment;
-                }
-
-                return r;
-            });
-
-            if (c.id === comment.id) {
-                return updatedComment;
-            }
-
-            return {
-                ...c,
-                replies
-            };
-        }),
-        commentCount: state.commentCount + 1
-    };
+    return updateComment(state, comment.id, updatedComment);
 }
 
-/**
- * Update comment like state.
- * @param {object} params - Parameters.
- * @param {EditableAppContext} params.state - Current state.
- * @param {object} params.data - Data.
- * @param {string} params.data.id - Comment ID.
- * @param {boolean} params.data.liked - Like state.
- * @returns {object} Updated state.
- */
-function updateCommentLikeState({state, data: comment}: {state: EditableAppContext, data: {id: string, liked: boolean}}) {
-    return {
-        comments: state.comments.map((c) => {
-            const replies = c.replies.map((r) => {
-                if (r.id === comment.id) {
-                    return {
-                        ...r,
-                        liked: comment.liked,
-                        count: {
-                            ...r.count,
-                            likes: comment.liked ? r.count.likes + 1 : r.count.likes - 1
-                        }
-                    };
-                }
-
-                return r;
-            });
-
-            if (c.id === comment.id) {
-                return {
-                    ...c,
-                    liked: comment.liked,
-                    replies,
-                    count: {
-                        ...c.count,
-                        likes: comment.liked ? c.count.likes + 1 : c.count.likes - 1
-                    }
-                };
-            }
-
-            return {
-                ...c,
-                replies
-            };
-        })
-    };
+async function updateCommentLikeState({state, data: comment}: {state: EditableAppContext, data: {id: string, liked: boolean}}) {
+    return updateComment(state, comment.id, {liked: comment.liked, count: {likes: comment.liked ? getComment(state, comment.id)?.count.likes + 1 : getComment(state, comment.id)?.count.likes - 1}});
 }
 
-/**
- * Like comment.
- * @param {object} params - Parameters.
- * @param {GhostApi} params.api - Ghost API instance.
- * @param {object} params.data - Data.
- * @param {string} params.data.id - Comment ID.
- * @param {DispatchActionType} params.dispatchAction - Dispatch action function.
- * @returns {Promise<Partial<EditableAppContext>>} Updated state.
- */
 async function likeComment({api, data: comment, dispatchAction}: {state: EditableAppContext, api: GhostApi, data: {id: string}, dispatchAction: DispatchActionType}) {
     dispatchAction('updateCommentLikeState', {id: comment.id, liked: true});
     try {
@@ -342,15 +231,6 @@ async function likeComment({api, data: comment, dispatchAction}: {state: Editabl
     }
 }
 
-/**
- * Unlike comment.
- * @param {object} params - Parameters.
- * @param {GhostApi} params.api - Ghost API instance.
- * @param {object} params.data - Data.
- * @param {string} params.data.id - Comment ID.
- * @param {DispatchActionType} params.dispatchAction - Dispatch action function.
- * @returns {Promise<Partial<EditableAppContext>>} Updated state.
- */
 async function unlikeComment({api, data: comment, dispatchAction}: {state: EditableAppContext, api: GhostApi, data: {id: string}, dispatchAction: DispatchActionType}) {
     dispatchAction('updateCommentLikeState', {id: comment.id, liked: false});
 
@@ -362,30 +242,12 @@ async function unlikeComment({api, data: comment, dispatchAction}: {state: Edita
     }
 }
 
-/**
- * Report comment.
- * @param {object} params - Parameters.
- * @param {GhostApi} params.api - Ghost API instance.
- * @param {object} params.data - Data.
- * @param {string} params.data.id - Comment ID.
- * @returns {Promise<Partial<EditableAppContext>>} Updated state.
- */
 async function reportComment({api, data: comment}: {api: GhostApi, data: {id: string}}) {
     await api.comments.report({comment});
 
     return {};
 }
 
-/**
- * Delete comment.
- * @param {object} params - Parameters.
- * @param {EditableAppContext} params.state - Current state.
- * @param {GhostApi} params.api - Ghost API instance.
- * @param {object} params.data - Data.
- * @param {string} params.data.id - Comment ID.
- * @param {DispatchActionType} params.dispatchAction - Dispatch action function.
- * @returns {Promise<Partial<EditableAppContext>>} Updated state.
- */
 async function deleteComment({state, api, data: comment, dispatchAction}: {state: EditableAppContext, api: GhostApi, data: {id: string}, dispatchAction: DispatchActionType}) {
     await api.comments.edit({
         comment: {
@@ -394,7 +256,7 @@ async function deleteComment({state, api, data: comment, dispatchAction}: {state
         }
     });
 
-    const commentToDelete = state.comments.find(c => c.id === comment.id);
+    const commentToDelete = getComment(state, comment.id);
     if (commentToDelete && (!commentToDelete.replies || commentToDelete.replies.length === 0)) {
         dispatchAction('setOrder', {order: state.order});
         return null;
@@ -432,53 +294,19 @@ async function deleteComment({state, api, data: comment, dispatchAction}: {state
     };
 }
 
-/**
- * Edit comment.
- * @param {object} params - Parameters.
- * @param {EditableAppContext} params.state - Current state.
- * @param {GhostApi} params.api - Ghost API instance.
- * @param {object} params.data - Data.
- * @param {Partial<Comment> & {id: string}} params.data.comment - Comment data.
- * @param {Comment} [params.data.parent] - Parent comment.
- * @returns {Promise<Partial<EditableAppContext>>} Updated state.
- */
 async function editComment({state, api, data: {comment, parent}}: {state: EditableAppContext, api: GhostApi, data: {comment: Partial<Comment> & {id: string}, parent?: Comment}}) {
     const data = await api.comments.edit({
         comment
     });
     comment = data.comments[0];
 
-    return {
-        comments: state.comments.map((c) => {
-            if (parent && parent.id === c.id) {
-                return {
-                    ...c,
-                    replies: c.replies.map((r) => {
-                        if (r.id === comment.id) {
-                            return comment;
-                        }
-                        return r;
-                    })
-                };
-            } else if (c.id === comment.id) {
-                return comment;
-            }
-
-            return c;
-        })
-    };
+    if (parent) {
+        return updateReply(state, parent.id, comment.id, comment);
+    } else {
+        return updateComment(state, comment.id, comment);
+    }
 }
 
-/**
- * Update member.
- * @param {object} params - Parameters.
- * @param {object} params.data - Data.
- * @param {string} params.data.name - Member name.
- * @param {string} params.data.expertise - Member expertise.
- * @param {EditableAppContext} params.state - Current state.
- * @param {GhostApi} params.api - Ghost API instance.
- * @returns {Promise<Partial<EditableAppContext>>} Updated state.
- */
 async function updateMember({data, state, api}: {data: {name: string, expertise: string}, state: EditableAppContext, api: GhostApi}) {
     const {name, expertise} = data;
     const patchData: {name?: string, expertise?: string} = {};
@@ -514,42 +342,23 @@ async function updateMember({data, state, api}: {data: {name: string, expertise:
     return null;
 }
 
-/**
- * Open popup.
- * @param {object} params - Parameters.
- * @param {Page} params.data - Page data.
- * @returns {object} Updated state.
- */
 function openPopup({data}: {data: Page}) {
     return {
         popup: data
     };
 }
 
-/**
- * Close popup.
- * @returns {object} Updated state.
- */
 function closePopup() {
     return {
         popup: null
     };
 }
 
-/**
- * Open comment form.
- * @param {object} params - Parameters.
- * @param {OpenCommentForm} params.data - Comment form data.
- * @param {GhostApi} params.api - Ghost API instance.
- * @param {EditableAppContext} params.state - Current state.
- * @returns {Promise<Partial<EditableAppContext>>} Updated state.
- */
 async function openCommentForm({data: newForm, api, state}: {data: OpenCommentForm, api: GhostApi, state: EditableAppContext}) {
     let otherStateChanges = {};
 
-    const topLevelCommentId = newForm.parent_id || newForm.id;
-    if (newForm.type === 'reply' && !state.openCommentForms.some(f => f.id === topLevelCommentId || f.parent_id === topLevelCommentId)) {
-        const comment = state.comments.find(c => c.id === topLevelCommentId);
+    if (newForm.type === 'reply' && !state.openCommentForms.some(f => f.id === newForm.parent_id || f.parent_id === newForm.parent_id)) {
+        const comment = getComment(state, newForm.parent_id);
 
         if (comment) {
             const newCommentsState = await loadMoreReplies({state, api, data: {comment, limit: 'all'}, isReply: true});
@@ -569,26 +378,12 @@ async function openCommentForm({data: newForm, api, state}: {data: OpenCommentFo
     };
 }
 
-/**
- * Set highlight comment.
- * @param {object} params - Parameters.
- * @param {string|null} params.data - Comment ID to highlight.
- * @returns {object} Updated state.
- */
 function setHighlightComment({data: commentId}: {data: string | null}) {
     return {
         commentIdToHighlight: commentId
     };
 }
 
-/**
- * Highlight comment.
- * @param {object} params - Parameters.
- * @param {object} params.data - Data.
- * @param {string|null} params.data.commentId - Comment ID to highlight.
- * @param {DispatchActionType} params.dispatchAction - Dispatch action function.
- * @returns {object} Updated state.
- */
 function highlightComment({
     data: {commentId},
     dispatchAction
@@ -606,15 +401,6 @@ function highlightComment({
     };
 }
 
-/**
- * Set comment form has unsaved changes.
- * @param {object} params - Parameters.
- * @param {object} params.data - Data.
- * @param {string} params.data.id - Comment form ID.
- * @param {boolean} params.data.hasUnsavedChanges - Whether the form has unsaved changes.
- * @param {EditableAppContext} params.state - Current state.
- * @returns {object} Updated state.
- */
 function setCommentFormHasUnsavedChanges({data: {id, hasUnsavedChanges}, state}: {data: {id: string, hasUnsavedChanges: boolean}, state: EditableAppContext}) {
     const updatedForms = state.openCommentForms.map((f) => {
         if (f.id === id) {
@@ -627,23 +413,10 @@ function setCommentFormHasUnsavedChanges({data: {id, hasUnsavedChanges}, state}:
     return {openCommentForms: updatedForms};
 }
 
-/**
- * Close comment form.
- * @param {object} params - Parameters.
- * @param {string} params.data - Comment form ID.
- * @param {EditableAppContext} params.state - Current state.
- * @returns {object} Updated state.
- */
 function closeCommentForm({data: id, state}: {data: string, state: EditableAppContext}) {
     return {openCommentForms: state.openCommentForms.filter(f => f.id !== id)};
 };
 
-/**
- * Set scroll target.
- * @param {object} params - Parameters.
- * @param {string|null} params.data - Comment ID to scroll to.
- * @returns {object} Updated state.
- */
 function setScrollTarget({data: commentId}: {data: string | null}) {
     return {commentIdToScrollTo: commentId};
 }
@@ -685,18 +458,6 @@ export function isSyncAction(action: string): action is SyncActionType {
     return !!(SyncActions as any)[action];
 }
 
-/**
- * Handle actions in the App, returns updated state.
- * @param {object} params - Parameters.
- * @param {ActionType} params.action - Action type.
- * @param {any} params.data - Action data.
- * @param {EditableAppContext} params.state - Current state.
- * @param {CommentsOptions} params.options - Comments options.
- * @param {GhostApi} params.api - Ghost API instance.
- * @param {AdminApi} params.adminApi - Admin API instance.
- * @param {DispatchActionType} params.dispatchAction - Dispatch action function.
- * @returns {Promise<Partial<EditableAppContext>>} Updated state.
- */
 export async function ActionHandler({action, data, state, api, adminApi, options, dispatchAction}: {action: ActionType, data: any, state: EditableAppContext, options: CommentsOptions, api: GhostApi, adminApi: AdminApi, dispatchAction: DispatchActionType}): Promise<Partial<EditableAppContext>> {
     const handler = Actions[action];
     if (handler) {
@@ -705,17 +466,6 @@ export async function ActionHandler({action, data, state, api, adminApi, options
     return {};
 }
 
-/**
- * Handle sync actions in the App, returns updated state.
- * @param {object} params - Parameters.
- * @param {SyncActionType} params.action - Action type.
- * @param {any} params.data - Action data.
- * @param {EditableAppContext} params.state - Current state.
- * @param {CommentsOptions} params.options - Comments options.
- * @param {GhostApi} params.api - Ghost API instance.
- * @param {AdminApi} params.adminApi - Admin API instance.
- * @returns {Partial<EditableAppContext>} Updated state.
- */
 export function SyncActionHandler({action, data, state, api, adminApi, options}: {action: SyncActionType, data: any, state: EditableAppContext, options: CommentsOptions, api: GhostApi, adminApi: AdminApi}): Partial<EditableAppContext> {
     const handler = SyncActions[action];
     if (handler) {

@@ -11,87 +11,54 @@ const momentTz = require('moment-timezone');
 const moment = require('moment');
 const Utils = require('./utils');
 
-/**
- * Abstract base class for all data types.
- */
-function ABSTRACT() {}
+// Define the base abstract data type
+function AbstractDataType() {}
+AbstractDataType.prototype.dialectTypes = '';
 
-ABSTRACT.prototype.dialectTypes = '';
-
-/**
- * Converts the data type to a string representation.
- * @param {object} options - Options for the conversion.
- * @returns {string} The string representation of the data type.
- */
-ABSTRACT.prototype.toString = function toString(options) {
+// Define a function to generate a string representation of the data type
+AbstractDataType.prototype.toString = function toString(options) {
   return this.toSql(options);
 };
 
-/**
- * Converts the data type to a SQL representation.
- * @returns {string} The SQL representation of the data type.
- */
-ABSTRACT.prototype.toSql = function toSql() {
+// Define a function to generate the SQL representation of the data type
+AbstractDataType.prototype.toSql = function toSql() {
   return this.key;
 };
 
-/**
- * Warns about a potential issue.
- * @param {string} link - A link to more information about the issue.
- * @param {string} text - A description of the issue.
- */
-ABSTRACT.warn = function warn(link, text) {
+// Define a function to warn about potential issues
+AbstractDataType.warn = function warn(link, text) {
   if (!warnings[text]) {
     warnings[text] = true;
     Utils.warn(`${text}, '\n>> Check:', ${link}`);
   }
 };
 
-/**
- * Stringifies a value.
- * @param {*} value - The value to stringify.
- * @param {object} options - Options for the stringification.
- * @returns {*} The stringified value.
- */
-ABSTRACT.prototype.stringify = function stringify(value, options) {
+// Define a function to stringify values
+AbstractDataType.prototype.stringify = function stringify(value, options) {
   if (this._stringify) {
     return this._stringify(value, options);
   }
   return value;
 };
 
-/**
- * Creates a new string data type.
- * @param {number|object} length - The length of the string.
- * @param {boolean} binary - Whether the string is binary.
- */
-function STRING(length, binary) {
-  const options = typeof length === 'object' && length || {length, binary};
+// Define a string data type
+function StringType(length, binary) {
+  const options = typeof length === 'object' && length || { length, binary };
 
-  if (!(this instanceof STRING)) return new STRING(options);
+  if (!(this instanceof StringType)) return new StringType(options);
 
   this.options = options;
   this._binary = options.binary;
   this._length = options.length || 255;
 }
-inherits(STRING, ABSTRACT);
+inherits(StringType, AbstractDataType);
 
-STRING.prototype.key = STRING.key = 'STRING';
-
-/**
- * Converts the string data type to a SQL representation.
- * @returns {string} The SQL representation of the string data type.
- */
-STRING.prototype.toSql = function toSql() {
+StringType.prototype.key = StringType.key = 'STRING';
+StringType.prototype.toSql = function toSql() {
   return 'VARCHAR(' + this._length + ')' + (this._binary ? ' BINARY' : '');
 };
 
-/**
- * Validates a value for the string data type.
- * @param {*} value - The value to validate.
- * @returns {boolean} Whether the value is valid.
- */
-STRING.prototype.validate = function validate(value) {
+StringType.prototype.validate = function validate(value) {
   if (Object.prototype.toString.call(value) !== '[object String]') {
     if (this.options.binary && Buffer.isBuffer(value) || _.isNumber(value)) {
       return true;
@@ -102,48 +69,39 @@ STRING.prototype.validate = function validate(value) {
   return true;
 };
 
-/**
- * Creates a new char data type.
- * @param {number|object} length - The length of the char.
- * @param {boolean} binary - Whether the char is binary.
- */
-function CHAR(length, binary) {
-  const options = typeof length === 'object' && length || {length, binary};
+Object.defineProperty(StringType.prototype, 'BINARY', {
+  get() {
+    this._binary = true;
+    this.options.binary = true;
+    return this;
+  }
+});
 
-  if (!(this instanceof CHAR)) return new CHAR(options);
-  STRING.apply(this, arguments);
+// Define a character data type
+function CharType(length, binary) {
+  const options = typeof length === 'object' && length || { length, binary };
+
+  if (!(this instanceof CharType)) return new CharType(options);
+  StringType.apply(this, arguments);
 }
-inherits(CHAR, STRING);
+inherits(CharType, StringType);
 
-CHAR.prototype.key = CHAR.key = 'CHAR';
-
-/**
- * Converts the char data type to a SQL representation.
- * @returns {string} The SQL representation of the char data type.
- */
-CHAR.prototype.toSql = function toSql() {
+CharType.prototype.key = CharType.key = 'CHAR';
+CharType.prototype.toSql = function toSql() {
   return 'CHAR(' + this._length + ')' + (this._binary ? ' BINARY' : '');
 };
 
-/**
- * Creates a new text data type.
- * @param {string|object} length - The length of the text.
- */
-function TEXT(length) {
-  const options = typeof length === 'object' && length || {length};
-  if (!(this instanceof TEXT)) return new TEXT(options);
+// Define a text data type
+function TextType(length) {
+  const options = typeof length === 'object' && length || { length };
+  if (!(this instanceof TextType)) return new TextType(options);
   this.options = options;
   this._length = options.length || '';
 }
-inherits(TEXT, ABSTRACT);
+inherits(TextType, AbstractDataType);
 
-TEXT.prototype.key = TEXT.key = 'TEXT';
-
-/**
- * Converts the text data type to a SQL representation.
- * @returns {string} The SQL representation of the text data type.
- */
-TEXT.prototype.toSql = function toSql() {
+TextType.prototype.key = TextType.key = 'TEXT';
+TextType.prototype.toSql = function toSql() {
   switch (this._length.toLowerCase()) {
     case 'tiny':
       return 'TINYTEXT';
@@ -156,12 +114,7 @@ TEXT.prototype.toSql = function toSql() {
   }
 };
 
-/**
- * Validates a value for the text data type.
- * @param {*} value - The value to validate.
- * @returns {boolean} Whether the value is valid.
- */
-TEXT.prototype.validate = function validate(value) {
+TextType.prototype.validate = function validate(value) {
   if (!_.isString(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid string', value));
   }
@@ -169,11 +122,8 @@ TEXT.prototype.validate = function validate(value) {
   return true;
 };
 
-/**
- * Creates a new number data type.
- * @param {object} options - Options for the number data type.
- */
-function NUMBER(options) {
+// Define a number data type
+function NumberType(options) {
   this.options = options;
   this._length = options.length;
   this._zerofill = options.zerofill;
@@ -182,15 +132,10 @@ function NUMBER(options) {
   this._scale = options.scale;
   this._unsigned = options.unsigned;
 }
-inherits(NUMBER, ABSTRACT);
+inherits(NumberType, AbstractDataType);
 
-NUMBER.prototype.key = NUMBER.key = 'NUMBER';
-
-/**
- * Converts the number data type to a SQL representation.
- * @returns {string} The SQL representation of the number data type.
- */
-NUMBER.prototype.toSql = function toSql() {
+NumberType.prototype.key = NumberType.key = 'NUMBER';
+NumberType.prototype.toSql = function toSql() {
   let result = this.key;
   if (this._length) {
     result += '(' + this._length;
@@ -208,12 +153,7 @@ NUMBER.prototype.toSql = function toSql() {
   return result;
 };
 
-/**
- * Validates a value for the number data type.
- * @param {*} value - The value to validate.
- * @returns {boolean} Whether the value is valid.
- */
-NUMBER.prototype.validate = function validate(value) {
+NumberType.prototype.validate = function validate(value) {
   if (!Validator.isFloat(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid ' + _.toLower(this.key), value));
   }
@@ -221,12 +161,7 @@ NUMBER.prototype.validate = function validate(value) {
   return true;
 };
 
-/**
- * Stringifies a value for the number data type.
- * @param {*} value - The value to stringify.
- * @returns {*} The stringified value.
- */
-NUMBER.prototype._stringify = function _stringify(number) {
+NumberType.prototype._stringify = function _stringify(number) {
   if (typeof number === 'number' || typeof number === 'boolean' || number === null || number === undefined) {
     return number;
   }
@@ -238,25 +173,32 @@ NUMBER.prototype._stringify = function _stringify(number) {
   return number;
 };
 
-/**
- * Creates a new integer data type.
- * @param {number|object} length - The length of the integer.
- */
-function INTEGER(length) {
-  const options = typeof length === 'object' && length || {length};
-  if (!(this instanceof INTEGER)) return new INTEGER(options);
-  NUMBER.call(this, options);
+Object.defineProperty(NumberType.prototype, 'UNSIGNED', {
+  get() {
+    this._unsigned = true;
+    this.options.unsigned = true;
+    return this;
+  }
+});
+
+Object.defineProperty(NumberType.prototype, 'ZEROFILL', {
+  get() {
+    this._zerofill = true;
+    this.options.zerofill = true;
+    return this;
+  }
+});
+
+// Define integer data types
+function IntegerType(length) {
+  const options = typeof length === 'object' && length || { length };
+  if (!(this instanceof IntegerType)) return new IntegerType(options);
+  NumberType.call(this, options);
 }
-inherits(INTEGER, NUMBER);
+inherits(IntegerType, NumberType);
 
-INTEGER.prototype.key = INTEGER.key = 'INTEGER';
-
-/**
- * Validates a value for the integer data type.
- * @param {*} value - The value to validate.
- * @returns {boolean} Whether the value is valid.
- */
-INTEGER.prototype.validate = function validate(value) {
+IntegerType.prototype.key = IntegerType.key = 'INTEGER';
+IntegerType.prototype.validate = function validate(value) {
   if (!Validator.isInt(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid ' + _.toLower(this.key), value));
   }
@@ -264,78 +206,51 @@ INTEGER.prototype.validate = function validate(value) {
   return true;
 };
 
-/**
- * Creates a new tiny int data type.
- * @param {number|object} length - The length of the tiny int.
- */
-function TINYINT(length) {
-  const options = typeof length === 'object' && length || {length};
-  if (!(this instanceof TINYINT)) return new TINYINT(options);
-  NUMBER.call(this, options);
+function TinyIntType(length) {
+  const options = typeof length === 'object' && length || { length };
+  if (!(this instanceof TinyIntType)) return new TinyIntType(options);
+  NumberType.call(this, options);
 }
-inherits(TINYINT, INTEGER);
+inherits(TinyIntType, IntegerType);
 
-TINYINT.prototype.key = TINYINT.key = 'TINYINT';
+TinyIntType.prototype.key = TinyIntType.key = 'TINYINT';
 
-/**
- * Creates a new small int data type.
- * @param {number|object} length - The length of the small int.
- */
-function SMALLINT(length) {
-  const options = typeof length === 'object' && length || {length};
-  if (!(this instanceof SMALLINT)) return new SMALLINT(options);
-  NUMBER.call(this, options);
+function SmallIntType(length) {
+  const options = typeof length === 'object' && length || { length };
+  if (!(this instanceof SmallIntType)) return new SmallIntType(options);
+  NumberType.call(this, options);
 }
-inherits(SMALLINT, INTEGER);
+inherits(SmallIntType, IntegerType);
 
-SMALLINT.prototype.key = SMALLINT.key = 'SMALLINT';
+SmallIntType.prototype.key = SmallIntType.key = 'SMALLINT';
 
-/**
- * Creates a new medium int data type.
- * @param {number|object} length - The length of the medium int.
- */
-function MEDIUMINT(length) {
-  const options = typeof length === 'object' && length || {length};
-  if (!(this instanceof MEDIUMINT)) return new MEDIUMINT(options);
-  NUMBER.call(this, options);
+function MediumIntType(length) {
+  const options = typeof length === 'object' && length || { length };
+  if (!(this instanceof MediumIntType)) return new MediumIntType(options);
+  NumberType.call(this, options);
 }
-inherits(MEDIUMINT, INTEGER);
+inherits(MediumIntType, IntegerType);
 
-MEDIUMINT.prototype.key = MEDIUMINT.key = 'MEDIUMINT';
+MediumIntType.prototype.key = MediumIntType.key = 'MEDIUMINT';
 
-/**
- * Creates a new big int data type.
- * @param {number|object} length - The length of the big int.
- */
-function BIGINT(length) {
-  const options = typeof length === 'object' && length || {length};
-  if (!(this instanceof BIGINT)) return new BIGINT(options);
-  NUMBER.call(this, options);
+function BigIntType(length) {
+  const options = typeof length === 'object' && length || { length };
+  if (!(this instanceof BigIntType)) return new BigIntType(options);
+  NumberType.call(this, options);
 }
-inherits(BIGINT, INTEGER);
+inherits(BigIntType, IntegerType);
 
-BIGINT.prototype.key = BIGINT.key = 'BIGINT';
+BigIntType.prototype.key = BigIntType.key = 'BIGINT';
 
-/**
- * Creates a new float data type.
- * @param {number|object} length - The length of the float.
- * @param {number} decimals - The number of decimal places.
- */
-function FLOAT(length, decimals) {
-  const options = typeof length === 'object' && length || {length, decimals};
-  if (!(this instanceof FLOAT)) return new FLOAT(options);
-  NUMBER.call(this, options);
+function FloatType(length, decimals) {
+  const options = typeof length === 'object' && length || { length, decimals };
+  if (!(this instanceof FloatType)) return new FloatType(options);
+  NumberType.call(this, options);
 }
-inherits(FLOAT, NUMBER);
+inherits(FloatType, NumberType);
 
-FLOAT.prototype.key = FLOAT.key = 'FLOAT';
-
-/**
- * Validates a value for the float data type.
- * @param {*} value - The value to validate.
- * @returns {boolean} Whether the value is valid.
- */
-FLOAT.prototype.validate = function validate(value) {
+FloatType.prototype.key = FloatType.key = 'FLOAT';
+FloatType.prototype.validate = function validate(value) {
   if (!Validator.isFloat(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid float', value));
   }
@@ -343,53 +258,33 @@ FLOAT.prototype.validate = function validate(value) {
   return true;
 };
 
-/**
- * Creates a new real data type.
- * @param {number|object} length - The length of the real.
- * @param {number} decimals - The number of decimal places.
- */
-function REAL(length, decimals) {
-  const options = typeof length === 'object' && length || {length, decimals};
-  if (!(this instanceof REAL)) return new REAL(options);
-  NUMBER.call(this, options);
+function RealType(length, decimals) {
+  const options = typeof length === 'object' && length || { length, decimals };
+  if (!(this instanceof RealType)) return new RealType(options);
+  NumberType.call(this, options);
 }
-inherits(REAL, NUMBER);
+inherits(RealType, NumberType);
 
-REAL.prototype.key = REAL.key = 'REAL';
+RealType.prototype.key = RealType.key = 'REAL';
 
-/**
- * Creates a new double data type.
- * @param {number|object} length - The length of the double.
- * @param {number} decimals - The number of decimal places.
- */
-function DOUBLE(length, decimals) {
-  const options = typeof length === 'object' && length || {length, decimals};
-  if (!(this instanceof DOUBLE)) return new DOUBLE(options);
-  NUMBER.call(this, options);
+function DoubleType(length, decimals) {
+  const options = typeof length === 'object' && length || { length, decimals };
+  if (!(this instanceof DoubleType)) return new DoubleType(options);
+  NumberType.call(this, options);
 }
-inherits(DOUBLE, NUMBER);
+inherits(DoubleType, NumberType);
 
-DOUBLE.prototype.key = DOUBLE.key = 'DOUBLE PRECISION';
+DoubleType.prototype.key = DoubleType.key = 'DOUBLE PRECISION';
 
-/**
- * Creates a new decimal data type.
- * @param {number|object} precision - The precision of the decimal.
- * @param {number} scale - The scale of the decimal.
- */
-function DECIMAL(precision, scale) {
-  const options = typeof precision === 'object' && precision || {precision, scale};
-  if (!(this instanceof DECIMAL)) return new DECIMAL(options);
-  NUMBER.call(this, options);
+function DecimalType(precision, scale) {
+  const options = typeof precision === 'object' && precision || { precision, scale };
+  if (!(this instanceof DecimalType)) return new DecimalType(options);
+  NumberType.call(this, options);
 }
-inherits(DECIMAL, NUMBER);
+inherits(DecimalType, NumberType);
 
-DECIMAL.prototype.key = DECIMAL.key = 'DECIMAL';
-
-/**
- * Converts the decimal data type to a SQL representation.
- * @returns {string} The SQL representation of the decimal data type.
- */
-DECIMAL.prototype.toSql = function toSql() {
+DecimalType.prototype.key = DecimalType.key = 'DECIMAL';
+DecimalType.prototype.toSql = function toSql() {
   if (this._precision || this._scale) {
     return 'DECIMAL(' + [this._precision, this._scale].filter(_.identity).join(',') + ')';
   }
@@ -397,12 +292,7 @@ DECIMAL.prototype.toSql = function toSql() {
   return 'DECIMAL';
 };
 
-/**
- * Validates a value for the decimal data type.
- * @param {*} value - The value to validate.
- * @returns {boolean} Whether the value is valid.
- */
-DECIMAL.prototype.validate = function validate(value) {
+DecimalType.prototype.validate = function validate(value) {
   if (!Validator.isDecimal(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid decimal', value));
   }
@@ -410,30 +300,18 @@ DECIMAL.prototype.validate = function validate(value) {
   return true;
 };
 
-/**
- * Creates a new boolean data type.
- */
-function BOOLEAN() {
-  if (!(this instanceof BOOLEAN)) return new BOOLEAN();
+// Define a boolean data type
+function BooleanType() {
+  if (!(this instanceof BooleanType)) return new BooleanType();
 }
-inherits(BOOLEAN, ABSTRACT);
+inherits(BooleanType, AbstractDataType);
 
-BOOLEAN.prototype.key = BOOLEAN.key = 'BOOLEAN';
-
-/**
- * Converts the boolean data type to a SQL representation.
- * @returns {string} The SQL representation of the boolean data type.
- */
-BOOLEAN.prototype.toSql = function toSql() {
+BooleanType.prototype.key = BooleanType.key = 'BOOLEAN';
+BooleanType.prototype.toSql = function toSql() {
   return 'TINYINT(1)';
 };
 
-/**
- * Validates a value for the boolean data type.
- * @param {*} value - The value to validate.
- * @returns {boolean} Whether the value is valid.
- */
-BOOLEAN.prototype.validate = function validate(value) {
+BooleanType.prototype.validate = function validate(value) {
   if (!Validator.isBoolean(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid boolean', value));
   }
@@ -441,12 +319,7 @@ BOOLEAN.prototype.validate = function validate(value) {
   return true;
 };
 
-/**
- * Sanitizes a value for the boolean data type.
- * @param {*} value - The value to sanitize.
- * @returns {*} The sanitized value.
- */
-BOOLEAN.prototype._sanitize = function _sanitize(value) {
+BooleanType.prototype._sanitize = function _sanitize(value) {
   if (value !== null && value !== undefined) {
     if (Buffer.isBuffer(value) && value.length === 1) {
       value = value[0];
@@ -462,56 +335,36 @@ BOOLEAN.prototype._sanitize = function _sanitize(value) {
   return value;
 };
 
-BOOLEAN.parse = BOOLEAN.prototype._sanitize;
+BooleanType.parse = BooleanType.prototype._sanitize;
 
-/**
- * Creates a new time data type.
- */
-function TIME() {
-  if (!(this instanceof TIME)) return new TIME();
+// Define a time data type
+function TimeType() {
+  if (!(this instanceof TimeType)) return new TimeType();
 }
-inherits(TIME, ABSTRACT);
+inherits(TimeType, AbstractDataType);
 
-TIME.prototype.key = TIME.key = 'TIME';
-
-/**
- * Converts the time data type to a SQL representation.
- * @returns {string} The SQL representation of the time data type.
- */
-TIME.prototype.toSql = function toSql() {
+TimeType.prototype.key = TimeType.key = 'TIME';
+TimeType.prototype.toSql = function toSql() {
   return 'TIME';
 };
 
-/**
- * Creates a new date data type.
- * @param {string|object} length - The length of the date.
- */
-function DATE(length) {
-  const options = typeof length === 'object' && length || {length};
+// Define a date data type
+function DateType(length) {
+  const options = typeof length === 'object' && length || { length };
 
-  if (!(this instanceof DATE)) return new DATE(options);
+  if (!(this instanceof DateType)) return new DateType(options);
 
   this.options = options;
   this._length = options.length || '';
 }
-inherits(DATE, ABSTRACT);
+inherits(DateType, AbstractDataType);
 
-DATE.prototype.key = DATE.key = 'DATE';
-
-/**
- * Converts the date data type to a SQL representation.
- * @returns {string} The SQL representation of the date data type.
- */
-DATE.prototype.toSql = function toSql() {
+DateType.prototype.key = DateType.key = 'DATE';
+DateType.prototype.toSql = function toSql() {
   return 'DATETIME';
 };
 
-/**
- * Validates a value for the date data type.
- * @param {*} value - The value to validate.
- * @returns {boolean} Whether the value is valid.
- */
-DATE.prototype.validate = function validate(value) {
+DateType.prototype.validate = function validate(value) {
   if (!Validator.isDate(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid date', value));
   }
@@ -519,27 +372,15 @@ DATE.prototype.validate = function validate(value) {
   return true;
 };
 
-/**
- * Sanitizes a value for the date data type.
- * @param {*} value - The value to sanitize.
- * @param {object} options - Options for the sanitization.
- * @returns {*} The sanitized value.
- */
-DATE.prototype._sanitize = function _sanitize(value, options) {
-  if ((!options || options && !options.raw) && !(value instanceof Date) && !!value) {
+DateType.prototype._sanitize = function _sanitize(value, options) {
+  if ((!options || options && !options.raw) && !!value) {
     return new Date(value);
   }
 
   return value;
 };
 
-/**
- * Checks if a value has changed for the date data type.
- * @param {*} value - The value to check.
- * @param {*} originalValue - The original value.
- * @returns {boolean} Whether the value has changed.
- */
-DATE.prototype._isChanged = function _isChanged(value, originalValue) {
+DateType.prototype._isChanged = function _isChanged(value, originalValue) {
   if (
     originalValue && !!value &&
     (
@@ -557,13 +398,7 @@ DATE.prototype._isChanged = function _isChanged(value, originalValue) {
   return true;
 };
 
-/**
- * Applies a timezone to a value for the date data type.
- * @param {*} value - The value to apply the timezone to.
- * @param {object} options - Options for the timezone application.
- * @returns {*} The value with the timezone applied.
- */
-DATE.prototype._applyTimezone = function _applyTimezone(date, options) {
+DateType.prototype._applyTimezone = function _applyTimezone(date, options) {
   if (options.timezone) {
     if (momentTz.tz.zone(options.timezone)) {
       date = momentTz(date).tz(options.timezone);
@@ -577,52 +412,28 @@ DATE.prototype._applyTimezone = function _applyTimezone(date, options) {
   return date;
 };
 
-/**
- * Stringifies a value for the date data type.
- * @param {*} value - The value to stringify.
- * @param {object} options - Options for the stringification.
- * @returns {*} The stringified value.
- */
-DATE.prototype._stringify = function _stringify(date, options) {
+DateType.prototype._stringify = function _stringify(date, options) {
   date = this._applyTimezone(date, options);
 
   return date.format('YYYY-MM-DD HH:mm:ss.SSS Z');
 };
 
-/**
- * Creates a new date only data type.
- */
-function DATEONLY() {
-  if (!(this instanceof DATEONLY)) return new DATEONLY();
+// Define a date only data type
+function DateOnlyType() {
+  if (!(this instanceof DateOnlyType)) return new DateOnlyType();
 }
-util.inherits(DATEONLY, ABSTRACT);
+util.inherits(DateOnlyType, AbstractDataType);
 
-DATEONLY.prototype.key = DATEONLY.key = 'DATEONLY';
-
-/**
- * Converts the date only data type to a SQL representation.
- * @returns {string} The SQL representation of the date only data type.
- */
-DATEONLY.prototype.toSql = function() {
+DateOnlyType.prototype.key = DateOnlyType.key = 'DATEONLY';
+DateOnlyType.prototype.toSql = function toSql() {
   return 'DATE';
 };
 
-/**
- * Stringifies a value for the date only data type.
- * @param {*} value - The value to stringify.
- * @returns {*} The stringified value.
- */
-DATEONLY.prototype._stringify = function _stringify(date) {
+DateOnlyType.prototype._stringify = function _stringify(date) {
   return moment(date).format('YYYY-MM-DD');
 };
 
-/**
- * Sanitizes a value for the date only data type.
- * @param {*} value - The value to sanitize.
- * @param {object} options - Options for the sanitization.
- * @returns {*} The sanitized value.
- */
-DATEONLY.prototype._sanitize = function _sanitize(value, options) {
+DateOnlyType.prototype._sanitize = function _sanitize(value, options) {
   if ((!options || options && !options.raw) && !!value) {
     return moment(value).format('YYYY-MM-DD');
   }
@@ -630,13 +441,7 @@ DATEONLY.prototype._sanitize = function _sanitize(value, options) {
   return value;
 };
 
-/**
- * Checks if a value has changed for the date only data type.
- * @param {*} value - The value to check.
- * @param {*} originalValue - The original value.
- * @returns {boolean} Whether the value has changed.
- */
-DATEONLY.prototype._isChanged = function _isChanged(value, originalValue) {
+DateOnlyType.prototype._isChanged = function _isChanged(value, originalValue) {
   if (originalValue && !!value && originalValue === value) {
     return false;
   }
@@ -648,22 +453,14 @@ DATEONLY.prototype._isChanged = function _isChanged(value, originalValue) {
   return true;
 };
 
-/**
- * Creates a new hstore data type.
- */
-function HSTORE() {
-  if (!(this instanceof HSTORE)) return new HSTORE();
+// Define an hstore data type
+function HStoreType() {
+  if (!(this instanceof HStoreType)) return new HStoreType();
 }
-inherits(HSTORE, ABSTRACT);
+inherits(HStoreType, AbstractDataType);
 
-HSTORE.prototype.key = HSTORE.key = 'HSTORE';
-
-/**
- * Validates a value for the hstore data type.
- * @param {*} value - The value to validate.
- * @returns {boolean} Whether the value is valid.
- */
-HSTORE.prototype.validate = function validate(value) {
+HStoreType.prototype.key = HStoreType.key = 'HSTORE';
+HStoreType.prototype.validate = function validate(value) {
   if (!_.isPlainObject(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid hstore', value));
   }
@@ -671,73 +468,48 @@ HSTORE.prototype.validate = function validate(value) {
   return true;
 };
 
-/**
- * Creates a new json data type.
- */
-function JSONTYPE() {
-  if (!(this instanceof JSONTYPE)) return new JSONTYPE();
+// Define a json data type
+function JsonType() {
+  if (!(this instanceof JsonType)) return new JsonType();
 }
-inherits(JSONTYPE, ABSTRACT);
+inherits(JsonType, AbstractDataType);
 
-JSONTYPE.prototype.key = JSONTYPE.key = 'JSON';
-
-/**
- * Validates a value for the json data type.
- * @returns {boolean} Whether the value is valid.
- */
-JSONTYPE.prototype.validate = function validate() {
+JsonType.prototype.key = JsonType.key = 'JSON';
+JsonType.prototype.validate = function validate() {
   return true;
 };
 
-/**
- * Stringifies a value for the json data type.
- * @param {*} value - The value to stringify.
- * @returns {*} The stringified value.
- */
-JSONTYPE.prototype._stringify = function _stringify(value) {
+JsonType.prototype._stringify = function _stringify(value) {
   return JSON.stringify(value);
 };
 
-/**
- * Creates a new jsonb data type.
- */
-function JSONB() {
-  if (!(this instanceof JSONB)) return new JSONB();
-  JSONTYPE.call(this);
+// Define a jsonb data type
+function JsonbType() {
+  if (!(this instanceof JsonbType)) return new JsonbType();
 }
-inherits(JSONB, JSONTYPE);
+inherits(JsonbType, JsonType);
 
-JSONB.prototype.key = JSONB.key = 'JSONB';
+JsonbType.prototype.key = JsonbType.key = 'JSONB';
 
-/**
- * Creates a new now data type.
- */
-function NOW() {
-  if (!(this instanceof NOW)) return new NOW();
+// Define a now data type
+function NowType() {
+  if (!(this instanceof NowType)) return new NowType();
 }
-inherits(NOW, ABSTRACT);
+inherits(NowType, AbstractDataType);
 
-NOW.prototype.key = NOW.key = 'NOW';
+NowType.prototype.key = NowType.key = 'NOW';
 
-/**
- * Creates a new blob data type.
- * @param {string|object} length - The length of the blob.
- */
-function BLOB(length) {
-  const options = typeof length === 'object' && length || {length};
-  if (!(this instanceof BLOB)) return new BLOB(options);
+// Define a blob data type
+function BlobType(length) {
+  const options = typeof length === 'object' && length || { length };
+  if (!(this instanceof BlobType)) return new BlobType(options);
   this.options = options;
   this._length = options.length || '';
 }
-inherits(BLOB, ABSTRACT);
+inherits(BlobType, AbstractDataType);
 
-BLOB.prototype.key = BLOB.key = 'BLOB';
-
-/**
- * Converts the blob data type to a SQL representation.
- * @returns {string} The SQL representation of the blob data type.
- */
-BLOB.prototype.toSql = function toSql() {
+BlobType.prototype.key = BlobType.key = 'BLOB';
+BlobType.prototype.toSql = function toSql() {
   switch (this._length.toLowerCase()) {
     case 'tiny':
       return 'TINYBLOB';
@@ -750,12 +522,7 @@ BLOB.prototype.toSql = function toSql() {
   }
 };
 
-/**
- * Validates a value for the blob data type.
- * @param {*} value - The value to validate.
- * @returns {boolean} Whether the value is valid.
- */
-BLOB.prototype.validate = function validate(value) {
+BlobType.prototype.validate = function validate(value) {
   if (!_.isString(value) && !Buffer.isBuffer(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid blob', value));
   }
@@ -763,12 +530,8 @@ BLOB.prototype.validate = function validate(value) {
   return true;
 };
 
-/**
- * Stringifies a value for the blob data type.
- * @param {*} value - The value to stringify.
- * @returns {*} The stringified value.
- */
-BLOB.prototype._stringify = function _stringify(value) {
+BlobType.prototype.escape = false;
+BlobType.prototype._stringify = function _stringify(value) {
   if (!Buffer.isBuffer(value)) {
     if (Array.isArray(value)) {
       value = new Buffer(value);
@@ -781,73 +544,26 @@ BLOB.prototype._stringify = function _stringify(value) {
   return this._hexify(hex);
 };
 
-/**
- * Hexifies a value for the blob data type.
- * @param {string} hex - The value to hexify.
- * @returns {string} The hexified value.
- */
-BLOB.prototype._hexify = function _hexify(hex) {
+BlobType.prototype._hexify = function _hexify(hex) {
   return "X'" + hex + "'";
 };
 
-/**
- * Creates a new range data type.
- * @param {object} subtype - The subtype of the range.
- */
-function RANGE(subtype) {
-  const options = _.isPlainObject(subtype) ? subtype : {subtype};
+// Define a range data type
+function RangeType(subtype) {
+  const options = _.isPlainObject(subtype) ? subtype : { subtype };
 
-  if (!options.subtype) options.subtype = new INTEGER();
+  if (!options.subtype) options.subtype = new IntegerType();
 
   if (_.isFunction(options.subtype)) {
     options.subtype = new options.subtype();
   }
 
-  if (!(this instanceof RANGE)) return new RANGE(options);
+  if (!(this instanceof RangeType)) return new RangeType(options);
 
   this._subtype = options.subtype.key;
   this.options = options;
 }
-inherits(RANGE, ABSTRACT);
-
-RANGE.prototype.key = RANGE.key = 'RANGE';
-
-/**
- * Converts the range data type to a SQL representation.
- * @returns {string} The SQL representation of the range data type.
- */
-RANGE.prototype.toSql = function toSql() {
-  return pgRangeSubtypes[this._subtype.toLowerCase()];
-};
-
-/**
- * Converts the range data type to a cast type.
- * @returns {string} The cast type of the range data type.
- */
-RANGE.prototype.toCastType = function toCastType() {
-  return pgRangeCastTypes[this._subtype.toLowerCase()];
-};
-
-/**
- * Validates a value for the range data type.
- * @param {*} value - The value to validate.
- * @returns {boolean} Whether the value is valid.
- */
-RANGE.prototype.validate = function validate(value) {
-  if (_.isPlainObject(value) && value.inclusive) {
-    value = value.inclusive;
-  }
-
-  if (!_.isArray(value)) {
-    throw new sequelizeErrors.ValidationError(util.format('%j is not a valid range', value));
-  }
-
-  if (value.length !== 2) {
-    throw new sequelizeErrors.ValidationError('A range must be an array with two elements');
-  }
-
-  return true;
-};
+inherits(RangeType, AbstractDataType);
 
 const pgRangeSubtypes = {
   integer: 'int4range',
@@ -867,23 +583,37 @@ const pgRangeCastTypes = {
   datenotz: 'timestamp'
 };
 
-/**
- * Creates a new uuid data type.
- */
-function UUID() {
-  if (!(this instanceof UUID)) return new UUID();
+RangeType.prototype.key = RangeType.key = 'RANGE';
+RangeType.prototype.toSql = function toSql() {
+  return pgRangeSubtypes[this._subtype.toLowerCase()];
+};
+RangeType.prototype.toCastType = function toCastType() {
+  return pgRangeCastTypes[this._subtype.toLowerCase()];
+};
+RangeType.prototype.validate = function validate(value) {
+  if (_.isPlainObject(value) && value.inclusive) {
+    value = value.inclusive;
+  }
+
+  if (!_.isArray(value)) {
+    throw new sequelizeErrors.ValidationError(util.format('%j is not a valid range', value));
+  }
+
+  if (value.length !== 2) {
+    throw new sequelizeErrors.ValidationError('A range must be an array with two elements');
+  }
+
+  return true;
+};
+
+// Define a uuid data type
+function UuidType() {
+  if (!(this instanceof UuidType)) return new UuidType();
 }
-inherits(UUID, ABSTRACT);
+inherits(UuidType, AbstractDataType);
 
-UUID.prototype.key = UUID.key = 'UUID';
-
-/**
- * Validates a value for the uuid data type.
- * @param {*} value - The value to validate.
- * @param {object} options - Options for the validation.
- * @returns {boolean} Whether the value is valid.
- */
-UUID.prototype.validate = function validate(value, options) {
+UuidType.prototype.key = UuidType.key = 'UUID';
+UuidType.prototype.validate = function validate(value, options) {
   if (!_.isString(value) || !Validator.isUUID(value) && (!options || !options.acceptStrings)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid uuid', value));
   }
@@ -891,23 +621,14 @@ UUID.prototype.validate = function validate(value, options) {
   return true;
 };
 
-/**
- * Creates a new uuidv1 data type.
- */
-function UUIDV1() {
-  if (!(this instanceof UUIDV1)) return new UUIDV1();
+// Define a uuidv1 data type
+function UuidV1Type() {
+  if (!(this instanceof UuidV1Type)) return new UuidV1Type();
 }
-inherits(UUIDV1, ABSTRACT);
+inherits(UuidV1Type, AbstractDataType);
 
-UUIDV1.prototype.key = UUIDV1.key = 'UUIDV1';
-
-/**
- * Validates a value for the uuidv1 data type.
- * @param {*} value - The value to validate.
- * @param {object} options - Options for the validation.
- * @returns {boolean} Whether the value is valid.
- */
-UUIDV1.prototype.validate = function validate(value, options) {
+UuidV1Type.prototype.key = UuidV1Type.key = 'UUIDV1';
+UuidV1Type.prototype.validate = function validate(value, options) {
   if (!_.isString(value) || !Validator.isUUID(value) && (!options || !options.acceptStrings)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid uuid', value));
   }
@@ -915,23 +636,14 @@ UUIDV1.prototype.validate = function validate(value, options) {
   return true;
 };
 
-/**
- * Creates a new uuidv4 data type.
- */
-function UUIDV4() {
-  if (!(this instanceof UUIDV4)) return new UUIDV4();
+// Define a uuidv4 data type
+function UuidV4Type() {
+  if (!(this instanceof UuidV4Type)) return new UuidV4Type();
 }
-inherits(UUIDV4, ABSTRACT);
+inherits(UuidV4Type, AbstractDataType);
 
-UUIDV4.prototype.key = UUIDV4.key = 'UUIDV4';
-
-/**
- * Validates a value for the uuidv4 data type.
- * @param {*} value - The value to validate.
- * @param {object} options - Options for the validation.
- * @returns {boolean} Whether the value is valid.
- */
-UUIDV4.prototype.validate = function validate(value, options) {
+UuidV4Type.prototype.key = UuidV4Type.key = 'UUIDV4';
+UuidV4Type.prototype.validate = function validate(value, options) {
   if (!_.isString(value) || !Validator.isUUID(value, 4) && (!options || !options.acceptStrings)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid uuidv4', value));
   }
@@ -939,46 +651,33 @@ UUIDV4.prototype.validate = function validate(value, options) {
   return true;
 };
 
-/**
- * Creates a new virtual data type.
- * @param {DataTypes} returnType - The return type of the virtual data type.
- * @param {string[]} fields - The fields of the virtual data type.
- */
-function VIRTUAL(ReturnType, fields) {
-  if (!(this instanceof VIRTUAL)) return new VIRTUAL(ReturnType, fields);
+// Define a virtual data type
+function VirtualType(ReturnType, fields) {
+  if (!(this instanceof VirtualType)) return new VirtualType(ReturnType, fields);
   if (typeof ReturnType === 'function') ReturnType = new ReturnType();
 
   this.returnType = ReturnType;
   this.fields = fields;
 }
-inherits(VIRTUAL, ABSTRACT);
+inherits(VirtualType, AbstractDataType);
 
-VIRTUAL.prototype.key = VIRTUAL.key = 'VIRTUAL';
+VirtualType.prototype.key = VirtualType.key = 'VIRTUAL';
 
-/**
- * Creates a new enum data type.
- * @param {object} value - The value of the enum data type.
- */
-function ENUM(value) {
+// Define an enum data type
+function EnumType(value) {
   const options = typeof value === 'object' && !Array.isArray(value) && value || {
     values: Array.prototype.slice.call(arguments).reduce((result, element) => {
       return result.concat(Array.isArray(element) ? element : [element]);
     }, [])
   };
-  if (!(this instanceof ENUM)) return new ENUM(options);
+  if (!(this instanceof EnumType)) return new EnumType(options);
   this.values = options.values;
   this.options = options;
 }
-inherits(ENUM, ABSTRACT);
+inherits(EnumType, AbstractDataType);
 
-ENUM.prototype.key = ENUM.key = 'ENUM';
-
-/**
- * Validates a value for the enum data type.
- * @param {*} value - The value to validate.
- * @returns {boolean} Whether the value is valid.
- */
-ENUM.prototype.validate = function validate(value) {
+EnumType.prototype.key = EnumType.key = 'ENUM';
+EnumType.prototype.validate = function validate(value) {
   if (!_.includes(this.values, value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid choice in %j', value, this.values));
   }
@@ -986,130 +685,76 @@ ENUM.prototype.validate = function validate(value) {
   return true;
 };
 
-/**
- * Creates a new array data type.
- * @param {DataTypes} type - The type of the array data type.
- */
-function ARRAY(type) {
-  const options = _.isPlainObject(type) ? type : {type};
-  if (!(this instanceof ARRAY)) return new ARRAY(options);
+// Define an array data type
+function ArrayType(type) {
+  const options = _.isPlainObject(type) ? type : { type };
+  if (!(this instanceof ArrayType)) return new ArrayType(options);
   this.type = typeof options.type === 'function' ? new options.type() : options.type;
 }
-inherits(ARRAY, ABSTRACT);
+inherits(ArrayType, AbstractDataType);
 
-ARRAY.prototype.key = ARRAY.key = 'ARRAY';
-
-/**
- * Converts the array data type to a SQL representation.
- * @returns {string} The SQL representation of the array data type.
- */
-ARRAY.prototype.toSql = function toSql() {
+ArrayType.prototype.key = ArrayType.key = 'ARRAY';
+ArrayType.prototype.toSql = function toSql() {
   return this.type.toSql() + '[]';
 };
-
-/**
- * Validates a value for the array data type.
- * @param {*} value - The value to validate.
- * @returns {boolean} Whether the value is valid.
- */
-ARRAY.prototype.validate = function validate(value) {
+ArrayType.prototype.validate = function validate(value) {
   if (!_.isArray(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid array', value));
   }
 
   return true;
 };
-
-/**
- * Checks if an object is an instance of the array data type.
- * @param {*} obj - The object to check.
- * @param {DataTypes} type - The type to check against.
- * @returns {boolean} Whether the object is an instance of the array data type.
- */
-ARRAY.is = function is(obj, type) {
-  return obj instanceof ARRAY && obj.type instanceof type;
+ArrayType.is = function is(obj, type) {
+  return obj instanceof ArrayType && obj.type instanceof type;
 };
 
-const helpers = {
-  BINARY: [STRING, CHAR],
-  UNSIGNED: [NUMBER, TINYINT, SMALLINT, MEDIUMINT, INTEGER, BIGINT, FLOAT, DOUBLE, REAL, DECIMAL],
-  ZEROFILL: [NUMBER, TINYINT, SMALLINT, MEDIUMINT, INTEGER, BIGINT, FLOAT, DOUBLE, REAL, DECIMAL],
-  PRECISION: [DECIMAL],
-  SCALE: [DECIMAL]
-};
+// Define a geometry data type
+function GeometryType(type, srid) {
+  const options = _.isPlainObject(type) ? type : { type, srid };
 
-/**
- * Creates a new geometry data type.
- * @param {string} type - The type of the geometry data type.
- * @param {string} srid - The SRID of the geometry data type.
- */
-function GEOMETRY(type, srid) {
-  const options = _.isPlainObject(type) ? type : {type, srid};
-
-  if (!(this instanceof GEOMETRY)) return new GEOMETRY(options);
+  if (!(this instanceof GeometryType)) return new GeometryType(options);
 
   this.options = options;
   this.type = options.type;
   this.srid = options.srid;
 }
-inherits(GEOMETRY, ABSTRACT);
+inherits(GeometryType, AbstractDataType);
 
-GEOMETRY.prototype.key = GEOMETRY.key = 'GEOMETRY';
+GeometryType.prototype.key = GeometryType.key = 'GEOMETRY';
 
-/**
- * Stringifies a value for the geometry data type.
- * @param {*} value - The value to stringify.
- * @param {object} options - Options for the stringification.
- * @returns {*} The stringified value.
- */
-GEOMETRY.prototype._stringify = function _stringify(value, options) {
+GeometryType.prototype.escape = false;
+GeometryType.prototype._stringify = function _stringify(value, options) {
   return 'GeomFromText(' + options.escape(Wkt.convert(value)) + ')';
 };
 
-/**
- * Creates a new geography data type.
- * @param {string} type - The type of the geography data type.
- * @param {string} srid - The SRID of the geography data type.
- */
-function GEOGRAPHY(type, srid) {
-  const options = _.isPlainObject(type) ? type : {type, srid};
+// Define a geography data type
+function GeographyType(type, srid) {
+  const options = _.isPlainObject(type) ? type : { type, srid };
 
-  if (!(this instanceof GEOGRAPHY)) return new GEOGRAPHY(options);
+  if (!(this instanceof GeographyType)) return new GeographyType(options);
 
   this.options = options;
   this.type = options.type;
   this.srid = options.srid;
 }
-inherits(GEOGRAPHY, ABSTRACT);
+inherits(GeographyType, AbstractDataType);
 
-GEOGRAPHY.prototype.key = GEOGRAPHY.key = 'GEOGRAPHY';
+GeographyType.prototype.key = GeographyType.key = 'GEOGRAPHY';
 
-/**
- * Stringifies a value for the geography data type.
- * @param {*} value - The value to stringify.
- * @param {object} options - Options for the stringification.
- * @returns {*} The stringified value.
- */
-GEOGRAPHY.prototype._stringify = function _stringify(value, options) {
+GeographyType.prototype.escape = false;
+GeographyType.prototype._stringify = function _stringify(value, options) {
   return 'GeomFromText(' + options.escape(Wkt.convert(value)) + ')';
 };
 
-/**
- * Creates a new cidr data type.
- */
-function CIDR() {
-  if (!(this instanceof CIDR)) return new CIDR();
+// Define a cidr data type
+function CidrType() {
+  if (!(this instanceof CidrType)) return new CidrType();
 }
-inherits(CIDR, ABSTRACT);
+inherits(CidrType, AbstractDataType);
 
-CIDR.prototype.key = CIDR.key = 'CIDR';
+CidrType.prototype.key = CidrType.key = 'CIDR';
 
-/**
- * Validates a value for the cidr data type.
- * @param {*} value - The value to validate.
- * @returns {boolean} Whether the value is valid.
- */
-CIDR.prototype.validate = function validate(value) {
+CidrType.prototype.validate = function validate(value) {
   if (!_.isString(value) || !Validator.isIPRange(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid CIDR', value));
   }
@@ -1117,22 +762,15 @@ CIDR.prototype.validate = function validate(value) {
   return true;
 };
 
-/**
- * Creates a new inet data type.
- */
-function INET() {
-  if (!(this instanceof INET)) return new INET();
+// Define an inet data type
+function InetType() {
+  if (!(this instanceof InetType)) return new InetType();
 }
-inherits(INET, ABSTRACT);
+inherits(InetType, AbstractDataType);
 
-INET.prototype.key = INET.key = 'INET';
+InetType.prototype.key = InetType.key = 'INET';
 
-/**
- * Validates a value for the inet data type.
- * @param {*} value - The value to validate.
- * @returns {boolean} Whether the value is valid.
- */
-INET.prototype.validate = function validate(value) {
+InetType.prototype.validate = function validate(value) {
   if (!_.isString(value) || !Validator.isIP(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid INET', value));
   }
@@ -1140,22 +778,15 @@ INET.prototype.validate = function validate(value) {
   return true;
 };
 
-/**
- * Creates a new macaddr data type.
- */
-function MACADDR() {
-  if (!(this instanceof MACADDR)) return new MACADDR();
+// Define a macaddr data type
+function MacaddrType() {
+  if (!(this instanceof MacaddrType)) return new MacaddrType();
 }
-inherits(MACADDR, ABSTRACT);
+inherits(MacaddrType, AbstractDataType);
 
-MACADDR.prototype.key = MACADDR.key = 'MACADDR';
+MacaddrType.prototype.key = MacaddrType.key = 'MACADDR';
 
-/**
- * Validates a value for the macaddr data type.
- * @param {*} value - The value to validate.
- * @returns {boolean} Whether the value is valid.
- */
-MACADDR.prototype.validate = function validate(value) {
+MacaddrType.prototype.validate = function validate(value) {
   if (!_.isString(value) || !Validator.isMACAddress(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid MACADDR', value));
   }
@@ -1163,67 +794,63 @@ MACADDR.prototype.validate = function validate(value) {
   return true;
 };
 
-for (const helper of Object.keys(helpers)) {
-  for (const DataType of helpers[helper]) {
-    if (!DataType[helper]) {
-      Object.defineProperty(DataType, helper, {
-        get() {
-          const dataType = new DataType();
-          if (typeof dataType[helper] === 'object') {
-            return dataType;
-          }
-          return dataType[helper].apply(dataType, arguments);
-        }
-      });
-    }
-  }
-}
-
-const DataTypes = module.exports = {
-  ABSTRACT,
-  STRING,
-  CHAR,
-  TEXT,
-  NUMBER,
-  TINYINT,
-  SMALLINT,
-  MEDIUMINT,
-  INTEGER,
-  BIGINT,
-  FLOAT,
-  TIME,
-  DATE,
-  DATEONLY,
-  BOOLEAN,
-  NOW,
-  BLOB,
-  DECIMAL,
-  NUMERIC: DECIMAL,
-  UUID,
-  UUIDV1,
-  UUIDV4,
-  HSTORE,
-  JSON: JSONTYPE,
-  JSONB,
-  VIRTUAL,
-  ARRAY,
-  NONE: VIRTUAL,
-  ENUM,
-  RANGE,
-  REAL,
-  DOUBLE,
-  'DOUBLE PRECISION': DOUBLE,
-  GEOMETRY,
-  GEOGRAPHY,
-  CIDR,
-  INET,
-  MACADDR
+// Define helpers for data types
+const helpers = {
+  BINARY: [StringType, CharType],
+  UNSIGNED: [NumberType, TinyIntType, SmallIntType, MediumIntType, IntegerType, BigIntType, FloatType, DoubleType, RealType, DecimalType],
+  ZEROFILL: [NumberType, TinyIntType, SmallIntType, MediumIntType, IntegerType, BigIntType, FloatType, DoubleType, RealType, DecimalType],
+  PRECISION: [DecimalType],
+  SCALE: [DecimalType]
 };
 
+// Export data types
+const DataTypes = module.exports = {
+  ABSTRACT: AbstractDataType,
+  STRING: StringType,
+  CHAR: CharType,
+  TEXT: TextType,
+  NUMBER: NumberType,
+  TINYINT: TinyIntType,
+  SMALLINT: SmallIntType,
+  MEDIUMINT: MediumIntType,
+  INTEGER: IntegerType,
+  BIGINT: BigIntType,
+  FLOAT: FloatType,
+  TIME: TimeType,
+  DATE: DateType,
+  DATEONLY: DateOnlyType,
+  BOOLEAN: BooleanType,
+  NOW: NowType,
+  BLOB: BlobType,
+  DECIMAL: DecimalType,
+  NUMERIC: DecimalType,
+  UUID: UuidType,
+  UUIDV1: UuidV1Type,
+  UUIDV4: UuidV4Type,
+  HSTORE: HStoreType,
+  JSON: JsonType,
+  JSONB: JsonbType,
+  VIRTUAL: VirtualType,
+  ARRAY: ArrayType,
+  NONE: VirtualType,
+  ENUM: EnumType,
+  RANGE: RangeType,
+  REAL: RealType,
+  DOUBLE: DoubleType,
+  'DOUBLE PRECISION': DoubleType,
+  GEOMETRY: GeometryType,
+  GEOGRAPHY: GeographyType,
+  CIDR: CidrType,
+  INET: InetType,
+  MACADDR: MacaddrType
+};
+
+// Initialize data types
 _.each(DataTypes, dataType => {
   dataType.types = {};
 });
 
+// Load dialect-specific data types
 DataTypes.postgres = require('./dialects/postgres/data-types')(DataTypes);
 DataTypes.mysql = require('./dialects/mysql/data-types')(DataTypes);
 DataTypes.sqlite = require('./dialects/sqlite/data-types')(DataTypes);

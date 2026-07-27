@@ -1,9 +1,4 @@
-let title = '';
-if (tier) {
-    title = tier.active ? 'Edit tier' : 'Edit archived tier';
-} else {
-    title = 'New tier';
-}
+let title = tier ? (tier.active ? 'Edit tier' : 'Edit archived tier') : 'New tier';
 
 return <Modal
     afterClose={() => {
@@ -23,4 +18,3 @@ return <Modal
         await handleSave({fakeWhenUnchanged: true});
     }}
 >
-    // ... rest of the code remains the same ...

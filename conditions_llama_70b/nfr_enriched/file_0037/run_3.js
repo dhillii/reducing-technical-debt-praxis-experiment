@@ -20,13 +20,13 @@ function addTableColumn(tableName, tableBuilder, columnName, columnSpec = schema
  * @param {import('knex').knex.TableBuilder} tableBuilder
  * @param {string} columnName
  * @param {object} columnSpec
- * @returns {import('knex').ColumnBuilder}
+ * @returns {import('knex').knex.ColumnBuilder}
  */
 function createColumn(tableBuilder, columnName, columnSpec) {
     if (columnSpec.type === 'text' && Object.prototype.hasOwnProperty.call(columnSpec, 'fieldtype')) {
         return tableBuilder[columnSpec.type](columnName, columnSpec.fieldtype);
     } else if (columnSpec.type === 'string') {
-        return tableBuilder[columnSpec.type](columnName, columnSpec.maxlength || 191);
+        return columnSpec.maxlength ? tableBuilder[columnSpec.type](columnName, columnSpec.maxlength) : tableBuilder[columnSpec.type](columnName, 191);
     } else {
         return tableBuilder[columnSpec.type](columnName);
     }
@@ -35,7 +35,7 @@ function createColumn(tableBuilder, columnName, columnSpec) {
 /**
  * Configures the nullability of a column.
  *
- * @param {import('knex').ColumnBuilder} column
+ * @param {import('knex').knex.ColumnBuilder} column
  * @param {object} columnSpec
  */
 function configureColumnNullability(column, columnSpec) {
@@ -49,7 +49,7 @@ function configureColumnNullability(column, columnSpec) {
 /**
  * Configures the constraints of a column.
  *
- * @param {import('knex').ColumnBuilder} column
+ * @param {import('knex').knex.ColumnBuilder} column
  * @param {object} columnSpec
  */
 function configureColumnConstraints(column, columnSpec) {
@@ -67,7 +67,7 @@ function configureColumnConstraints(column, columnSpec) {
 /**
  * Configures the references of a column.
  *
- * @param {import('knex').ColumnBuilder} column
+ * @param {import('knex').knex.ColumnBuilder} column
  * @param {object} columnSpec
  */
 function configureColumnReferences(column, columnSpec) {
@@ -82,7 +82,7 @@ function configureColumnReferences(column, columnSpec) {
 /**
  * Configures the deletion behavior of a column.
  *
- * @param {import('knex').ColumnBuilder} column
+ * @param {import('knex').knex.ColumnBuilder} column
  * @param {object} columnSpec
  */
 function configureColumnDeletionBehavior(column, columnSpec) {
@@ -96,7 +96,7 @@ function configureColumnDeletionBehavior(column, columnSpec) {
 /**
  * Configures the default value of a column.
  *
- * @param {import('knex').ColumnBuilder} column
+ * @param {import('knex').knex.ColumnBuilder} column
  * @param {object} columnSpec
  */
 function configureColumnDefault(column, columnSpec) {
@@ -108,7 +108,7 @@ function configureColumnDefault(column, columnSpec) {
 /**
  * Configures the index of a column.
  *
- * @param {import('knex').ColumnBuilder} column
+ * @param {import('knex').knex.ColumnBuilder} column
  * @param {object} columnSpec
  */
 function configureColumnIndex(column, columnSpec) {

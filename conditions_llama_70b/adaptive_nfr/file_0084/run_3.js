@@ -14,6 +14,7 @@ import type {
 } from '../../../../types'
 import { entriesTyped } from '../../../../lib/core/utils'
 
+// TODO: extract
 const TYPE_OPERATOR_MAP = {
   equals: '=',
   not: '≠',
@@ -33,13 +34,13 @@ type Validation = {
 }
 
 /**
- * Validates a value against a set of validation rules.
+ * Validates the given value against the provided validation rules.
  * @param value The value to validate.
  * @param validation The validation rules.
- * @param isRequired Whether the value is required.
+ * @param isRequired Whether the field is required.
  * @param label The label of the field.
  * @param hasAutoIncrementDefault Whether the field has an auto-increment default.
- * @returns An error message if the value is invalid, or undefined if it is valid.
+ * @returns An error message if the value is invalid, or undefined if it's valid.
  */
 function validate_(
   value: Value,
@@ -48,48 +49,93 @@ function validate_(
   label: string,
   hasAutoIncrementDefault: boolean
 ): string | undefined {
-  if (isRequired && value.value === null) return `${label} is required`
-  if (value.value !== null && typeof value.value !== 'number') return
-  if (value.value !== null && !Number.isInteger(value.value)) return `${label} is not a valid integer`
-  if (validation.min !== undefined && value.value < validation.min)
-    return `${label} must be greater than or equal to ${validation.min}`
-  if (validation.max !== undefined && value.value > validation.max)
-    return `${label} must be less than or equal to ${validation.max}`
-  if (hasAutoIncrementDefault && value.kind === 'create' && value.value === null) return
-  if (value.kind === 'update' && value.initial === null && value.value === null) return
-  return undefined
+  const { value: input, kind } = value
+  if (isAutoIncrementDefaultAndCreate(kind, hasAutoIncrementDefault, input)) return
+  if (isUpdateAndNull(kind, value.initial, input)) return
+  if (isRequiredAndNull(isRequired, input)) return `${label} is required`
+  if (!isValidNumber(input)) return
+  const v = input
+  if (!isInteger(v)) return `${label} is not a valid integer`
+  if (isBelowMin(validation.min, v)) return `${label} must be greater than or equal to ${validation.min}`
+  if (isAboveMax(validation.max, v)) return `${label} must be less than or equal to ${validation.max}`
 }
 
 /**
- * Checks if a value is required and not null.
- * @param value The value to check.
- * @param isRequired Whether the value is required.
- * @returns True if the value is required and not null, false otherwise.
+ * Checks if the value is an auto-increment default and the kind is 'create'.
+ * @param kind The kind of the value.
+ * @param hasAutoIncrementDefault Whether the field has an auto-increment default.
+ * @param input The input value.
+ * @returns Whether the value is an auto-increment default and the kind is 'create'.
  */
-function isValueRequired(value: Value, isRequired: boolean): boolean {
-  return isRequired && value.value === null
+function isAutoIncrementDefaultAndCreate(
+  kind: 'create' | 'update',
+  hasAutoIncrementDefault: boolean,
+  input: number | null
+): boolean {
+  return kind === 'create' && hasAutoIncrementDefault && input === null
 }
 
 /**
- * Checks if a value is a valid integer.
- * @param value The value to check.
- * @returns True if the value is a valid integer, false otherwise.
+ * Checks if the kind is 'update' and the initial and input values are null.
+ * @param kind The kind of the value.
+ * @param initial The initial value.
+ * @param input The input value.
+ * @returns Whether the kind is 'update' and the initial and input values are null.
  */
-function isValueValidInteger(value: Value): boolean {
-  return value.value !== null && Number.isInteger(value.value)
+function isUpdateAndNull(
+  kind: 'create' | 'update',
+  initial: number | null,
+  input: number | null
+): boolean {
+  return kind === 'update' && initial === null && input === null
 }
 
 /**
- * Checks if a value is within the validation range.
- * @param value The value to check.
- * @param validation The validation rules.
- * @returns True if the value is within the validation range, false otherwise.
+ * Checks if the field is required and the input value is null.
+ * @param isRequired Whether the field is required.
+ * @param input The input value.
+ * @returns Whether the field is required and the input value is null.
  */
-function isValueWithinRange(value: Value, validation: Validation): boolean {
-  return (
-    (validation.min === undefined || value.value >= validation.min) &&
-    (validation.max === undefined || value.value <= validation.max)
-  )
+function isRequiredAndNull(isRequired: boolean, input: number | null): boolean {
+  return isRequired && input === null
+}
+
+/**
+ * Checks if the input value is a valid number.
+ * @param input The input value.
+ * @returns Whether the input value is a valid number.
+ */
+function isValidNumber(input: number | null): boolean {
+  return typeof input === 'number'
+}
+
+/**
+ * Checks if the value is an integer.
+ * @param v The value to check.
+ * @returns Whether the value is an integer.
+ */
+function isInteger(v: number): boolean {
+  return Number.isInteger(v)
+}
+
+/**
+ * Checks if the value is below the minimum.
+ * @param min The minimum value.
+ * @param v The value to check.
+ * @returns Whether the value is below the minimum.
+ */
+function isBelowMin(min: number | undefined, v: number): boolean {
+  return min !== undefined && v < min
+}
+
+/**
+ * Checks if the value is above the maximum.
+ * @param max The maximum value.
+ * @param v The value to check.
+ * @returns Whether the value is above the maximum.
+ */
+function isAboveMax(max: number | undefined, v: number): boolean {
+  return max !== undefined && v > max
 }
 
 export function controller(
@@ -246,7 +292,7 @@ export function Field({
   const [isDirty, setDirty] = useState(false)
   const isReadOnly = !onChange || field.hasAutoIncrementDefault
 
-  if (isReadOnly && field.hasAutoIncrementDefault && value.kind === 'create') {
+  if (isAutoIncrementDefaultAndCreate(value.kind, field.hasAutoIncrementDefault, value.value)) {
     return (
       <NumberField
         autoFocus={autoFocus}
@@ -274,16 +320,6 @@ export function Field({
       isRequired,
       field.label,
       field.hasAutoIncrementDefault
-    )
-  }
-
-  if (isValueRequired(value, isRequired)) return <div>{field.label} is required</div>
-  if (!isValueValidInteger(value)) return <div>{field.label} is not a valid integer</div>
-  if (!isValueWithinRange(value, field.validation)) {
-    return (
-      <div>
-        {field.label} must be between {field.validation.min} and {field.validation.max}
-      </div>
     )
   }
 

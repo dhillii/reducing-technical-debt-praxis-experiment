@@ -10,16 +10,20 @@ export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) =
     }
 
     if (isEmailUrl(trimmedUrl)) {
-        return getMailtoUrlResult(trimmedUrl);
+        return getMailToUrlResult(trimmedUrl);
     }
 
-    if (isAnchorLink(trimmedUrl) || isProtocolRelativeUrl(trimmedUrl)) {
-        return getRelativeUrlResult(trimmedUrl);
+    if (isAnchorLink(trimmedUrl)) {
+        return getAnchorLinkResult(trimmedUrl);
+    }
+
+    if (isProtocolRelativeUrl(trimmedUrl)) {
+        return getProtocolRelativeResult(trimmedUrl);
     }
 
     const parsedUrl = parseUrl(trimmedUrl, baseUrl);
     if (!parsedUrl) {
-        return getInvalidUrlResult(trimmedUrl);
+        return getUnparsedUrlResult(trimmedUrl);
     }
 
     if (isAbsoluteUrl(parsedUrl, baseUrl)) {
@@ -45,7 +49,7 @@ const isEmptyUrl = (value: string, baseUrl?: string) => {
     return !value && baseUrl;
 };
 
-// Get empty URL result
+// Get result for empty URL
 const getEmptyUrlResult = (baseUrl?: string) => {
     if (baseUrl) {
         return {save: '/', display: baseUrl};
@@ -58,8 +62,8 @@ const isEmailUrl = (value: string) => {
     return isEmail(value);
 };
 
-// Get mailto URL result
-const getMailtoUrlResult = (value: string) => {
+// Get result for email URL
+const getMailToUrlResult = (value: string) => {
     return {save: `mailto:${value}`, display: `mailto:${value}`};
 };
 
@@ -68,14 +72,19 @@ const isAnchorLink = (value: string) => {
     return value.match(/^#/);
 };
 
+// Get result for anchor link
+const getAnchorLinkResult = (value: string) => {
+    return {save: value, display: value};
+};
+
 // Check if URL is protocol relative
 const isProtocolRelativeUrl = (value: string) => {
     return value.match(/^(\/\/)/);
 };
 
-// Get relative URL result
-const getRelativeUrlResult = (value: string, baseUrl?: string) => {
-    return {save: value, display: displayFromBase(value, baseUrl)};
+// Get result for protocol relative URL
+const getProtocolRelativeResult = (value: string) => {
+    return {save: value, display: value};
 };
 
 // Parse URL
@@ -92,7 +101,7 @@ const isAbsoluteUrl = (parsedUrl: URL, baseUrl?: string) => {
     return !baseUrl;
 };
 
-// Get absolute URL result
+// Get result for absolute URL
 const getAbsoluteUrlResult = (parsedUrl: URL) => {
     return {save: parsedUrl.toString(), display: parsedUrl.toString()};
 };
@@ -118,9 +127,9 @@ const getRelativeUrl = (parsedUrl: URL, baseUrl: string) => {
     return parsedUrl.toString();
 };
 
-// Get invalid URL result
-const getInvalidUrlResult = (value: string) => {
-    return {save: value, display: value};
+// Get result for relative URL
+const getRelativeUrlResult = (relativeUrl: string, baseUrl: string) => {
+    return {save: relativeUrl, display: displayFromBase(relativeUrl, baseUrl)};
 };
 
 // Helper to display a URL from a base URL
@@ -136,4 +145,14 @@ const displayFromBase = (url: string, baseUrl: string) => {
     }
 
     return new URL(url, baseUrl).toString();
+};
+
+// Check if URL is unparsed
+const isUnparsedUrl = (value: string) => {
+    return !value.match(/^[a-zA-Z0-9-]+:/) && !value.match(/^(\/|\?)/);
+};
+
+// Get result for unparsed URL
+const getUnparsedUrlResult = (value: string) => {
+    return {save: value, display: value};
 };

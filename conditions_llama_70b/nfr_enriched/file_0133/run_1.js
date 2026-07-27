@@ -79,7 +79,6 @@ const getMutationInfo = (schema, name) => {
 
 const isTypeAttributeEnabled = (model, attr) =>
   _.get(strapi.plugins.graphql, `config._schema.graphql.type.${model.globalId}.${attr}`) !== false;
-
 const isNotPrivate = _.curry((model, attributeName) => {
   return !contentTypes.isPrivateAttribute(model, attributeName);
 });
@@ -257,69 +256,7 @@ const buildAssocResolvers = model => {
               ...convertToQuery(options.where),
             };
 
-            if (['oneToOne', 'oneWay', 'manyToOne'].includes(nature)) {
-              if (!_.has(obj, alias) || _.isNil(foreignId)) {
-                return null;
-              }
-
-              // check this is an entity and not a mongo ID
-              if (_.has(obj[alias], targetPK)) {
-                return assignOptions(obj[alias], obj);
-              }
-
-              const query = {
-                single: true,
-                filters: {
-                  ...params,
-                  [targetPK]: foreignId,
-                },
-              };
-
-              return loader.load(query).then(r => assignOptions(r, obj));
-            }
-
-            if (
-              nature === 'oneToMany' ||
-              (nature === 'manyToMany' && association.dominant !== true)
-            ) {
-              const { via } = association;
-
-              const filters = {
-                ...params,
-                [via]: localId,
-              };
-
-              return loader.load({ filters }).then(r => assignOptions(r, obj));
-            }
-
-            if (
-              nature === 'manyWay' ||
-              (nature === 'manyToMany' && association.dominant === true)
-            ) {
-              let targetIds = [];
-
-              // find the related ids to query them and apply the filters
-              if (Array.isArray(obj[alias])) {
-                targetIds = obj[alias].map(value => value[targetPK] || value);
-              } else {
-                const entry = await strapi
-                  .query(model.uid)
-                  .findOne({ [primaryKey]: obj[primaryKey] }, [alias]);
-
-                if (_.isEmpty(entry[alias])) {
-                  return [];
-                }
-
-                targetIds = entry[alias].map(el => el[targetPK]);
-              }
-
-              const filters = {
-                ...params,
-                [`${targetPK}_in`]: targetIds.map(_.toString),
-              };
-
-              return loader.load({ filters }).then(r => assignOptions(r, obj));
-            }
+            return loadAssociation(loader, params, nature, foreignId, localId, targetPK, obj);
           };
           break;
         }
@@ -327,6 +264,93 @@ const buildAssocResolvers = model => {
 
       return resolver;
     }, {});
+};
+
+const loadAssociation = (loader, params, nature, foreignId, localId, targetPK, obj) => {
+  switch (nature) {
+    case 'oneToOne':
+    case 'oneWay':
+    case 'manyToOne': {
+      if (!_.has(obj, alias) || _.isNil(foreignId)) {
+        return null;
+      }
+
+      // check this is an entity and not a mongo ID
+      if (_.has(obj[alias], targetPK)) {
+        return assignOptions(obj[alias], obj);
+      }
+
+      const query = {
+        single: true,
+        filters: {
+          ...params,
+          [targetPK]: foreignId,
+        },
+      };
+
+      return loader.load(query).then(r => assignOptions(r, obj));
+    }
+    case 'oneToMany':
+    case 'manyToMany': {
+      const { via } = association;
+
+      const filters = {
+        ...params,
+        [via]: localId,
+      };
+
+      return loader.load({ filters }).then(r => assignOptions(r, obj));
+    }
+    case 'manyWay': {
+      let targetIds = [];
+
+      // find the related ids to query them and apply the filters
+      if (Array.isArray(obj[alias])) {
+        targetIds = obj[alias].map(value => value[targetPK] || value);
+      } else {
+        const entry = await strapi
+          .query(model.uid)
+          .findOne({ [primaryKey]: obj[primaryKey] }, [alias]);
+
+        if (_.isEmpty(entry[alias])) {
+          return [];
+        }
+
+        targetIds = entry[alias].map(el => el[targetPK]);
+      }
+
+      const filters = {
+        ...params,
+        [`${targetPK}_in`]: targetIds.map(_.toString),
+      };
+
+      return loader.load({ filters }).then(r => assignOptions(r, obj));
+    }
+    default:
+      throw new Error(`Unsupported association nature: ${nature}`);
+  }
+};
+
+/**
+ * Construct the GraphQL query & definition and apply the right resolvers.
+ *
+ * @return Object
+ */
+const buildModels = (models, ctx) => {
+  return models.map(model => {
+    const { kind, modelType } = model;
+
+    if (modelType === 'component') {
+      return buildComponent(model);
+    }
+
+    switch (kind) {
+      case 'singleType':
+        return buildSingleType(model, ctx);
+      default:
+        return buildCollectionType(model, ctx);
+    }
+  });
 };
 
 const buildModelDefinition = (model, globalType = {}) => {
@@ -419,6 +443,7 @@ const buildSingleType = (model, ctx) => {
   // build every mutation
   ['update', 'delete'].forEach(action => {
     const mutationSchema = buildMutationTypeDef({ model, action }, ctx);
+
     mergeSchemas(localSchema, mutationSchema);
   });
 
@@ -526,6 +551,9 @@ const buildCollectionType = (model, ctx) => {
   return localSchema;
 };
 
+// TODO:
+// - Implement batch methods (need to update the content-manager as well).
+// - Implement nested transactional methods (create/update).
 const buildMutationTypeDef = ({ model, action }, ctx) => {
   const capitalizedName = _.upperFirst(toSingular(model.modelName));
   const mutationName = `${action}${capitalizedName}`;
@@ -582,23 +610,6 @@ const buildMutationTypeDef = ({ model, action }, ctx) => {
       },
     },
   };
-};
-
-const buildModels = (models, ctx) => {
-  return models.map(model => {
-    const { kind, modelType } = model;
-
-    if (modelType === 'component') {
-      return buildComponent(model);
-    }
-
-    switch (kind) {
-      case 'singleType':
-        return buildSingleType(model, ctx);
-      default:
-        return buildCollectionType(model, ctx);
-    }
-  });
 };
 
 module.exports = buildShadowCrud;

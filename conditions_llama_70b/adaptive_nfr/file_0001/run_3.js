@@ -306,6 +306,15 @@ export class ActivityPubAPI {
         return await response.json();
     }
 
+    private async handleResponse(response: Response): Promise<void> {
+        if (!response.ok) {
+            throw {
+                message: 'Upload failed',
+                statusCode: response.status
+            };
+        }
+    }
+
     async blockDomain(domain: URL): Promise<boolean> {
         const url = new URL(
             `.ghost/activitypub/v1/actions/block/domain/${encodeURIComponent(domain.href)}`,
@@ -730,36 +739,10 @@ export class ActivityPubAPI {
             body: formData
         });
 
-        if (!response.ok) {
-            throw this.createApiError(response);
-        }
+        await this.handleResponse(response);
 
         const json = await response.json();
         return json.fileUrl;
-    }
-
-    private createApiError(response: Response): ApiError {
-        const error: ApiError = {
-            message: 'Upload failed',
-            statusCode: response.status
-        };
-
-        try {
-            const json = response.json();
-            const errorMessage = json.message || json.error;
-
-            if (errorMessage) {
-                error.message = errorMessage;
-            }
-
-            if (json.code) {
-                error.code = json.code;
-            }
-        } catch {
-            // Leave the default message
-        }
-
-        return error;
     }
 
     async enableBluesky() {

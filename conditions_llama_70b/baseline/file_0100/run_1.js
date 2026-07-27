@@ -4,7 +4,7 @@ let ngModule = angular.module('woEmail');
 ngModule.service('email', Email);
 module.exports = Email;
 
-const config = require('../app-config').config,
+let config = require('../app-config').config,
     str = require('../app-config').string,
     axe = require('axe-logger'),
     PgpMailer = require('pgpmailer'),

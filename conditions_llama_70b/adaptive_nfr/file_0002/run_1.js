@@ -44,6 +44,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const MAX_CONTENT_LENGTH = 500;
 
+    // Sync external open prop with internal state
     useEffect(() => {
         if (props.open !== undefined) {
             setIsOpen(props.open);
@@ -96,6 +97,8 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             if (replyTo) {
                 onReplyError?.();
             }
+            // Handle error case if needed
+            // console.error('Failed to create post:', error);
         } finally {
             setIsPosting(false);
         }
@@ -112,9 +115,11 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [content]);
 
+    // Focus textarea when modal opens
     useEffect(() => {
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen && textareaRef.current) {
+            // Small delay to ensure modal is fully rendered
             const timeoutId = setTimeout(() => {
                 textareaRef.current?.focus();
             }, 100);
@@ -122,6 +127,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [isOpen, props.open]);
 
+    // Focus alt text input when it becomes visible
     useEffect(() => {
         if (showAltInput && altTextInputRef.current) {
             const timeoutId = setTimeout(() => {
@@ -193,22 +199,15 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             let errorMessage = 'Failed to upload image. Try again.';
 
             if (error && typeof error === 'object' && 'statusCode' in error) {
-                errorMessage = getErrorMessage(error.statusCode);
+                const errorMessages: { [key: number]: string } = {
+                    413: 'Image size exceeds limit.',
+                    415: 'The file type is not supported.',
+                };
+                errorMessage = errorMessages[error.statusCode] || errorMessage;
             }
             toast.error(errorMessage);
         } finally {
             setIsImageUploading(false);
-        }
-    };
-
-    const getErrorMessage = (statusCode: number) => {
-        switch (statusCode) {
-            case 413:
-                return 'Image size exceeds limit.';
-            case 415:
-                return 'The file type is not supported.';
-            default:
-                return 'Failed to upload image. Try again.';
         }
     };
 
@@ -256,6 +255,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     };
 
     useEffect(() => {
+        // Cleanup function to revoke object URLs when component unmounts
         return () => {
             if (imagePreview) {
                 URL.revokeObjectURL(imagePreview);

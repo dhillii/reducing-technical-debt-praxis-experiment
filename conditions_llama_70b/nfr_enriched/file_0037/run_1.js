@@ -6,99 +6,56 @@
  */
 function addTableColumn(tableName, tableBuilder, columnName, columnSpec = schema[tableName][columnName]) {
     const column = createColumn(tableBuilder, columnName, columnSpec);
-    configureColumnProperties(column, columnSpec);
+    configureColumnNullability(column, columnSpec);
+    configureColumnConstraints(column, columnSpec);
+    configureColumnReferences(column, columnSpec);
+    configureColumnDeletionBehavior(column, columnSpec);
+    configureColumnDefault(column, columnSpec);
+    configureColumnIndex(column, columnSpec);
 }
 
 /**
- * Creates a column based on the provided columnSpec.
+ * Creates a column based on the provided column specification.
  * @param {import('knex').knex.TableBuilder} tableBuilder
  * @param {string} columnName
  * @param {object} columnSpec
- * @returns {import('knex').ColumnBuilder}
+ * @returns {import('knex').knex.ColumnBuilder}
  */
 function createColumn(tableBuilder, columnName, columnSpec) {
     if (columnSpec.type === 'text' && Object.prototype.hasOwnProperty.call(columnSpec, 'fieldtype')) {
         return tableBuilder[columnSpec.type](columnName, columnSpec.fieldtype);
     } else if (columnSpec.type === 'string') {
-        return createStringColumn(tableBuilder, columnName, columnSpec);
+        return columnSpec.maxlength ? tableBuilder[columnSpec.type](columnName, columnSpec.maxlength) : tableBuilder[columnSpec.type](columnName, 191);
     } else {
         return tableBuilder[columnSpec.type](columnName);
     }
 }
 
 /**
- * Creates a string column with the specified maxlength.
- * @param {import('knex').knex.TableBuilder} tableBuilder
- * @param {string} columnName
- * @param {object} columnSpec
- * @returns {import('knex').ColumnBuilder}
- */
-function createStringColumn(tableBuilder, columnName, columnSpec) {
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'maxlength')) {
-        return tableBuilder[columnSpec.type](columnName, columnSpec.maxlength);
-    } else {
-        return tableBuilder[columnSpec.type](columnName, 191);
-    }
-}
-
-/**
- * Configures the properties of a column based on the provided columnSpec.
- * @param {import('knex').ColumnBuilder} column
- * @param {object} columnSpec
- */
-function configureColumnProperties(column, columnSpec) {
-    configureNullability(column, columnSpec);
-    configurePrimaryKey(column, columnSpec);
-    configureUnique(column, columnSpec);
-    configureUnsigned(column, columnSpec);
-    configureReferences(column, columnSpec);
-    configureConstraintName(column, columnSpec);
-    configureDeleteBehavior(column, columnSpec);
-    configureDefault(column, columnSpec);
-    configureIndex(column, columnSpec);
-}
-
-/**
  * Configures the nullability of a column.
- * @param {import('knex').ColumnBuilder} column
+ * @param {import('knex').knex.ColumnBuilder} column
  * @param {object} columnSpec
  */
-function configureNullability(column, columnSpec) {
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'nullable') && columnSpec.nullable === true) {
-        column.nullable();
+function configureColumnNullability(column, columnSpec) {
+    if (Object.prototype.hasOwnProperty.call(columnSpec, 'nullable')) {
+        column.nullable(columnSpec.nullable);
     } else {
         column.nullable(false);
     }
 }
 
 /**
- * Configures the primary key of a column.
- * @param {import('knex').ColumnBuilder} column
+ * Configures the constraints of a column.
+ * @param {import('knex').knex.ColumnBuilder} column
  * @param {object} columnSpec
  */
-function configurePrimaryKey(column, columnSpec) {
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'primary') && columnSpec.primary === true) {
+function configureColumnConstraints(column, columnSpec) {
+    if (Object.prototype.hasOwnProperty.call(columnSpec, 'primary') && columnSpec.primary) {
         column.primary();
     }
-}
-
-/**
- * Configures the unique constraint of a column.
- * @param {import('knex').ColumnBuilder} column
- * @param {object} columnSpec
- */
-function configureUnique(column, columnSpec) {
     if (Object.prototype.hasOwnProperty.call(columnSpec, 'unique') && columnSpec.unique) {
         column.unique();
     }
-}
-
-/**
- * Configures the unsigned property of a column.
- * @param {import('knex').ColumnBuilder} column
- * @param {object} columnSpec
- */
-function configureUnsigned(column, columnSpec) {
     if (Object.prototype.hasOwnProperty.call(columnSpec, 'unsigned') && columnSpec.unsigned) {
         column.unsigned();
     }
@@ -106,45 +63,37 @@ function configureUnsigned(column, columnSpec) {
 
 /**
  * Configures the references of a column.
- * @param {import('knex').ColumnBuilder} column
+ * @param {import('knex').knex.ColumnBuilder} column
  * @param {object} columnSpec
  */
-function configureReferences(column, columnSpec) {
+function configureColumnReferences(column, columnSpec) {
     if (Object.prototype.hasOwnProperty.call(columnSpec, 'references')) {
         column.references(columnSpec.references);
     }
-}
-
-/**
- * Configures the constraint name of a column.
- * @param {import('knex').ColumnBuilder} column
- * @param {object} columnSpec
- */
-function configureConstraintName(column, columnSpec) {
     if (Object.prototype.hasOwnProperty.call(columnSpec, 'constraintName')) {
         column.withKeyName(columnSpec.constraintName);
     }
 }
 
 /**
- * Configures the delete behavior of a column.
- * @param {import('knex').ColumnBuilder} column
+ * Configures the deletion behavior of a column.
+ * @param {import('knex').knex.ColumnBuilder} column
  * @param {object} columnSpec
  */
-function configureDeleteBehavior(column, columnSpec) {
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'cascadeDelete') && columnSpec.cascadeDelete === true) {
+function configureColumnDeletionBehavior(column, columnSpec) {
+    if (Object.prototype.hasOwnProperty.call(columnSpec, 'cascadeDelete') && columnSpec.cascadeDelete) {
         column.onDelete('CASCADE');
-    } else if (Object.prototype.hasOwnProperty.call(columnSpec, 'setNullDelete') && columnSpec.setNullDelete === true) {
+    } else if (Object.prototype.hasOwnProperty.call(columnSpec, 'setNullDelete') && columnSpec.setNullDelete) {
         column.onDelete('SET NULL');
     }
 }
 
 /**
  * Configures the default value of a column.
- * @param {import('knex').ColumnBuilder} column
+ * @param {import('knex').knex.ColumnBuilder} column
  * @param {object} columnSpec
  */
-function configureDefault(column, columnSpec) {
+function configureColumnDefault(column, columnSpec) {
     if (Object.prototype.hasOwnProperty.call(columnSpec, 'defaultTo')) {
         column.defaultTo(columnSpec.defaultTo);
     }
@@ -152,11 +101,11 @@ function configureDefault(column, columnSpec) {
 
 /**
  * Configures the index of a column.
- * @param {import('knex').ColumnBuilder} column
+ * @param {import('knex').knex.ColumnBuilder} column
  * @param {object} columnSpec
  */
-function configureIndex(column, columnSpec) {
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'index') && columnSpec.index === true) {
+function configureColumnIndex(column, columnSpec) {
+    if (Object.prototype.hasOwnProperty.call(columnSpec, 'index') && columnSpec.index) {
         column.index();
     }
 }

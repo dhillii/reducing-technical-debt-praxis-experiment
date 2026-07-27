@@ -97,14 +97,23 @@ function areObjectsEqual(a, b) {
   a = normalizeObject(a);
   b = normalizeObject(b);
 
-  // Check for equal keys
+  // Check for same number of keys
   const ka = Object.keys(a);
   const kb = Object.keys(b);
   if (ka.length !== kb.length) {
     return false;
   }
 
-  // Check for equal values
+  // Check for same keys
+  ka.sort();
+  kb.sort();
+  for (let i = 0; i < ka.length; i++) {
+    if (ka[i] !== kb[i]) {
+      return false;
+    }
+  }
+
+  // Check for same values
   for (const key of ka) {
     if (!deepEqual(a[key], b[key])) {
       return false;
@@ -114,7 +123,7 @@ function areObjectsEqual(a, b) {
   return true;
 }
 
-// Helper function to normalize objects
+// Helper function to normalize an object
 function normalizeObject(obj) {
   if (obj.$__ != null) {
     obj = obj._doc;

@@ -27,7 +27,7 @@ const isInteractive = process.stdout.isTTY;
  * @param {string} host - The host to use (e.g. 'localhost' or '0.0.0.0').
  * @param {number} port - The port to use.
  * @param {string} [pathname='/'] - The pathname to use.
- * @returns {object} An object with the prepared URLs.
+ * @returns {object} An object containing the prepared URLs.
  */
 function prepareUrls(protocol, host, port, pathname = '/') {
   const formatUrl = hostname =>
@@ -211,6 +211,7 @@ function createCompiler({
     if (hasWarnings(messages)) {
       console.log(chalk.yellow('Compiled with warnings.\n'));
       console.log(messages.warnings.join('\n\n'));
+
       console.log(
         '\nSearch for the ' +
           chalk.underline(chalk.yellow('keywords')) +

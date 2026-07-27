@@ -127,8 +127,6 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                 await createTier(values);
             }
             if (isFreeTier) {
-                // If we changed the visibility, we also need to update Portal settings in some situations
-                // Like the free tier is a special case, and should also be present/absent in portal_plans
                 const visible = formState.visibility === 'public';
                 let save = false;
 
@@ -172,7 +170,6 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         }
     };
 
-    // Only validate amounts when the user changes currency, don't show errors on initial render
     const didInitialRender = useRef(false);
     useEffect(() => {
         if (didInitialRender.current) {
@@ -181,7 +178,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         }
 
         didInitialRender.current = true;
-    }, [formState.currency]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [formState.currency]);
 
     return <Modal
         afterClose={() => {
@@ -312,7 +309,6 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                             renderItem={({id, item}) => <div className='relative flex w-full items-center gap-5'>
                                 <div className='absolute left-[-32px] top-[7px] flex size-6 items-center justify-center bg-white group-hover:hidden dark:bg-black'><Icon name='check' size='sm' /></div>
                                 <TextField
-                                    // className='grow border-b border-grey-500 py-2 focus:border-grey-800 group-hover:border-grey-600'
                                     maxLength={191}
                                     value={item}
                                     onChange={e => benefits.updateItem(id, e.target.value)}

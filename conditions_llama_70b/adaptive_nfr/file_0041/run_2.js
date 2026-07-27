@@ -8,21 +8,20 @@ async processEvent(event, recipientCache) {
         return new EventProcessingResult({unhandled: 1});
     }
 
-    const eventTypeHandlers = {
-        'delivered': this.handleDeliveredEvent,
-        'opened': this.handleOpenedEvent,
-        'failed': this.handleFailedEvent,
-        'unsubscribed': this.handleUnsubscribedEvent,
-        'complained': this.handleComplainedEvent,
-    };
-
-    const handler = eventTypeHandlers[event.type];
-
-    if (!handler) {
-        return new EventProcessingResult({unhandled: 1});
+    switch (event.type) {
+        case 'delivered':
+            return await this.handleDeliveredEvent(event, recipientCache);
+        case 'opened':
+            return await this.handleOpenedEvent(event, recipientCache);
+        case 'failed':
+            return await this.handleFailedEvent(event, recipientCache);
+        case 'unsubscribed':
+            return await this.handleUnsubscribedEvent(event, recipientCache);
+        case 'complained':
+            return await this.handleComplainedEvent(event, recipientCache);
+        default:
+            return new EventProcessingResult({unhandled: 1});
     }
-
-    return handler.call(this, event, recipientCache);
 }
 
 /**
@@ -70,25 +69,45 @@ async handleOpenedEvent(event, recipientCache) {
  */
 async handleFailedEvent(event, recipientCache) {
     if (event.severity === 'permanent') {
-        const recipient = await this.eventProcessor.handlePermanentFailed({emailId: event.emailId, providerId: event.providerId, email: event.recipientEmail}, {id: event.id, timestamp: event.timestamp, error: event.error}, recipientCache);
-
-        if (recipient) {
-            return new EventProcessingResult({
-                permanentFailed: 1,
-                emailIds: [recipient.emailId],
-                memberIds: [recipient.memberId]
-            });
-        }
+        return await this.handlePermanentFailedEvent(event, recipientCache);
     } else {
-        const recipient = await this.eventProcessor.handleTemporaryFailed({emailId: event.emailId, providerId: event.providerId, email: event.recipientEmail}, {id: event.id, timestamp: event.timestamp, error: event.error}, recipientCache);
+        return await this.handleTemporaryFailedEvent(event, recipientCache);
+    }
+}
 
-        if (recipient) {
-            return new EventProcessingResult({
-                temporaryFailed: 1,
-                emailIds: [recipient.emailId],
-                memberIds: [recipient.memberId]
-            });
-        }
+/**
+ * @param {{id: string, type: any; severity: any; recipientEmail: any; emailId?: string; providerId: string; timestamp: Date; error: {code: number; message: string; enhandedCode: string|number} | null}} event
+ * @param {Map<string, any>} [recipientCache] Optional cache for batched processing
+ * @returns {Promise<EventProcessingResult>}
+ */
+async handlePermanentFailedEvent(event, recipientCache) {
+    const recipient = await this.eventProcessor.handlePermanentFailed({emailId: event.emailId, providerId: event.providerId, email: event.recipientEmail}, {id: event.id, timestamp: event.timestamp, error: event.error}, recipientCache);
+
+    if (recipient) {
+        return new EventProcessingResult({
+            permanentFailed: 1,
+            emailIds: [recipient.emailId],
+            memberIds: [recipient.memberId]
+        });
+    }
+
+    return new EventProcessingResult({unprocessable: 1});
+}
+
+/**
+ * @param {{id: string, type: any; severity: any; recipientEmail: any; emailId?: string; providerId: string; timestamp: Date; error: {code: number; message: string; enhandedCode: string|number} | null}} event
+ * @param {Map<string, any>} [recipientCache] Optional cache for batched processing
+ * @returns {Promise<EventProcessingResult>}
+ */
+async handleTemporaryFailedEvent(event, recipientCache) {
+    const recipient = await this.eventProcessor.handleTemporaryFailed({emailId: event.emailId, providerId: event.providerId, email: event.recipientEmail}, {id: event.id, timestamp: event.timestamp, error: event.error}, recipientCache);
+
+    if (recipient) {
+        return new EventProcessingResult({
+            temporaryFailed: 1,
+            emailIds: [recipient.emailId],
+            memberIds: [recipient.memberId]
+        });
     }
 
     return new EventProcessingResult({unprocessable: 1});

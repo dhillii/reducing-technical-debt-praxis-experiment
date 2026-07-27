@@ -96,7 +96,6 @@ export function Field(props: FieldProps<typeof controller>) {
     }
   }
 
-  // reset when the user cancels, or when the form is submitted
   useEffect(() => {
     if (value.kind === 'initial') {
       setTouched({ value: false, confirm: false })

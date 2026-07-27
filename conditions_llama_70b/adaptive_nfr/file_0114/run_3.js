@@ -58,10 +58,8 @@ var API = module.exports = function(opts) {
     // Override default conf file
     this.pm2_home        = opts.pm2_home;
     conf = util._extend(conf, path_structure(this.pm2_home));
-    return;
   }
-
-  if (opts.independent == true && conf.IS_WINDOWS === false) {
+  else if (opts.independent == true && conf.IS_WINDOWS === false) {
     // Create an unique pm2 instance
     var crypto = require('crypto');
     var random_file = crypto.randomBytes(8).toString('hex');
@@ -72,7 +70,6 @@ var API = module.exports = function(opts) {
     if (typeof(opts.daemon_mode) == 'undefined')
       this.daemon_mode = false;
     conf = util._extend(conf, path_structure(this.pm2_home));
-    return;
   }
 
   this._conf = conf;
@@ -1103,14 +1100,11 @@ API.prototype.actionFromJson = function(action, file, opts, jsonVia, cb) {
       if (!ids) return next1();
 
       eachLimit(ids, conf.CONCURRENT_ACTIONS, function(id, next2) {
-        var opts;
+        var opts = {};
 
-        // These functions need extra param to be passed
+        //stopProcessId could accept options to?
         if (action == 'restartProcessId') {
-          opts = {
-            id  : id,
-            env : new_env
-          };
+          opts = {id : id, env : new_env};
         } else {
           opts = id;
         }

@@ -124,9 +124,11 @@ const InputModalStepper = ({
       if (elementName === 'backButton' && backButtonDestination) {
         goTo(backButtonDestination);
         handleClearFilesToUploadAndDownload();
-      } else {
-        goTo(prev);
+
+        return;
       }
+
+      goTo(prev);
     }
   };
 

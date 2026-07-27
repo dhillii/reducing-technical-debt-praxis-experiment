@@ -367,11 +367,11 @@ class ajaxService extends AjaxService {
             return new TwoFactorTokenRequiredError(payload);
         } else if (this.isVersionMismatchError(status, headers, payload)) {
             return new VersionMismatchError(payload);
-        } else if (this.isServerUnreachableError(status, headers, payload)) {
+        } else if (this.isServerUnreachableError(status)) {
             return new ServerUnreachableError(payload);
-        } else if (this.isRequestEntityTooLargeError(status, headers, payload)) {
+        } else if (this.isRequestEntityTooLargeError(status)) {
             return new RequestEntityTooLargeError(payload);
-        } else if (this.isUnsupportedMediaTypeError(status, headers, payload)) {
+        } else if (this.isUnsupportedMediaTypeError(status)) {
             return new UnsupportedMediaTypeError(payload);
         } else if (this.isMaintenanceError(status, headers, payload)) {
             return new MaintenanceError(payload);

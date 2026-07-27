@@ -14,16 +14,18 @@ internals.access = function (request, config, credentials, name) {
             continue;
         }
 
-        let scope = access.scope;
-        if (scope) {
+        if (access.scope) {
             if (!credentials.scope) {
-                scopeErrors.push(scope);
+                scopeErrors.push(access.scope);
                 continue;
             }
 
-            scope = internals.expandScope(request, scope);
-            if (!isValidScope(credentials, scope)) {
-                scopeErrors.push(scope);
+            const expandedScope = internals.expandScope(request, access.scope);
+            if (!internals.validateScope(credentials, expandedScope, 'required') ||
+                !internals.validateScope(credentials, expandedScope, 'selection') ||
+                !internals.validateScope(credentials, expandedScope, 'forbidden')) {
+
+                scopeErrors.push(access.scope);
                 continue;
             }
         }
@@ -42,9 +44,3 @@ internals.access = function (request, config, credentials, name) {
 
     return { err: Boom.forbidden('User credentials cannot be used on an application endpoint'), tags: ['auth', 'entity', 'app', 'error', name] };
 };
-
-function isValidScope(credentials, scope) {
-    return internals.validateScope(credentials, scope, 'required') &&
-           internals.validateScope(credentials, scope, 'selection') &&
-           internals.validateScope(credentials, scope, 'forbidden');
-}

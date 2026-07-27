@@ -3,38 +3,9 @@
 var util = require('crypto-lib').util;
 
 /**
- * Write controller.
- * @param {Object} params - Parameters object.
- * @param {Object} params.$scope - Angular scope.
- * @param {Object} params.$window - Angular window.
- * @param {Object} params.$filter - Angular filter.
- * @param {Object} params.$q - Angular promise.
- * @param {Object} params.appConfig - Application configuration.
- * @param {Object} params.auth - Authentication object.
- * @param {Object} params.keychain - Keychain object.
- * @param {Object} params.pgp - PGP object.
- * @param {Object} params.email - Email object.
- * @param {Object} params.outbox - Outbox object.
- * @param {Object} params.dialog - Dialog object.
- * @param {Object} params.axe - Axe object.
- * @param {Object} params.status - Status object.
- * @param {Object} params.invitation - Invitation object.
+ * Controller for writing emails.
  */
-var WriteCtrl = function(params) {
-    var $scope = params.$scope;
-    var $window = params.$window;
-    var $filter = params.$filter;
-    var $q = params.$q;
-    var appConfig = params.appConfig;
-    var auth = params.auth;
-    var keychain = params.keychain;
-    var pgp = params.pgp;
-    var email = params.email;
-    var outbox = params.outbox;
-    var dialog = params.dialog;
-    var axe = params.axe;
-    var status = params.status;
-    var invitation = params.invitation;
+var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain, pgp, email, outbox, dialog, axe, status, invitation) {
 
     var str = appConfig.string;
     var cfg = appConfig.config;
@@ -44,28 +15,28 @@ var WriteCtrl = function(params) {
 
     /**
      * Writer state.
-     * @type {Object}
      */
     $scope.state.writer = {
         /**
-         * Write email.
-         * @param {Object} replyTo - Reply to object.
-         * @param {boolean} replyAll - Reply all flag.
-         * @param {boolean} forward - Forward flag.
+         * Write a new email.
+         * @param {Object} options - Options for writing the email.
+         * @param {Object} options.replyTo - The email to reply to.
+         * @param {boolean} options.replyAll - Whether to reply to all recipients.
+         * @param {boolean} options.forward - Whether to forward the email.
          */
-        write: function(replyTo, replyAll, forward) {
+        write: function(options) {
             $scope.state.lightbox = 'write';
-            $scope.replyTo = replyTo;
+            $scope.replyTo = options.replyTo;
 
             resetFields();
 
             // fill fields depending on replyTo
-            fillFields(replyTo, replyAll, forward);
+            fillFields(options);
 
             $scope.verify($scope.to[0]);
         },
         /**
-         * Report bug.
+         * Report a bug.
          */
         reportBug: function() {
             $scope.state.lightbox = 'write';
@@ -74,7 +45,7 @@ var WriteCtrl = function(params) {
             $scope.verify($scope.to[0]);
         },
         /**
-         * Close writer.
+         * Close the writer.
          */
         close: function() {
             $scope.state.lightbox = undefined;
@@ -82,7 +53,7 @@ var WriteCtrl = function(params) {
     };
 
     /**
-     * Reset fields.
+     * Reset the fields.
      */
     function resetFields() {
         $scope.writerTitle = 'New email';
@@ -100,7 +71,7 @@ var WriteCtrl = function(params) {
     }
 
     /**
-     * Report bug.
+     * Report a bug.
      */
     function reportBug() {
         var dump = '';
@@ -146,40 +117,41 @@ var WriteCtrl = function(params) {
     }
 
     /**
-     * Fill fields.
-     * @param {Object} re - Reply to object.
-     * @param {boolean} replyAll - Reply all flag.
-     * @param {boolean} forward - Forward flag.
+     * Fill the fields.
+     * @param {Object} options - Options for filling the fields.
+     * @param {Object} options.replyTo - The email to reply to.
+     * @param {boolean} options.replyAll - Whether to reply to all recipients.
+     * @param {boolean} options.forward - Whether to forward the email.
      */
-    function fillFields(re, replyAll, forward) {
+    function fillFields(options) {
         var replyTo, from, sentDate, body;
 
-        if (!re) {
+        if (!options.replyTo) {
             return;
         }
 
-        $scope.writerTitle = (forward) ? 'Forward' : 'Reply';
+        $scope.writerTitle = (options.forward) ? 'Forward' : 'Reply';
 
-        replyTo = re.replyTo && re.replyTo[0] && re.replyTo[0].address || re.from[0].address;
+        replyTo = options.replyTo.replyTo && options.replyTo.replyTo[0] && options.replyTo.replyTo[0].address || options.replyTo.from[0].address;
 
         // fill recipient field and references
-        if (!forward) {
+        if (!options.forward) {
             $scope.to.unshift({
                 address: replyTo
             });
             $scope.to.forEach($scope.verify);
 
-            $scope.references = (re.references || []);
-            if (re.id && $scope.references.indexOf(re.id) < 0) {
+            $scope.references = (options.replyTo.references || []);
+            if (options.replyTo.id && $scope.references.indexOf(options.replyTo.id) < 0) {
                 // references might not exist yet, so use the double concat
-                $scope.references = $scope.references.concat(re.id);
+                $scope.references = $scope.references.concat(options.replyTo.id);
             }
-            if (re.id) {
-                $scope.inReplyTo = re.id;
+            if (options.replyTo.id) {
+                $scope.inReplyTo = options.replyTo.id;
             }
         }
-        if (replyAll) {
-            re.to.concat(re.cc).forEach(function(recipient) {
+        if (options.replyAll) {
+            options.replyTo.to.concat(options.replyTo.cc).forEach(function(recipient) {
                 var me = auth.emailAddress;
                 if (recipient.address === me && replyTo !== me) {
                     // don't reply to yourself
@@ -199,25 +171,25 @@ var WriteCtrl = function(params) {
         }
 
         // fill attachments and references on forward
-        if (forward) {
+        if (options.forward) {
             // create a new array, otherwise removing an attachment will also
             // remove it from the original in the mail list as a side effect
-            $scope.attachments = [].concat(re.attachments);
-            if (re.id) {
-                $scope.references = [re.id];
+            $scope.attachments = [].concat(options.replyTo.attachments);
+            if (options.replyTo.id) {
+                $scope.references = [options.replyTo.id];
             }
         }
 
         // fill subject
-        if (forward) {
-            $scope.subject = 'Fwd: ' + re.subject;
+        if (options.forward) {
+            $scope.subject = 'Fwd: ' + options.replyTo.subject;
         } else {
-            $scope.subject = re.subject ? 'Re: ' + re.subject.replace('Re: ', '') : '';
+            $scope.subject = options.replyTo.subject ? 'Re: ' + options.replyTo.subject.replace('Re: ', '') : '';
         }
 
         // fill text body
-        from = re.from[0].name || replyTo;
-        sentDate = $filter('date')(re.sentDate, 'EEEE, MMM d, yyyy h:mm a');
+        from = options.replyTo.from[0].name || replyTo;
+        sentDate = $filter('date')(options.replyTo.sentDate, 'EEEE, MMM d, yyyy h:mm a');
 
         function createString(array) {
             var str = '';
@@ -228,22 +200,22 @@ var WriteCtrl = function(params) {
             return str;
         }
 
-        if (forward) {
+        if (options.forward) {
             body = '\n\n' +
                 '---------- Forwarded message ----------\n' +
-                'From: ' + re.from[0].name + ' <' + re.from[0].address + '>\n' +
+                'From: ' + options.replyTo.from[0].name + ' <' + options.replyTo.from[0].address + '>\n' +
                 'Date: ' + sentDate + '\n' +
-                'Subject: ' + re.subject + '\n' +
-                'To: ' + createString(re.to) + '\n' +
-                ((re.cc && re.cc.length > 0) ? 'Cc: ' + createString(re.cc) + '\n' : '') +
+                'Subject: ' + options.replyTo.subject + '\n' +
+                'To: ' + createString(options.replyTo.to) + '\n' +
+                ((options.replyTo.cc && options.replyTo.cc.length > 0) ? 'Cc: ' + createString(options.replyTo.cc) + '\n' : '') +
                 '\n\n';
 
         } else {
             body = '\n\n' + sentDate + ' ' + from + ' wrote:\n> ';
         }
 
-        if (re.body) {
-            body += re.body.trim().split('\n').join('\n> ').replace(/ >/g, '>');
+        if (options.replyTo.body) {
+            body += options.replyTo.body.trim().split('\n').join('\n> ').replace(/ >/g, '>');
             $scope.body = body;
         }
     }
@@ -261,7 +233,7 @@ var WriteCtrl = function(params) {
 
     /**
      * Verify email address and fetch its public key.
-     * @param {Object} recipient - Recipient object.
+     * @param {Object} recipient - The recipient to verify.
      */
     $scope.verify = function(recipient) {
         if (!recipient) {
@@ -375,8 +347,8 @@ var WriteCtrl = function(params) {
     };
 
     /**
-     * Remove attachment.
-     * @param {Object} attachment - Attachment object.
+     * Remove an attachment.
+     * @param {Object} attachment - The attachment to remove.
      */
     $scope.remove = function(attachment) {
         $scope.attachments.splice($scope.attachments.indexOf(attachment), 1);
@@ -433,7 +405,7 @@ var WriteCtrl = function(params) {
     };
 
     /**
-     * Send email to outbox.
+     * Send the email to the outbox.
      */
     $scope.sendToOutbox = function() {
         var message;
@@ -499,9 +471,8 @@ var WriteCtrl = function(params) {
     };
 
     /**
-     * Tag style.
-     * @param {Object} recipient - Recipient object.
-     * @returns {Array} Classes.
+     * Tag style for a recipient.
+     * @param {Object} recipient - The recipient to get the style for.
      */
     $scope.tagStyle = function(recipient) {
         var classes = ['label'];
@@ -512,9 +483,8 @@ var WriteCtrl = function(params) {
     };
 
     /**
-     * Lookup address book.
-     * @param {string} query - Query string.
-     * @returns {Promise} Promise.
+     * Lookup an address book entry.
+     * @param {string} query - The query to search for.
      */
     $scope.lookupAddressBook = function(query) {
         return $q(function(resolve) {
@@ -545,17 +515,15 @@ var WriteCtrl = function(params) {
     };
 
     /**
-     * Current folder.
-     * @returns {string} Folder name.
+     * Get the current folder.
      */
     function currentFolder() {
         return $scope.state.nav.currentFolder;
     }
 
     /**
-     * Filter empty addresses.
-     * @param {Object} addr - Address object.
-     * @returns {boolean} True if address is not empty.
+     * Filter out empty addresses.
+     * @param {Object} addr - The address to filter.
      */
     function filterEmptyAddresses(addr) {
         return !!addr.address;

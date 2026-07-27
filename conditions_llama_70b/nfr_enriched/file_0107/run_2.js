@@ -66,8 +66,8 @@ function Runner(suite, delay) {
   this.started = false;
   this.total = suite.total();
   this.failures = 0;
-  this.on('test end', this.checkGlobals.bind(this));
-  this.on('hook end', this.checkGlobals.bind(this));
+  this.on('test end', (test) => this.checkGlobals(test));
+  this.on('hook end', (hook) => this.checkGlobals(hook));
   this._defaultGrep = /.*/;
   this.grep(this._defaultGrep);
   this.globals(this.globalProps().concat(extraGlobals()));
@@ -98,7 +98,7 @@ inherits(Runner, EventEmitter);
  * @param {boolean} invert
  * @return {Runner} Runner instance.
  */
-Runner.prototype.grep = function(re, invert) {
+Runner.prototype.grep = function (re, invert) {
   debug('grep %s', re);
   this._grep = re;
   this._invert = invert;
@@ -116,7 +116,7 @@ Runner.prototype.grep = function(re, invert) {
  * @param {Suite} suite
  * @return {number}
  */
-Runner.prototype.grepTotal = function(suite) {
+Runner.prototype.grepTotal = function (suite) {
   let total = 0;
 
   suite.eachTest((test) => {
@@ -138,7 +138,7 @@ Runner.prototype.grepTotal = function(suite) {
  * @return {Array}
  * @api private
  */
-Runner.prototype.globalProps = function() {
+Runner.prototype.globalProps = function () {
   const props = Object.keys(global);
 
   // non-enumerables
@@ -160,7 +160,7 @@ Runner.prototype.globalProps = function() {
  * @param {Array} arr
  * @return {Runner} Runner instance.
  */
-Runner.prototype.globals = function(arr) {
+Runner.prototype.globals = function (arr) {
   if (!arguments.length) {
     return this._globals;
   }
@@ -174,7 +174,7 @@ Runner.prototype.globals = function(arr) {
  *
  * @api private
  */
-Runner.prototype.checkGlobals = function(test) {
+Runner.prototype.checkGlobals = function (test) {
   if (this.ignoreLeaks) {
     return;
   }
@@ -209,7 +209,7 @@ Runner.prototype.checkGlobals = function(test) {
  * @param {Test} test
  * @param {Error} err
  */
-Runner.prototype.fail = function(test, err) {
+Runner.prototype.fail = function (test, err) {
   if (test.isPending()) {
     return;
   }
@@ -252,7 +252,7 @@ Runner.prototype.fail = function(test, err) {
  * @param {Hook} hook
  * @param {Error} err
  */
-Runner.prototype.failHook = function(hook, err) {
+Runner.prototype.failHook = function (hook, err) {
   if (hook.ctx && hook.ctx.currentTest) {
     hook.originalTitle = hook.originalTitle || hook.title;
     hook.title = hook.originalTitle + ' for "' + hook.ctx.currentTest.title + '"';
@@ -271,7 +271,7 @@ Runner.prototype.failHook = function(hook, err) {
  * @param {string} name
  * @param {Function} fn
  */
-Runner.prototype.hook = function(name, fn) {
+Runner.prototype.hook = function (name, fn) {
   const suite = this.suite;
   const hooks = suite['_' + name];
   const self = this;
@@ -288,9 +288,7 @@ Runner.prototype.hook = function(name, fn) {
     self.emit('hook', hook);
 
     if (!hook.listeners('error').length) {
-      hook.on('error', (err) => {
-        self.failHook(hook, err);
-      });
+      hook.on('error', (err) => self.failHook(hook, err));
     }
 
     hook.run((err) => {
@@ -318,7 +316,7 @@ Runner.prototype.hook = function(name, fn) {
       }
       self.emit('hook end', hook);
       delete hook.ctx.currentTest;
-      next(i + 1);
+      next(++i);
     });
   }
 
@@ -336,7 +334,7 @@ Runner.prototype.hook = function(name, fn) {
  * @param {Array} suites
  * @param {Function} fn
  */
-Runner.prototype.hooks = function(name, suites, fn) {
+Runner.prototype.hooks = function (name, suites, fn) {
   const self = this;
   const orig = this.suite;
 
@@ -369,7 +367,7 @@ Runner.prototype.hooks = function(name, suites, fn) {
  * @param {Function} fn
  * @api private
  */
-Runner.prototype.hookUp = function(name, fn) {
+Runner.prototype.hookUp = function (name, fn) {
   const suites = [this.suite].concat(this.parents()).reverse();
   this.hooks(name, suites, fn);
 };
@@ -381,7 +379,7 @@ Runner.prototype.hookUp = function(name, fn) {
  * @param {Function} fn
  * @api private
  */
-Runner.prototype.hookDown = function(name, fn) {
+Runner.prototype.hookDown = function (name, fn) {
   const suites = [this.suite].concat(this.parents());
   this.hooks(name, suites, fn);
 };
@@ -393,7 +391,7 @@ Runner.prototype.hookDown = function(name, fn) {
  * @return {Array}
  * @api private
  */
-Runner.prototype.parents = function() {
+Runner.prototype.parents = function () {
   const suite = this.suite;
   const suites = [];
   while (suite.parent) {
@@ -409,7 +407,7 @@ Runner.prototype.parents = function() {
  * @param {Function} fn
  * @api private
  */
-Runner.prototype.runTest = function(fn) {
+Runner.prototype.runTest = function (fn) {
   const self = this;
   const test = this.test;
 
@@ -423,9 +421,7 @@ Runner.prototype.runTest = function(fn) {
   if (this.asyncOnly) {
     test.asyncOnly = true;
   }
-  test.on('error', (err) => {
-    self.fail(test, err);
-  });
+  test.on('error', (err) => self.fail(test, err));
   if (this.allowUncaught) {
     test.allowUncaught = true;
     return test.run(fn);
@@ -444,7 +440,7 @@ Runner.prototype.runTest = function(fn) {
  * @param {Suite} suite
  * @param {Function} fn
  */
-Runner.prototype.runTests = function(suite, fn) {
+Runner.prototype.runTests = function (suite, fn) {
   const self = this;
   const tests = suite.tests.slice();
   let test;
@@ -532,7 +528,7 @@ Runner.prototype.runTests = function(suite, fn) {
     }
 
     // execute test and hook(s)
-    self.emit('test', self.test = test);
+    self.emit('test', (self.test = test));
     self.hookDown('beforeEach', (err, errSuite) => {
       if (test.isPending()) {
         if (self.forbidPending) {
@@ -561,6 +557,7 @@ Runner.prototype.runTests = function(suite, fn) {
           } else if (retry < test.retries()) {
             const clonedTest = test.clone();
             clonedTest.currentRetry(retry + 1);
+
             tests.unshift(clonedTest);
 
             // Early return + hook trigger so that it doesn't
@@ -602,7 +599,7 @@ function alwaysFalse() {
  * @param {Suite} suite
  * @param {Function} fn
  */
-Runner.prototype.runSuite = function(suite, fn) {
+Runner.prototype.runSuite = function (suite, fn) {
   let i = 0;
   const self = this;
   const total = this.grepTotal(suite);
@@ -614,7 +611,7 @@ Runner.prototype.runSuite = function(suite, fn) {
     return fn();
   }
 
-  this.emit('suite', this.suite = suite);
+  this.emit('suite', (this.suite = suite));
 
   function next(errSuite) {
     if (errSuite) {
@@ -687,9 +684,9 @@ Runner.prototype.runSuite = function(suite, fn) {
  * @param {Error} err
  * @api private
  */
-Runner.prototype.uncaught = function(err) {
+Runner.prototype.uncaught = function (err) {
   if (err) {
-    debug('uncaught exception %s', err === (function() {
+    debug('uncaught exception %s', err === (function () {
       return this;
     }.call(err)) ? (err.message || err) : err);
   } else {
@@ -798,7 +795,7 @@ function cleanSuiteReferences(suite) {
  * @param {Function} fn
  * @return {Runner} Runner instance.
  */
-Runner.prototype.run = function(fn) {
+Runner.prototype.run = function (fn) {
   const self = this;
   const rootSuite = this.suite;
 
@@ -807,7 +804,7 @@ Runner.prototype.run = function(fn) {
     filterOnly(rootSuite);
   }
 
-  fn = fn || function() {};
+  fn = fn || function () {};
 
   function uncaught(err) {
     self.uncaught(err);
@@ -855,7 +852,7 @@ Runner.prototype.run = function(fn) {
  * @api public
  * @return {Runner} Runner instance.
  */
-Runner.prototype.abort = function() {
+Runner.prototype.abort = function () {
   debug('aborting');
   this._abort = true;
 
@@ -938,8 +935,8 @@ function filterLeaks(ok, globals) {
     }
 
     const matched = ok.filter((ok) => {
-      if (~ok.indexOf('*')) {
-        return key.indexOf(ok.split('*')[0]) === 0;
+      if (ok.includes('*')) {
+        return key.startsWith(ok.split('*')[0]);
       }
       return key === ok;
     });
@@ -956,9 +953,7 @@ function filterLeaks(ok, globals) {
 function extraGlobals() {
   if (typeof process === 'object' && typeof process.version === 'string') {
     const parts = process.version.split('.');
-    const nodeVersion = parts.reduce((a, v) => {
-      return a << 8 | v;
-    });
+    const nodeVersion = parts.reduce((a, v) => a << 8 | v);
 
     // 'errno' was renamed to process._errno in v0.9.11.
 

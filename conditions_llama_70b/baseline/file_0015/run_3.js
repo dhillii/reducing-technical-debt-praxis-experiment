@@ -20,12 +20,12 @@ function handleBothUpdates({dataUpdate, emailUpdate, state}) {
             page: 'accountHome',
             popupNotification: createPopupNotification({
                 type: 'updateProfile:success', autoHide: true, closeable: true, status: 'success', state,
-                message: state.t('Check your inbox to verify email update')
+                message: t('Check your inbox to verify email update')
             })
         };
     }
 
-    const message = !dataUpdate.success ? state.t('Failed to update account data') : state.t('Failed to send verification email');
+    const message = !dataUpdate.success ? t('Failed to update account data') : t('Failed to send verification email');
     return {
         action: 'updateProfile:failed',
         ...(dataUpdate.success ? {member: dataUpdate.member} : {}),
@@ -38,7 +38,7 @@ function handleBothUpdates({dataUpdate, emailUpdate, state}) {
 function handleDataUpdate({dataUpdate, state}) {
     const action = dataUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
     const status = dataUpdate.success ? 'success' : 'error';
-    const message = !dataUpdate.success ? state.t('Failed to update account details') : state.t('Account details updated successfully');
+    const message = !dataUpdate.success ? t('Failed to update account details') : t('Account details updated successfully');
     return {
         action,
         ...(dataUpdate.success ? {member: dataUpdate.member} : {}),
@@ -55,9 +55,9 @@ function handleEmailUpdate({emailUpdate, state}) {
     let message = '';
 
     if (emailUpdate.error) {
-        message = chooseBestErrorMessage(emailUpdate.error, state.t('Failed to send verification email'));
+        message = chooseBestErrorMessage(emailUpdate.error, t('Failed to send verification email'));
     } else {
-        message = state.t('Check your inbox to verify email update');
+        message = t('Check your inbox to verify email update');
     }
 
     return {
@@ -75,7 +75,7 @@ function handleNoUpdates({state}) {
         page: 'accountHome',
         popupNotification: createPopupNotification({
             type: 'updateProfile:success', autoHide: true, closeable: true, status: 'success', state,
-            message: state.t('Account details updated successfully')
+            message: t('Account details updated successfully')
         })
     };
 }

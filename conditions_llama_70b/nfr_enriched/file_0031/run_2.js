@@ -63,9 +63,8 @@ export default class ParseMemberEventHelper extends Helper {
     }
 
     getMemberName(event) {
-        let memberName = event.data.member?.name;
-        memberName = this.trimString(memberName);
-        return memberName;
+        const memberName = event.data.member?.name;
+        return this.trimString(memberName);
     }
 
     getSubject(event, memberName) {
@@ -204,7 +203,7 @@ export default class ParseMemberEventHelper extends Helper {
     }
 
     getSubscriptionInfo(event) {
-        let mrrDelta = getNonDecimal(event.data.mrr_delta, event.data.currency);
+        const mrrDelta = getNonDecimal(event.data.mrr_delta, event.data.currency);
         if (mrrDelta === 0) {
             return;
         }

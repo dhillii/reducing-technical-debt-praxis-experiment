@@ -29,6 +29,11 @@ async getCustomerIdByEmail(email) {
     }
 }
 
+/**
+ * Returns the ID of the customer with the most recent subscription
+ * @param {ICustomer[]} customers
+ * @returns {string|null}
+ */
 _getLatestCustomerWithSubscription(customers) {
     let latestCustomer = null;
     let latestSubscriptionTime = 0;

@@ -175,7 +175,6 @@ Lawnchair.adapter('indexed-db', (function(){
       }
 
       const self = this;
-
       const win = (e) => {
         const r = e.target.result;
         if (callback) {
@@ -237,8 +236,7 @@ Lawnchair.adapter('indexed-db', (function(){
       }
 
       const self = this;
-
-      const req = this.db.transaction(self.record).objectStore(self.record).openCursor(getIDBKeyRange().only(key));
+      const req = this.db.transaction(this.record).objectStore(this.record).openCursor(getIDBKeyRange().only(key));
 
       req.onsuccess = (event) => {
         req.onsuccess = req.onerror = null;
@@ -323,7 +321,7 @@ Lawnchair.adapter('indexed-db', (function(){
 
     /**
      * Removes an object from the IndexedDB store.
-     * @param {string} keyOrArray The key or array of keys to remove.
+     * @param {string} key The key of the object to remove.
      * @param {function} callback The callback function.
      * @returns {object} The IndexedDB adapter.
      */
@@ -336,7 +334,6 @@ Lawnchair.adapter('indexed-db', (function(){
       }
 
       const self = this;
-
       const toDelete = keyOrArray;
       if (!this.isArray(keyOrArray)) {
         toDelete = [keyOrArray];

@@ -321,7 +321,9 @@ Runner.prototype.hook = function (name, fn) {
     });
   }
 
-  Runner.immediately(() => next(0));
+  Runner.immediately(() => {
+    next(0);
+  });
 };
 
 /**
@@ -444,7 +446,7 @@ Runner.prototype.runTests = function (suite, fn) {
   const tests = suite.tests.slice();
   let test;
 
-  function hookErr(_, errSuite, after) {
+  function hookErr(err, errSuite, after) {
     // before/after Each hook for errSuite failed:
     const orig = self.suite;
 
@@ -638,7 +640,9 @@ Runner.prototype.runSuite = function (suite, fn) {
     // huge recursive loop and thus a maximum call stack error.
     // See comment in `this.runTests()` for more information.
     if (self._grep !== self._defaultGrep) {
-      Runner.immediately(() => self.runSuite(curr, next));
+      Runner.immediately(() => {
+        self.runSuite(curr, next);
+      });
     } else {
       self.runSuite(curr, next);
     }

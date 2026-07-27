@@ -44,6 +44,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const MAX_CONTENT_LENGTH = 500;
 
+    // Sync external open prop with internal state
     useEffect(() => {
         if (props.open !== undefined) {
             setIsOpen(props.open);
@@ -65,6 +66,11 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     const isDisabled = !content.trim() || !user || isPosting || content.length > MAX_CONTENT_LENGTH;
 
     const handlePost = useCallback(async () => {
+        // Extracted function to handle post logic
+        await handlePostLogic();
+    }, [content, user, replyTo, replyMutation, noteMutation, uploadedImageUrl, altText, onReply, onReplyError, setIsOpen, navigate, onOpenChange]);
+
+    const handlePostLogic = async () => {
         const trimmedContent = content.trim();
 
         if (!trimmedContent || !user) {
@@ -96,10 +102,12 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             if (replyTo) {
                 onReplyError?.();
             }
+            // Handle error case if needed
+            // console.error('Failed to create post:', error);
         } finally {
             setIsPosting(false);
         }
-    }, [content, user, replyTo, replyMutation, noteMutation, uploadedImageUrl, altText, onReply, onReplyError, setIsOpen, navigate, onOpenChange]);
+    };
 
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setContent(e.target.value);
@@ -112,11 +120,51 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [content]);
 
-    const handleContentClick = () => {
-        textareaRef.current?.focus();
-    };
+    // Focus textarea when modal opens
+    useEffect(() => {
+        const modalIsOpen = props.open !== undefined ? props.open : isOpen;
+        if (modalIsOpen && textareaRef.current) {
+            // Small delay to ensure modal is fully rendered
+            const timeoutId = setTimeout(() => {
+                textareaRef.current?.focus();
+            }, 100);
+            return () => clearTimeout(timeoutId);
+        }
+    }, [isOpen, props.open]);
+
+    // Focus alt text input when it becomes visible
+    useEffect(() => {
+        if (showAltInput && altTextInputRef.current) {
+            const timeoutId = setTimeout(() => {
+                altTextInputRef.current?.focus();
+            }, 100);
+            return () => clearTimeout(timeoutId);
+        }
+    }, [showAltInput]);
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault();
+                if (!isDisabled && !isImageUploading) {
+                    handlePost();
+                }
+            }
+        };
+
+        const modalIsOpen = props.open !== undefined ? props.open : isOpen;
+        if (modalIsOpen) {
+            document.addEventListener('keydown', handleKeyDown);
+            return () => document.removeEventListener('keydown', handleKeyDown);
+        }
+    }, [isOpen, props.open, isDisabled, isImageUploading, handlePost]);
 
     const handlePaste = useCallback(async (e: React.ClipboardEvent | ClipboardEvent) => {
+        // Extracted function to handle paste logic
+        await handlePasteLogic(e);
+    }, []);
+
+    const handlePasteLogic = async (e: React.ClipboardEvent | ClipboardEvent) => {
         const items = e.clipboardData?.items;
         if (!items) {
             return;
@@ -140,7 +188,15 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                 break;
             }
         }
-    }, []);
+    };
+
+    useEffect(() => {
+        const modalIsOpen = props.open !== undefined ? props.open : isOpen;
+        if (modalIsOpen) {
+            document.addEventListener('paste', handlePaste);
+            return () => document.removeEventListener('paste', handlePaste);
+        }
+    }, [isOpen, props.open, handlePaste]);
 
     const handleImageUpload = async (file: File) => {
         try {
@@ -209,50 +265,9 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         setShowAltInput(!showAltInput);
     };
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-            e.preventDefault();
-            if (!isDisabled && !isImageUploading) {
-                handlePost();
-            }
-        }
+    const handleContentClick = () => {
+        textareaRef.current?.focus();
     };
-
-    useEffect(() => {
-        const modalIsOpen = props.open !== undefined ? props.open : isOpen;
-        if (modalIsOpen) {
-            document.addEventListener('keydown', handleKeyDown);
-            return () => document.removeEventListener('keydown', handleKeyDown);
-        }
-    }, [isOpen, props.open, isDisabled, isImageUploading, handlePost]);
-
-    useEffect(() => {
-        const modalIsOpen = props.open !== undefined ? props.open : isOpen;
-        if (modalIsOpen) {
-            document.addEventListener('paste', handlePaste);
-            return () => document.removeEventListener('paste', handlePaste);
-        }
-    }, [isOpen, props.open, handlePaste]);
-
-    useEffect(() => {
-        const modalIsOpen = props.open !== undefined ? props.open : isOpen;
-        if (modalIsOpen && textareaRef.current) {
-            // Small delay to ensure modal is fully rendered
-            const timeoutId = setTimeout(() => {
-                textareaRef.current?.focus();
-            }, 100);
-            return () => clearTimeout(timeoutId);
-        }
-    }, [isOpen, props.open]);
-
-    useEffect(() => {
-        if (showAltInput && altTextInputRef.current) {
-            const timeoutId = setTimeout(() => {
-                altTextInputRef.current?.focus();
-            }, 100);
-            return () => clearTimeout(timeoutId);
-        }
-    }, [showAltInput]);
 
     useEffect(() => {
         // Cleanup function to revoke object URLs when component unmounts

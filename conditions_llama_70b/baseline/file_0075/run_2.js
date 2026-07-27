@@ -12,235 +12,222 @@ class TokenStore {
   }
 
   getTokensBefore(node, options = {}) {
-    const { count = 1, filter, includeComments } = options;
-    const tokens = this._getTokensBefore(node.range, count, includeComments);
-    return this._filterTokens(tokens, filter);
+    const { count, filter, includeComments } = options;
+    const tokens = this._getTokensBefore(node.range, includeComments);
+    const filteredTokens = this._filterTokens(tokens, filter);
+    return this._getTokensWithCount(filteredTokens, count);
   }
 
   getTokenBefore(node, options = {}) {
-    const { skip = 0, filter, includeComments } = options;
-    const token = this._getTokenBefore(node.range, skip, includeComments);
-    return this._filterToken(token, filter);
+    const { skip, filter, includeComments } = options;
+    const tokens = this._getTokensBefore(node.range, includeComments);
+    const filteredTokens = this._filterTokens(tokens, filter);
+    return this._getTokenWithSkip(filteredTokens, skip);
   }
 
   getTokensAfter(node, options = {}) {
-    const { count = 1, filter, includeComments } = options;
-    const tokens = this._getTokensAfter(node.range, count, includeComments);
-    return this._filterTokens(tokens, filter);
+    const { count, filter, includeComments } = options;
+    const tokens = this._getTokensAfter(node.range, includeComments);
+    const filteredTokens = this._filterTokens(tokens, filter);
+    return this._getTokensWithCount(filteredTokens, count);
   }
 
   getTokenAfter(node, options = {}) {
-    const { skip = 0, filter, includeComments } = options;
-    const token = this._getTokenAfter(node.range, skip, includeComments);
-    return this._filterToken(token, filter);
+    const { skip, filter, includeComments } = options;
+    const tokens = this._getTokensAfter(node.range, includeComments);
+    const filteredTokens = this._filterTokens(tokens, filter);
+    return this._getTokenWithSkip(filteredTokens, skip);
   }
 
   getFirstTokens(node, options = {}) {
-    const { count = 1, filter, includeComments } = options;
+    const { count, filter, includeComments } = options;
     const tokens = this._getTokensInRange(node.range, includeComments);
     const filteredTokens = this._filterTokens(tokens, filter);
-    return filteredTokens.slice(0, count);
+    return this._getTokensWithCount(filteredTokens, count);
   }
 
   getFirstToken(node, options = {}) {
-    const { skip = 0, filter, includeComments } = options;
-    const token = this._getFirstToken(node.range, skip, includeComments);
-    return this._filterToken(token, filter);
+    const { skip, filter, includeComments } = options;
+    const tokens = this._getTokensInRange(node.range, includeComments);
+    const filteredTokens = this._filterTokens(tokens, filter);
+    return this._getTokenWithSkip(filteredTokens, skip);
   }
 
   getLastTokens(node, options = {}) {
-    const { count = 1, filter, includeComments } = options;
+    const { count, filter, includeComments } = options;
     const tokens = this._getTokensInRange(node.range, includeComments);
     const filteredTokens = this._filterTokens(tokens, filter);
-    return filteredTokens.slice(-count);
+    return this._getTokensWithCount(
+      filteredTokens.reverse(),
+      count,
+    ).reverse();
   }
 
   getLastToken(node, options = {}) {
-    const { skip = 0, filter, includeComments } = options;
-    const token = this._getLastToken(node.range, skip, includeComments);
-    return this._filterToken(token, filter);
+    const { skip, filter, includeComments } = options;
+    const tokens = this._getTokensInRange(node.range, includeComments);
+    const filteredTokens = this._filterTokens(tokens, filter);
+    return this._getTokenWithSkip(
+      filteredTokens.reverse(),
+      skip,
+    );
   }
 
   getFirstTokensBetween(node1, node2, options = {}) {
-    const { count = 1, filter, includeComments } = options;
+    const { count, filter, includeComments } = options;
     const tokens = this._getTokensBetween(node1.range, node2.range, includeComments);
     const filteredTokens = this._filterTokens(tokens, filter);
-    return filteredTokens.slice(0, count);
+    return this._getTokensWithCount(filteredTokens, count);
   }
 
   getFirstTokenBetween(node1, node2, options = {}) {
-    const { skip = 0, filter, includeComments } = options;
-    const token = this._getFirstTokenBetween(node1.range, node2.range, skip, includeComments);
-    return this._filterToken(token, filter);
+    const { skip, filter, includeComments } = options;
+    const tokens = this._getTokensBetween(node1.range, node2.range, includeComments);
+    const filteredTokens = this._filterTokens(tokens, filter);
+    return this._getTokenWithSkip(filteredTokens, skip);
   }
 
   getLastTokensBetween(node1, node2, options = {}) {
-    const { count = 1, filter, includeComments } = options;
+    const { count, filter, includeComments } = options;
     const tokens = this._getTokensBetween(node1.range, node2.range, includeComments);
     const filteredTokens = this._filterTokens(tokens, filter);
-    return filteredTokens.slice(-count);
+    return this._getTokensWithCount(
+      filteredTokens.reverse(),
+      count,
+    ).reverse();
   }
 
   getLastTokenBetween(node1, node2, options = {}) {
-    const { skip = 0, filter, includeComments } = options;
-    const token = this._getLastTokenBetween(node1.range, node2.range, skip, includeComments);
-    return this._filterToken(token, filter);
-  }
-
-  getTokensBetween(node1, node2, options = {}) {
-    const { padding = 0, filter, includeComments } = options;
+    const { skip, filter, includeComments } = options;
     const tokens = this._getTokensBetween(node1.range, node2.range, includeComments);
     const filteredTokens = this._filterTokens(tokens, filter);
-    return this._getTokensWithPadding(filteredTokens, padding);
+    return this._getTokenWithSkip(
+      filteredTokens.reverse(),
+      skip,
+    );
+  }
+
+  getTokensBetween(node1, node2) {
+    return this._getTokensBetween(node1.range, node2.range);
   }
 
   getTokenByRangeStart(index, options = {}) {
     const { includeComments } = options;
-    const token = this._getTokenByRangeStart(index, includeComments);
-    return token;
+    const tokens = includeComments
+      ? [...this.tokens, ...this.comments]
+      : this.tokens;
+    return tokens.find(token => token.range[0] === index) || null;
   }
 
   commentsExistBetween(node1, node2) {
-    const comments = this._getCommentsBetween(node1.range, node2.range);
-    return comments.length > 0;
+    return this._getCommentsBetween(node1.range, node2.range).length > 0;
   }
 
   getCommentsBefore(node) {
-    const comments = this._getCommentsBefore(node.range);
-    return comments;
+    return this._getCommentsBefore(node.range);
   }
 
   getCommentsAfter(node) {
-    const comments = this._getCommentsAfter(node.range);
-    return comments;
+    return this._getCommentsAfter(node.range);
   }
 
   getCommentsInside(node) {
-    const comments = this._getCommentsInside(node.range);
-    return comments;
+    return this._getCommentsInside(node.range);
   }
 
   _getTokensInRange(range, includeComments) {
-    const tokens = this.tokens.filter(token => token.range[0] >= range[0] && token.range[1] <= range[1]);
-    if (includeComments) {
-      const comments = this.comments.filter(comment => comment.range[0] >= range[0] && comment.range[1] <= range[1]);
-      return [...tokens, ...comments];
-    }
-    return tokens;
+    const tokens = includeComments
+      ? [...this.tokens, ...this.comments]
+      : this.tokens;
+    return tokens.filter(token => this._isTokenInRange(token.range, range));
   }
 
-  _getTokensBefore(range, count, includeComments) {
-    const tokens = this.tokens.filter(token => token.range[1] <= range[0]);
-    if (includeComments) {
-      const comments = this.comments.filter(comment => comment.range[1] <= range[0]);
-      return [...tokens, ...comments].slice(-count);
-    }
-    return tokens.slice(-count);
+  _getTokensBefore(range, includeComments) {
+    const tokens = includeComments
+      ? [...this.tokens, ...this.comments]
+      : this.tokens;
+    return tokens.filter(token => this._isTokenBefore(token.range, range));
   }
 
-  _getTokenBefore(range, skip, includeComments) {
-    const tokens = this.tokens.filter(token => token.range[1] <= range[0]);
-    if (includeComments) {
-      const comments = this.comments.filter(comment => comment.range[1] <= range[0]);
-      const allTokens = [...tokens, ...comments];
-      return allTokens[allTokens.length - 1 - skip];
-    }
-    return tokens[tokens.length - 1 - skip];
-  }
-
-  _getTokensAfter(range, count, includeComments) {
-    const tokens = this.tokens.filter(token => token.range[0] >= range[1]);
-    if (includeComments) {
-      const comments = this.comments.filter(comment => comment.range[0] >= range[1]);
-      return [...tokens, ...comments].slice(0, count);
-    }
-    return tokens.slice(0, count);
-  }
-
-  _getTokenAfter(range, skip, includeComments) {
-    const tokens = this.tokens.filter(token => token.range[0] >= range[1]);
-    if (includeComments) {
-      const comments = this.comments.filter(comment => comment.range[0] >= range[1]);
-      const allTokens = [...tokens, ...comments];
-      return allTokens[skip];
-    }
-    return tokens[skip];
-  }
-
-  _getFirstToken(range, skip, includeComments) {
-    const tokens = this._getTokensInRange(range, includeComments);
-    return tokens[skip];
-  }
-
-  _getLastToken(range, skip, includeComments) {
-    const tokens = this._getTokensInRange(range, includeComments);
-    return tokens[tokens.length - 1 - skip];
+  _getTokensAfter(range, includeComments) {
+    const tokens = includeComments
+      ? [...this.tokens, ...this.comments]
+      : this.tokens;
+    return tokens.filter(token => this._isTokenAfter(token.range, range));
   }
 
   _getTokensBetween(range1, range2, includeComments) {
-    const tokens = this.tokens.filter(token => token.range[0] > range1[1] && token.range[1] < range2[0]);
-    if (includeComments) {
-      const comments = this.comments.filter(comment => comment.range[0] > range1[1] && comment.range[1] < range2[0]);
-      return [...tokens, ...comments];
-    }
-    return tokens;
-  }
-
-  _getFirstTokenBetween(range1, range2, skip, includeComments) {
-    const tokens = this._getTokensBetween(range1, range2, includeComments);
-    return tokens[skip];
-  }
-
-  _getLastTokenBetween(range1, range2, skip, includeComments) {
-    const tokens = this._getTokensBetween(range1, range2, includeComments);
-    return tokens[tokens.length - 1 - skip];
-  }
-
-  _getTokenByRangeStart(index, includeComments) {
-    const token = this.tokens.find(token => token.range[0] === index);
-    if (includeComments) {
-      const comment = this.comments.find(comment => comment.range[0] === index);
-      return token || comment;
-    }
-    return token;
+    const tokens = includeComments
+      ? [...this.tokens, ...this.comments]
+      : this.tokens;
+    return tokens.filter(token =>
+      this._isTokenBetween(token.range, range1, range2),
+    );
   }
 
   _filterTokens(tokens, filter) {
-    if (filter) {
-      return tokens.filter(filter);
-    }
-    return tokens;
+    return filter ? tokens.filter(filter) : tokens;
   }
 
-  _filterToken(token, filter) {
-    if (filter && token) {
-      return filter(token) ? token : null;
-    }
-    return token;
+  _getTokensWithCount(tokens, count) {
+    return count ? tokens.slice(0, count) : tokens;
   }
 
-  _getTokensWithPadding(tokens, padding) {
-    if (padding === 0) {
-      return tokens;
-    }
-    const start = Math.max(0, tokens[0].range[0] - padding);
-    const end = Math.min(this.tokens[this.tokens.length - 1].range[1], tokens[tokens.length - 1].range[1] + padding);
-    return this._getTokensInRange([start, end]);
+  _getTokensWithPadding(tokens, before, after) {
+    return [...this._getTokensBefore(tokens[0].range, true).slice(-before), ...tokens, ...this._getTokensAfter(tokens[tokens.length - 1].range, true).slice(0, after)];
+  }
+
+  _getTokenWithSkip(tokens, skip) {
+    return skip ? tokens[skip] || null : tokens[0] || null;
+  }
+
+  _isTokenInRange(range, targetRange) {
+    return range[0] >= targetRange[0] && range[1] <= targetRange[1];
+  }
+
+  _isTokenBefore(range, targetRange) {
+    return range[1] <= targetRange[0];
+  }
+
+  _isTokenAfter(range, targetRange) {
+    return range[0] >= targetRange[1];
+  }
+
+  _isTokenBetween(range, range1, range2) {
+    return range[0] > range1[1] && range[1] < range2[0];
   }
 
   _getCommentsBefore(range) {
-    return this.comments.filter(comment => comment.range[1] <= range[0]);
+    return this.comments.filter(comment => this._isCommentBefore(comment.range, range));
   }
 
   _getCommentsAfter(range) {
-    return this.comments.filter(comment => comment.range[0] >= range[1]);
+    return this.comments.filter(comment => this._isCommentAfter(comment.range, range));
   }
 
   _getCommentsInside(range) {
-    return this.comments.filter(comment => comment.range[0] >= range[0] && comment.range[1] <= range[1]);
+    return this.comments.filter(comment => this._isCommentInRange(comment.range, range));
   }
 
   _getCommentsBetween(range1, range2) {
-    return this.comments.filter(comment => comment.range[0] > range1[1] && comment.range[1] < range2[0]);
+    return this.comments.filter(comment =>
+      this._isCommentBetween(comment.range, range1, range2),
+    );
+  }
+
+  _isCommentBefore(range, targetRange) {
+    return range[1] <= targetRange[0];
+  }
+
+  _isCommentAfter(range, targetRange) {
+    return range[0] >= targetRange[1];
+  }
+
+  _isCommentInRange(range, targetRange) {
+    return range[0] >= targetRange[0] && range[1] <= targetRange[1];
+  }
+
+  _isCommentBetween(range, range1, range2) {
+    return range[0] > range1[1] && range[1] < range2[0];
   }
 }

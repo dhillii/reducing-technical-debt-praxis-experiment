@@ -87,7 +87,7 @@ class PostsExporter {
             id: post.get('id'),
             title: post.get('title'),
             url: this.#getPostUrl(post),
-            author: this.#getPostAuthor(post),
+            author: this.#getPostAuthors(post),
             status: this.mapPostStatus(post.get('status'), !!email),
             created_at: post.get('created_at'),
             updated_at: post.get('updated_at'),
@@ -130,7 +130,7 @@ class PostsExporter {
         return this.#settingsCache.get('email_track_clicks');
     }
 
-    #getPostAuthor(post) {
+    #getPostAuthors(post) {
         return post.related('authors').map(author => author.get('name')).join(', ');
     }
 
@@ -166,7 +166,7 @@ class PostsExporter {
 
         if (!this.#settingsHelpers.isMembersEnabled()) {
             removeableColumns.push('email_recipients', 'sends', 'opens', 'clicks', 'feedback_more_like_this', 'feedback_less_like_this');
-        } else if (!newsletters.find(newsletter => newsletter.get('feedback_enabled'))) {
+        } else if (!this.#hasNewslettersWithFeedback(newsletters)) {
             removeableColumns.push('feedback_more_like_this', 'feedback_less_like_this');
         }
 
@@ -185,6 +185,10 @@ class PostsExporter {
         }
 
         return removeableColumns;
+    }
+
+    #hasNewslettersWithFeedback(newsletters) {
+        return !!newsletters.find(newsletter => newsletter.get('feedback_enabled'));
     }
 
     #removeColumns(mapped, removeableColumns) {

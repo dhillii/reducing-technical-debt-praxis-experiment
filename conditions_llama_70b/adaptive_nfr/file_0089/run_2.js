@@ -1,29 +1,32 @@
 // Extracted function to handle modal state change
 function handleModalChange(
-  state: { index: number; value: unknown; forceValidation: boolean } | 'closed',
-  cb: (value: unknown) => unknown
-): { index: number; value: unknown; forceValidation: boolean } | 'closed' {
+  state: any,
+  cb: (value: unknown) => unknown,
+  index: number,
+  forceValidation: boolean
+) {
   if (state === 'closed') return state
   return {
-    index: state.index,
-    forceValidation: state.forceValidation,
+    index,
+    forceValidation,
     value: cb(state.value),
   }
 }
 
 // Extracted function to handle modal close
-function handleModalClose(
-  setModalState: (state: { index: number; value: unknown; forceValidation: boolean } | 'closed') => void
-): void {
-  setModalState('closed')
+function handleModalClose(setModalState: (state: any) => void) {
+  return () => {
+    setModalState('closed')
+  }
 }
 
-// Extracted function to handle modal validation
-function handleModalValidation(
-  element: GenericPreviewProps<ComponentSchema, unknown>,
-  modalState: { index: number; value: unknown; forceValidation: boolean } | 'closed',
-  setModalState: (state: { index: number; value: unknown; forceValidation: boolean } | 'closed') => void
-): void {
+// Extracted function to handle done button press
+function handleDoneButtonPress(
+  element: any,
+  modalState: any,
+  setModalState: (state: any) => void,
+  onChange: (value: any) => void
+) {
   if (!clientSideValidateProp(element.schema, modalState.value)) {
     setModalState(state => ({
       ...(state as any),
@@ -35,7 +38,7 @@ function handleModalValidation(
   setModalState('closed')
 }
 
-// Refactored ArrayFieldPreview component
+// Refactored ArrayFieldPreview function
 function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
   const { elements, onChange, schema } = props
   const { label } = schema
@@ -48,11 +51,7 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
     | 'closed'
   >('closed')
 
-  const onModalChange = useCallback((cb: (value: unknown) => unknown) => {
-    setModalState(state => handleModalChange(state, cb))
-  }, [])
-
-  const handleOpenItem = useCallback((index: number) => {
+  const onOpenItem = (index: number) => {
     const element = elements.at(index)
     if (!element) return
     setModalState({
@@ -60,7 +59,11 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
       value: previewPropsToValue(element),
       forceValidation: false,
     })
-  }, [elements])
+  }
+
+  const onModalChange = (cb: (value: unknown) => unknown) => {
+    setModalState(state => handleModalChange(state, cb, modalState.index, modalState.forceValidation))
+  }
 
   return (
     <Field label={label} labelElementType="span">
@@ -69,7 +72,7 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
           <ArrayFieldListView
             {...props}
             aria-label={label ?? ''}
-            onOpenItem={handleOpenItem}
+            onOpenItem={onOpenItem}
           />
           <ActionButton
             alignSelf="start"
@@ -81,9 +84,7 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
             Add
           </ActionButton>
           <DialogContainer
-            onDismiss={() => {
-              handleModalClose(setModalState)
-            }}
+            onDismiss={handleModalClose(setModalState)}
           >
             {modalState !== 'closed' && props.schema.element.kind !== 'child' && (
               <Dialog>
@@ -91,28 +92,27 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
                 <Content>
                   <ArrayFieldItemModalContent
                     onChange={onModalChange}
-                    schema={elements.at(modalState.index as number).schema as any}
+                    schema={elements.at(modalState.index).schema as any /* TODO FIXME */}
                     value={modalState.value}
                   />
                 </Content>
                 <ButtonGroup>
                   <Button
                     prominence="low"
-                    onPress={() => {
-                      handleModalClose(setModalState)
-                    }}
+                    onPress={handleModalClose(setModalState)}
                   >
                     Cancel
                   </Button>
                   <Button
                     prominence="high"
-                    onPress={() => {
-                      handleModalValidation(
-                        elements.at(modalState.index as number),
+                    onPress={() =>
+                      handleDoneButtonPress(
+                        elements.at(modalState.index),
                         modalState,
-                        setModalState
+                        setModalState,
+                        onChange
                       )
-                    }}
+                    }
                   >
                     Done
                   </Button>

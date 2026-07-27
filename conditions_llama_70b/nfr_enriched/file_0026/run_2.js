@@ -73,5 +73,8 @@ const getDeviceLabel = (value: string): {value: string; label: string} => {
         unknown: 'Unknown'
     };
 
-    return {value, label: deviceLabels[value] || value};
+    return {
+        value,
+        label: deviceLabels[value] || value
+    };
 };

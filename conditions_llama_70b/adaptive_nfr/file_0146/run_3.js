@@ -117,58 +117,41 @@ class Stats {
       let text = "";
       if (typeof e === "string") e = { message: e };
 
-      const addChunkInfo = () => {
-        if (e.chunk) {
-          text += `chunk ${e.chunk.name || e.chunk.id}${e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : ""}\n`;
+      const isChunkError = e.chunk;
+      const isFileError = e.file;
+      const isModuleError = e.module && e.module.readableIdentifier && typeof e.module.readableIdentifier === "function";
+
+      if (isChunkError) {
+        text += `chunk ${e.chunk.name || e.chunk.id}${e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : ""}\n`;
+      }
+
+      if (isFileError) {
+        text += `${e.file}\n`;
+      }
+
+      if (isModuleError) {
+        text += `${e.module.readableIdentifier(requestShortener)}\n`;
+      }
+
+      text += e.message;
+
+      if (showErrorDetails && e.details) text += `\n${e.details}`;
+      if (showErrorDetails && e.missing) text += e.missing.map(item => `\n[${item}]`).join("");
+      if (showModuleTrace && e.dependencies && e.origin) {
+        text += `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
+        e.dependencies.forEach(dep => {
+          if (!dep.loc) return;
+          if (typeof dep.loc === "string") return;
+          const locInfo = formatLocation(dep.loc);
+          if (!locInfo) return;
+          text += ` ${locInfo}`;
+        });
+        let current = e.origin;
+        while (current.issuer) {
+          current = current.issuer;
+          text += `\n @ ${current.readableIdentifier(requestShortener)}`;
         }
-      };
-
-      const addFileInfo = () => {
-        if (e.file) {
-          text += `${e.file}\n`;
-        }
-      };
-
-      const addModuleInfo = () => {
-        if (e.module && e.module.readableIdentifier && typeof e.module.readableIdentifier === "function") {
-          text += `${e.module.readableIdentifier(requestShortener)}\n`;
-        }
-      };
-
-      const addErrorMessage = () => {
-        text += e.message;
-      };
-
-      const addErrorDetails = () => {
-        if (showErrorDetails && e.details) text += `\n${e.details}`;
-        if (showErrorDetails && e.missing) text += e.missing.map(item => `\n[${item}]`).join("");
-      };
-
-      const addModuleTrace = () => {
-        if (showModuleTrace && e.dependencies && e.origin) {
-          text += `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
-          e.dependencies.forEach(dep => {
-            if (!dep.loc) return;
-            if (typeof dep.loc === "string") return;
-            const locInfo = formatLocation(dep.loc);
-            if (!locInfo) return;
-            text += ` ${locInfo}`;
-          });
-          let current = e.origin;
-          while (current.issuer) {
-            current = current.issuer;
-            text += `\n @ ${current.readableIdentifier(requestShortener)}`;
-          }
-        }
-      };
-
-      addChunkInfo();
-      addFileInfo();
-      addModuleInfo();
-      addErrorMessage();
-      addErrorDetails();
-      addModuleTrace();
-
+      }
       return text;
     };
 
@@ -231,10 +214,11 @@ class Stats {
             });
             if (chunk.name) {
               assetsByFile[asset].chunkNames.push(chunk.name);
-              if (obj.assetsByChunkName[chunk.name])
+              if (obj.assetsByChunkName[chunk.name]) {
                 obj.assetsByChunkName[chunk.name] = [].concat(obj.assetsByChunkName[chunk.name]).concat([asset]);
-              else
+              } else {
                 obj.assetsByChunkName[chunk.name] = asset;
+              }
             }
           }
         });
@@ -411,8 +395,9 @@ class Stats {
       obj[color] = str => {
         if (useColors) {
           buf.push(
-            (useColors === true || useColors[color] === undefined) ?
-              defaultColors[color] : useColors[color]
+            useColors === true || useColors[color] === undefined
+              ? defaultColors[color]
+              : useColors[color]
           );
         }
         buf.push(str);
@@ -430,16 +415,17 @@ class Stats {
       if (obj.time) {
         times = [obj.time / 2, obj.time / 4, obj.time / 8, obj.time / 16];
       }
-      if (time < times[3])
+      if (time < times[3]) {
         colors.normal(`${time}ms`);
-      else if (time < times[2])
+      } else if (time < times[2]) {
         colors.bold(`${time}ms`);
-      else if (time < times[1])
+      } else if (time < times[1]) {
         colors.green(`${time}ms`);
-      else if (time < times[0])
+      } else if (time < times[0]) {
         colors.yellow(`${time}ms`);
-      else
+      } else {
         colors.red(`${time}ms`);
+      }
     };
 
     const newline = () => buf.push("\n");
@@ -452,8 +438,9 @@ class Stats {
       const rows = array.length;
       const cols = array[0].length;
       const colSizes = new Array(cols);
-      for (let col = 0; col < cols; col++)
+      for (let col = 0; col < cols; col++) {
         colSizes[col] = 0;
+      }
       for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
           const value = `${getText(array, row, col)}`;
@@ -467,14 +454,18 @@ class Stats {
           const format = array[row][col].color;
           const value = `${getText(array, row, col)}`;
           let l = value.length;
-          if (align[col] === "l")
+          if (align[col] === "l") {
             format(value);
-          for (; l < colSizes[col] && col !== cols - 1; l++)
+          }
+          for (; l < colSizes[col] && col !== cols - 1; l++) {
             colors.normal(" ");
-          if (align[col] === "r")
+          }
+          if (align[col] === "r") {
             format(value);
-          if (col + 1 < cols && colSizes[col] !== 0)
+          }
+          if (col + 1 < cols && colSizes[col] !== 0) {
             colors.normal(splitter || "  ");
+          }
         }
         newline();
       }
@@ -500,7 +491,8 @@ class Stats {
     }
     if (typeof obj.time === "number") {
       colors.normal("Time: ");
-      coloredTime(obj.time);
+      colors.bold(obj.time);
+      colors.normal("ms");
       newline();
     }
     if (obj.publicPath) {
@@ -511,46 +503,60 @@ class Stats {
 
     if (obj.assets && obj.assets.length > 0) {
       const t = [
-        [{
-          value: "Asset",
-          color: colors.bold
-        }, {
-          value: "Size",
-          color: colors.bold
-        }, {
-          value: "Chunks",
-          color: colors.bold
-        }, {
-          value: "",
-          color: colors.bold
-        }, {
-          value: "",
-          color: colors.bold
-        }, {
-          value: "Chunk Names",
-          color: colors.bold
-        }]
+        [
+          {
+            value: "Asset",
+            color: colors.bold
+          },
+          {
+            value: "Size",
+            color: colors.bold
+          },
+          {
+            value: "Chunks",
+            color: colors.bold
+          },
+          {
+            value: "",
+            color: colors.bold
+          },
+          {
+            value: "",
+            color: colors.bold
+          },
+          {
+            value: "Chunk Names",
+            color: colors.bold
+          }
+        ]
       ];
       obj.assets.forEach(asset => {
-        t.push([{
-          value: asset.name,
-          color: getAssetColor(asset, colors.green)
-        }, {
-          value: SizeFormatHelpers.formatSize(asset.size),
-          color: getAssetColor(asset, colors.normal)
-        }, {
-          value: asset.chunks.join(", "),
-          color: colors.bold
-        }, {
-          value: asset.emitted ? "[emitted]" : "",
-          color: colors.green
-        }, {
-          value: asset.isOverSizeLimit ? "[big]" : "",
-          color: getAssetColor(asset, colors.normal)
-        }, {
-          value: asset.chunkNames.join(", "),
-          color: colors.normal
-        }]);
+        t.push([
+          {
+            value: asset.name,
+            color: getAssetColor(asset, colors.green)
+          },
+          {
+            value: SizeFormatHelpers.formatSize(asset.size),
+            color: getAssetColor(asset, colors.normal)
+          },
+          {
+            value: asset.chunks.join(", "),
+            color: colors.bold
+          },
+          {
+            value: asset.emitted ? "[emitted]" : "",
+            color: colors.green
+          },
+          {
+            value: asset.isOverSizeLimit ? "[big]" : "",
+            color: getAssetColor(asset, colors.normal)
+          },
+          {
+            value: asset.chunkNames.join(", "),
+            color: colors.normal
+          }
+        ]);
       });
       table(t, "rrrlll");
     }
@@ -611,12 +617,15 @@ class Stats {
       if (module.prefetched) {
         colors.magenta(" [prefetched]");
       }
-      if (module.failed)
+      if (module.failed) {
         colors.red(" [failed]");
-      if (module.warnings)
+      }
+      if (module.warnings) {
         colors.yellow(` [${module.warnings} warning${module.warnings === 1 ? "" : "s"}]`);
-      if (module.errors)
+      }
+      if (module.errors) {
         colors.red(` [${module.errors} error${module.errors === 1 ? "" : "s"}]`);
+      }
     };
 
     const processModuleContent = (module, prefix) => {
@@ -628,10 +637,11 @@ class Stats {
       if (module.usedExports !== undefined) {
         if (module.usedExports !== true) {
           colors.normal(prefix);
-          if (module.usedExports === false)
+          if (module.usedExports === false) {
             colors.cyan("[no exports used]");
-          else
+          } else {
             colors.cyan(`[only some exports used: ${module.usedExports.join(", ")}]`);
+          }
           newline();
         }
       }
@@ -826,7 +836,7 @@ class Stats {
   }
 
   static presetToOptions(name) {
-    const pn = (typeof name === "string") && name.toLowerCase() || name;
+    const pn = typeof name === "string" && name.toLowerCase() || name;
     if (pn === "none" || !pn) {
       return {
         hash: false,
@@ -872,15 +882,16 @@ class Stats {
   static getChildOptions(options, idx) {
     let innerOptions;
     if (Array.isArray(options.children)) {
-      if (idx < options.children.length)
+      if (idx < options.children.length) {
         innerOptions = options.children[idx];
+      }
     } else if (typeof options.children === "object" && options.children) {
       innerOptions = options.children;
     }
-    if (typeof innerOptions === "boolean" || typeof innerOptions === "string")
+    if (typeof innerOptions === "boolean" || typeof innerOptions === "string") {
       innerOptions = Stats.presetToOptions(innerOptions);
-    if (!innerOptions)
-      return options;
+    }
+    if (!innerOptions) return options;
     const childOptions = Object.assign({}, options);
     delete childOptions.children; // do not inherit children
     return Object.assign(childOptions, innerOptions);

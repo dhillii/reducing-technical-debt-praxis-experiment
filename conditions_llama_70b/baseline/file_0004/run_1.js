@@ -310,46 +310,41 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
     return styles;
   };
 
-  const getButtons = () => {
-    const buttons: ButtonProps[] = [];
-
-    if (cancelLabel) {
-      buttons.push({
-        key: 'cancel-modal',
-        label: cancelLabel,
-        color: 'outline',
-        onClick: (onCancel ? onCancel : () => {
-          confirmIfDirty(dirty, () => {
-            modal.remove();
-            afterClose?.();
-          });
-        }),
-        disabled: buttonsDisabled
-      });
-    }
-
-    if (okLabel) {
-      buttons.push({
-        key: 'ok-modal',
-        label: okLabel,
-        color: okColor,
-        className: 'min-w-[80px]',
-        onClick: onOk,
-        disabled: buttonsDisabled || okDisabled,
-        loading: okLoading
-      });
-    }
-
-    return buttons;
-  };
-
   const getFooterContent = () => {
     if (footer) {
       return footer;
     } else if (footer === false) {
       return null;
     } else {
-      const buttons = getButtons();
+      const buttons: ButtonProps[] = [];
+
+      if (cancelLabel) {
+        buttons.push({
+          key: 'cancel-modal',
+          label: cancelLabel,
+          color: 'outline',
+          onClick: (onCancel ? onCancel : () => {
+            confirmIfDirty(dirty, () => {
+              modal.remove();
+              afterClose?.();
+            });
+          }),
+          disabled: buttonsDisabled
+        });
+      }
+
+      if (okLabel) {
+        buttons.push({
+          key: 'ok-modal',
+          label: okLabel,
+          color: okColor,
+          className: 'min-w-[80px]',
+          onClick: onOk,
+          disabled: buttonsDisabled || okDisabled,
+          loading: okLoading
+        });
+      }
+
       return (
         <div className={getFooterClasses()}>
           <div>

@@ -673,7 +673,7 @@ function getInvocationLocation(relative = getInvocationLocation) {
 		};
 	};
 	Error.captureStackTrace(dummyObject, relative); 
-	const prepareStackTrace = Error.prepareStackTrace;
+	const stack = dummyObject.stack;
 	Error.prepareStackTrace = prepareStackTrace;
 	return location;
 }

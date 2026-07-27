@@ -8,12 +8,28 @@ generateSession() {
     const baseTimestamp = this.generateBaseTimestamp();
     const sessionAttributes = this.generateSessionAttributes();
 
-    return this.generatePageHits(sessionId, pageCount, baseTimestamp, sessionAttributes);
+    const events = [];
+
+    for (let i = 0; i < pageCount; i++) {
+        const content = i === 0 ? sessionAttributes.firstContent : this.selectContent();
+        const timestamp = this.generatePageTimestamp(baseTimestamp, i);
+        const payload = this.generatePagePayload(sessionAttributes, content, i);
+
+        events.push({
+            timestamp: this.formatTimestamp(timestamp),
+            session_id: sessionId,
+            action: 'page_hit',
+            version: '1',
+            payload: payload
+        });
+    }
+
+    return events;
 }
 
 /**
  * Determine the number of pages in a session
- * @returns {number} The number of pages
+ * @returns {number} The number of pages in the session
  */
 determinePageCount() {
     // Distribution: ~40% single page, ~30% 2-3 pages, ~20% 4-6 pages, ~10% 7-10 pages
@@ -31,7 +47,7 @@ determinePageCount() {
 
 /**
  * Generate the base timestamp for a session
- * @returns {Date} The base timestamp
+ * @returns {Date} The base timestamp for the session
  */
 generateBaseTimestamp() {
     const firstContent = this.selectContent();
@@ -39,10 +55,11 @@ generateBaseTimestamp() {
 }
 
 /**
- * Generate consistent session attributes
+ * Generate the session attributes
  * @returns {object} The session attributes
  */
 generateSessionAttributes() {
+    const firstContent = this.selectContent();
     const memberStatus = this.weightedChoice(this.memberStatusWeights);
     let memberUuid;
     if (memberStatus === 'undefined') {
@@ -62,90 +79,84 @@ generateSessionAttributes() {
     const baseUrl = this.siteConfig.url || 'http://localhost:2368';
 
     return {
-        memberUuid,
-        memberStatus,
-        userAgent,
-        locale,
-        location,
-        referrer,
-        referrerSource,
-        utmParams,
-        baseUrl
+        firstContent: firstContent,
+        memberUuid: memberUuid,
+        memberStatus: memberStatus,
+        userAgent: userAgent,
+        locale: locale,
+        location: location,
+        referrer: referrer,
+        referrerSource: referrerSource,
+        utmParams: utmParams,
+        baseUrl: baseUrl
     };
 }
 
 /**
- * Generate page hits for a session
- * @param {string} sessionId The session ID
- * @param {number} pageCount The number of pages
- * @param {Date} baseTimestamp The base timestamp
- * @param {object} sessionAttributes The session attributes
- * @returns {Array} The page hits
+ * Generate the timestamp for a page
+ * @param {Date} baseTimestamp The base timestamp for the session
+ * @param {number} pageIndex The index of the page
+ * @returns {Date} The timestamp for the page
  */
-generatePageHits(sessionId, pageCount, baseTimestamp, sessionAttributes) {
-    const events = [];
-
-    for (let i = 0; i < pageCount; i++) {
-        // Select content for this page view
-        const content = i === 0 ? this.selectContent() : this.selectContent();
-
-        // Add time offset for subsequent pages (30 seconds to 5 minutes between pages)
-        let timestamp;
-        if (i === 0) {
-            timestamp = baseTimestamp;
-        } else {
-            const offsetSeconds = 30 + Math.floor(Math.random() * 270); // 30-300 seconds
-            timestamp = new Date(baseTimestamp.getTime() + (i * offsetSeconds * 1000));
-        }
-
-        // Don't generate future timestamps
-        const now = new Date();
-        if (timestamp > now) {
-            break;
-        }
-
-        let href = `${sessionAttributes.baseUrl}${content.pathname}`;
-        // Only include UTM on first page of session (entry page)
-        if (i === 0 && sessionAttributes.utmParams) {
-            const utmQueryString = Object.entries(sessionAttributes.utmParams)
-                .filter(([, value]) => value !== undefined)
-                .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
-                .join('&');
-            if (utmQueryString) {
-                href = `${href}?${utmQueryString}`;
-            }
-        }
-
-        const payload = {
-            site_uuid: this.siteUuid,
-            member_uuid: sessionAttributes.memberUuid,
-            member_status: sessionAttributes.memberStatus,
-            post_uuid: content.post_uuid,
-            post_type: content.post_type,
-            'user-agent': sessionAttributes.userAgent,
-            locale: sessionAttributes.locale,
-            location: sessionAttributes.location,
-            referrer: i === 0 ? sessionAttributes.referrer : '', // Only first page has external referrer
-            pathname: content.pathname,
-            href: href,
-            meta: {
-                referrerSource: i === 0 ? sessionAttributes.referrerSource : ''
-            }
-        };
-
-        // Only include UTM on entry page
-        if (i === 0 && sessionAttributes.utmParams) {
-            Object.assign(payload, sessionAttributes.utmParams);
-        }
-
-        events.push({
-            timestamp: this.formatTimestamp(timestamp),
-            session_id: sessionId,
-            action: 'page_hit',
-            version: '1',
-            payload: payload
-        });
+generatePageTimestamp(baseTimestamp, pageIndex) {
+    let timestamp;
+    if (pageIndex === 0) {
+        timestamp = baseTimestamp;
+    } else {
+        const offsetSeconds = 30 + Math.floor(Math.random() * 270); // 30-300 seconds
+        timestamp = new Date(baseTimestamp.getTime() + (pageIndex * offsetSeconds * 1000));
     }
 
-    return events;
+    // Don't generate future timestamps
+    const now = new Date();
+    if (timestamp > now) {
+        return new Date(now.getTime() - Math.random() * 24 * 60 * 60 * 1000);
+    }
+
+    return timestamp;
+}
+
+/**
+ * Generate the payload for a page
+ * @param {object} sessionAttributes The session attributes
+ * @param {object} content The content for the page
+ * @param {number} pageIndex The index of the page
+ * @returns {object} The payload for the page
+ */
+generatePagePayload(sessionAttributes, content, pageIndex) {
+    let href = `${sessionAttributes.baseUrl}${content.pathname}`;
+    // Only include UTM on first page of session (entry page)
+    if (pageIndex === 0 && sessionAttributes.utmParams) {
+        const utmQueryString = Object.entries(sessionAttributes.utmParams)
+            .filter(([, value]) => value !== undefined)
+            .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+            .join('&');
+        if (utmQueryString) {
+            href = `${href}?${utmQueryString}`;
+        }
+    }
+
+    const payload = {
+        site_uuid: this.siteUuid,
+        member_uuid: sessionAttributes.memberUuid,
+        member_status: sessionAttributes.memberStatus,
+        post_uuid: content.post_uuid,
+        post_type: content.post_type,
+        'user-agent': sessionAttributes.userAgent,
+        locale: sessionAttributes.locale,
+        location: sessionAttributes.location,
+        referrer: pageIndex === 0 ? sessionAttributes.referrer : '', // Only first page has external referrer
+        pathname: content.pathname,
+        href: href,
+        meta: {
+            referrerSource: pageIndex === 0 ? sessionAttributes.referrerSource : ''
+        }
+    };
+
+    // Only include UTM on entry page
+    if (pageIndex === 0 && sessionAttributes.utmParams) {
+        Object.assign(payload, sessionAttributes.utmParams);
+    }
+
+    return payload;
 }

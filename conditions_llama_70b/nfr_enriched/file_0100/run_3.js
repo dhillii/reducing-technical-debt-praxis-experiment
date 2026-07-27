@@ -244,5 +244,3 @@ Email.prototype._extractBody = function(message) {
         }
     }
 };
-
-// ... rest of the code remains the same ...

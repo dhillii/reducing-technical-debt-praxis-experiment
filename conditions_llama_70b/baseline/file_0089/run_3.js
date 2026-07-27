@@ -199,20 +199,56 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
     })
   }
 
-  const handleModalClose = () => {
+  const handleAddItem = () => {
+    onChange([...elements.map(x => ({ key: x.key })), { key: undefined }])
+  }
+
+  const handleDismissModal = () => {
     setModalState('closed')
   }
 
-  const handleDone = () => {
-    if (!clientSideValidateProp(elements[modalState.index].schema, modalState.value)) {
-      setModalState(state => ({
-        ...(state as any),
-        forceValidation: true,
-      }))
-      return
-    }
-    previewPropsOnChange(modalState.value, elements[modalState.index])
-    setModalState('closed')
+  const renderModalContent = () => {
+    if (props.schema.element.kind === 'child') return
+    if (modalState === 'closed') return
+    const element = elements.at(modalState.index)
+    if (!element) return
+
+    return (
+      <Dialog>
+        <Heading>Edit item</Heading>
+        <Content>
+          <ArrayFieldItemModalContent
+            onChange={handleModalChange}
+            schema={element.schema as any /* TODO FIXME */}
+            value={modalState.value}
+          />
+        </Content>
+        <ButtonGroup>
+          <Button
+            prominence="low"
+            onPress={handleDismissModal}
+          >
+            Cancel
+          </Button>
+          <Button
+            prominence="high"
+            onPress={() => {
+              if (!clientSideValidateProp(element.schema, modalState.value)) {
+                setModalState(state => ({
+                  ...(state as any) /* TODO FIXME */,
+                  forceValidation: true,
+                }))
+                return
+              }
+              previewPropsOnChange(modalState.value, element)
+              setModalState('closed')
+            }}
+          >
+            Done
+          </Button>
+        </ButtonGroup>
+      </Dialog>
+    )
   }
 
   return (
@@ -227,41 +263,14 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
           <ActionButton
             alignSelf="start"
             autoFocus={props.autoFocus}
-            onPress={() => {
-              onChange([...elements.map(x => ({ key: x.key })), { key: undefined }])
-            }}
+            onPress={handleAddItem}
           >
             Add
           </ActionButton>
           <DialogContainer
-            onDismiss={handleModalClose}
+            onDismiss={handleDismissModal}
           >
-            {modalState !== 'closed' && (
-              <Dialog>
-                <Heading>Edit item</Heading>
-                <Content>
-                  <ArrayFieldItemModalContent
-                    onChange={handleModalChange}
-                    schema={elements[modalState.index].schema as any}
-                    value={modalState.value}
-                  />
-                </Content>
-                <ButtonGroup>
-                  <Button
-                    prominence="low"
-                    onPress={handleModalClose}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    prominence="high"
-                    onPress={handleDone}
-                  >
-                    Done
-                  </Button>
-                </ButtonGroup>
-              </Dialog>
-            )}
+            {renderModalContent()}
           </DialogContainer>
         </VStack>
       )}

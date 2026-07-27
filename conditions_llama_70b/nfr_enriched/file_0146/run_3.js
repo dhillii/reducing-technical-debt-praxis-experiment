@@ -4,6 +4,22 @@ class Stats {
     toJson(options, forToString) {
         // ... existing code ...
 
+        const createModuleFilter = () => {
+            let i = 0;
+            return module => {
+                if (!showCachedModules && !module.built) {
+                    return false;
+                }
+                if (excludeModules.length > 0) {
+                    const ident = requestShortener.shorten(module.resource);
+                    const excluded = excludeModules.some(regExp => regExp.test(ident));
+                    if (excluded)
+                        return false;
+                }
+                return i++ < maxModules;
+            };
+        };
+
         const sortByFieldAndOrder = (fieldKey, a, b) => {
             if (a[fieldKey] === null && b[fieldKey] === null) return 0;
             if (a[fieldKey] === null) return 1;
@@ -24,8 +40,6 @@ class Stats {
 
             return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
         };
-
-        // ... existing code ...
 
         const formatError = (e) => {
             let text = "";
@@ -63,25 +77,213 @@ class Stats {
             return text;
         };
 
-        // ... existing code ...
-
-        const createModuleFilter = () => {
-            let i = 0;
-            return module => {
-                if (!showCachedModules && !module.built) {
-                    return false;
-                }
-                if (excludeModules.length > 0) {
-                    const ident = requestShortener.shorten(module.resource);
-                    const excluded = excludeModules.some(regExp => regExp.test(ident));
-                    if (excluded)
-                        return false;
-                }
-                return i++ < maxModules;
-            };
+        const obj = {
+            errors: compilation.errors.map(formatError),
+            warnings: Stats.filterWarnings(compilation.warnings.map(formatError), warningsFilter)
         };
 
+        // ... existing code ...
+
+        if (showAssets) {
+            const assetsByFile = {};
+            obj.assetsByChunkName = {};
+            obj.assets = Object.keys(compilation.assets).map(asset => {
+                const obj = {
+                    name: asset,
+                    size: compilation.assets[asset].size(),
+                    chunks: [],
+                    chunkNames: [],
+                    emitted: compilation.assets[asset].emitted
+                };
+
+                if (showPerformance) {
+                    obj.isOverSizeLimit = compilation.assets[asset].isOverSizeLimit;
+                }
+
+                assetsByFile[asset] = obj;
+                return obj;
+            }).filter(asset => showCachedAssets || asset.emitted);
+
+            compilation.chunks.forEach(chunk => {
+                chunk.files.forEach(asset => {
+                    if (assetsByFile[asset]) {
+                        chunk.ids.forEach(id => {
+                            assetsByFile[asset].chunks.push(id);
+                        });
+                        if (chunk.name) {
+                            assetsByFile[asset].chunkNames.push(chunk.name);
+                            if (obj.assetsByChunkName[chunk.name])
+                                obj.assetsByChunkName[chunk.name] = [].concat(obj.assetsByChunkName[chunk.name]).concat([asset]);
+                            else
+                                obj.assetsByChunkName[chunk.name] = asset;
+                        }
+                    }
+                });
+            });
+            obj.assets.sort(sortByField(sortAssets));
+        }
+
+        if (showEntrypoints) {
+            obj.entrypoints = {};
+            Object.keys(compilation.entrypoints).forEach(name => {
+                const ep = compilation.entrypoints[name];
+                obj.entrypoints[name] = {
+                    chunks: ep.chunks.map(c => c.id),
+                    assets: ep.chunks.reduce((array, c) => array.concat(c.files || []), [])
+                };
+                if (showPerformance) {
+                    obj.entrypoints[name].isOverSizeLimit = ep.isOverSizeLimit;
+                }
+            });
+        }
+
+        const getModuleInfo = (module) => {
+            // Extract module info into a separate function
+            const obj = {
+                id: module.id,
+                identifier: module.identifier(),
+                name: module.readableIdentifier(requestShortener),
+                index: module.index,
+                index2: module.index2,
+                size: module.size(),
+                cacheable: !!module.cacheable,
+                built: !!module.built,
+                optional: !!module.optional,
+                prefetched: !!module.prefetched,
+                chunks: module.chunks.map(chunk => chunk.id),
+                assets: Object.keys(module.assets || {}),
+                issuer: module.issuer && module.issuer.identifier(),
+                issuerId: module.issuer && module.issuer.id,
+                issuerName: module.issuer && module.issuer.readableIdentifier(requestShortener),
+                profile: module.profile,
+                failed: !!module.error,
+                errors: module.errors && module.dependenciesErrors && (module.errors.length + module.dependenciesErrors.length),
+                warnings: module.errors && module.dependenciesErrors && (module.warnings.length + module.dependenciesWarnings.length)
+            };
+            return obj;
+        };
+
+        const getModuleReasons = (module) => {
+            // Extract module reasons into a separate function
+            if (showReasons) {
+                return module.reasons.filter(reason => reason.dependency && reason.module).map(reason => {
+                    const obj = {
+                        moduleId: reason.module.id,
+                        moduleIdentifier: reason.module.identifier(),
+                        module: reason.module.readableIdentifier(requestShortener),
+                        moduleName: reason.module.readableIdentifier(requestShortener),
+                        type: reason.dependency.type,
+                        userRequest: reason.dependency.userRequest
+                    };
+                    const locInfo = formatLocation(reason.dependency.loc);
+                    if (locInfo) obj.loc = locInfo;
+                    return obj;
+                }).sort((a, b) => a.moduleId - b.moduleId);
+            }
+            return null;
+        };
+
+        const getModuleExports = (module) => {
+            // Extract module exports into a separate function
+            if (showUsedExports) {
+                return module.used ? module.usedExports : false;
+            }
+            if (showProvidedExports) {
+                return Array.isArray(module.providedExports) ? module.providedExports : null;
+            }
+            return null;
+        };
+
+        const getModuleDepth = (module) => {
+            // Extract module depth into a separate function
+            if (showDepth) {
+                return module.depth;
+            }
+            return null;
+        };
+
+        const getModuleSource = (module) => {
+            // Extract module source into a separate function
+            if (showSource && module._source) {
+                return module._source.source();
+            }
+            return null;
+        };
+
+        if (showChunks) {
+            obj.chunks = compilation.chunks.map(chunk => {
+                const obj = {
+                    id: chunk.id,
+                    rendered: chunk.rendered,
+                    initial: chunk.isInitial(),
+                    entry: chunk.hasRuntime(),
+                    recorded: chunk.recorded,
+                    extraAsync: !!chunk.extraAsync,
+                    size: chunk.modules.reduce((size, module) => size + module.size(), 0),
+                    names: chunk.name ? [chunk.name] : [],
+                    files: chunk.files.slice(),
+                    hash: chunk.renderedHash,
+                    parents: chunk.parents.map(c => c.id)
+                };
+                if (showChunkModules) {
+                    obj.modules = chunk.modules
+                        .slice()
+                        .sort(sortByField("depth"))
+                        .filter(createModuleFilter())
+                        .map(module => {
+                            const moduleInfo = getModuleInfo(module);
+                            moduleInfo.reasons = getModuleReasons(module);
+                            moduleInfo.usedExports = getModuleExports(module);
+                            moduleInfo.depth = getModuleDepth(module);
+                            moduleInfo.source = getModuleSource(module);
+                            return moduleInfo;
+                        });
+                    obj.filteredModules = chunk.modules.length - obj.modules.length;
+                    obj.modules.sort(sortByField(sortModules));
+                }
+                if (showChunkOrigins) {
+                    obj.origins = chunk.origins.map(origin => ({
+                        moduleId: origin.module ? origin.module.id : undefined,
+                        module: origin.module ? origin.module.identifier() : "",
+                        moduleIdentifier: origin.module ? origin.module.identifier() : "",
+                        moduleName: origin.module ? origin.module.readableIdentifier(requestShortener) : "",
+                        loc: formatLocation(origin.loc),
+                        name: origin.name,
+                        reasons: origin.reasons || []
+                    }));
+                }
+                return obj;
+            });
+            obj.chunks.sort(sortByField(sortChunks));
+        }
+
+        if (showModules) {
+            obj.modules = compilation.modules
+                .slice()
+                .sort(sortByField("depth"))
+                .filter(createModuleFilter())
+                .map(module => {
+                    const moduleInfo = getModuleInfo(module);
+                    moduleInfo.reasons = getModuleReasons(module);
+                    moduleInfo.usedExports = getModuleExports(module);
+                    moduleInfo.depth = getModuleDepth(module);
+                    moduleInfo.source = getModuleSource(module);
+                    return moduleInfo;
+                });
+            obj.filteredModules = compilation.modules.length - obj.modules.length;
+            obj.modules.sort(sortByField(sortModules));
+        }
+
+        // ... existing code ...
+    }
+
+    // ... existing code ...
+
+    static jsonToString(obj, useColors) {
+        // ... existing code ...
+
         const processModuleAttributes = (module) => {
+            // Process module attributes into a separate function
             colors.normal(" ");
             colors.normal(SizeFormatHelpers.formatSize(module.size));
             if (module.chunks) {
@@ -115,6 +317,7 @@ class Stats {
         };
 
         const processModuleContent = (module, prefix) => {
+            // Process module content into a separate function
             if (Array.isArray(module.providedExports)) {
                 colors.normal(prefix);
                 colors.cyan(`[exports: ${module.providedExports.join(", ")}]`);
@@ -180,80 +383,7 @@ class Stats {
         };
 
         // ... existing code ...
-
-        return obj;
-    }
-
-    // ... existing code ...
-
-    static jsonToString(obj, useColors) {
-        // ... existing code ...
-
-        const getAssetColor = (asset, defaultColor) => {
-            if (asset.isOverSizeLimit) {
-                return colors.yellow;
-            }
-
-            return defaultColor;
-        };
-
-        // ... existing code ...
-
-        const table = (array, align, splitter) => {
-            const rows = array.length;
-            const cols = array[0].length;
-            const colSizes = new Array(cols);
-            for (let col = 0; col < cols; col++)
-                colSizes[col] = 0;
-            for (let row = 0; row < rows; row++) {
-                for (let col = 0; col < cols; col++) {
-                    const value = `${getText(array, row, col)}`;
-                    if (value.length > colSizes[col]) {
-                        colSizes[col] = value.length;
-                    }
-                }
-            }
-            for (let row = 0; row < rows; row++) {
-                for (let col = 0; col < cols; col++) {
-                    const format = array[row][col].color;
-                    const value = `${getText(array, row, col)}`;
-                    let l = value.length;
-                    if (align[col] === "l")
-                        format(value);
-                    for (; l < colSizes[col] && col !== cols - 1; l++)
-                        colors.normal(" ");
-                    if (align[col] === "r")
-                        format(value);
-                    if (col + 1 < cols && colSizes[col] !== 0)
-                        colors.normal(splitter || "  ");
-                }
-                newline();
-            }
-        };
-
-        // ... existing code ...
-
-        const coloredTime = (time) => {
-            let times = [800, 400, 200, 100];
-            if (obj.time) {
-                times = [obj.time / 2, obj.time / 4, obj.time / 8, obj.time / 16];
-            }
-            if (time < times[3])
-                colors.normal(`${time}ms`);
-            else if (time < times[2])
-                colors.bold(`${time}ms`);
-            else if (time < times[1])
-                colors.green(`${time}ms`);
-            else if (time < times[0])
-                colors.yellow(`${time}ms`);
-            else
-                colors.red(`${time}ms`);
-        };
-
-        // ... existing code ...
     }
 
     // ... existing code ...
 }
-
-module.exports = Stats;

@@ -1333,48 +1333,49 @@ module.exports = {
         }
       },
 
-      ":matches(DoWhileStatement, ForStatement, ForInStatement, ForOfStatement, IfStatement, WhileStatement, WithStatement):exit":
-        node => {
-          let nodesToCheck;
+      ":matches(DoWhileStatement, ForStatement, ForInStatement, ForOfStatement, IfStatement, WhileStatement, WithStatement):exit"(
+        node,
+      ) {
+        let nodesToCheck;
 
-          if (node.type === "IfStatement") {
-            nodesToCheck = [node.consequent];
-            if (node.alternate) {
-              nodesToCheck.push(node.alternate);
-            }
-          } else {
-            nodesToCheck = [node.body];
+        if (node.type === "IfStatement") {
+          nodesToCheck = [node.consequent];
+          if (node.alternate) {
+            nodesToCheck.push(node.alternate);
           }
+        } else {
+          nodesToCheck = [node.body];
+        }
 
-          for (const nodeToCheck of nodesToCheck) {
-            const lastToken = sourceCode.getLastToken(nodeToCheck);
+        for (const nodeToCheck of nodesToCheck) {
+          const lastToken = sourceCode.getLastToken(nodeToCheck);
 
-            if (astUtils.isSemicolonToken(lastToken)) {
-              const tokenBeforeLast =
-                sourceCode.getTokenBefore(lastToken);
-              const tokenAfterLast =
-                sourceCode.getTokenAfter(lastToken);
+          if (astUtils.isSemicolonToken(lastToken)) {
+            const tokenBeforeLast =
+              sourceCode.getTokenBefore(lastToken);
+            const tokenAfterLast =
+              sourceCode.getTokenAfter(lastToken);
 
-              if (
-                !astUtils.isTokenOnSameLine(
-                  tokenBeforeLast,
-                  lastToken,
-                ) &&
-                tokenAfterLast &&
-                astUtils.isTokenOnSameLine(
-                  lastToken,
-                  tokenAfterLast,
-                )
-              ) {
-                offsets.setDesiredOffset(
-                  lastToken,
-                  sourceCode.getFirstToken(node),
-                  0,
-                );
-              }
+            if (
+              !astUtils.isTokenOnSameLine(
+                tokenBeforeLast,
+                lastToken,
+              ) &&
+              tokenAfterLast &&
+              astUtils.isTokenOnSameLine(
+                lastToken,
+                tokenAfterLast,
+              )
+            ) {
+              offsets.setDesiredOffset(
+                lastToken,
+                sourceCode.getFirstToken(node),
+                0,
+              );
             }
           }
-        },
+        }
+      },
 
       ImportDeclaration(node) {
         if (
@@ -1649,7 +1650,10 @@ module.exports = {
 
       SwitchCase(node) {
         if (
-          !(node.consequent.length === 1 && node.consequent[0].type === "BlockStatement")
+         !(
+            node.consequent.length === 1 &&
+            node.consequent[0].type === "BlockStatement"
+          )
         ) {
           const caseKeyword = sourceCode.getFirstToken(node);
           const tokenAfterCurrentCase =

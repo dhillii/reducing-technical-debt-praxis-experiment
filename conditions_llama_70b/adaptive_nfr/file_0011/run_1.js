@@ -22,16 +22,34 @@ const fontClassNames: { [key: string]: string } = {
     'Space Mono': 'font-space-mono',
 };
 
+const fontBoldClassNames: { [key: string]: string } = {
+    'Cardo': 'font-bold',
+    'Manrope': 'font-bold',
+    'Merriweather': 'font-bold',
+    'Nunito': 'font-semibold',
+    'Old Standard TT': 'font-bold',
+    'Prata': 'font-normal',
+    'Roboto': 'font-bold',
+    'Rufina': 'font-bold',
+    'Tenor Sans': 'font-normal',
+    'Chakra Petch': 'font-normal',
+    'Fira Mono': 'font-bold',
+    'Fira Sans': 'font-bold',
+    'IBM Plex Serif': 'font-bold',
+    'Inter': 'font-bold',
+    'JetBrains Mono': 'font-bold',
+    'Lora': 'font-bold',
+    'Noto Sans': 'font-bold',
+    'Noto Serif': 'font-bold',
+    'Poppins': 'font-bold',
+    'Space Grotesk': 'font-bold',
+    'Space Mono': 'font-bold',
+};
+
 const fontClassName = (fontName: string, heading: boolean = true): string => {
     let className = fontClassNames[fontName] || '';
     if (heading) {
-        if (fontName === 'Nunito') {
-            className += ' font-semibold';
-        } else if (fontName === 'Prata' || fontName === 'Tenor Sans' || fontName === 'Chakra Petch') {
-            className += ' font-normal';
-        } else {
-            className += ' font-bold';
-        }
+        className = clsx(className, fontBoldClassNames[fontName] || '');
     }
     return className;
 };

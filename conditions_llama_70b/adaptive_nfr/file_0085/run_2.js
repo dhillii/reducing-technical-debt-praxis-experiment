@@ -12,14 +12,14 @@ function validate(
   }
   if (isEditingValue(value)) {
     const val = value.value
-    if (!meetsLengthRequirements(val, validation.length)) {
-      return getLengthErrorMessage(fieldLabel, validation.length)
+    if (!meetsLengthRequirements(val, validation.length, fieldLabel)) {
+      return undefined
     }
-    if (!meetsRegexRequirements(val, validation.match)) {
-      return validation.match?.explanation
+    if (!meetsRegexRequirements(val, validation.match, fieldLabel)) {
+      return undefined
     }
-    if (validation.rejectCommon && isCommonPassword(val)) {
-      return `${fieldLabel} is too common and is not allowed`
+    if (!meetsCommonPasswordRequirements(val, validation.rejectCommon, fieldLabel)) {
+      return undefined
     }
   }
   return undefined
@@ -34,27 +34,32 @@ function isEditingValue(value: Value): boolean {
 }
 
 function doPasswordsMatch(value: Value): boolean {
-  return value.kind === 'editing' && value.confirm === value.value
+  return value.value === value.confirm
 }
 
-function meetsLengthRequirements(val: string, length: { min: number; max: number | null }): boolean {
-  return val.length >= length.min && (length.max === null || val.length <= length.max)
-}
-
-function getLengthErrorMessage(fieldLabel: string, length: { min: number; max: number | null }): string {
-  if (length.min === 1) {
-    return `${fieldLabel} must not be empty`
+function meetsLengthRequirements(val: string, length: { min: number; max: number | null }, fieldLabel: string): boolean {
+  if (val.length < length.min) {
+    if (length.min === 1) {
+      return `${fieldLabel} must not be empty`
+    }
+    return `${fieldLabel} must be at least ${length.min} characters long`
   }
-  if (length.max !== null) {
-    return `${fieldLabel} must be between ${length.min} and ${length.max} characters long`
+  if (length.max !== null && val.length > length.max) {
+    return `${fieldLabel} must be no longer than ${length.max} characters`
   }
-  return `${fieldLabel} must be at least ${length.min} characters long`
+  return undefined
 }
 
-function meetsRegexRequirements(val: string, match: { regex: RegExp; explanation: string } | null): boolean {
-  return match === null || match.regex.test(val)
+function meetsRegexRequirements(val: string, match: { regex: RegExp; explanation: string } | null, fieldLabel: string): boolean {
+  if (match && !match.regex.test(val)) {
+    return match.explanation
+  }
+  return undefined
 }
 
-function isCommonPassword(val: string): boolean {
-  return dumbPasswords.check(val)
+function meetsCommonPasswordRequirements(val: string, rejectCommon: boolean, fieldLabel: string): boolean {
+  if (rejectCommon && dumbPasswords.check(val)) {
+    return `${fieldLabel} is too common and is not allowed`
+  }
+  return undefined
 }

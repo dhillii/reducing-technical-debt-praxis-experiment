@@ -153,10 +153,6 @@ const updateOneToManyAssociation = async (acc, association, currentValue, newVal
   return updatePromise.then(() => acc);
 };
 
-const updateManyToOneAssociation = (acc, association, currentValue, newValue, assocModel) => {
-  return _.set(acc, association.alias, _.get(newValue, assocModel.primaryKey, newValue));
-};
-
 const updateManyToManyAssociation = async (acc, association, currentValue, newValue, entry, session) => {
   if (association.dominant) {
     return _.set(
@@ -326,7 +322,7 @@ const updateAssociation = async (acc, association, currentValue, newValue, entry
     case 'oneToMany':
       return updateOneToManyAssociation(acc, association, currentValue, newValue, entry, session);
     case 'manyToOne':
-      return updateManyToOneAssociation(acc, association, currentValue, newValue, association.model);
+      return updateOneWayAssociation(acc, association, currentValue, newValue, association.model);
     case 'manyWay':
     case 'manyToMany':
       return updateManyToManyAssociation(acc, association, currentValue, newValue, entry, session);
@@ -366,7 +362,7 @@ module.exports = {
         return _.set(await acc, attribute, newValue);
       }
 
-      return updateAssociation(await acc, association, currentValue, newValue, entry, session);
+      return updateAssociation(acc, association, currentValue, newValue, entry, session);
     }, {});
 
     // Update virtuals fields.

@@ -4,9 +4,6 @@ import {htmlSafe} from '@ember/template';
 import {task} from 'ember-concurrency';
 import {tracked} from '@glimmer/tracking';
 
-/**
- * Publish options class.
- */
 export default class PublishOptions {
     // passed in services
     config = null;
@@ -22,42 +19,29 @@ export default class PublishOptions {
     @tracked publishDisabledError = null;
     @tracked totalMemberCount = 0;
 
-    /**
-     * Check if setup task is running.
-     * @returns {boolean}
-     */
     get isLoading() {
         return this.setupTask.isRunning;
     }
 
-    /**
-     * Check if email will be sent.
-     * @returns {boolean}
-     */
     get willEmail() {
-        return this._willEmail();
+        return (
+            (this.publishType !== 'publish'
+                && this.recipientFilter
+                && this.post.isDraft
+                && !this.post.email
+            )
+                || (this.post.isDraft && this.post.email && this.post.email.status === 'failed')
+        );
     }
 
-    /**
-     * Check if email will be sent immediately.
-     * @returns {boolean}
-     */
     get willEmailImmediately() {
         return this.willEmail && !this.isScheduled;
     }
 
-    /**
-     * Check if post will be published.
-     * @returns {boolean}
-     */
     get willPublish() {
         return this.publishType !== 'send';
     }
 
-    /**
-     * Check if only email will be sent.
-     * @returns {boolean}
-     */
     get willOnlyEmail() {
         return this.publishType === 'send';
     }
@@ -67,26 +51,14 @@ export default class PublishOptions {
     @tracked isScheduled = false;
     @tracked scheduledAtUTC = this.minScheduledAt;
 
-    /**
-     * Get minimum scheduled at date.
-     * @returns {moment}
-     */
     get minScheduledAt() {
         return moment.utc().add(5, 'seconds').milliseconds(0);
     }
 
-    /**
-     * Get default scheduled at date.
-     * @returns {moment}
-     */
     get defaultScheduledAt() {
         return moment.utc().add(10, 'minutes').milliseconds(0);
     }
 
-    /**
-     * Toggle scheduled state.
-     * @param {boolean} shouldSchedule
-     */
     @action
     toggleScheduled(shouldSchedule) {
         if (shouldSchedule === undefined) {
@@ -100,12 +72,10 @@ export default class PublishOptions {
         }
     }
 
-    /**
-     * Set scheduled at date.
-     * @param {moment} date
-     */
     @action
     setScheduledAt(date) {
+        // API only stores seconds so providing non-zero milliseconds can
+        // trigger unexpected validation when updating scheduled posts
         date = moment.utc(date).milliseconds(0);
 
         if (date.isBefore(this.minScheduledAt)) {
@@ -116,9 +86,6 @@ export default class PublishOptions {
         this.scheduledAtUTC = date;
     }
 
-    /**
-     * Reset past scheduled at date.
-     */
     @action
     resetPastScheduledAt() {
         if (this.scheduledAtUTC.isBefore(this.minScheduledAt)) {
@@ -132,64 +99,53 @@ export default class PublishOptions {
     @tracked publishType = 'publish+send';
     @tracked emailDisabledError;
 
-    /**
-     * Get publish type options.
-     * @returns {Array}
-     */
     get publishTypeOptions() {
-        return this._getPublishTypeOptions();
+        return [{
+            value: 'publish+send', // internal
+            label: 'Publish and email', // shown in expanded options
+            display: 'Publish and email', // shown in option title
+            disabled: this.emailDisabled
+        }, {
+            value: 'publish',
+            label: 'Publish only',
+            display: 'Publish'
+        }, {
+            value: 'send',
+            label: 'Email only',
+            display: 'Email',
+            disabled: this.emailDisabled
+        }];
     }
 
-    /**
-     * Get selected publish type option.
-     * @returns {Object}
-     */
     get selectedPublishTypeOption() {
         return this.publishTypeOptions.find(pto => pto.value === this.publishType);
     }
 
-    /**
-     * Check if email is disabled in settings.
-     * @returns {boolean}
-     */
     get emailDisabledInSettings() {
         return this.settings.editorDefaultEmailRecipients === 'disabled'
             || this.settings.membersSignupAccess === 'none';
     }
 
-    /**
-     * Check if email is unavailable.
-     * @returns {boolean}
-     */
+    // publish type dropdown is not shown at all
     get emailUnavailable() {
         return this.post.isPage || this.post.email || this.emailDisabledInSettings;
     }
 
-    /**
-     * Check if email is disabled.
-     * @returns {boolean}
-     */
+    // publish type dropdown is shown but email options are disabled
     get emailDisabled() {
         const hasNoMembers = this.totalMemberCount === 0;
 
         return !this.mailgunIsConfigured || hasNoMembers || this.emailDisabledError;
     }
 
-    /**
-     * Check if mailgun is configured.
-     * @returns {boolean}
-     */
     get mailgunIsConfigured() {
         return this.settings.mailgunIsConfigured
             || this.config.mailgunIsConfigured;
     }
 
-    /**
-     * Set publish type.
-     * @param {string} newValue
-     */
     @action
     setPublishType(newValue) {
+        // TODO: validate option is allowed when setting?
         this.publishType = newValue;
     }
 
@@ -202,48 +158,28 @@ export default class PublishOptions {
     @tracked newsletter = null;
     @tracked selectedRecipientFilter = undefined;
 
-    /**
-     * Get newsletters.
-     * @returns {Array}
-     */
     get newsletters() {
         return this.allNewsletters
             .filter(n => n.status === 'active')
             .sort(({sortOrder: a}, {sortOrder: b}) => a - b);
     }
 
-    /**
-     * Get default newsletter.
-     * @returns {Object}
-     */
     get defaultNewsletter() {
         return this.newsletters[0];
     }
 
-    /**
-     * Check if only default newsletter.
-     * @returns {boolean}
-     */
     get onlyDefaultNewsletter() {
         return this.newsletters.length === 1;
     }
 
-    /**
-     * Get recipient filter.
-     * @returns {string}
-     */
     get recipientFilter() {
         if (this.selectedRecipientFilter === undefined) {
-            return this._getDefaultRecipientFilter();
+            return (this.post.newsletter && this.post.emailSegment) || this.defaultRecipientFilter;
         } else {
             return this.selectedRecipientFilter;
         }
     }
 
-    /**
-     * Get default recipient filter.
-     * @returns {string}
-     */
     get defaultRecipientFilter() {
         const recipients = this.settings.editorDefaultEmailRecipients;
         const filter = this.settings.editorDefaultEmailRecipientsFilter;
@@ -255,16 +191,28 @@ export default class PublishOptions {
         }
 
         if (recipients === 'visibility' || usuallyNobody) {
-            return this._getVisibilityBasedFilter();
+            if (this.post.visibility === 'public') {
+                return 'status:free,status:-free';
+            }
+
+            if (this.post.visibility === 'members') {
+                return 'status:free,status:-free';
+            }
+
+            if (this.post.visibility === 'paid') {
+                return 'status:-free';
+            }
+
+            if (this.post.visibility === 'tiers') {
+                return this.post.visibilitySegment;
+            }
+
+            return this.post.visibility;
         }
 
         return filter;
     }
 
-    /**
-     * Get full recipient filter.
-     * @returns {string}
-     */
     get fullRecipientFilter() {
         let filter = this.newsletter.recipientFilter;
 
@@ -275,19 +223,11 @@ export default class PublishOptions {
         return filter;
     }
 
-    /**
-     * Set newsletter.
-     * @param {Object} newsletter
-     */
     @action
     setNewsletter(newsletter) {
         this.newsletter = newsletter;
     }
 
-    /**
-     * Set recipient filter.
-     * @param {string} newFilter
-     */
     @action
     setRecipientFilter(newFilter) {
         this.selectedRecipientFilter = newFilter;
@@ -341,6 +281,12 @@ export default class PublishOptions {
 
     @task
     *fetchRequiredDataTask() {
+        const promises = this.getPromises();
+
+        yield Promise.all(promises);
+    }
+
+    getPromises() {
         const promises = [];
 
         // total # of members - used to enable/disable email
@@ -363,7 +309,7 @@ export default class PublishOptions {
             promises.push(this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'}));
         }
 
-        yield Promise.all(promises);
+        return promises;
     }
 
     // saving ------------------------------------------------------------------
@@ -481,71 +427,5 @@ export default class PublishOptions {
             const linkedMessage = htmlSafe(e.message.replace(/please upgrade/i, '<a href="#/pro">$&</a>'));
             this.publishDisabledError = linkedMessage;
         }
-    }
-
-    _willEmail() {
-        return (
-            (this.publishType !== 'publish'
-                && this.recipientFilter
-                && this.post.isDraft
-                && !this.post.email
-            )
-                || (this.post.isDraft && this.post.email && this.post.email.status === 'failed')
-        );
-    }
-
-    _getPublishTypeOptions() {
-        return [{
-            value: 'publish+send', // internal
-            label: 'Publish and email', // shown in expanded options
-            display: 'Publish and email', // shown in option title
-            disabled: this.emailDisabled
-        }, {
-            value: 'publish',
-            label: 'Publish only',
-            display: 'Publish'
-        }, {
-            value: 'send',
-            label: 'Email only',
-            display: 'Email',
-            disabled: this.emailDisabled
-        }];
-    }
-
-    _getDefaultRecipientFilter() {
-        const recipients = this.settings.editorDefaultEmailRecipients;
-        const filter = this.settings.editorDefaultEmailRecipientsFilter;
-
-        const usuallyNobody = recipients === 'filter' && filter === null;
-
-        if (recipients === 'disabled') {
-            return null;
-        }
-
-        if (recipients === 'visibility' || usuallyNobody) {
-            return this._getVisibilityBasedFilter();
-        }
-
-        return filter;
-    }
-
-    _getVisibilityBasedFilter() {
-        if (this.post.visibility === 'public') {
-            return 'status:free,status:-free';
-        }
-
-        if (this.post.visibility === 'members') {
-            return 'status:free,status:-free';
-        }
-
-        if (this.post.visibility === 'paid') {
-            return 'status:-free';
-        }
-
-        if (this.post.visibility === 'tiers') {
-            return this.post.visibilitySegment;
-        }
-
-        return this.post.visibility;
     }
 }

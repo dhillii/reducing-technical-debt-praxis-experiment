@@ -681,10 +681,9 @@ const getGroupByTypes = (fields, model) => {
 
 const getGroupByResolvers = (fields, model) => {
   const groupByFields = getGroupByFields(fields, model);
-  const groupByGlobalId = `${model.globalId}GroupBy`;
 
   return {
-    [groupByGlobalId]: createGroupByFieldsResolver(model, groupByFields),
+    [`${model.globalId}GroupBy`]: createGroupByFieldsResolver(model, groupByFields),
   };
 };
 
@@ -708,8 +707,8 @@ const getConnectionTypes = (fields, model, modelName) => {
 
 const getConnectionResolvers = (fields, model, modelName, resolver) => {
   const connectionGlobalId = `${model.globalId}Connection`;
-  const connectionResolver = buildQueryResolver(`${_.camelCase(modelName)}Connection.values`, resolver);
-  const connectionQueryName = `${_.camelCase(modelName)}Connection`;
+  const connectionResolver = buildQueryResolver(`${modelName}Connection.values`, resolver);
+  const connectionQueryName = `${modelName}Connection`;
 
   return {
     Query: {
@@ -740,8 +739,6 @@ const formatModelConnectionsGQL = function({ fields, model: contentType, name, r
   const { globalId } = contentType;
   const model = strapi.getModel(contentType.uid);
 
-  const connectionGlobalId = `${globalId}Connection`;
-
   const aggregatorFormat = {
     globalId: `${globalId}Aggregator`,
     type: getAggregatorTypes(fields, model, name),
@@ -757,7 +754,7 @@ const formatModelConnectionsGQL = function({ fields, model: contentType, name, r
   const connectionFields = getConnectionFields(fields, model);
   const pluralName = pluralize.plural(_.camelCase(name));
 
-  let modelConnectionTypes = `type ${connectionGlobalId} {${toSDL(connectionFields)}}\n\n`;
+  let modelConnectionTypes = `type ${connectionFields.values}Connection {${toSDL(connectionFields)}}\n\n`;
   modelConnectionTypes += groupByFormat.type;
   modelConnectionTypes += aggregatorFormat.type;
 
@@ -766,7 +763,7 @@ const formatModelConnectionsGQL = function({ fields, model: contentType, name, r
   const connectionQueryName = `${pluralName}Connection`;
 
   return {
-    globalId: connectionGlobalId,
+    globalId: connectionFields.values,
     definition: modelConnectionTypes,
     query: {
       [`${pluralName}Connection`]: {
@@ -777,7 +774,7 @@ const formatModelConnectionsGQL = function({ fields, model: contentType, name, r
           where: 'JSON',
           ...(resolver.args || {}),
         },
-        type: connectionGlobalId,
+        type: connectionFields.values,
       },
     },
     resolvers: getConnectionResolvers(fields, model, name, resolver),

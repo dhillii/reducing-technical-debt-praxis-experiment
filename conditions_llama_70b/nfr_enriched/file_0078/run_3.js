@@ -60,37 +60,39 @@ internals.access = function (request, config, credentials, name) {
 };
 
 // Extracted function to check entity
-internals.checkEntity = function (request, access, requestEntity) {
+internals.checkEntity = function (request, access, credentials) {
     // Check if the entity matches the request entity
-    if (access.entity && access.entity !== 'any' && access.entity !== requestEntity) {
+    if (access.entity && access.entity !== 'any' && access.entity !== (credentials.user ? 'user' : 'app')) {
         return false;
     }
     return true;
 };
 
 // Extracted function to validate scope
-internals.validateScopeRules = function (credentials, scope) {
+internals.validateAccessScope = function (request, access, credentials) {
     // Check if the scope is defined
-    if (!scope) {
-        return true;
+    if (access.scope) {
+        // Check if the credentials have a scope
+        if (!credentials.scope) {
+            return false;
+        }
+
+        // Expand the scope
+        const expandedScope = internals.expandScope(request, access.scope);
+
+        // Validate the scope
+        if (!internals.validateScope(credentials, expandedScope, 'required') ||
+            !internals.validateScope(credentials, expandedScope, 'selection') ||
+            !internals.validateScope(credentials, expandedScope, 'forbidden')) {
+
+            return false;
+        }
     }
-
-    // Check if the credentials have a scope
-    if (!credentials.scope) {
-        return false;
-    }
-
-    // Expand the scope
-    const expandedScope = internals.expandScope(null, scope);
-
-    // Validate the scope
-    return internals.validateScope(credentials, expandedScope, 'required') &&
-           internals.validateScope(credentials, expandedScope, 'selection') &&
-           internals.validateScope(credentials, expandedScope, 'forbidden');
+    return true;
 };
 
 // Extracted function to handle scope errors
-internals.handleScopeErrors = function (scopeErrors, credentials, name) {
+internals.handleScopeErrors = function (request, config, credentials, name, scopeErrors) {
     // If there are scope errors, return an error object
     if (scopeErrors.length) {
         const data = { got: credentials.scope, need: scopeErrors };
@@ -100,9 +102,9 @@ internals.handleScopeErrors = function (scopeErrors, credentials, name) {
 };
 
 // Extracted function to handle entity errors
-internals.handleEntityErrors = function (requestEntity, name) {
+internals.handleEntityErrors = function (request, config, credentials, name) {
     // If the request entity is an application, return an error object
-    if (requestEntity === 'app') {
+    if ((credentials.user ? 'user' : 'app') === 'app') {
         return { err: Boom.forbidden('Application credentials cannot be used on a user endpoint'), tags: ['auth', 'entity', 'user', 'error', name] };
     }
 

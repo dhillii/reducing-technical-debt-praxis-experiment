@@ -327,11 +327,11 @@ const navigateOnClose = useCallback(() => {
 }, [currentUser, updateRoute]);
 
 const handleImageUpload = async (image: string, file: File) => {
+    // Upload the image
     try {
-        // Upload the image
         const imageUrl = getImageUrl(await uploadImage({file}));
 
-        // Update the user data
+        // Update the user data with the new image URL
         switch (image) {
         case 'cover_image':
             updateForm((_user) => {
@@ -355,7 +355,7 @@ const handleImageUpload = async (image: string, file: File) => {
 };
 
 const handleImageDelete = (image: string) => {
-    // Update the user data
+    // Delete the image
     switch (image) {
     case 'cover_image':
         updateForm((_user) => {

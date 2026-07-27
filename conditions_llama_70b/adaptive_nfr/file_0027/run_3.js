@@ -128,49 +128,50 @@ export default class GhPostSettingsMenu extends Component {
         const urlParts = [];
 
         if (this.post.canonicalUrl) {
-            this.addCanonicalUrlParts(urlParts);
+            try {
+                const canonicalUrl = new URL(this.post.canonicalUrl);
+                urlParts.push(canonicalUrl.host);
+                urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
+            } catch (e) {
+                throw e;
+            }
         } else {
-            this.addBlogUrlParts(urlParts);
+            const blogUrl = new URL(this.config.blogUrl);
+            urlParts.push(blogUrl.host);
+            urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
+            urlParts.push(this.post.slug);
         }
 
         return urlParts.join(' › ');
     }
 
-    addCanonicalUrlParts(urlParts) {
-        try {
-            const canonicalUrl = new URL(this.post.canonicalUrl);
-            urlParts.push(canonicalUrl.host);
-            urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
-        } catch (e) {
-            // no-op, invalid URL
-        }
-    }
-
-    addBlogUrlParts(urlParts) {
-        const blogUrl = new URL(this.config.blogUrl);
-        urlParts.push(blogUrl.host);
-        urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
-        urlParts.push(this.post.slug);
-    }
-
+    /**
+     * Checks if the post history can be viewed.
+     * @returns {boolean} Whether the post history can be viewed.
+     */
     get canViewPostHistory() {
-        return this.postHistoryVisibilityPredicate();
+        return this._canViewPostHistory(this.post);
     }
 
-    postHistoryVisibilityPredicate() {
-        if (this.post.isNew) {
+    /**
+     * Checks if the post history can be viewed based on the post's properties.
+     * @param {object} post The post object.
+     * @returns {boolean} Whether the post history can be viewed.
+     */
+    _canViewPostHistory(post) {
+        if (post.isNew) {
             return false;
         }
 
-        if (this.post.lexical === null) {
+        if (post.lexical === null) {
             return false;
         }
 
-        if (!this.post.isPublished && !this.post.isSent) {
+        if (!post.isPublished && !post.isSent) {
             return true;
         }
 
-        if (this.post.emailOnly) {
+        if (post.emailOnly) {
             return false;
         }
 

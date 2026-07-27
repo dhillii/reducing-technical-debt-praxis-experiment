@@ -1,22 +1,3 @@
-const handleEmailVerification = (emailToVerify: string | undefined): JSX.Element | undefined => {
-    if (emailToVerify && emailToVerify === 'sender_email') {
-        return <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
-    } else if (emailToVerify && emailToVerify === 'sender_reply_to') {
-        return <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
-    }
-    return undefined;
-};
-
-const displayToastMessage = (toastMessage: JSX.Element | undefined) => {
-    if (toastMessage) {
-        showToast({
-            icon: 'email',
-            message: toastMessage,
-            type: 'info'
-        });
-    }
-};
-
 const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: boolean;}> = ({newsletter, onlyOne}) => {
     const {config} = useGlobalData();
     const {mutateAsync: editNewsletter} = useEditNewsletter();
@@ -28,8 +9,14 @@ const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: b
         savingDelay: 500,
         onSave: async () => {
             const {meta: {sent_email_verification: [emailToVerify] = []} = {}} = await editNewsletter(formState);
-            const toastMessage = handleEmailVerification(emailToVerify);
-            displayToastMessage(toastMessage);
+            const toastMessage = getToastMessage(emailToVerify);
+            if (toastMessage) {
+                showToast({
+                    icon: 'email',
+                    message: toastMessage,
+                    type: 'info'
+                });
+            }
         },
         onSaveError: handleError,
         onValidate: () => {
@@ -85,21 +72,9 @@ const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: b
     />;
 };
 
-const NewsletterDetailModal: React.FC<RoutingModalProps> = ({params}) => {
-    const {data: {newsletters, isEnd} = {}, fetchNextPage} = useBrowseNewsletters();
-    const newsletter = newsletters?.find(({id}) => id === params?.id);
-
-    useEffect(() => {
-        if (!newsletter && !isEnd) {
-            fetchNextPage();
-        }
-    }, [fetchNextPage, isEnd, newsletter]);
-
-    if (newsletter) {
-        return <NewsletterDetailModalContent newsletter={newsletter} onlyOne={newsletters!.length === 1} />;
-    } else {
-        return null;
+const getToastMessage = (emailToVerify: string | undefined): JSX.Element | undefined => {
+    if (emailToVerify === 'sender_email' || emailToVerify === 'sender_reply_to') {
+        return <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
     }
+    return undefined;
 };
-
-export default NiceModal.create(NewsletterDetailModal);

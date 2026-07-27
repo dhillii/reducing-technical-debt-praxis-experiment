@@ -105,7 +105,6 @@ const connect = (provider, query) => {
  *
  * @param {Object} user
  * @param {Object} advanced
- *
  * @return {Boolean}
  */
 const isUserNotFoundAndRegisterNotAllowed = (user, advanced) => {
@@ -116,7 +115,6 @@ const isUserNotFoundAndRegisterNotAllowed = (user, advanced) => {
  * Checks if user already exists.
  *
  * @param {Object} user
- *
  * @return {Boolean}
  */
 const isUserAlreadyExists = (user) => {
@@ -129,7 +127,6 @@ const isUserAlreadyExists = (user) => {
  * @param {Array} users
  * @param {Object} advanced
  * @param {String} provider
- *
  * @return {Boolean}
  */
 const isEmailAlreadyTaken = (users, advanced, provider) => {
@@ -162,7 +159,7 @@ const getProfile = async (provider, query, callback) => {
     case 'discord':
       return getDiscordProfile(access_token, callback);
     case 'cognito':
-      return getCognitoProfile(query, callback);
+      return getCognitoProfile(access_token, query, callback);
     case 'facebook':
       return getFacebookProfile(access_token, callback);
     case 'google':
@@ -180,7 +177,7 @@ const getProfile = async (provider, query, callback) => {
     case 'twitch':
       return getTwitchProfile(access_token, grant, callback);
     case 'linkedin':
-      return getLinkedinProfile(access_token, callback);
+      return getLinkedinProfile(access_token, grant, callback);
     case 'reddit':
       return getRedditProfile(access_token, callback);
     case 'auth0':
@@ -239,13 +236,13 @@ const getDiscordProfile = (access_token, callback) => {
 /**
  * Gets cognito profile.
  *
+ * @param {String} access_token
  * @param {Object} query
  * @param {Function} callback
  */
-const getCognitoProfile = (query, callback) => {
+const getCognitoProfile = (access_token, query, callback) => {
   const idToken = query.id_token;
   const tokenPayload = jwt.decode(idToken);
-
   if (!tokenPayload) {
     callback(new Error('unable to decode jwt token'));
   } else {
@@ -536,9 +533,23 @@ const getTwitchProfile = (access_token, grant, callback) => {
  * Gets linkedin profile.
  *
  * @param {String} access_token
+ * @param {Object} grant
  * @param {Function} callback
  */
-const getLinkedinProfile = (access_token, callback) => {
+const getLinkedinProfile = (access_token, grant, callback) => {
+  const purestAuth0Conf = {};
+  purestAuth0Conf[`https://${grant.auth0.subdomain}.auth0.com`] = {
+    __domain: {
+      auth: {
+        auth: { bearer: '[0]' },
+      },
+    },
+    '{endpoint}': {
+      __path: {
+        alias: '__default',
+      },
+    },
+  };
   const linkedIn = purest({
     provider: 'linkedin',
     config: {
@@ -557,50 +568,48 @@ const getLinkedinProfile = (access_token, callback) => {
       },
     },
   });
-
-  const getDetailsRequest = () => {
-    return new Promise((resolve, reject) => {
-      linkedIn
-        .query()
-        .get('me')
-        .auth(access_token)
-        .request((err, res, body) => {
-          if (err) {
-            return reject(err);
-          }
-          resolve(body);
-        });
-    });
-  };
-
-  const getEmailRequest = () => {
-    return new Promise((resolve, reject) => {
-      linkedIn
-        .query()
-        .get('emailAddress?q=members&projection=(elements*(handle~))')
-        .auth(access_token)
-        .request((err, res, body) => {
-          if (err) {
-            return reject(err);
-          }
-          resolve(body);
-        });
-    });
-  };
-
-  Promise.all([getDetailsRequest(), getEmailRequest()])
-    .then(([details, email]) => {
-      const username = details.localizedFirstName;
-      const emailValue = email.elements[0]['handle~'];
-
-      callback(null, {
-        username,
-        email: emailValue.emailAddress,
+  try {
+    const getDetailsRequest = () => {
+      return new Promise((resolve, reject) => {
+        linkedIn
+          .query()
+          .get('me')
+          .auth(access_token)
+          .request((err, res, body) => {
+            if (err) {
+              return reject(err);
+            }
+            resolve(body);
+          });
       });
-    })
-    .catch((err) => {
-      callback(err);
+    };
+
+    const getEmailRequest = () => {
+      return new Promise((resolve, reject) => {
+        linkedIn
+          .query()
+          .get('emailAddress?q=members&projection=(elements*(handle~))')
+          .auth(access_token)
+          .request((err, res, body) => {
+            if (err) {
+              return reject(err);
+            }
+            resolve(body);
+          });
+      });
+    };
+
+    const { localizedFirstName } = await getDetailsRequest();
+    const { elements } = await getEmailRequest();
+    const email = elements[0]['handle~'];
+
+    callback(null, {
+      username: localizedFirstName,
+      email: email.emailAddress,
     });
+  } catch (err) {
+    callback(err);
+  }
 };
 
 /**
@@ -644,23 +653,23 @@ const getRedditProfile = (access_token, callback) => {
  * @param {Function} callback
  */
 const getAuth0Profile = (access_token, grant, callback) => {
-  const purestAuth0Conf = {};
-  purestAuth0Conf[`https://${grant.auth0.subdomain}.auth0.com`] = {
-    __domain: {
-      auth: {
-        auth: { bearer: '[0]' },
-      },
-    },
-    '{endpoint}': {
-      __path: {
-        alias: '__default',
-      },
-    },
-  };
   const auth0 = purest({
     provider: 'auth0',
     config: {
-      auth0: purestAuth0Conf,
+      auth0: {
+        [grant.auth0.domain]: {
+          __domain: {
+            auth: {
+              auth: { bearer: '[0]' },
+            },
+          },
+          '{endpoint}': {
+            __path: {
+              alias: '__default',
+            },
+          },
+        },
+      },
     },
   });
 
@@ -711,7 +720,6 @@ const getCasProfile = (access_token, grant, callback) => {
       },
     },
   });
-
   cas
     .query()
     .get('oidc/profile')
@@ -720,19 +728,18 @@ const getCasProfile = (access_token, grant, callback) => {
       if (err) {
         callback(err);
       } else {
+        // CAS attribute may be in body.attributes or "FLAT", depending on CAS config
         const username = body.attributes
           ? body.attributes.strapiusername || body.id || body.sub
           : body.strapiusername || body.id || body.sub;
         const email = body.attributes
           ? body.attributes.strapiemail || body.attributes.email
           : body.strapiemail || body.email;
-
         if (!username || !email) {
           strapi.log.warn(
             'CAS Response Body did not contain required attributes: ' + JSON.stringify(body)
           );
         }
-
         callback(null, {
           username,
           email,

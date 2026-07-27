@@ -97,25 +97,19 @@ export default class ParseMemberEventHelper extends Helper {
             },
             'email_opened_event': 'opened email',
             'email_sent_event': 'sent email',
-            'automated_email_sent_event': (event) => `received welcome email (${event.data.automatedEmail?.slug.includes('paid') ? 'Paid' : 'Free'})`,
+            'automated_email_sent_event': (event.data.automatedEmail?.slug || '').includes('paid') ? 'received welcome email (Paid)' : 'received welcome email (Free)',
             'email_delivered_event': 'received email',
             'email_failed_event': 'bounced email',
             'email_complaint_event': 'email flagged as spam',
-            'comment_event': (event) => event.data.parent ? 'replied to comment' : 'commented',
+            'comment_event': event.data.parent ? 'replied to comment' : 'commented',
             'click_event': 'clicked link in email',
-            'aggregated_click_event': (event) => event.data.count.clicks <= 1 ? 'clicked link in email' : `clicked ${ghPluralize(event.data.count.clicks, 'link')} in email`,
-            'feedback_event': (event) => event.data.score === 1 ? 'more like this' : 'less like this',
-            'email_change_event': (event) => event.data.from_email && event.data.to_email ? `Email address changed from ${event.data.from_email} to ${event.data.to_email}` : 'Email address changed',
+            'aggregated_click_event': event.data.count.clicks <= 1 ? 'clicked link in email' : `clicked ${ghPluralize(event.data.count.clicks, 'link')} in email`,
+            'feedback_event': event.data.score === 1 ? 'more like this' : 'less like this',
+            'email_change_event': event.data.from_email && event.data.to_email ? `Email address changed from ${event.data.from_email} to ${event.data.to_email}` : 'Email address changed',
             'donation_event': 'Made a one-time payment'
         };
 
-        if (typeof actionMap[event.type] === 'object') {
-            return actionMap[event.type][event.data.type] || actionMap[event.type]['updated'];
-        } else if (typeof actionMap[event.type] === 'function') {
-            return actionMap[event.type](event);
-        } else {
-            return actionMap[event.type] || '';
-        }
+        return actionMap[event.type] || '';
     }
 
     getJoin() {

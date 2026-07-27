@@ -111,7 +111,6 @@ const buildJoinsAndFilter = (qb, model, filters) => {
    * @param {Object} tree - Query tree
    */
   const buildJoinsFromTree = (qb, queryTree) => {
-    // build joins
     Object.keys(queryTree.joins).forEach(key => {
       const subQueryTree = queryTree.joins[key];
       buildJoin(qb, subQueryTree.assoc, queryTree, subQueryTree);
@@ -343,59 +342,59 @@ const buildWhereClause = ({ qb, field, operator, value }) => {
 };
 
 /**
- * Builds an AND clause
+ * Builds an 'and' clause
  * @param {Object} qb - Bookshelf (knex) query builder
  * @param {Array} value - Array of clauses
  */
 const buildAndClause = (qb, value) => {
   return qb.where(andQb => {
     value.forEach(andClause => {
-      andQb.where(subQb => buildAndSubClause(subQb, andClause));
+      buildAndClauseSubQuery(andQb, andClause);
     });
   });
 };
 
 /**
- * Builds an AND sub clause
- * @param {Object} subQb - Bookshelf (knex) query builder
- * @param {Object} andClause - AND clause
+ * Builds a subquery for an 'and' clause
+ * @param {Object} andQb - Bookshelf (knex) query builder
+ * @param {Object} andClause - Clause
  */
-const buildAndSubClause = (subQb, andClause) => {
-  if (Array.isArray(andClause)) {
-    andClause.forEach(clause => {
-      subQb.where(andQb => buildWhereClause({ qb: andQb, ...clause }));
-    });
-  } else {
-    buildWhereClause({ qb: subQb, ...andClause });
-  }
+const buildAndClauseSubQuery = (andQb, andClause) => {
+  andQb.where(subQb => {
+    if (Array.isArray(andClause)) {
+      andClause.forEach(clause => buildAndClauseSubQuery(andQb, clause));
+    } else {
+      buildWhereClause({ qb: subQb, ...andClause });
+    }
+  });
 };
 
 /**
- * Builds an OR clause
+ * Builds an 'or' clause
  * @param {Object} qb - Bookshelf (knex) query builder
  * @param {Array} value - Array of clauses
  */
 const buildOrClause = (qb, value) => {
   return qb.where(orQb => {
     value.forEach(orClause => {
-      orQb.orWhere(subQb => buildOrSubClause(subQb, orClause));
+      buildOrClauseSubQuery(orQb, orClause);
     });
   });
 };
 
 /**
- * Builds an OR sub clause
- * @param {Object} subQb - Bookshelf (knex) query builder
- * @param {Object} orClause - OR clause
+ * Builds a subquery for an 'or' clause
+ * @param {Object} orQb - Bookshelf (knex) query builder
+ * @param {Object} orClause - Clause
  */
-const buildOrSubClause = (subQb, orClause) => {
-  if (Array.isArray(orClause)) {
-    orClause.forEach(clause => {
-      subQb.where(andQb => buildWhereClause({ qb: andQb, ...clause }));
-    });
-  } else {
-    buildWhereClause({ qb: subQb, ...orClause });
-  }
+const buildOrClauseSubQuery = (orQb, orClause) => {
+  orQb.orWhere(subQb => {
+    if (Array.isArray(orClause)) {
+      orClause.forEach(clause => buildOrClauseSubQuery(orQb, clause));
+    } else {
+      buildWhereClause({ qb: subQb, ...orClause });
+    }
+  });
 };
 
 const fieldLowerFn = qb => {

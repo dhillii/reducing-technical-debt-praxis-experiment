@@ -1,3 +1,5 @@
+// ...
+
 getApiQueryObject({params, extraFilters = []} = {}) {
     let {label, paidParam, searchParam, filterParam} = params ? params : this;
 
@@ -35,3 +37,5 @@ getApiQueryObject({params, extraFilters = []} = {}) {
 
     return {...{filter: filters.join('+')}, ...searchQuery};
 }
+
+// ...

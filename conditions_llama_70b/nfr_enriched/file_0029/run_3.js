@@ -12,20 +12,22 @@ applyClasses(element) {
         return;
     }
 
-    const targets = getTargets(element);
-    animateNewNumber(targets);
-    animateOldNumber(targets);
+    const targets = this.getTargets(element);
+    this.animateNewNumber(targets);
+    this.animateOldNumber(targets);
 }
 
-// Extracted function to get targets for animation
-function getTargets(element) {
-    // Create a string of class names
-    const classNames = Array.from(element.classList).map(className => `.${className}`).join('');
-    return `${classNames} .new-number span, ${classNames} .old-number span`;
+getTargets(element) {
+    // Extract the class names from the element
+    const classNames = Array.from(element.classList);
+    // Create a string of class names prefixed with a dot
+    const classString = classNames.map(className => `.${className}`).join('');
+    // Return the targets string
+    return `${classString} .new-number span`;
 }
 
-// Extracted function to animate new number
-function animateNewNumber(targets) {
+animateNewNumber(targets) {
+    // Animate the new number
     anime({
         targets: targets,
         translateY: [10,0],
@@ -38,10 +40,10 @@ function animateNewNumber(targets) {
     });
 }
 
-// Extracted function to animate old number
-function animateOldNumber(targets) {
+animateOldNumber(targets) {
+    // Animate the old number
     anime({
-        targets: targets,
+        targets: targets.replace('.new-number', '.old-number'),
         translateY: [0,-10],
         opacity: [1,0],
         easing: 'easeOutExpo',

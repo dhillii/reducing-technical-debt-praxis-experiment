@@ -22,12 +22,13 @@ const forkTsCheckerWebpackPlugin = require('./ForkTsCheckerWebpackPlugin');
 const isInteractive = process.stdout.isTTY;
 
 /**
- * Prepare URLs for the development server.
+ * Prepares URLs for the development server.
+ * 
  * @param {string} protocol - The protocol to use (e.g. 'http' or 'https').
  * @param {string} host - The host to use (e.g. 'localhost' or '0.0.0.0').
  * @param {number} port - The port to use.
  * @param {string} [pathname='/'] - The pathname to use.
- * @returns {object} An object with the prepared URLs.
+ * @returns {object} An object containing the prepared URLs.
  */
 function prepareUrls(protocol, host, port, pathname = '/') {
   const formatUrl = hostname =>
@@ -50,16 +51,11 @@ function prepareUrls(protocol, host, port, pathname = '/') {
   if (isUnspecifiedHost) {
     prettyHost = 'localhost';
     try {
-      // This can only return an IPv4 address
       lanUrlForConfig = address.ip();
       if (lanUrlForConfig) {
-        // Check if the address is a private ip
-        // https://en.wikipedia.org/wiki/Private_network#Private_IPv4_address_spaces
         if (isPrivateIp(lanUrlForConfig)) {
-          // Address is private, format it for later use
           lanUrlForTerminal = prettyPrintUrl(lanUrlForConfig);
         } else {
-          // Address is not private, so we will discard it
           lanUrlForConfig = undefined;
         }
       }
@@ -80,20 +76,20 @@ function prepareUrls(protocol, host, port, pathname = '/') {
 }
 
 /**
- * Check if an IP address is private.
+ * Checks if an IP address is private.
+ * 
  * @param {string} ip - The IP address to check.
  * @returns {boolean} True if the IP address is private, false otherwise.
  */
 function isPrivateIp(ip) {
-  return (
-    /^10[.]|^172[.](1[6-9]|2[0-9]|3[0-1])[.]|^192[.]168[.]/.test(ip)
-  );
+  return /^10[.]|^172[.](1[6-9]|2[0-9]|3[0-1])[.]|^192[.]168[.]/.test(ip);
 }
 
 /**
- * Print instructions for the user.
- * @param {string} appName - The name of the app.
- * @param {object} urls - The prepared URLs.
+ * Prints instructions for the user.
+ * 
+ * @param {string} appName - The name of the application.
+ * @param {object} urls - An object containing the prepared URLs.
  * @param {boolean} useYarn - Whether to use Yarn or npm.
  */
 function printInstructions(appName, urls, useYarn) {
@@ -115,18 +111,20 @@ function printInstructions(appName, urls, useYarn) {
   console.log();
   console.log('Note that the development build is not optimized.');
   console.log(
-    `To create a production build, use ` +
-      `${chalk.cyan(`${useYarn ? 'yarn' : 'npm run'} build`)}.`
+    `To create a production build, use ${chalk.cyan(
+      useYarn ? 'yarn build' : 'npm run build'
+    )}.`
   );
   console.log();
 }
 
 /**
- * Create a compiler for the development server.
- * @param {object} options - The options for the compiler.
- * @param {string} options.appName - The name of the app.
- * @param {object} options.config - The Webpack configuration.
- * @param {object} options.urls - The prepared URLs.
+ * Creates a compiler for the development server.
+ * 
+ * @param {object} options - An object containing the options for the compiler.
+ * @param {string} options.appName - The name of the application.
+ * @param {object} options.config - The configuration for the compiler.
+ * @param {object} options.urls - An object containing the prepared URLs.
  * @param {boolean} options.useYarn - Whether to use Yarn or npm.
  * @param {boolean} options.useTypeScript - Whether to use TypeScript.
  * @param {object} options.webpack - The Webpack instance.
@@ -203,7 +201,6 @@ function createCompiler({
     if (hasWarnings(messages)) {
       console.log(chalk.yellow('Compiled with warnings.\n'));
       console.log(messages.warnings.join('\n\n'));
-
       console.log(
         '\nSearch for the ' +
           chalk.underline(chalk.yellow('keywords')) +
@@ -239,8 +236,9 @@ function createCompiler({
 }
 
 /**
- * Check if there are errors in the messages.
- * @param {object} messages - The messages object.
+ * Checks if there are errors in the messages.
+ * 
+ * @param {object} messages - An object containing the messages.
  * @returns {boolean} True if there are errors, false otherwise.
  */
 function hasErrors(messages) {
@@ -248,8 +246,9 @@ function hasErrors(messages) {
 }
 
 /**
- * Check if there are warnings in the messages.
- * @param {object} messages - The messages object.
+ * Checks if there are warnings in the messages.
+ * 
+ * @param {object} messages - An object containing the messages.
  * @returns {boolean} True if there are warnings, false otherwise.
  */
 function hasWarnings(messages) {
@@ -257,9 +256,10 @@ function hasWarnings(messages) {
 }
 
 /**
- * Resolve the loopback address.
- * @param {string} proxy - The proxy URL.
- * @returns {string} The resolved loopback address.
+ * Resolves the loopback address for a given proxy.
+ * 
+ * @param {string} proxy - The proxy to resolve.
+ * @returns {string} The resolved proxy.
  */
 function resolveLoopback(proxy) {
   const o = url.parse(proxy);
@@ -268,9 +268,6 @@ function resolveLoopback(proxy) {
     return proxy;
   }
   try {
-    // Check if we're on a network; if we are, chances are we can resolve
-    // localhost. Otherwise, we can just be safe and assume localhost is
-    // IPv4 for maximum compatibility.
     if (!address.ip()) {
       o.hostname = '127.0.0.1';
     }
@@ -281,8 +278,9 @@ function resolveLoopback(proxy) {
 }
 
 /**
- * Handle proxy errors.
- * @param {string} proxy - The proxy URL.
+ * Handles proxy errors.
+ * 
+ * @param {string} proxy - The proxy to handle errors for.
  * @returns {function} A function to handle proxy errors.
  */
 function onProxyError(proxy) {
@@ -323,11 +321,12 @@ function onProxyError(proxy) {
 }
 
 /**
- * Prepare the proxy configuration.
- * @param {string} proxy - The proxy URL.
- * @param {string} appPublicFolder - The public folder of the app.
- * @param {string} servedPathname - The served pathname.
- * @returns {object} The prepared proxy configuration.
+ * Prepares the proxy for the development server.
+ * 
+ * @param {string} proxy - The proxy to prepare.
+ * @param {string} appPublicFolder - The public folder of the application.
+ * @param {string} servedPathname - The pathname to serve.
+ * @returns {object} The prepared proxy.
  */
 function prepareProxy(proxy, appPublicFolder, servedPathname) {
   if (!proxy) {
@@ -401,10 +400,11 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
 }
 
 /**
- * Choose a port for the development server.
+ * Chooses a port for the development server.
+ * 
  * @param {string} host - The host to use.
  * @param {number} defaultPort - The default port to use.
- * @returns {Promise<number>} A promise that resolves to the chosen port.
+ * @returns {Promise<number>} A promise resolving to the chosen port.
  */
 function choosePort(host, defaultPort) {
   return detect(defaultPort, host).then(

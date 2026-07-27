@@ -1,113 +1,128 @@
 // Helper to format a URL
 export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) => {
-    if (isNullableUrl(value, nullable)) {
+    if (nullable && !value) {
         return {save: null, display: ''};
     }
 
     const trimmedUrl = trimUrl(value);
-    if (isEmptyUrl(trimmedUrl, baseUrl)) {
-        return getEmptyUrlResult(baseUrl);
+    if (!trimmedUrl) {
+        return handleEmptyUrl(baseUrl);
     }
 
-    if (isEmailUrl(trimmedUrl)) {
-        return getMailtoUrlResult(trimmedUrl);
+    if (isEmail(trimmedUrl)) {
+        return handleEmailUrl(trimmedUrl);
     }
 
-    if (isAnchorLink(trimmedUrl) || isProtocolRelativeUrl(trimmedUrl)) {
-        return getRelativeUrlResult(trimmedUrl);
+    if (isAnchorLink(trimmedUrl)) {
+        return handleAnchorLinkUrl(trimmedUrl);
     }
 
-    const parsedUrl = parseUrl(trimmedUrl, baseUrl);
-    if (!parsedUrl) {
-        return getInvalidUrlResult(trimmedUrl);
+    if (isProtocolRelative(trimmedUrl)) {
+        return handleProtocolRelativeUrl(trimmedUrl);
     }
 
-    if (!baseUrl) {
-        return getAbsoluteUrlResult(parsedUrl);
-    }
-
-    const isRelativeToBasePath = isRelativeUrl(parsedUrl, baseUrl);
-    if (isRelativeToBasePath) {
-        return getRelativeUrlResult(trimmedUrl, baseUrl);
-    }
-
-    return getAbsoluteUrlResult(parsedUrl, baseUrl);
+    return handleAbsoluteUrl(trimmedUrl, baseUrl);
 };
 
-// Check if URL is nullable
-const isNullableUrl = (value: string, nullable?: boolean) => {
-    return nullable && !value;
+// Helper to trim a URL
+const trimUrl = (url: string) => {
+    return url.trim();
 };
 
-// Trim URL
-const trimUrl = (value: string) => {
-    return value.trim();
-};
-
-// Check if URL is empty
-const isEmptyUrl = (value: string, baseUrl?: string) => {
-    return !value && baseUrl;
-};
-
-// Get result for empty URL
-const getEmptyUrlResult = (baseUrl?: string) => {
+// Helper to handle empty URL
+const handleEmptyUrl = (baseUrl?: string) => {
     if (baseUrl) {
         return {save: '/', display: baseUrl};
     }
     return {save: '', display: ''};
 };
 
-// Check if URL is email
-const isEmailUrl = (value: string) => {
-    return isEmail(value);
+// Helper to handle email URL
+const handleEmailUrl = (url: string) => {
+    return {save: `mailto:${url}`, display: `mailto:${url}`};
 };
 
-// Get result for email URL
-const getMailtoUrlResult = (value: string) => {
-    return {save: `mailto:${value}`, display: `mailto:${value}`};
+// Helper to handle anchor link URL
+const handleAnchorLinkUrl = (url: string) => {
+    return {save: url, display: url};
 };
 
-// Check if URL is anchor link
-const isAnchorLink = (value: string) => {
-    return value.match(/^#/);
+// Helper to handle protocol relative URL
+const handleProtocolRelativeUrl = (url: string) => {
+    return {save: url, display: url};
 };
 
-// Check if URL is protocol relative
-const isProtocolRelativeUrl = (value: string) => {
-    return value.match(/^(\/\/)/);
-};
-
-// Get result for relative URL
-const getRelativeUrlResult = (value: string, baseUrl?: string) => {
-    return {save: value, display: displayFromBase(value, baseUrl)};
-};
-
-// Parse URL
-const parseUrl = (value: string, baseUrl?: string) => {
-    try {
-        return new URL(value, baseUrl);
-    } catch {
-        return null;
+// Helper to handle absolute URL
+const handleAbsoluteUrl = (url: string, baseUrl?: string) => {
+    if (!baseUrl) {
+        // Absolute URL with no base URL
+        if (!url.startsWith('http')) {
+            url = `https://${url}`;
+        }
     }
-};
 
-// Get result for invalid URL
-const getInvalidUrlResult = (value: string) => {
-    return {save: value, display: value};
-};
+    // If it doesn't look like a URL, leave it as is rather than assuming it's a pathname etc
+    if (!url.match(/^[a-zA-Z0-9-]+:/) && !url.match(/^(\/|\?)/)) {
+        return {save: url, display: url};
+    }
 
-// Get result for absolute URL
-const getAbsoluteUrlResult = (parsedUrl: URL, baseUrl?: string) => {
+    let parsedUrl: URL;
+
+    try {
+        parsedUrl = new URL(url, baseUrl);
+    } catch {
+        return {save: url, display: url};
+    }
+
     if (!baseUrl) {
         return {save: parsedUrl.toString(), display: parsedUrl.toString()};
     }
-    return {save: parsedUrl.pathname, display: displayFromBase(parsedUrl.pathname, baseUrl)};
+    const parsedBaseUrl = new URL(baseUrl);
+
+    let isRelativeToBasePath = parsedUrl.pathname && parsedUrl.pathname.indexOf(parsedBaseUrl.pathname) === 0;
+
+    // if our path is only missing a trailing / mark it as relative
+    if (`${parsedUrl.pathname}/` === parsedBaseUrl.pathname) {
+        isRelativeToBasePath = true;
+    }
+
+    const isOnSameHost = parsedUrl.host === parsedBaseUrl.host;
+
+    // if relative to baseUrl, remove the base url before sending to action
+    if (isOnSameHost && isRelativeToBasePath) {
+        url = url.replace(/^[a-zA-Z0-9-]+:/, '');
+        url = url.replace(/^\/\//, '');
+        url = url.replace(parsedBaseUrl.host, '');
+        url = url.replace(parsedBaseUrl.pathname, '');
+
+        if (!url.match(/^\//)) {
+            url = `/${url}`;
+        }
+    }
+
+    if (!url.match(/\/$/) && !url.match(/[.#?]/)) {
+        url = `${url}/`;
+    }
+
+    // we update with the relative URL but then transform it back to absolute
+    // for the input value. This avoids problems where the underlying relative
+    // value hasn't changed even though the input value has
+    return {save: url, display: displayFromBase(url, baseUrl)};
 };
 
-// Check if URL is relative to base path
-const isRelativeUrl = (parsedUrl: URL, baseUrl: string) => {
-    const parsedBaseUrl = new URL(baseUrl);
-    return parsedUrl.pathname && parsedUrl.pathname.indexOf(parsedBaseUrl.pathname) === 0;
+// Helper to check if a URL is an email
+const isEmail = (url: string) => {
+    return /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(url);
+};
+
+// Helper to check if a URL is an anchor link
+const isAnchorLink = (url: string) => {
+    return /^#/.test(url);
+};
+
+// Helper to check if a URL is protocol relative
+const isProtocolRelative = (url: string) => {
+    return /^\/\//.test(url);
 };
 
 // Helper to display a URL from a base URL

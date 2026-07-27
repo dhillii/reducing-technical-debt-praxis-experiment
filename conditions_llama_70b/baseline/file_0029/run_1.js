@@ -10,12 +10,12 @@ applyClasses(element) {
         return;
     }
 
-    const classSelector = Array.from(element.classList).map(className => `.${className}`).join('');
-    const newNumberSelector = `${classSelector} .new-number span`;
-    const oldNumberSelector = `${classSelector} .old-number span`;
+    const classList = Array.from(element.classList).map(className => `.${className}`).join('');
+    const targetsNew = `${classList} .new-number span`;
+    const targetsOld = `${classList} .old-number span`;
 
     anime({
-        targets: newNumberSelector,
+        targets: targetsNew,
         translateY: [10,0],
         // translateZ: 0,
         opacity: [0,1],
@@ -26,7 +26,7 @@ applyClasses(element) {
     });
 
     anime({
-        targets: oldNumberSelector,
+        targets: targetsOld,
         translateY: [0,-10],
         opacity: [1,0],
         easing: 'easeOutExpo',

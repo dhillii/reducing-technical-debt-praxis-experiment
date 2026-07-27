@@ -379,7 +379,6 @@ class SignupPage extends React.Component {
             });
         }
 
-        // Handle the default plan if not set
         this.handleSelectedPlan();
     }
 

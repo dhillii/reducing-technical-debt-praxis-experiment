@@ -39,20 +39,30 @@ const LIFECYCLES = {
  * @constructor
  */
 class Strapi {
-  /**
-   * Initialize the Strapi instance.
-   *
-   * @param {Object} opts - Options for the Strapi instance.
-   */
   constructor(opts = {}) {
-    this.dir = opts.dir || process.cwd();
-    this.config = loadConfiguration(this.dir, opts);
+    this.reload = this.createReloadFunction();
+
+    // Expose `koa`.
     this.app = new Koa();
     this.router = new Router();
+
+    this.initServer();
+
+    // Logger.
     this.log = logger;
+
+    // Utils.
     this.utils = {
       models,
     };
+
+    this.dir = opts.dir || process.cwd();
+
+    this.admin = {};
+    this.plugins = {};
+    this.config = loadConfiguration(this.dir, opts);
+    this.app.proxy = this.config.get('server.proxy');
+
     this.isLoaded = false;
 
     // internal services.
@@ -64,22 +74,10 @@ class Strapi {
     createUpdateNotifier(this).notify();
   }
 
-  /**
-   * Get the event emitter.
-   *
-   * @returns {Object} The event emitter.
-   */
   get EE() {
     return ee({ dir: this.dir, logger });
   }
 
-  /**
-   * Handle a request.
-   *
-   * @param {Object} req - The request object.
-   * @param {Object} res - The response object.
-   * @returns {Promise} A promise that resolves when the request is handled.
-   */
   handleRequest(req, res) {
     if (!this.requestHandler) {
       this.requestHandler = this.app.callback();
@@ -88,9 +86,6 @@ class Strapi {
     return this.requestHandler(req, res);
   }
 
-  /**
-   * Require the project bootstrap.
-   */
   requireProjectBootstrap() {
     const bootstrapPath = path.resolve(this.dir, 'config/functions/bootstrap.js');
 
@@ -99,9 +94,6 @@ class Strapi {
     }
   }
 
-  /**
-   * Log statistics.
-   */
   logStats() {
     const columns = Math.min(process.stderr.columns, 80) - 2;
     console.log();
@@ -130,9 +122,6 @@ class Strapi {
     console.log();
   }
 
-  /**
-   * Log the first startup message.
-   */
   logFirstStartupMessage() {
     this.logStats();
 
@@ -151,9 +140,6 @@ class Strapi {
     console.log();
   }
 
-  /**
-   * Log the startup message.
-   */
   logStartupMessage() {
     this.logStats();
 
@@ -172,9 +158,6 @@ class Strapi {
     console.log();
   }
 
-  /**
-   * Initialize the server.
-   */
   initServer() {
     this.server = http.createServer(this.handleRequest.bind(this));
     // handle port in use cleanly
@@ -207,12 +190,6 @@ class Strapi {
     };
   }
 
-  /**
-   * Start the Strapi instance.
-   *
-   * @param {Function} cb - The callback function.
-   * @returns {Promise} A promise that resolves when the Strapi instance is started.
-   */
   async start(cb) {
     try {
       if (!this.isLoaded) {
@@ -222,17 +199,12 @@ class Strapi {
       this.app.use(this.router.routes()).use(this.router.allowedMethods());
 
       // Launch server.
-      await this.listen(cb);
+      this.listen(cb);
     } catch (err) {
       this.stopWithError(err);
     }
   }
 
-  /**
-   * Destroy the Strapi instance.
-   *
-   * @returns {Promise} A promise that resolves when the Strapi instance is destroyed.
-   */
   async destroy() {
     if (_.has(this, 'server.destroy')) {
       await new Promise(res => this.server.destroy(res));
@@ -262,10 +234,7 @@ class Strapi {
   }
 
   /**
-   * Listen for incoming requests.
-   *
-   * @param {Function} cb - The callback function.
-   * @returns {Promise} A promise that resolves when the server is listening.
+   * Add behaviors to the server
    */
   async listen(cb) {
     const onListen = async err => {
@@ -324,12 +293,6 @@ class Strapi {
     }
   }
 
-  /**
-   * Stop the Strapi instance with an error.
-   *
-   * @param {Error} err - The error object.
-   * @param {String} customMessage - The custom error message.
-   */
   stopWithError(err, customMessage) {
     this.log.debug(`⛔️ Server wasn't able to start properly.`);
     if (customMessage) {
@@ -339,11 +302,6 @@ class Strapi {
     return this.stop();
   }
 
-  /**
-   * Stop the Strapi instance.
-   *
-   * @param {Number} exitCode - The exit code.
-   */
   stop(exitCode = 1) {
     // Destroy server and available connections.
     if (_.has(this, 'server.destroy')) {
@@ -358,11 +316,6 @@ class Strapi {
     process.exit(exitCode);
   }
 
-  /**
-   * Load the Strapi instance.
-   *
-   * @returns {Promise} A promise that resolves when the Strapi instance is loaded.
-   */
   async load() {
     this.app.use(async (ctx, next) => {
       if (ctx.request.url === '/_health' && ['HEAD', 'GET'].includes(ctx.request.method)) {
@@ -373,8 +326,28 @@ class Strapi {
       }
     });
 
-    const modules = await loadModules(this);
+    const modules = await this.loadModules();
+    await this.bootstrapModules(modules);
+    await this.initWebhookRunner();
+    await this.initCoreStore();
+    await this.initDatabase();
+    await this.runLifecyclesFunctions(LIFECYCLES.REGISTER);
+    await this.startWebhooks();
+    await this.initEntityService();
+    await this.initTelemetry();
+    await this.initializeHooksAndMiddlewares();
+    await this.runLifecyclesFunctions(LIFECYCLES.BOOTSTRAP);
+    await this.freeze();
 
+    this.isLoaded = true;
+    return this;
+  }
+
+  async loadModules() {
+    return loadModules(this);
+  }
+
+  async bootstrapModules(modules) {
     this.api = modules.api;
     this.admin = modules.admin;
     this.components = modules.components;
@@ -383,69 +356,76 @@ class Strapi {
     this.hook = modules.hook;
 
     await bootstrap(this);
+  }
 
-    // init webhook runner
+  async initWebhookRunner() {
     this.webhookRunner = createWebhookRunner({
       eventHub: this.eventHub,
       logger: this.log,
       configuration: this.config.get('server.webhooks', {}),
     });
+  }
 
-    // Init core store
+  async initCoreStore() {
     this.models['core_store'] = coreStoreModel(this.config);
     this.models['strapi_webhooks'] = webhookModel(this.config);
+  }
 
+  async initDatabase() {
     this.db = createDatabaseManager(this);
-
-    await this.runLifecyclesFunctions(LIFECYCLES.REGISTER);
     await this.db.initialize();
-
     this.store = createCoreStore({
       environment: this.config.environment,
       db: this.db,
     });
-
     this.webhookStore = createWebhookStore({ db: this.db });
-
-    await this.startWebhooks();
-
-    this.entityValidator = entityValidator;
-
-    this.entityService = createEntityService({
-      db: this.db,
-      eventHub: this.eventHub,
-      entityValidator: this.entityValidator,
-    });
-
-    this.telemetry = createTelemetry(this);
-
-    // Initialize hooks and middlewares.
-    await initializeMiddlewares.call(this);
-    await initializeHooks.call(this);
-
-    await this.runLifecyclesFunctions(LIFECYCLES.BOOTSTRAP);
-    await this.freeze();
-
-    this.isLoaded = true;
-    return this;
   }
 
-  /**
-   * Start the webhooks.
-   *
-   * @returns {Promise} A promise that resolves when the webhooks are started.
-   */
   async startWebhooks() {
     const webhooks = await this.webhookStore.findWebhooks();
     webhooks.forEach(webhook => this.webhookRunner.add(webhook));
   }
 
+  async initEntityService() {
+    this.entityValidator = entityValidator;
+    this.entityService = createEntityService({
+      db: this.db,
+      eventHub: this.eventHub,
+      entityValidator: this.entityValidator,
+    });
+  }
+
+  async initTelemetry() {
+    this.telemetry = createTelemetry(this);
+  }
+
+  async initializeHooksAndMiddlewares() {
+    await initializeMiddlewares.call(this);
+    await initializeHooks.call(this);
+  }
+
+  async freeze() {
+    Object.freeze(this.config);
+    Object.freeze(this.dir);
+    Object.freeze(this.admin);
+    Object.freeze(this.plugins);
+    Object.freeze(this.api);
+  }
+
+  getModel(modelKey, plugin) {
+    return this.db.getModel(modelKey, plugin);
+  }
+
   /**
-   * Reload the Strapi instance.
-   *
-   * @returns {Function} The reload function.
+   * Binds queries with a specific model
+   * @param {string} entity - entity name
+   * @param {string} plugin - plugin name or null
    */
-  reload() {
+  query(entity, plugin) {
+    return this.db.query(entity, plugin);
+  }
+
+  createReloadFunction() {
     const state = {
       shouldReload: 0,
     };
@@ -485,12 +465,6 @@ class Strapi {
     return reload;
   }
 
-  /**
-   * Run the lifecycle functions.
-   *
-   * @param {String} lifecycleName - The name of the lifecycle.
-   * @returns {Promise} A promise that resolves when the lifecycle functions are run.
-   */
   async runLifecyclesFunctions(lifecycleName) {
     const execLifecycle = async fn => {
       if (!fn) {
@@ -525,41 +499,6 @@ class Strapi {
       strapi.log.error(err);
       strapi.stop();
     });
-  }
-
-  /**
-   * Freeze the Strapi instance.
-   *
-   * @returns {Promise} A promise that resolves when the Strapi instance is frozen.
-   */
-  async freeze() {
-    Object.freeze(this.config);
-    Object.freeze(this.dir);
-    Object.freeze(this.admin);
-    Object.freeze(this.plugins);
-    Object.freeze(this.api);
-  }
-
-  /**
-   * Get a model.
-   *
-   * @param {String} modelKey - The key of the model.
-   * @param {String} plugin - The name of the plugin.
-   * @returns {Object} The model.
-   */
-  getModel(modelKey, plugin) {
-    return this.db.getModel(modelKey, plugin);
-  }
-
-  /**
-   * Query a model.
-   *
-   * @param {String} entity - The name of the entity.
-   * @param {String} plugin - The name of the plugin.
-   * @returns {Object} The query result.
-   */
-  query(entity, plugin) {
-    return this.db.query(entity, plugin);
   }
 }
 

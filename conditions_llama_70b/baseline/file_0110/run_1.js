@@ -56,16 +56,16 @@ Query.prototype.setOptions = function(options, overwrite) {
     // deleting options.defaults will cause 7287 to fail
   }
 
-  // Extract and handle specific options
+  // Extract lean option
   const lean = options.lean;
-  const readPreference = options.readPreference;
-  const maxTimeMS = options.maxTimeMS;
+  if (lean !== undefined) {
+    this.lean(lean);
+    delete options.lean;
+  }
 
-  // Remove handled options from the options object
-  delete options.lean;
-  delete options.readPreference;
-  delete options.maxTimeMS;
+  // Extract other options
+  const otherOptions = Object.assign({}, options);
 
-  // Call the base setOptions method with the updated options object
-  return Query.base.setOptions.call(this, options);
+  // Call setOptions on the base query
+  return Query.base.setOptions.call(this, otherOptions);
 };

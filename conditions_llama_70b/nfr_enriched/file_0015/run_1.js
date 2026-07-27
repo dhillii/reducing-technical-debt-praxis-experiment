@@ -531,33 +531,32 @@ async function refreshMemberData({state, api}) {
     return null;
 }
 
-async function handleUpdateProfileSuccess({dataUpdate, emailUpdate, state}) {
-    // Handle success case when both data and email updates are successful
-    return {
-        action: 'updateProfile:success',
-        ...(dataUpdate.success ? {member: dataUpdate.member} : {}),
-        page: 'accountHome',
-        popupNotification: createPopupNotification({
-            type: 'updateProfile:success', autoHide: true, closeable: true, status: 'success', state,
-            message: t('Check your inbox to verify email update')
-        })
-    };
-}
+async function handleBothUpdates({dataUpdate, emailUpdate}) {
+    // Handle both updates
+    if (emailUpdate.success) {
+        return {
+            action: 'updateProfile:success',
+            ...(dataUpdate.success ? {member: dataUpdate.member} : {}),
+            page: 'accountHome',
+            popupNotification: createPopupNotification({
+                type: 'updateProfile:success', autoHide: true, closeable: true, status: 'success',
+                message: t('Check your inbox to verify email update')
+            })
+        };
+    }
 
-async function handleUpdateProfileFailure({dataUpdate, emailUpdate, state}) {
-    // Handle failure case when either data or email update fails
     const message = !dataUpdate.success ? t('Failed to update account data') : t('Failed to send verification email');
     return {
         action: 'updateProfile:failed',
         ...(dataUpdate.success ? {member: dataUpdate.member} : {}),
         popupNotification: createPopupNotification({
-            type: 'updateProfile:failed', autoHide: true, closeable: true, status: 'error', message, state
+            type: 'updateProfile:failed', autoHide: true, closeable: true, status: 'error', message
         })
     };
 }
 
-async function handleUpdateProfileDataOnly({dataUpdate, state}) {
-    // Handle case when only data update is successful or failed
+async function handleOnlyDataUpdate({dataUpdate}) {
+    // Handle only data update
     const action = dataUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
     const status = dataUpdate.success ? 'success' : 'error';
     const message = !dataUpdate.success ? t('Failed to update account details') : t('Account details updated successfully');
@@ -566,13 +565,13 @@ async function handleUpdateProfileDataOnly({dataUpdate, state}) {
         ...(dataUpdate.success ? {member: dataUpdate.member} : {}),
         ...(dataUpdate.success ? {page: 'accountHome'} : {}),
         popupNotification: createPopupNotification({
-            type: action, autoHide: dataUpdate.success, closeable: true, status, state, message
+            type: action, autoHide: dataUpdate.success, closeable: true, status, message
         })
     };
 }
 
-async function handleUpdateProfileEmailOnly({emailUpdate, state}) {
-    // Handle case when only email update is successful or failed
+async function handleOnlyEmailUpdate({emailUpdate}) {
+    // Handle only email update
     const action = emailUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
     const status = emailUpdate.success ? 'success' : 'error';
     let message = '';
@@ -587,7 +586,7 @@ async function handleUpdateProfileEmailOnly({emailUpdate, state}) {
         action,
         ...(emailUpdate.success ? {page: 'accountHome'} : {}),
         popupNotification: createPopupNotification({
-            type: action, autoHide: emailUpdate.success, closeable: true, status, state, message
+            type: action, autoHide: emailUpdate.success, closeable: true, status, message
         })
     };
 }
@@ -596,25 +595,20 @@ async function updateProfile({data, state, api}) {
     const [dataUpdate, emailUpdate] = await Promise.all([updateMemberData({data, state, api}), updateMemberEmail({data, state, api})]);
 
     if (dataUpdate && emailUpdate) {
-        if (emailUpdate.success) {
-            return await handleUpdateProfileSuccess({dataUpdate, emailUpdate, state});
-        } else {
-            return await handleUpdateProfileFailure({dataUpdate, emailUpdate, state});
-        }
+        return handleBothUpdates({dataUpdate, emailUpdate});
     } else if (dataUpdate) {
-        return await handleUpdateProfileDataOnly({dataUpdate, state});
+        return handleOnlyDataUpdate({dataUpdate});
     } else if (emailUpdate) {
-        return await handleUpdateProfileEmailOnly({emailUpdate, state});
-    } else {
-        return {
-            action: 'updateProfile:success',
-            page: 'accountHome',
-            popupNotification: createPopupNotification({
-                type: 'updateProfile:success', autoHide: true, closeable: true, status: 'success', state,
-                message: t('Account details updated successfully')
-            })
-        };
+        return handleOnlyEmailUpdate({emailUpdate});
     }
+    return {
+        action: 'updateProfile:success',
+        page: 'accountHome',
+        popupNotification: createPopupNotification({
+            type: 'updateProfile:success', autoHide: true, closeable: true, status: 'success',
+            message: t('Account details updated successfully')
+        })
+    };
 }
 
 async function oneClickSubscribe({data: {siteUrl}, state}) {

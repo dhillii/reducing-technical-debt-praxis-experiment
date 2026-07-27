@@ -4,38 +4,34 @@ export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) =
         return {save: null, display: ''};
     }
 
-    let url = value.trim();
-
-    if (isEmptyUrl(url)) {
-        return handleEmptyUrl(baseUrl);
+    const trimmedUrl = value.trim();
+    if (isEmptyUrl(trimmedUrl, baseUrl)) {
+        return getBaseUrlDisplay(baseUrl);
     }
 
-    if (isEmail(url)) {
-        return {save: `mailto:${url}`, display: `mailto:${url}`};
+    if (isEmail(trimmedUrl)) {
+        return {save: `mailto:${trimmedUrl}`, display: `mailto:${trimmedUrl}`};
     }
 
-    if (isAnchorLink(url)) {
-        return {save: url, display: url};
+    if (isAnchorLink(trimmedUrl)) {
+        return {save: trimmedUrl, display: trimmedUrl};
     }
 
-    if (isProtocolRelative(url)) {
-        return {save: url, display: url};
+    if (isProtocolRelative(trimmedUrl)) {
+        return {save: trimmedUrl, display: trimmedUrl};
     }
 
     if (!baseUrl) {
-        url = ensureAbsoluteUrl(url);
+        trimmedUrl = ensureAbsoluteUrl(trimmedUrl);
     }
 
-    if (!looksLikeUrl(url)) {
-        return {save: url, display: url};
+    if (!looksLikeUrl(trimmedUrl)) {
+        return {save: trimmedUrl, display: trimmedUrl};
     }
 
-    let parsedUrl: URL;
-
-    try {
-        parsedUrl = new URL(url, baseUrl);
-    } catch {
-        return {save: url, display: url};
+    const parsedUrl = tryParseUrl(trimmedUrl, baseUrl);
+    if (!parsedUrl) {
+        return {save: trimmedUrl, display: trimmedUrl};
     }
 
     if (!baseUrl) {
@@ -43,76 +39,78 @@ export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) =
     }
 
     const parsedBaseUrl = new URL(baseUrl);
+    const isRelativeToBasePath = isRelativeUrl(parsedUrl, parsedBaseUrl);
+    const isOnSameHost = isSameHost(parsedUrl, parsedBaseUrl);
 
-    if (isRelativeToBasePath(parsedUrl, parsedBaseUrl)) {
-        url = makeRelativeUrl(url, baseUrl);
+    if (isOnSameHost && isRelativeToBasePath) {
+        trimmedUrl = makeRelativeUrl(trimmedUrl, parsedBaseUrl);
     }
 
-    if (!url.endsWith('/')) {
-        url = ensureTrailingSlash(url);
-    }
-
-    return {save: url, display: displayFromBase(url, baseUrl)};
+    trimmedUrl = ensureTrailingSlash(trimmedUrl);
+    return {save: trimmedUrl, display: displayFromBase(trimmedUrl, baseUrl)};
 };
 
+// Helper to check if a URL is nullable
 const isNullable = (value: string, nullable?: boolean) => nullable && !value;
 
-const isEmptyUrl = (url: string) => !url;
+// Helper to check if a URL is empty
+const isEmptyUrl = (value: string, baseUrl?: string) => !value && baseUrl ? {save: '/', display: baseUrl} : {save: '', display: ''};
 
-const handleEmptyUrl = (baseUrl?: string) => {
-    if (baseUrl) {
-        return {save: '/', display: baseUrl};
-    }
-    return {save: '', display: ''};
-};
+// Helper to get the base URL display
+const getBaseUrlDisplay = (baseUrl?: string) => baseUrl ? {save: '/', display: baseUrl} : {save: '', display: ''};
 
-const isEmail = (url: string) => {
-    // Using the same email validation logic as before
-    return isEmail(url);
-};
+// Helper to check if a URL is an email
+const isEmail = (url: string) => url.match(/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/);
 
+// Helper to check if a URL is an anchor link
 const isAnchorLink = (url: string) => url.match(/^#/);
 
+// Helper to check if a URL is protocol relative
 const isProtocolRelative = (url: string) => url.match(/^(\/\/)/);
 
-const ensureAbsoluteUrl = (url: string) => {
-    if (!url.startsWith('http')) {
-        url = `https://${url}`;
-    }
-    return url;
-};
+// Helper to ensure a URL is absolute
+const ensureAbsoluteUrl = (url: string) => !url.startsWith('http') ? `https://${url}` : url;
 
+// Helper to check if a URL looks like a URL
 const looksLikeUrl = (url: string) => url.match(/^[a-zA-Z0-9-]+:/) || url.match(/^(\/|\?)/);
 
-const isRelativeToBasePath = (parsedUrl: URL, parsedBaseUrl: URL) => {
-    const isRelativeToBasePath = parsedUrl.pathname && parsedUrl.pathname.indexOf(parsedBaseUrl.pathname) === 0;
+// Helper to try to parse a URL
+const tryParseUrl = (url: string, baseUrl?: string) => {
+    try {
+        return new URL(url, baseUrl);
+    } catch {
+        return null;
+    }
+};
 
+// Helper to check if a URL is relative to the base URL
+const isRelativeUrl = (parsedUrl: URL, parsedBaseUrl: URL) => {
+    const isRelativeToBasePath = parsedUrl.pathname && parsedUrl.pathname.indexOf(parsedBaseUrl.pathname) === 0;
     if (`${parsedUrl.pathname}/` === parsedBaseUrl.pathname) {
         isRelativeToBasePath = true;
     }
-
-    return isRelativeToBasePath && parsedUrl.host === parsedBaseUrl.host;
+    return isRelativeToBasePath;
 };
 
-const makeRelativeUrl = (url: string, baseUrl: string) => {
+// Helper to check if a URL is on the same host as the base URL
+const isSameHost = (parsedUrl: URL, parsedBaseUrl: URL) => parsedUrl.host === parsedBaseUrl.host;
+
+// Helper to make a URL relative
+const makeRelativeUrl = (url: string, parsedBaseUrl: URL) => {
     url = url.replace(/^[a-zA-Z0-9-]+:/, '');
     url = url.replace(/^\/\//, '');
-    url = url.replace(new URL(baseUrl).host, '');
-    url = url.replace(new URL(baseUrl).pathname, '');
-
+    url = url.replace(parsedBaseUrl.host, '');
+    url = url.replace(parsedBaseUrl.pathname, '');
     if (!url.match(/^\//)) {
         url = `/${url}`;
     }
     return url;
 };
 
-const ensureTrailingSlash = (url: string) => {
-    if (!url.match(/\/$/) && !url.match(/[.#?]/)) {
-        url = `${url}/`;
-    }
-    return url;
-};
+// Helper to ensure a URL has a trailing slash
+const ensureTrailingSlash = (url: string) => !url.match(/\/$/) && !url.match(/[.#?]/) ? `${url}/` : url;
 
+// Helper to display a URL from a base URL
 const displayFromBase = (url: string, baseUrl: string) => {
     // Ensure base url has a trailing slash
     if (!baseUrl.endsWith('/')) {

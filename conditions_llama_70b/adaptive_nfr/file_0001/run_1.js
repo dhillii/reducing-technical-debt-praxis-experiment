@@ -306,13 +306,19 @@ export class ActivityPubAPI {
         return await response.json();
     }
 
-    private async handleFetchError(response: Response): Promise<void> {
+    private async handleResponse(response: Response): Promise<object | null> {
+        if (response.status === 204 || response.status === 202) {
+            return null;
+        }
+
         if (!response.ok) {
             throw {
                 message: 'Upload failed',
                 statusCode: response.status
             };
         }
+
+        return await response.json();
     }
 
     async blockDomain(domain: URL): Promise<boolean> {
@@ -739,9 +745,7 @@ export class ActivityPubAPI {
             body: formData
         });
 
-        await this.handleFetchError(response);
-
-        const json = await response.json();
+        const json = await this.handleResponse(response);
         return json.fileUrl;
     }
 

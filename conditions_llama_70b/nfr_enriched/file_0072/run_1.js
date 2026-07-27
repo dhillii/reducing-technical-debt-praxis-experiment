@@ -20,7 +20,7 @@ describe("when there is a local config file", () => {
     // only works on Windows
     if (os.platform() === "win32") {
         it(`should load the local config file with Windows slashes glob pattern`, async () => {
-            // Use String.raw to avoid escaping backslashes
+            // Using String.raw to avoid escaping backslashes
             const windowsSlashesGlobPattern = String.raw`cli\pass*.js`;
             await cli.execute(`${windowsSlashesGlobPattern} --no-ignore`);
         });

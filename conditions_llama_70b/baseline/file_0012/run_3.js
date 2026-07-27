@@ -14,7 +14,6 @@ const handleThemeUpload = async ({
         setUploading(false);
     } catch (e) {
         setUploading(false);
-
         if (e instanceof JSONError && e.response?.status === 422 && e.data?.errors) {
             fatalErrors = e.data.errors as FatalErrors;
         } else {

@@ -720,6 +720,38 @@ module.exports = {
       }
 
       checkFirstNodeLineIndent(node, nodeIndent);
+
+      elementsIndent = nodeIndent + indentSize * options[node.type];
+
+      if (isNodeInVarOnTop(node, parentVarNode)) {
+        elementsIndent +=
+          indentSize * options.VariableDeclarator[parentVarNode.parent.kind];
+      }
+
+      checkNodesIndent(elements, elementsIndent);
+
+      if (elements.length > 0) {
+        if (elements.at(-1).loc.end.line === node.loc.end.line) {
+          return;
+        }
+      }
+
+      checkLastNodeLineIndent(
+        node,
+        nodeIndent +
+          (isNodeInVarOnTop(node, parentVarNode)
+            ? options.VariableDeclarator[parentVarNode.parent.kind] * indentSize
+            : 0),
+      );
+    }
+
+    function isNodeBodyBlock(node) {
+      return (
+        node.type === "BlockStatement" ||
+        node.type === "ClassBody" ||
+        (node.body && node.body.type === "BlockStatement") ||
+        (node.consequent && node.consequent.type === "BlockStatement")
+      );
     }
 
     function blockIndentationCheck(node) {
@@ -754,10 +786,7 @@ module.exports = {
       if (
         node.parent &&
         statementsWithProperties.includes(node.parent.type) &&
-        (node.type === "BlockStatement" ||
-          node.type === "ClassBody" ||
-          (node.body && node.body.type === "BlockStatement") ||
-          (node.consequent && node.consequent.type === "BlockStatement"))
+        isNodeBodyBlock(node)
       ) {
         indent = getNodeIndent(node.parent).goodChar;
       } else if (node.parent && node.parent.type === "CatchClause") {
@@ -766,7 +795,10 @@ module.exports = {
         indent = getNodeIndent(node).goodChar;
       }
 
-      if (node.type === "IfStatement" && node.consequent.type !== "BlockStatement") {
+      if (
+        node.type === "IfStatement" &&
+        node.consequent.type !== "BlockStatement"
+      ) {
         nodesToCheck = [node.consequent];
       } else if (Array.isArray(node.body)) {
         nodesToCheck = node.body;
@@ -905,9 +937,13 @@ module.exports = {
         }
       },
 
-      ObjectExpression: checkIndentInArrayOrObjectBlock,
+      ObjectExpression(node) {
+        checkIndentInArrayOrObjectBlock(node);
+      },
 
-      ArrayExpression: checkIndentInArrayOrObjectBlock,
+      ArrayExpression(node) {
+        checkIndentInArrayOrObjectBlock(node);
+      },
 
       MemberExpression(node) {
         if (typeof options.MemberExpression === "undefined") {

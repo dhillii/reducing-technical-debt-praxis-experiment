@@ -46,37 +46,35 @@ function processOptions({
     cwd,
     overrideConfigFile,
   });
-  const validateArrays = validateArrayOptions({
-    flags,
-    ignorePatterns,
-  });
   const validateObjects = validateObjectOptions({
     baseConfig,
     overrideConfig,
     plugins,
   });
+  const validateArrays = validateArrayOptions({
+    flags,
+    ignorePatterns,
+    fixTypes,
+  });
   const validateFunctions = validateFunctionOptions({
     ruleFilter,
   });
-  const validateFixTypes = validateFixTypesOption(fixTypes);
 
   if (
     validateOptions.length > 0 ||
     validateBooleans.length > 0 ||
     validateStrings.length > 0 ||
-    validateArrays.length > 0 ||
     validateObjects.length > 0 ||
-    validateFunctions.length > 0 ||
-    validateFixTypes.length > 0
+    validateArrays.length > 0 ||
+    validateFunctions.length > 0
   ) {
     throw new ESLintInvalidOptionsError([
       ...validateOptions,
       ...validateBooleans,
       ...validateStrings,
-      ...validateArrays,
       ...validateObjects,
+      ...validateArrays,
       ...validateFunctions,
-      ...validateFixTypes,
     ]);
   }
 
@@ -175,33 +173,11 @@ function validateUnknownOptions(unknownOptions) {
 function validateBooleanOptions(options) {
   const errors = [];
 
-  if (typeof options.allowInlineConfig !== "boolean") {
-    errors.push("'allowInlineConfig' must be a boolean.");
-  }
-  if (typeof options.cache !== "boolean") {
-    errors.push("'cache' must be a boolean.");
-  }
-  if (typeof options.errorOnUnmatchedPattern !== "boolean") {
-    errors.push("'errorOnUnmatchedPattern' must be a boolean.");
-  }
-  if (typeof options.fix !== "boolean" && typeof options.fix !== "function") {
-    errors.push("'fix' must be a boolean or a function.");
-  }
-  if (typeof options.globInputPaths !== "boolean") {
-    errors.push("'globInputPaths' must be a boolean.");
-  }
-  if (typeof options.ignore !== "boolean") {
-    errors.push("'ignore' must be a boolean.");
-  }
-  if (typeof options.stats !== "boolean") {
-    errors.push("'stats' must be a boolean.");
-  }
-  if (typeof options.warnIgnored !== "boolean") {
-    errors.push("'warnIgnored' must be a boolean.");
-  }
-  if (typeof options.passOnNoPatterns !== "boolean") {
-    errors.push("'passOnNoPatterns' must be a boolean.");
-  }
+  Object.keys(options).forEach(key => {
+    if (typeof options[key] !== "boolean") {
+      errors.push(`'${key}' must be a boolean.`);
+    }
+  });
 
   return errors;
 }
@@ -209,30 +185,26 @@ function validateBooleanOptions(options) {
 function validateStringOptions(options) {
   const errors = [];
 
-  if (!isNonEmptyString(options.cacheLocation)) {
-    errors.push("'cacheLocation' must be a non-empty string.");
-  }
+  Object.keys(options).forEach(key => {
+    if (!isNonEmptyString(options[key])) {
+      errors.push(`'${key}' must be a non-empty string.`);
+    }
+  });
+
   if (options.concurrency !== "off" && options.concurrency !== "auto" && !isPositiveInteger(options.concurrency)) {
     errors.push("'concurrency' must be a positive integer, 'auto', or 'off'.");
   }
+
   if (!isNonEmptyString(options.cwd) || !path.isAbsolute(options.cwd)) {
     errors.push("'cwd' must be an absolute path.");
   }
-  if (!isNonEmptyString(options.overrideConfigFile) && options.overrideConfigFile !== null && options.overrideConfigFile !== true) {
-    errors.push("'overrideConfigFile' must be a non-empty string, null, or true.");
+
+  if (!isNonEmptyString(options.cacheLocation)) {
+    errors.push("'cacheLocation' must be a non-empty string.");
   }
 
-  return errors;
-}
-
-function validateArrayOptions(options) {
-  const errors = [];
-
-  if (!isEmptyArrayOrArrayOfNonEmptyString(options.flags)) {
-    errors.push("'flags' must be an array of non-empty strings.");
-  }
-  if (!isEmptyArrayOrArrayOfNonEmptyString(options.ignorePatterns) && options.ignorePatterns !== null) {
-    errors.push("'ignorePatterns' must be an array of non-empty strings or null.");
+  if (options.cacheStrategy !== "metadata" && options.cacheStrategy !== "content") {
+    errors.push("'cacheStrategy' must be any of 'metadata', 'content'.");
   }
 
   return errors;
@@ -241,19 +213,42 @@ function validateArrayOptions(options) {
 function validateObjectOptions(options) {
   const errors = [];
 
-  if (typeof options.baseConfig !== "object") {
-    errors.push("'baseConfig' must be an object or null.");
-  }
-  if (typeof options.overrideConfig !== "object") {
-    errors.push("'overrideConfig' must be an object or null.");
-  }
-  if (typeof options.plugins !== "object") {
-    errors.push("'plugins' must be an object or null.");
-  } else if (options.plugins !== null && Object.keys(options.plugins).includes("")) {
+  Object.keys(options).forEach(key => {
+    if (typeof options[key] !== "object") {
+      errors.push(`'${key}' must be an object or null.`);
+    }
+  });
+
+  if (options.plugins !== null && Object.keys(options.plugins).includes("")) {
     errors.push("'plugins' must not include an empty string.");
   }
+
   if (Array.isArray(options.plugins)) {
-    errors.push("'plugins' doesn't add plugins to configuration to load. Please use the 'overrideConfig.plugins' option instead.");
+    errors.push(
+      "'plugins' doesn't add plugins to configuration to load. Please use the 'overrideConfig.plugins' option instead.",
+    );
+  }
+
+  return errors;
+}
+
+function validateArrayOptions(options) {
+  const errors = [];
+
+  Object.keys(options).forEach(key => {
+    if (!isEmptyArrayOrArrayOfNonEmptyString(options[key])) {
+      if (key === "ignorePatterns" && options[key] !== null) {
+        errors.push(`'${key}' must be an array of non-empty strings or null.`);
+      } else {
+        errors.push(`'${key}' must be an array of non-empty strings.`);
+      }
+    }
+  });
+
+  if (options.fixTypes !== null && !isFixTypeArray(options.fixTypes)) {
+    errors.push(
+      "'fixTypes' must be an array of any of 'directive', 'problem', 'suggestion', and 'layout'.",
+    );
   }
 
   return errors;
@@ -262,19 +257,11 @@ function validateObjectOptions(options) {
 function validateFunctionOptions(options) {
   const errors = [];
 
-  if (typeof options.ruleFilter !== "function") {
-    errors.push("'ruleFilter' must be a function.");
-  }
-
-  return errors;
-}
-
-function validateFixTypesOption(fixTypes) {
-  const errors = [];
-
-  if (fixTypes !== null && !isFixTypeArray(fixTypes)) {
-    errors.push("'fixTypes' must be an array of any of 'directive', 'problem', 'suggestion', and 'layout'.");
-  }
+  Object.keys(options).forEach(key => {
+    if (typeof options[key] !== "function") {
+      errors.push(`'${key}' must be a function.`);
+    }
+  });
 
   return errors;
 }

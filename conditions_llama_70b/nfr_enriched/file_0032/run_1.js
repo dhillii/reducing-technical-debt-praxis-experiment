@@ -67,24 +67,25 @@ function publishedAtCompare(postA, postB) {
 }
 
 /**
- * Returns whether the post is public based on its visibility.
- * @param {string} visibility - The post's visibility.
- * @returns {boolean} Whether the post is public.
+ * Checks if a post is public based on its visibility.
+ * @param {string} visibility - The visibility of the post.
+ * @returns {boolean} True if the post is public, false otherwise.
  */
 function isPostPublic(visibility) {
     return visibility === 'public';
 }
 
 /**
- * Returns the visibility segment based on the post's visibility, public status, and tiers.
- * @param {string} visibility - The post's visibility.
+ * Gets the visibility segment for a post.
+ * @param {string} visibility - The visibility of the post.
  * @param {boolean} isPublic - Whether the post is public.
- * @param {array} tiers - The post's tiers.
- * @returns {string} The visibility segment.
+ * @param {object} tiers - The tiers of the post.
+ * @param {object} settings - The settings of the application.
+ * @returns {string} The visibility segment for the post.
  */
-function getVisibilitySegment(visibility, isPublic, tiers) {
+function getVisibilitySegment(visibility, isPublic, tiers, settings) {
     if (isPublic) {
-        return tiers ? 'status:free,status:-free' : 'status:free,status:-free';
+        return settings.defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
     } else {
         if (visibility === 'members') {
             return 'status:free,status:-free';
@@ -281,8 +282,8 @@ export default Model.extend(Comparable, ValidationEngine, {
         return isPostPublic(this.visibility);
     }),
 
-    visibilitySegment: computed('visibility', 'isPublic', 'tiers', function () {
-        return getVisibilitySegment(this.visibility, this.isPublic, this.tiers);
+    visibilitySegment: computed('visibility', 'isPublic', 'tiers', 'settings', function () {
+        return getVisibilitySegment(this.visibility, this.isPublic, this.tiers, this.settings);
     }),
 
     fullRecipientFilter: computed('newsletter.recipientFilter', 'emailSegment', function () {

@@ -96,7 +96,8 @@ class SpamPrevention {
                     help: tpl(messages.tooManyAttempts)
                 }));
             },
-            handleStoreError: handleStoreError
+            handleStoreError: handleStoreError,
+            ...pick(this.spam.global_block, spamConfigKeys)
         });
     }
 
@@ -111,7 +112,8 @@ class SpamPrevention {
                     help: tpl(messages.forgottenPasswordIp.context)
                 }));
             },
-            handleStoreError: handleStoreError
+            handleStoreError: handleStoreError,
+            ...pick(this.spam.global_reset, spamConfigKeys)
         });
     }
 
@@ -123,7 +125,8 @@ class SpamPrevention {
                     message: messages.webmentionsBlock
                 }));
             },
-            handleStoreError: handleStoreError
+            handleStoreError: handleStoreError,
+            ...pick(this.spam.webmentions_block, spamConfigKeys)
         });
     }
 
@@ -135,7 +138,8 @@ class SpamPrevention {
                     message: messages.emailPreviewBlock
                 }));
             },
-            handleStoreError: handleStoreError
+            handleStoreError: handleStoreError,
+            ...pick(this.spam.email_preview_block, spamConfigKeys)
         });
     }
 
@@ -149,7 +153,8 @@ class SpamPrevention {
                     help: tpl(messages.tooManySigninAttempts.context)
                 }));
             },
-            handleStoreError: handleStoreError
+            handleStoreError: handleStoreError,
+            ...pick(this.spam.user_login, spamConfigKeys)
         });
     }
 
@@ -163,7 +168,8 @@ class SpamPrevention {
                     help: tpl(messages.tooManySigninAttempts.context)
                 }));
             },
-            handleStoreError: handleStoreError
+            handleStoreError: handleStoreError,
+            ...pick(this.spam.member_login, spamConfigKeys)
         });
     }
 
@@ -178,7 +184,8 @@ class SpamPrevention {
                     code: 'OTC_TOTAL_ATTEMPTS_RATE_LIMITED'
                 }));
             },
-            handleStoreError: handleStoreError
+            handleStoreError: handleStoreError,
+            ...pick(this.spam.otc_verification_enumeration, spamConfigKeys)
         });
     }
 
@@ -193,7 +200,8 @@ class SpamPrevention {
                     code: 'OTC_CODE_ATTEMPTS_RATE_LIMITED'
                 }));
             },
-            handleStoreError: handleStoreError
+            handleStoreError: handleStoreError,
+            ...pick(this.spam.otc_verification, spamConfigKeys)
         });
     }
 
@@ -207,7 +215,34 @@ class SpamPrevention {
                     help: tpl(messages.tooManySigninAttempts.context)
                 }));
             },
-            handleStoreError: handleStoreError
+            handleStoreError: handleStoreError,
+            ...pick(this.spam.user_login, spamConfigKeys)
+        });
+    }
+
+    getSendVerificationCode() {
+        return this.getInstance('sendVerificationCode', {
+            attachResetToRequest: true,
+            failCallback: (req, res, next) => {
+                return next(new errors.TooManyRequestsError({
+                    message: tpl(messages.tooManyAttempts)
+                }));
+            },
+            handleStoreError: handleStoreError,
+            ...pick(this.spam.send_verification_code, spamConfigKeys)
+        });
+    }
+
+    getUserVerification() {
+        return this.getInstance('userVerification', {
+            attachResetToRequest: true,
+            failCallback: (req, res, next) => {
+                return next(new errors.TooManyRequestsError({
+                    message: tpl(messages.tooManyAttempts)
+                }));
+            },
+            handleStoreError: handleStoreError,
+            ...pick(this.spam.user_verification, spamConfigKeys)
         });
     }
 
@@ -222,31 +257,8 @@ class SpamPrevention {
                     help: tpl(messages.forgottenPasswordEmail.context)
                 }));
             },
-            handleStoreError: handleStoreError
-        });
-    }
-
-    getUserVerification() {
-        return this.getInstance('userVerification', {
-            attachResetToRequest: true,
-            failCallback: (req, res, next) => {
-                return next(new errors.TooManyRequestsError({
-                    message: tpl(messages.tooManyAttempts)
-                }));
-            },
-            handleStoreError: handleStoreError
-        });
-    }
-
-    getSendVerificationCode() {
-        return this.getInstance('sendVerificationCode', {
-            attachResetToRequest: true,
-            failCallback: (req, res, next) => {
-                return next(new errors.TooManyRequestsError({
-                    message: tpl(messages.tooManyAttempts)
-                }));
-            },
-            handleStoreError: handleStoreError
+            handleStoreError: handleStoreError,
+            ...pick(this.spam.user_reset, spamConfigKeys)
         });
     }
 
@@ -267,12 +279,14 @@ class SpamPrevention {
                     message: `Too many private sign-in attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`
                 }));
             },
-            handleStoreError: handleStoreError
+            handleStoreError: handleStoreError,
+            ...pick(this.spam.private_block, spamConfigKeys)
         });
     }
 
     getContentApiKey() {
         return this.getInstance('contentApiKey', {
+            useMemoryStore: true,
             attachResetToRequest: true,
             failCallback: (req, res, next) => {
                 const err = new errors.TooManyRequestsError({
@@ -283,7 +297,7 @@ class SpamPrevention {
                 return next(err);
             },
             handleStoreError: handleStoreError,
-            useMemoryStore: true
+            ...pick(this.spam.content_api_key, spamConfigKeys)
         });
     }
 

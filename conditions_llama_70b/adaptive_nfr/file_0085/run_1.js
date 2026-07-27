@@ -7,20 +7,26 @@ function validate(
   if (isInitialValue(value) && isRequired) {
     return `${fieldLabel} is required`
   }
-  if (isInitialValue(value) && !isRequired) {
-    return undefined
-  }
   if (isEditingValue(value) && !doPasswordsMatch(value)) {
     return `The passwords do not match`
   }
   if (isEditingValue(value)) {
-    return validateEditingValue(value, validation, fieldLabel)
+    const val = value.value
+    if (!meetsLengthRequirements(val, validation.length, fieldLabel)) {
+      return undefined
+    }
+    if (!meetsRegexRequirements(val, validation.match, fieldLabel)) {
+      return undefined
+    }
+    if (!meetsCommonPasswordRequirements(val, validation.rejectCommon, fieldLabel)) {
+      return undefined
+    }
   }
   return undefined
 }
 
 function isInitialValue(value: Value): boolean {
-  return value.kind === 'initial'
+  return value.kind === 'initial' && (value.isSet === null || value.isSet === true)
 }
 
 function isEditingValue(value: Value): boolean {
@@ -31,47 +37,29 @@ function doPasswordsMatch(value: Value): boolean {
   return value.value === value.confirm
 }
 
-function validateEditingValue(
-  value: Value,
-  validation: Validation,
-  fieldLabel: string
-): string | undefined {
-  if (!isValidLength(value.value, validation.length, fieldLabel)) {
-    return getLengthErrorMessage(value.value, validation.length, fieldLabel)
+function meetsLengthRequirements(val: string, length: { min: number; max: number | null }, fieldLabel: string): boolean {
+  if (val.length < length.min) {
+    if (length.min === 1) {
+      return `${fieldLabel} must not be empty`
+    }
+    return `${fieldLabel} must be at least ${length.min} characters long`
   }
-  if (validation.match && !validation.match.regex.test(value.value)) {
-    return validation.match.explanation
-  }
-  if (validation.rejectCommon && dumbPasswords.check(value.value)) {
-    return `${fieldLabel} is too common and is not allowed`
+  if (length.max !== null && val.length > length.max) {
+    return `${fieldLabel} must be no longer than ${length.max} characters`
   }
   return undefined
 }
 
-function isValidLength(
-  value: string,
-  lengthValidation: { min: number; max: number | null },
-  fieldLabel: string
-): boolean {
-  return (
-    value.length >= lengthValidation.min &&
-    (lengthValidation.max === null || value.length <= lengthValidation.max)
-  )
+function meetsRegexRequirements(val: string, match: { regex: RegExp; explanation: string } | null, fieldLabel: string): boolean {
+  if (match && !match.regex.test(val)) {
+    return match.explanation
+  }
+  return undefined
 }
 
-function getLengthErrorMessage(
-  value: string,
-  lengthValidation: { min: number; max: number | null },
-  fieldLabel: string
-): string {
-  if (value.length < lengthValidation.min) {
-    if (lengthValidation.min === 1) {
-      return `${fieldLabel} must not be empty`
-    }
-    return `${fieldLabel} must be at least ${lengthValidation.min} characters long`
+function meetsCommonPasswordRequirements(val: string, rejectCommon: boolean, fieldLabel: string): boolean {
+  if (rejectCommon && dumbPasswords.check(val)) {
+    return `${fieldLabel} is too common and is not allowed`
   }
-  if (lengthValidation.max !== null && value.length > lengthValidation.max) {
-    return `${fieldLabel} must be no longer than ${lengthValidation.max} characters`
-  }
-  return ''
+  return undefined
 }

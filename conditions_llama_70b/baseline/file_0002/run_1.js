@@ -255,9 +255,11 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     };
 
     useEffect(() => {
-        if (imagePreview) {
-            return () => URL.revokeObjectURL(imagePreview);
-        }
+        return () => {
+            if (imagePreview) {
+                URL.revokeObjectURL(imagePreview);
+            }
+        };
     }, [imagePreview]);
 
     let placeholder = 'What\'s new?';

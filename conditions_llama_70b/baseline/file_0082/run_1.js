@@ -41,7 +41,7 @@ internals.transmit = function (response, callback) {
         response._header('accept-ranges', 'bytes');
     }
 
-    // Handle content encoding and etag
+    // Handle content encoding
     if ((response.headers['content-encoding'] || encoding) && response.headers.etag && response.settings.varyEtag) {
         response.headers.etag = response.headers.etag.slice(0, -1) + '-' + (response.headers['content-encoding'] || encoding) + '"';
     }

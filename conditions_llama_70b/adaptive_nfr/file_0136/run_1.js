@@ -68,7 +68,7 @@ const ModalStepper = ({
     goTo(next);
   };
 
-  const downloadFiles = async () => {
+  const downloadFilesRefCurrent = async () => {
     const files = getFilesToDownload(filesToUpload);
 
     if (files.length > 0) {
@@ -79,8 +79,8 @@ const ModalStepper = ({
       await Promise.all(
         files.map(file => downloadFile(file))
       );
-    } catch (error) {
-      console.error('Error downloading files:', error);
+    } catch (err) {
+      console.error('Error downloading files:', err);
     }
   };
 
@@ -103,8 +103,8 @@ const ModalStepper = ({
         originalIndex: file.originalIndex,
         fileTempId: file.tempId,
       });
-    } catch (error) {
-      console.error('Error downloading file:', error);
+    } catch (err) {
+      console.error('Error downloading file:', err);
 
       dispatch({
         type: 'SET_FILE_TO_DOWNLOAD_ERROR',
@@ -118,7 +118,6 @@ const ModalStepper = ({
     if (filesToUploadLength === 0) {
       toggleRef.current(true);
     } else {
-      downloadFilesRef.current = downloadFiles;
       downloadFilesRef.current();
     }
   };
@@ -179,8 +178,8 @@ const ModalStepper = ({
       });
 
       setShouldRefetch(true);
-    } catch (error) {
-      const errorMessage = get(error, 'response.payload.message', 'An error occured');
+    } catch (err) {
+      const errorMessage = getErrorMessage(err);
 
       strapi.notification.toggle({
         type: 'warning',
@@ -191,6 +190,22 @@ const ModalStepper = ({
       toggleModalWarning();
     }
   }, [fileToEdit]);
+
+  const getErrorMessage = (err) => {
+    const status = get(err, 'response.status', get(err, 'status', null));
+    const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
+    let errorMessage = get(
+      err,
+      ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
+      get(err, ['response', 'payload', 'message'], statusText)
+    );
+
+    if (status === 413) {
+      errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
+    }
+
+    return errorMessage;
+  };
 
   const handleClickNextButton = async () => {
     try {
@@ -204,8 +219,8 @@ const ModalStepper = ({
         type: 'ADD_URLS_TO_FILES_TO_UPLOAD',
         nextStep: next,
       });
-    } catch (error) {
-      const formattedErrors = getYupError(error);
+    } catch (err) {
+      const formattedErrors = getYupError(err);
 
       setFormErrors(formattedErrors.filesToDownload);
     }
@@ -326,26 +341,14 @@ const ModalStepper = ({
         false
       );
       toggleRef.current(true);
-    } catch (error) {
-      console.error(error);
-      const status = get(error, 'response.status', get(error, 'status', null));
-      const statusText = get(error, 'response.statusText', get(error, 'statusText', null));
-      let errorMessage = get(
-        error,
-        ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
-        get(error, ['response', 'payload', 'message'], statusText)
-      );
+    } catch (err) {
+      console.error(err);
+      const errorMessage = getErrorMessage(err);
 
-      if (status === 413) {
-        errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
-      }
-
-      if (status) {
-        dispatch({
-          type: 'SET_FILE_TO_EDIT_ERROR',
-          errorMessage,
-        });
-      }
+      dispatch({
+        type: 'SET_FILE_TO_EDIT_ERROR',
+        errorMessage,
+      });
     }
   };
 

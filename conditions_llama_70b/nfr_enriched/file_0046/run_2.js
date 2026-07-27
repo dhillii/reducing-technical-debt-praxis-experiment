@@ -23,9 +23,9 @@ async getCustomerIdByEmail(email) {
 }
 
 /**
- * Finds the customer ID from the search result.
+ * Finds the Stripe Customer ID from the search result.
  * @param {ICustomer[]} customers
- * @returns {string|null} Customer ID, if found
+ * @returns {string|null} Stripe Customer ID, if found
  */
 _findCustomerIdFromSearchResult(customers) {
     // No customer found, return null
@@ -43,9 +43,9 @@ _findCustomerIdFromSearchResult(customers) {
 }
 
 /**
- * Finds the customer with the most recent subscription.
+ * Finds the latest customer with a subscription from the list of customers.
  * @param {ICustomer[]} customers
- * @returns {string} Customer ID
+ * @returns {string} Stripe Customer ID
  */
 _findLatestCustomerWithSubscription(customers) {
     let latestCustomer = customers[0];

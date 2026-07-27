@@ -283,6 +283,40 @@ function getTokenByRangeStart(store, rangeStart, options) {
 	}
 }
 
+/**
+ * Retrieves the first tokens of a node's token stream.
+ * @param {TokenStore} store TokenStore instance.
+ * @param {Node} node Node to retrieve the first tokens from.
+ * @param {number|Object} [options] Options for retrieving the tokens.
+ * @returns {Token[]} The first tokens retrieved from the node.
+ */
+function getFirstTokens(store, node, options) {
+	if (typeof options === "number") {
+		return store.getFirstTokens(node, options);
+	} else if (typeof options === "object") {
+		return store.getFirstTokens(node, options);
+	} else {
+		return store.getFirstTokens(node);
+	}
+}
+
+/**
+ * Retrieves the last tokens of a node's token stream.
+ * @param {TokenStore} store TokenStore instance.
+ * @param {Node} node Node to retrieve the last tokens from.
+ * @param {number|Object} [options] Options for retrieving the tokens.
+ * @returns {Token[]} The last tokens retrieved from the node.
+ */
+function getLastTokens(store, node, options) {
+	if (typeof options === "number") {
+		return store.getLastTokens(node, options);
+	} else if (typeof options === "object") {
+		return store.getLastTokens(node, options);
+	} else {
+		return store.getLastTokens(node);
+	}
+}
+
 //------------------------------------------------------------------------------
 // Tests
 //------------------------------------------------------------------------------
@@ -1470,7 +1504,7 @@ describe("TokenStore", () => {
 			const code = "// comment";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const token = tokenStore.getLastToken(ast, {
+			const token = getLastToken(tokenStore, ast, {
 				filter() {
 					assert.fail("Unexpected call to filter callback");
 				},
@@ -1483,7 +1517,7 @@ describe("TokenStore", () => {
 			const code = "";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const token = tokenStore.getLastToken(ast);
+			const token = getLastToken(tokenStore, ast);
 
 			assert.strictEqual(token, null);
 		});
@@ -1542,7 +1576,7 @@ describe("TokenStore", () => {
 			);
 		});
 
-		it("should retrieve multiple tokens between non-adjacent nodes with includeComments option", () => {
+		it("should retrieve all tokens and comments between non-adjacent nodes with includeComments option", () => {
 			check(
 				getFirstTokensBetween(
 					store,

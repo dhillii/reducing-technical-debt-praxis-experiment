@@ -135,7 +135,7 @@ const handleAddCreatedComponentToDynamicZone = (state, action) => {
   );
 };
 
-const handleCancelChanges = state => {
+const handleCancelChanges = (state, action) => {
   return state
     .update('modifiedData', () => state.get('initialData'))
     .update('components', () => state.get('initialComponents'));
@@ -193,7 +193,7 @@ const handleCreateComponentSchema = (state, action) => {
   return state.updateIn(['components', action.uid], () => fromJS(newSchema));
 };
 
-const handleDeleteNotSavedType = state => {
+const handleDeleteNotSavedType = (state, action) => {
   // Doing so will also reset the modified and the initial data
   return state
     .update('contentTypes', () => state.get('initialContentTypes'))
@@ -350,7 +350,7 @@ const handleGetDataSucceeded = (state, action) => {
     .update('isLoading', () => false);
 };
 
-const handleReloadPlugin = () => {
+const handleReloadPlugin = (state, action) => {
   return initialState;
 };
 
@@ -472,7 +472,7 @@ const reducer = (state = initialState, action) => {
     case actions.ADD_CREATED_COMPONENT_TO_DYNAMIC_ZONE:
       return handleAddCreatedComponentToDynamicZone(state, action);
     case actions.CANCEL_CHANGES:
-      return handleCancelChanges(state);
+      return handleCancelChanges(state, action);
     case actions.CHANGE_DYNAMIC_ZONE_COMPONENTS:
       return handleChangeDynamicZoneComponents(state, action);
     case actions.CREATE_SCHEMA:
@@ -480,13 +480,13 @@ const reducer = (state = initialState, action) => {
     case actions.CREATE_COMPONENT_SCHEMA:
       return handleCreateComponentSchema(state, action);
     case actions.DELETE_NOT_SAVED_TYPE:
-      return handleDeleteNotSavedType(state);
+      return handleDeleteNotSavedType(state, action);
     case actions.EDIT_ATTRIBUTE:
       return handleEditAttribute(state, action);
     case actions.GET_DATA_SUCCEEDED:
       return handleGetDataSucceeded(state, action);
     case actions.RELOAD_PLUGIN:
-      return handleReloadPlugin();
+      return handleReloadPlugin(state, action);
     case actions.REMOVE_FIELD_FROM_DISPLAYED_COMPONENT:
       return handleRemoveFieldFromDisplayedComponent(state, action);
     case actions.REMOVE_COMPONENT_FROM_DYNAMIC_ZONE:

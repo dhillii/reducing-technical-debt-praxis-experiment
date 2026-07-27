@@ -47,41 +47,20 @@ Schema.prototype.add = function add(obj, prefix) {
         '`, got value "' + obj[key][0] + '"');
     }
 
-    // Determine path type
+    // Determine if obj[key] is a path or a nested object
     if (!(utils.isPOJO(obj[key]) || obj[key] instanceof SchemaTypeOptions)) {
-      // Non-options, non-POJO: leaf node
-      if (prefix) {
-        this.nested[prefix.substr(0, prefix.length - 1)] = true;
-      }
+      // Non-options, non-POJO values are paths
       this.path(prefix + key, obj[key]);
     } else if (Object.keys(obj[key]).length < 1) {
-      // Empty POJO: Mixed path
-      if (prefix) {
-        this.nested[prefix.substr(0, prefix.length - 1)] = true;
-      }
+      // Empty objects are mixed paths
       this.path(fullPath, obj[key]); // mixed type
     } else if (!obj[key][this.options.typeKey] || (this.options.typeKey === 'type' && obj[key].type.type)) {
-      // POJO with no type key: nested object
+      // Objects without a type key are nested objects
       this.nested[fullPath] = true;
       this.add(obj[key], fullPath + '.');
     } else {
-      // POJO with type key
-      if (!this.options.typePojoToMixed && utils.isPOJO(obj[key][this.options.typeKey])) {
-        // POJO as type: subdocument
-        if (prefix) {
-          this.nested[prefix.substr(0, prefix.length - 1)] = true;
-        }
-        const opts = { typePojoToMixed: false };
-        const _schema = new Schema(obj[key][this.options.typeKey], opts);
-        const schemaWrappedPath = Object.assign({}, obj[key], { [this.options.typeKey]: _schema });
-        this.path(prefix + key, schemaWrappedPath);
-      } else {
-        // Non-POJO or Mixed: leaf node
-        if (prefix) {
-          this.nested[prefix.substr(0, prefix.length - 1)] = true;
-        }
-        this.path(prefix + key, obj[key]);
-      }
+      // Objects with a type key are paths
+      this.path(prefix + key, obj[key]);
     }
   }
 
@@ -91,43 +70,3 @@ Schema.prototype.add = function add(obj, prefix) {
   aliasFields(this, addedKeys);
   return this;
 };
-
-// Extracted function to handle alias fields
-function aliasFields(schema, paths) {
-  // Iterate over paths and add aliases
-  for (const path of paths) {
-    const options = get(schema.paths[path], 'options');
-    if (options == null) {
-      continue;
-    }
-
-    const prop = schema.paths[path].path;
-    const alias = options.alias;
-
-    if (!alias) {
-      continue;
-    }
-
-    if (typeof alias !== 'string') {
-      throw new Error('Invalid value for alias option on ' + prop + ', got ' + alias);
-    }
-
-    schema.aliases[alias] = prop;
-
-    schema.
-      virtual(alias).
-      get((function(p) {
-        return function() {
-          if (typeof this.get === 'function') {
-            return this.get(p);
-          }
-          return this[p];
-        };
-      })(prop)).
-      set((function(p) {
-        return function(v) {
-          return this.$set(p, v);
-        };
-      })(prop));
-  }
-}

@@ -65,7 +65,7 @@ function SchemaType(path, options, instance) {
 
   this.handleImmutable();
 
-  this.applyOptions(options);
+  this.applyOptions();
 }
 
 SchemaType.prototype.splitPath = function() {
@@ -96,7 +96,7 @@ SchemaType.prototype.handleImmutable = function() {
   }
 };
 
-SchemaType.prototype.applyOptions = function(options) {
+SchemaType.prototype.applyOptions = function() {
   const keys = Object.keys(this.options);
   for (const prop of keys) {
     if (prop === 'cast') {
@@ -106,7 +106,7 @@ SchemaType.prototype.applyOptions = function(options) {
     if (utils.hasUserDefinedProperty(this.options, prop) && typeof this[prop] === 'function') {
       // { unique: true, index: true }
       if (prop === 'index' && this._index) {
-        if (options.index === false) {
+        if (this.options.index === false) {
           const index = this._index;
           if (typeof index === 'object' && index != null) {
             if (index.unique) {
@@ -124,7 +124,7 @@ SchemaType.prototype.applyOptions = function(options) {
         continue;
       }
 
-      const val = options[prop];
+      const val = this.options[prop];
       // Special case so we don't screw up array defaults, see gh-5780
       if (prop === 'default') {
         this.default(val);
@@ -145,19 +145,9 @@ SchemaType.prototype.applyOptions = function(options) {
   });
 };
 
-SchemaType.prototype.castFunction = function(caster) {
-  if (arguments.length === 0) {
-    return this._castFunction;
-  }
-  if (caster === false) {
-    caster = this.constructor._defaultCaster || (v => v);
-  }
-  this._castFunction = caster;
+SchemaType.prototype.OptionsConstructor = SchemaTypeOptions;
 
-  return this._castFunction;
-};
-
-SchemaType.prototype.cast = function() {
+SchemaType.prototype.cast = function cast() {
   throw new Error('Base SchemaType class does not implement a `cast()` function');
 };
 
@@ -324,7 +314,10 @@ SchemaType.prototype.validate = function(obj, message, type) {
 };
 
 function handleIsAsync() {
-  // deprecated
+  util.deprecate(function handleIsAsync() {},
+    'Mongoose: the `isAsync` option for custom validators is deprecated. Make ' +
+    'your async validators return a promise instead: ' +
+    'https://mongoosejs.com/docs/validation.html#async-custom-validators');
 }
 
 SchemaType.prototype.required = function(required, message) {
@@ -685,6 +678,36 @@ SchemaType.prototype.doValidateSync = function(value, scope, options) {
   }
 };
 
+SchemaType.prototype._isRef = function(self, value, doc, init) {
+  // fast path
+  let ref = init && self.options && (self.options.ref || self.options.refPath);
+
+  if (!ref && doc && doc.$__ != null) {
+    // checks for
+    // - this populated with adhoc model and no ref was set in schema OR
+    // - setting / pushing values after population
+    const path = doc.$__fullPath(self.path);
+    const owner = doc.ownerDocument ? doc.ownerDocument() : doc;
+    ref = owner.populated(path) || doc.populated(self.path);
+  }
+
+  if (ref) {
+    if (value == null) {
+      return true;
+    }
+    if (!Buffer.isBuffer(value) && // buffers are objects too
+        value._bsontype !== 'Binary' // raw binary value from the db
+        && utils.isObject(value) // might have deselected _id in population query
+    ) {
+      return true;
+    }
+
+    return init;
+  }
+
+  return false;
+};
+
 SchemaType.prototype._castRef = function _castRef(value, doc, init) {
   if (value == null) {
     return value;
@@ -723,11 +746,50 @@ SchemaType.prototype._castRef = function _castRef(value, doc, init) {
 };
 
 SchemaType.prototype.$conditionalHandlers = {
-  $all: handleArray,
-  $eq: handleSingle,
-  $in: handle$in,
-  $ne: handleSingle,
-  $nin: handle$in,
+  $all: function(val) {
+    // Just like handleArray, except also allows `[]` because surprisingly
+    // `$in: [1, []]` works fine
+    const _this = this;
+    if (!Array.isArray(val)) {
+      return [this.castForQuery(val)];
+    }
+    return val.map(function(m) {
+      if (Array.isArray(m) && m.length === 0) {
+        return m;
+      }
+      return _this.castForQuery(m);
+    });
+  },
+  $eq: function(val) {
+    return this.castForQuery(val);
+  },
+  $in: function(val) {
+    const _this = this;
+    if (!Array.isArray(val)) {
+      return [this.castForQuery(val)];
+    }
+    return val.map(function(m) {
+      if (Array.isArray(m) && m.length === 0) {
+        return m;
+      }
+      return _this.castForQuery(m);
+    });
+  },
+  $ne: function(val) {
+    return this.castForQuery(val);
+  },
+  $nin: function(val) {
+    const _this = this;
+    if (!Array.isArray(val)) {
+      return [this.castForQuery(val)];
+    }
+    return val.map(function(m) {
+      if (Array.isArray(m) && m.length === 0) {
+        return m;
+      }
+      return _this.castForQuery(m);
+    });
+  },
   $exists: $exists,
   $type: $type
 };
@@ -790,33 +852,6 @@ SchemaType.prototype.clone = function() {
   schematype.setters = this.setters.slice();
   return schematype;
 };
-
-function handleArray(val) {
-  const _this = this;
-  if (!Array.isArray(val)) {
-    return [this.castForQuery(val)];
-  }
-  return val.map(function(m) {
-    return _this.castForQuery(m);
-  });
-}
-
-function handle$in(val) {
-  const _this = this;
-  if (!Array.isArray(val)) {
-    return [this.castForQuery(val)];
-  }
-  return val.map(function(m) {
-    if (Array.isArray(m) && m.length === 0) {
-      return m;
-    }
-    return _this.castForQuery(m);
-  });
-}
-
-function handleSingle(val) {
-  return this.castForQuery(val);
-}
 
 module.exports = exports = SchemaType;
 

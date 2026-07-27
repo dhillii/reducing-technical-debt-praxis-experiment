@@ -813,14 +813,13 @@ module.exports = {
         }
       }
 
-      checkFirstNodeLineIndent(node, nodeIndent);
-
-      elementsIndent =
-        options[node.type] === "first"
-          ? elements.length
-            ? elements[0].loc.start.column
-            : 0
-          : nodeIndent + indentSize * options[node.type];
+      if (options[node.type] === "first") {
+        elementsIndent = elements.length
+          ? elements[0].loc.start.column
+          : 0;
+      } else {
+        elementsIndent = nodeIndent + indentSize * options[node.type];
+      }
 
       if (isNodeInVarOnTop(node, parentVarNode)) {
         elementsIndent +=
@@ -959,7 +958,8 @@ module.exports = {
       checkNodesIndent(elements, elementsIndent);
 
       if (
-        sourceCode.getLastToken(node).loc.end.line <= lastElement.loc.end.line
+        sourceCode.getLastToken(node).loc.end.line <=
+        lastElement.loc.end.line
       ) {
         return;
       }

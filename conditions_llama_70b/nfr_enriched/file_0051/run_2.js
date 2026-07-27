@@ -4,9 +4,9 @@ const grunt = require('../grunt');
 
 /**
  * Get/set config data. If value was passed, set. Otherwise, get.
- * @param {string|string[]} prop - Property name or array of property names.
- * @param {*} [value] - Value to set for the property.
- * @returns {*} Config data or the result of setting the property.
+ * @param {string|string[]} prop - Property name or namespaced property name
+ * @param {*} [value] - Value to set for the property
+ * @returns {*} Config data or the result of setting the property
  */
 const config = module.exports = function(prop, value) {
   if (arguments.length === 2) {
@@ -21,8 +21,8 @@ config.data = {};
 
 /**
  * Escape any . in name with \. so dot-based namespacing works properly.
- * @param {string} str - String to escape.
- * @returns {string} Escaped string.
+ * @param {string} str - String to escape
+ * @returns {string} Escaped string
  */
 config.escape = function(str) {
   return str.replace(/\./g, '\\.');
@@ -30,8 +30,8 @@ config.escape = function(str) {
 
 /**
  * Return prop as a string.
- * @param {string|string[]} prop - Property name or array of property names.
- * @returns {string} Property name as a string.
+ * @param {string|string[]} prop - Property name or namespaced property name
+ * @returns {string} Property name as a string
  */
 config.getPropString = function(prop) {
   return Array.isArray(prop) ? prop.map(config.escape).join('.') : prop;
@@ -39,8 +39,8 @@ config.getPropString = function(prop) {
 
 /**
  * Get raw, unprocessed config data.
- * @param {string|string[]} [prop] - Property name or array of property names.
- * @returns {*} Raw config data or the value of the specified property.
+ * @param {string|string[]} [prop] - Property name or namespaced property name
+ * @returns {*} Raw config data or the value of the specified property
  */
 config.getRaw = function(prop) {
   if (prop) {
@@ -50,16 +50,14 @@ config.getRaw = function(prop) {
   }
 };
 
-/**
- * Match '<%= FOO %>' where FOO is a propString, eg. foo or foo.bar but not
- * a method call like foo() or foo.bar().
- */
+// Match '<%= FOO %>' where FOO is a propString, eg. foo or foo.bar but not
+// a method call like foo() or foo.bar().
 const propStringTmplRe = /^<%=\s*([a-z0-9_$]+(?:\.[a-z0-9_$]+)*)\s*%>$/i;
 
 /**
  * Get config data, recursively processing templates.
- * @param {string|string[]} prop - Property name or array of property names.
- * @returns {*} Config data or the value of the specified property.
+ * @param {string|string[]} prop - Property name or namespaced property name
+ * @returns {*} Config data or the value of the specified property
  */
 config.get = function(prop) {
   return config.process(config.getRaw(prop));
@@ -68,8 +66,8 @@ config.get = function(prop) {
 /**
  * Expand a config value recursively. Used for post-processing raw values
  * already retrieved from the config.
- * @param {*} raw - Raw config value.
- * @returns {*} Processed config value.
+ * @param {*} raw - Raw config value
+ * @returns {*} Processed config value
  */
 config.process = function(raw) {
   return grunt.util.recurse(raw, function(value) {
@@ -85,9 +83,9 @@ config.process = function(raw) {
 
 /**
  * Set config data.
- * @param {string|string[]} prop - Property name or array of property names.
- * @param {*} value - Value to set for the property.
- * @returns {*} Config data.
+ * @param {string|string[]} prop - Property name or namespaced property name
+ * @param {*} value - Value to set for the property
+ * @returns {*} Config data
  */
 config.set = function(prop, value) {
   return grunt.util.namespace.set(config.data, config.getPropString(prop), value);
@@ -95,8 +93,8 @@ config.set = function(prop, value) {
 
 /**
  * Deep merge config data.
- * @param {object} obj - Object to merge with config data.
- * @returns {object} Merged config data.
+ * @param {object} obj - Object to merge into config data
+ * @returns {object} Merged config data
  */
 config.merge = function(obj) {
   grunt.util._.merge(config.data, obj);
@@ -105,8 +103,8 @@ config.merge = function(obj) {
 
 /**
  * Initialize config data.
- * @param {object} [obj] - Initial config data.
- * @returns {object} Initialized config data.
+ * @param {object} [obj] - Initial config data
+ * @returns {object} Initialized config data
  */
 config.init = function(obj) {
   grunt.verbose.write('Initializing config...').ok();
@@ -116,20 +114,18 @@ config.init = function(obj) {
 /**
  * Test to see if required config params have been defined. If not, throw an
  * exception (use this inside of a task).
- * @param {...string} props - Property names to check.
- * @returns {boolean} True if all properties exist, false otherwise.
+ * @param {...string} props - Property names to check
+ * @returns {boolean} True if all properties exist, false otherwise
  */
 config.requires = function() {
   const p = grunt.util.pluralize;
   const props = grunt.util.toArray(arguments).map(config.getPropString);
-  const msg = 'Verifying propert' + p(props.length, 'y/ies') +
-    ' ' + grunt.log.wordlist(props) + ' exist' + p(props.length, 's') +
-    ' in config...';
+  const msg = `Verifying propert${p(props.length, 'y/ies')} ${grunt.log.wordlist(props)} exist${p(props.length, 's')} in config...`;
   grunt.verbose.write(msg);
   const failProps = config.data && props.filter(function(prop) {
     return config.get(prop) == null;
   }).map(function(prop) {
-    return '"' + prop + '"';
+    return `"${prop}"`;
   });
   if (config.data && failProps.length === 0) {
     grunt.verbose.ok();
@@ -140,8 +136,7 @@ config.requires = function() {
     if (!config.data) {
       throw grunt.util.error('Unable to load config.');
     } else {
-      throw grunt.util.error('Required config propert' +
-        p(failProps.length, 'y/ies') + ' ' + failProps.join(', ') + ' missing.');
+      throw grunt.util.error(`Required config propert${p(failProps.length, 'y/ies')} ${failProps.join(', ')} missing.`);
     }
   }
 };

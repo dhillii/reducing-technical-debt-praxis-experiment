@@ -635,7 +635,7 @@ API.prototype._startScript = function(script, opts, cb) {
     // pretty JSON
     try {
       fs.writeFileSync(dst_path, JSON.stringify(app_conf, null, 2));
-    } catch (e) {
+    } catch(e) {
       console.error(e.stack || e);
     }
   }
@@ -1104,10 +1104,7 @@ API.prototype.actionFromJson = function(action, file, opts, jsonVia, cb) {
 
         // These functions need extra param to be passed
         if (action == 'restartProcessId') {
-          opts = {
-            id  : id,
-            env : new_env
-          };
+          opts = {id : id, env : new_env};
         } else {
           opts = id;
         }

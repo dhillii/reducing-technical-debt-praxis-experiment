@@ -24,7 +24,7 @@ describe('multiple posts', function () {
 
     // ...
 
-    it('can change access when members is enabled', async function () {
+    it('can change access', async function () {
         await visit('/posts');
 
         const settingsService = this.owner.lookup('service:settings');

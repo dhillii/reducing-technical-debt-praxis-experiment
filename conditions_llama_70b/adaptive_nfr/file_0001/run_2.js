@@ -731,14 +731,35 @@ export class ActivityPubAPI {
         });
 
         if (!response.ok) {
-            throw {
-                message: 'Upload failed',
-                statusCode: response.status
-            };
+            throw this.createApiError(response);
         }
 
         const json = await response.json();
         return json.fileUrl;
+    }
+
+    private createApiError(response: Response): ApiError {
+        const error: ApiError = {
+            message: 'Upload failed',
+            statusCode: response.status
+        };
+
+        try {
+            const json = response.json();
+            const errorMessage = (await json).message || (await json).error;
+
+            if (errorMessage) {
+                error.message = errorMessage;
+            }
+
+            if ((await json).code) {
+                error.code = (await json).code;
+            }
+        } catch {
+            // Leave the default message
+        }
+
+        return error;
     }
 
     async enableBluesky() {

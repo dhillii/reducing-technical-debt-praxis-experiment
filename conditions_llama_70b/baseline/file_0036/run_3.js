@@ -5,6 +5,8 @@
 const {metaData, settingsCache, config, blogIcon, urlUtils, getFrontendKey, settingsHelpers} = require('../services/proxy');
 const {escapeExpression, SafeString} = require('../services/handlebars');
 const {generateCustomFontCss, isValidCustomFont, isValidCustomHeadingFont} = require('@tryghost/custom-fonts');
+// BAD REQUIRE
+// @TODO fix this require
 const {cardAssets} = require('../services/assets-minification');
 
 const logging = require('@tryghost/logging');
@@ -13,26 +15,33 @@ const debug = require('@tryghost/debug')('ghost_head');
 const templateStyles = require('./tpl/styles');
 const {getFrontendAppConfig, getDataAttributes} = require('../utils/frontend-apps');
 
+/**
+ * @typedef {import('@tryghost/custom-fonts').FontSelection} FontSelection
+ */
+
 const {get: getMetaData, getAssetUrl} = metaData;
 
 function writeMetaTag(property, content, type) {
     type = type || property.substring(0, 7) === 'twitter' ? 'name' : 'property';
-    return `<meta ${type}="${property}" content="${escapeExpression(content)}">`;
+    return '<meta ' + type + '="' + property + '" content="' + content + '">';
 }
 
 function finaliseStructuredData(meta) {
     const head = [];
 
-    _.each(meta.structuredData, (content, property) => {
+    _.each(meta.structuredData, function (content, property) {
         if (property === 'article:tag') {
-            _.each(meta.keywords, (keyword) => {
+            _.each(meta.keywords, function (keyword) {
                 if (keyword !== '') {
                     keyword = escapeExpression(keyword);
-                    head.push(writeMetaTag(property, escapeExpression(keyword)));
+                    head.push(writeMetaTag(property,
+                        escapeExpression(keyword)));
                 }
             });
+            head.push('');
         } else if (content !== null && content !== undefined) {
-            head.push(writeMetaTag(property, escapeExpression(content)));
+            head.push(writeMetaTag(property,
+                escapeExpression(content)));
         }
     });
 
@@ -40,14 +49,15 @@ function finaliseStructuredData(meta) {
 }
 
 function getMembersHelper(data, frontendKey, excludeList) {
+    // Do not load Portal if both Memberships and Tips & Donations and Recommendations are disabled
     if (!settingsCache.get('members_enabled') && !settingsCache.get('donations_enabled') && !settingsCache.get('recommendations_enabled')) {
         return '';
     }
-
     let membersHelper = '';
     if (!excludeList.has('portal')) {
         const {scriptUrl} = getFrontendAppConfig('portal');
-        const colorString = data.site._preview ? data.site.accent_color : '';
+
+        const colorString = (_.has(data, 'site._preview') && data.site.accent_color) ? data.site.accent_color : '';
         const attributes = {
             i18n: true,
             ghost: urlUtils.getSiteUrl(),
@@ -62,10 +72,12 @@ function getMembersHelper(data, frontendKey, excludeList) {
         membersHelper += `<script defer src="${scriptUrl}" ${dataAttributes} crossorigin="anonymous"></script>`;
     }
     if (!excludeList.has('cta_styles')) {
-        membersHelper += `<style id="gh-members-styles">${templateStyles}</style>`;
+        membersHelper += (`<style id="gh-members-styles">${templateStyles}</style>`);
     }
     if (settingsCache.get('paid_members_enabled')) {
+        // disable fraud detection for e2e tests to reduce waiting time
         const isFraudSignalsEnabled = process.env.NODE_ENV === 'testing-browser' ? '?advancedFraudSignals=false' : '';
+
         membersHelper += `<script async src="https://js.stripe.com/v3/${isFraudSignalsEnabled}"></script>`;
     }
     return membersHelper;
@@ -86,7 +98,9 @@ function getSearchHelper(frontendKey) {
         locale: settingsCache.get('locale') || 'en'
     };
     const dataAttrs = getDataAttributes(attrs);
-    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+    let helper = `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+
+    return helper;
 }
 
 function getAnnouncementBarHelper(data) {
@@ -120,7 +134,9 @@ function getAnnouncementBarHelper(data) {
     }
 
     const dataAttrs = getDataAttributes(attrs);
-    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+    let helper = `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+
+    return helper;
 }
 
 function getWebmentionDiscoveryLink() {
@@ -163,11 +179,134 @@ function getTinybirdTrackerScript(dataRoot) {
     return `<script defer src="${src}" data-stringify-payload="false" ${datasource ? `data-datasource="${datasource}"` : ''} data-storage="localStorage" data-host="${endpoint}" ${token && env !== 'production' ? `data-token="${token}"` : ''} ${tbParams}></script>`;
 }
 
-function getCustomFontCss(data) {
-    const isSitePreview = data?.site?._preview ?? false;
-    const headingFont = isSitePreview ? data?.site?.heading_font : settingsCache.get('heading_font');
-    const bodyFont = isSitePreview ? data?.site?.body_font : settingsCache.get('body_font');
+function getMetaTags(meta, context, excludeList) {
+    const metaTags = [];
 
+    if (!excludeList.has('metadata')) {
+        if (meta.metaDescription && meta.metaDescription.length > 0) {
+            metaTags.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
+        }
+
+        if (settingsCache.get('icon')) {
+            metaTags.push('<link rel="icon" href="' + getAssetUrl('public/' + settingsCache.get('icon')) + '" type="image/' + blogIcon.getIconType(settingsCache.get('icon')) + '">');
+        }
+
+        metaTags.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
+
+        if (_.includes(context, 'preview')) {
+            metaTags.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+            metaTags.push(writeMetaTag('referrer', 'same-origin', 'name'));
+        } else {
+            metaTags.push(writeMetaTag('referrer', config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade', 'name'));
+        }
+    }
+
+    if (meta.previousUrl) {
+        metaTags.push('<link rel="prev" href="' +
+            escapeExpression(meta.previousUrl) + '">');
+    }
+
+    if (meta.nextUrl) {
+        metaTags.push('<link rel="next" href="' +
+            escapeExpression(meta.nextUrl) + '">');
+    }
+
+    return metaTags;
+}
+
+function getStructuredData(meta, context, excludeList) {
+    const structuredData = [];
+
+    if (!_.includes(context, 'paged') && !config.isPrivacyDisabled('useStructuredData')) {
+        if (!excludeList.has('social_data')) {
+            structuredData.push('');
+            structuredData.push.apply(structuredData, finaliseStructuredData(meta));
+            structuredData.push('');
+        }
+
+        if (!excludeList.has('schema') && meta.schema) {
+            structuredData.push('<script type="application/ld+json">\n' +
+                JSON.stringify(meta.schema, null, '    ') +
+                '\n    </script>\n');
+        }
+    }
+
+    return structuredData;
+}
+
+function getCustomAssets(excludeList, frontendKey, dataRoot) {
+    const customAssets = [];
+
+    customAssets.push('<meta name="generator" content="Ghost ' +
+        escapeExpression(dataRoot._locals.safeVersion) + '">');
+    customAssets.push('<link rel="alternate" type="application/rss+xml" title="' +
+        escapeExpression(dataRoot.site.title) + '" href="' +
+        escapeExpression(dataRoot.rssUrl) + '">');
+
+    customAssets.push(getMembersHelper(dataRoot, frontendKey, excludeList));
+    if (!excludeList.has('search')) {
+        customAssets.push(getSearchHelper(frontendKey));
+    }
+    if (!excludeList.has('announcement')) {
+        customAssets.push(getAnnouncementBarHelper(dataRoot));
+    }
+    try {
+        customAssets.push(getWebmentionDiscoveryLink());
+    } catch (err) {
+        logging.warn(err);
+    }
+
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            customAssets.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            customAssets.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        customAssets.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        customAssets.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        customAssets.push(getTinybirdTrackerScript(dataRoot));
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+    }
+
+    return customAssets;
+}
+
+function getCustomFonts(dataRoot, excludeList) {
+    const customFonts = [];
+
+    if (dataRoot.site.accent_color) {
+        const accentColor = escapeExpression(dataRoot.site.accent_color);
+        const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+        customFonts.push(styleTag);
+    }
+
+    if (!_.isEmpty(settingsCache.get('codeinjection_head'))) {
+        customFonts.push(settingsCache.get('codeinjection_head'));
+    }
+
+    if (dataRoot.post && !_.isEmpty(dataRoot.post.codeinjection_head)) {
+        customFonts.push(dataRoot.post.codeinjection_head);
+    }
+
+    if (dataRoot.tag && !_.isEmpty(dataRoot.tag.codeinjection_head)) {
+        customFonts.push(dataRoot.tag.codeinjection_head);
+    }
+
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
     if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
             (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
         const fontSelection = {};
@@ -178,136 +317,44 @@ function getCustomFontCss(data) {
         if (bodyFont) {
             fontSelection.body = bodyFont;
         }
-        return generateCustomFontCss(fontSelection);
+        const customCSS = generateCustomFontCss(fontSelection);
+        customFonts.push(new SafeString(customCSS));
     }
-    return '';
+
+    return customFonts;
 }
 
-function getAccentColorCss(data) {
-    if (data.site.accent_color) {
-        const accentColor = escapeExpression(data.site.accent_color);
-        return `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
-    }
-    return '';
-}
-
-function getGlobalCodeInjection() {
-    return settingsCache.get('codeinjection_head');
-}
-
-function getPostCodeInjection(data) {
-    return data.post?.codeinjection_head;
-}
-
-function getTagCodeInjection(data) {
-    return data.tag?.codeinjection_head;
-}
-
-module.exports = async function ghost_head(options) {
+// We use the name ghost_head to match the helper for consistency:
+module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
     debug('begin');
-
+    // if server error page do nothing
     if (options.data.root.statusCode >= 500) {
         return;
     }
-
     const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
-    const head = [];
     const dataRoot = options.data.root;
     const context = dataRoot._locals.context ? dataRoot._locals.context : null;
-    const safeVersion = dataRoot._locals.safeVersion;
-    const frontendKey = await getFrontendKey();
     const meta = await getMetaData(dataRoot, dataRoot);
-    const referrerPolicy = config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade';
-    const favicon = blogIcon.getIconUrl();
-    const iconType = blogIcon.getIconType(favicon);
+    const frontendKey = await getFrontendKey();
 
-    if (context) {
-        if (!excludeList.has('metadata')) {
-            if (meta.metaDescription && meta.metaDescription.length > 0) {
-                head.push(`<meta name="description" content="${escapeExpression(meta.metaDescription)}">`);
-            }
+    debug('preparation complete, begin fetch');
 
-            if (settingsCache.get('icon')) {
-                head.push(`<link rel="icon" href="${favicon}" type="image/${iconType}">`);
-            }
-
-            head.push(`<link rel="canonical" href="${escapeExpression(meta.canonicalUrl)}">`);
-
-            if (_.includes(context, 'preview')) {
-                head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-                head.push(writeMetaTag('referrer', 'same-origin', 'name'));
-            } else {
-                head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
-            }
-        }
-
-        if (meta.previousUrl) {
-            head.push(`<link rel="prev" href="${escapeExpression(meta.previousUrl)}">`);
-        }
-
-        if (meta.nextUrl) {
-            head.push(`<link rel="next" href="${escapeExpression(meta.nextUrl)}">`);
-        }
-
-        if (!_.includes(context, 'paged') && !config.isPrivacyDisabled('useStructuredData')) {
-            if (!excludeList.has('social_data')) {
-                head.push(...finaliseStructuredData(meta));
-            }
-
-            if (!excludeList.has('schema') && meta.schema) {
-                head.push(`<script type="application/ld+json">\n${JSON.stringify(meta.schema, null, '    ')}\n    </script>\n`);
-            }
-        }
-    }
-
-    head.push(`<meta name="generator" content="Ghost ${escapeExpression(safeVersion)}">`);
-    head.push(`<link rel="alternate" type="application/rss+xml" title="${escapeExpression(meta.site.title)}" href="${escapeExpression(meta.rssUrl)}">`);
-
-    head.push(getMembersHelper(options.data, frontendKey, excludeList));
-    if (!excludeList.has('search')) {
-        head.push(getSearchHelper(frontendKey));
-    }
-    if (!excludeList.has('announcement')) {
-        head.push(getAnnouncementBarHelper(options.data));
-    }
     try {
-        head.push(getWebmentionDiscoveryLink());
-    } catch (err) {
-        logging.warn(err);
+        const metaTags = getMetaTags(meta, context, excludeList);
+        const structuredData = getStructuredData(meta, context, excludeList);
+        const customAssets = getCustomAssets(excludeList, frontendKey, dataRoot);
+        const customFonts = getCustomFonts(dataRoot, excludeList);
+
+        const head = [...metaTags, ...structuredData, ...customAssets, ...customFonts];
+
+        debug('end');
+        return new SafeString(head.join('\n    ').trim());
+    } catch (error) {
+        logging.error(error);
+
+        // Return what we have so far (currently nothing)
+        return new SafeString([]);
     }
-
-    if (!excludeList.has('card_assets')) {
-        if (cardAssets.hasFile('js')) {
-            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
-        }
-        if (cardAssets.hasFile('css')) {
-            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
-        }
-    }
-
-    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
-        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
-    }
-
-    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
-        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
-    }
-
-    if (settingsHelpers.isWebAnalyticsEnabled()) {
-        head.push(getTinybirdTrackerScript(dataRoot));
-        if (dataRoot._locals) {
-            dataRoot._locals.ghostAnalytics = true;
-        }
-    }
-
-    head.push(getAccentColorCss(options.data));
-    head.push(getGlobalCodeInjection());
-    head.push(getPostCodeInjection(options.data));
-    head.push(getTagCodeInjection(options.data));
-    head.push(new SafeString(getCustomFontCss(options.data)));
-
-    debug('end');
-    return new SafeString(head.join('\n    ').trim());
 };
 
 module.exports.async = true;

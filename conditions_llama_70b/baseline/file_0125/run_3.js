@@ -345,37 +345,33 @@ const buildWhereClause = ({ qb, field, operator, value }) => {
 const handleAndOperator = (qb, value) => {
   return qb.where(andQb => {
     value.forEach(andClause => {
-      andQb.where(subQb => handleAndClause(subQb, andClause));
+      handleAndClause(andQb, andClause);
     });
+  });
+};
+
+const handleAndClause = (andQb, andClause) => {
+  andQb.where(subQb => {
+    if (Array.isArray(andClause)) {
+      andClause.forEach(clause => handleAndClause(subQb, clause));
+    } else {
+      buildWhereClause({ qb: subQb, ...andClause });
+    }
   });
 };
 
 const handleOrOperator = (qb, value) => {
   return qb.where(orQb => {
     value.forEach(orClause => {
-      orQb.orWhere(subQb => handleOrClause(subQb, orClause));
+      orQb.orWhere(subQb => {
+        if (Array.isArray(orClause)) {
+          orClause.forEach(clause => handleAndClause(subQb, clause));
+        } else {
+          buildWhereClause({ qb: subQb, ...orClause });
+        }
+      });
     });
   });
-};
-
-const handleAndClause = (qb, andClause) => {
-  if (Array.isArray(andClause)) {
-    andClause.forEach(clause => {
-      qb.where(andQb => buildWhereClause({ qb: andQb, ...clause }));
-    });
-  } else {
-    buildWhereClause({ qb, ...andClause });
-  }
-};
-
-const handleOrClause = (qb, orClause) => {
-  if (Array.isArray(orClause)) {
-    orClause.forEach(clause => {
-      qb.where(andQb => buildWhereClause({ qb: andQb, ...clause }));
-    });
-  } else {
-    buildWhereClause({ qb, ...orClause });
-  }
 };
 
 const fieldLowerFn = qb => {

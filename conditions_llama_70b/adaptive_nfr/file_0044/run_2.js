@@ -532,20 +532,20 @@ module.exports = class MemberBREADService {
 
     /**
      * @private
-     * @param {Object} data
-     * @param {Object} options
-     * @returns {Promise<void>}
+     * @param {Object} error
+     * @returns {boolean}
      */
-    async validateStripeConnection(data, options) {
-        if (!this.stripeService.configured && (data.comped || data.stripe_customer_id)) {
-            const property = data.comped ? 'comped' : 'stripe_customer_id';
-            throw new errors.ValidationError({
-                message: tpl(messages.stripeNotConnected),
-                context: 'Attempting to import members with Stripe data when there is no Stripe account connected.',
-                help: 'You need to connect to Stripe to import Stripe customers. ',
-                property
-            });
-        }
+    isStripeLinkingError(error) {
+        return error.message && (error.message.match(/customer|plan|subscription/g));
+    }
+
+    /**
+     * @private
+     * @param {Object} error
+     * @returns {boolean}
+     */
+    isUniqueError(error) {
+        return error.code && error.message.toLowerCase().indexOf('unique') !== -1;
     }
 
     /**
@@ -555,94 +555,58 @@ module.exports = class MemberBREADService {
      * @returns {Promise<Object>}
      */
     async createMember(data, options) {
-        try {
-            const attribution = await this.memberAttributionService.getAttributionFromContext(options?.context);
-            if (attribution) {
-                data.attribution = attribution;
-            }
-            return await this.memberRepository.create(data, options);
-        } catch (error) {
-            if (error.code && error.message.toLowerCase().indexOf('unique') !== -1) {
-                throw new errors.ValidationError({
-                    message: tpl(messages.memberAlreadyExists),
-                    context: 'Attempting to add member with existing email address',
-                    property: 'email'
-                });
-            }
-            throw error;
+        const attribution = await this.memberAttributionService.getAttributionFromContext(options?.context);
+        if (attribution) {
+            data.attribution = attribution;
         }
+        return await this.memberRepository.create(data, options);
     }
 
     /**
      * @private
      * @param {Object} model
-     * @param {Object} data
      * @param {Object} options
-     * @returns {Promise<void>}
+     * @returns {Promise<Object>}
      */
-    async linkStripeCustomer(model, data, options) {
-        try {
-            if (data.stripe_customer_id) {
-                await this.memberRepository.linkStripeCustomer({
-                    customer_id: data.stripe_customer_id,
-                    member_id: model.id
-                }, options);
-            }
-        } catch (error) {
-            const isStripeLinkingError = error.message && (error.message.match(/customer|plan|subscription/g));
-            if (isStripeLinkingError) {
-                if (error.message.indexOf('customer') && error.code === 'resource_missing') {
-                    error.message = `Member not imported. ${error.message}`;
-                    error.context = 'Missing Stripe Customer';
-                    error.help = 'Make sure you\'re connected to the correct Stripe Account';
-                }
-
-                await this.memberRepository.destroy({
-                    id: model.id
-                }, options);
-            }
-            throw error;
+    async updateMember(model, options) {
+        // Update email_disabled based on whether the new email is suppressed
+        if (model.get('email')) {
+            const isSuppressed = (await this.emailSuppressionList.getSuppressionData(model.get('email')))?.suppressed;
+            model.set('email_disabled', !!isSuppressed);
         }
+        return await this.memberRepository.update(model, options);
     }
 
     /**
      * @private
      * @param {Object} model
-     * @param {Object} data
      * @param {Object} options
-     * @returns {Promise<void>}
+     * @returns {Promise<Object>}
      */
-    async sendEmail(model, data, options) {
-        if (options.send_email) {
-            await this.emailService.sendEmailWithMagicLink({
-                email: model.get('email'), requestedType: options.email_type
-            });
-        }
+    async linkStripeCustomer(model, options) {
+        return await this.memberRepository.linkStripeCustomer({
+            customer_id: model.get('stripe_customer_id'),
+            member_id: model.id
+        }, options);
     }
 
     /**
      * @private
      * @param {Object} model
-     * @param {Object} data
      * @param {Object} options
-     * @returns {Promise<void>}
+     * @returns {Promise<Object>}
      */
-    async setComplimentarySubscription(model, data, options) {
-        if (data.comped) {
-            await this.memberRepository.setComplimentarySubscription(model, options);
-        }
+    async setComplimentarySubscription(model, options) {
+        return await this.memberRepository.setComplimentarySubscription(model, options);
     }
 
-    async add(data, options) {
-        await this.validateStripeConnection(data, options);
-        const model = await this.createMember(data, options);
-        const sharedOptions = {
-            ...(options.transacting && {transacting: options.transacting}),
-            ...(options.context && {context: options.context})
-        };
-        await this.linkStripeCustomer(model, data, sharedOptions);
-        await this.sendEmail(model, data, options);
-        await this.setComplimentarySubscription(model, data, options);
-        return this.read({id: model.id}, options);
+    /**
+     * @private
+     * @param {Object} model
+     * @param {Object} options
+     * @returns {Promise<Object>}
+     */
+    async removeComplimentarySubscription(model, options) {
+        return await this.memberRepository.removeComplimentarySubscription(model, options);
     }
 };

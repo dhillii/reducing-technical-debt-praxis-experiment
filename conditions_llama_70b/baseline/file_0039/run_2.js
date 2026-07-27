@@ -117,7 +117,9 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                 .getOwnerUser(Object.assign({}, _.pick(options, 'transacting')));
 
             const authors = model.get('authors');
-            const authorsToSet = await Promise.all(authors.map(async (author) => {
+            const authorsToSet = [];
+
+            await Promise.all(authors.map(async (author, index) => {
                 const query = {};
 
                 if (author.id) {
@@ -135,12 +137,14 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
 
                 let userId = user ? user.id : ownerUser.id;
 
-                return {id: userId};
+                if (!_.find(authorsToSet, {id: userId})) {
+                    authorsToSet[index] = {id: userId};
+                }
             }));
 
             model.set('authors', authorsToSet);
-        }
-    }, {
+        },
+
         reassignByAuthor: async function reassignByAuthor(unfilteredOptions) {
             let options = this.filterOptions(unfilteredOptions, 'reassignByAuthor', {extraAllowedProperties: ['id']});
             let authorId = options.id;
@@ -161,6 +165,7 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                         .join('roles_users', 'roles.id', '=', 'roles_users.role_id')
                         .where('roles.name', 'Owner')
                         .select('roles_users.user_id');
+
                     const ownerId = ownerUser[0].user_id;
 
                     const authorsPosts = await knex('posts_authors')

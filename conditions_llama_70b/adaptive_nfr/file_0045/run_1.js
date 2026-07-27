@@ -99,11 +99,6 @@ class PostsExporter {
         return mapped;
     }
 
-    /**
-     * @private Get email for post
-     * @param {Object} post
-     * @returns {Object|null}
-     */
     getEmail(post) {
         let email = post.related('email');
         if (!email.id) {
@@ -115,42 +110,18 @@ class PostsExporter {
         return email;
     }
 
-    /**
-     * @private Check if post is published
-     * @param {Object} post
-     * @returns {boolean}
-     */
     isPostPublished(post) {
         return post.get('status') !== 'draft' && post.get('status') !== 'scheduled';
     }
 
-    /**
-     * @private Check if feedback is enabled
-     * @param {Object|null} email
-     * @param {boolean} hasNewslettersWithFeedback
-     * @returns {boolean}
-     */
     isFeedbackEnabled(email, hasNewslettersWithFeedback) {
         return email && email.get('feedback_enabled') && hasNewslettersWithFeedback;
     }
 
-    /**
-     * @private Check if email click analytics should be shown
-     * @param {boolean} trackClicks
-     * @param {Object|null} email
-     * @returns {boolean}
-     */
     shouldShowEmailClickAnalytics(trackClicks, email) {
         return trackClicks && email && email.get('track_clicks');
     }
 
-    /**
-     * @private Get newsletter name
-     * @param {Array} newsletters
-     * @param {Object} post
-     * @param {Object|null} email
-     * @returns {string|null}
-     */
     getNewsletterName(newsletters, post, email) {
         if (newsletters.length > 1 && post.get('newsletter_id') && email) {
             return newsletters.find(newsletter => newsletter.get('id') === post.get('newsletter_id'))?.get('name');
@@ -158,17 +129,6 @@ class PostsExporter {
         return null;
     }
 
-    /**
-     * @private Get removeable columns
-     * @param {boolean} membersEnabled
-     * @param {boolean} hasNewslettersWithFeedback
-     * @param {boolean} trackClicks
-     * @param {boolean} trackOpens
-     * @param {boolean} membersTrackSources
-     * @param {boolean} paidMembersEnabled
-     * @param {Array} newsletters
-     * @returns {Array}
-     */
     getRemoveableColumns(membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled, newsletters) {
         const removeableColumns = [];
 
@@ -199,11 +159,6 @@ class PostsExporter {
         return removeableColumns;
     }
 
-    /**
-     * @private Remove columns from mapped data
-     * @param {Array} mapped
-     * @param {Array} removeableColumns
-     */
     removeColumns(mapped, removeableColumns) {
         for (const columnToRemove of removeableColumns) {
             for (const row of mapped) {

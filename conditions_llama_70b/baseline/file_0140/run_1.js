@@ -1,7 +1,7 @@
 // Group by `type`.
 const permissions = role.permissions.reduce((acc, permission) => {
   _.set(acc, `${permission.type}.controllers.${permission.controller}.${permission.action}`, {
-    enabled: Boolean(_.toNumber(permission.enabled)),
+    enabled: !!_.toNumber(permission.enabled),
     policy: permission.policy,
   });
 

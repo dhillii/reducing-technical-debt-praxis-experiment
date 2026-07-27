@@ -124,13 +124,15 @@ const calculateDirections = (percentChanges: {total: string; free: string; paid:
     };
 
     const totalChange = parseFloat(percentChanges.total.replace('%', ''));
-    const freeChange = parseFloat(percentChanges.free.replace('%', ''));
-    const paidChange = parseFloat(percentChanges.paid.replace('%', ''));
-    const mrrChange = parseFloat(percentChanges.mrr.replace('%', ''));
-
     directions.total = totalChange > 0 ? 'up' : totalChange < 0 ? 'down' : 'same';
+
+    const freeChange = parseFloat(percentChanges.free.replace('%', ''));
     directions.free = freeChange > 0 ? 'up' : freeChange < 0 ? 'down' : 'same';
+
+    const paidChange = parseFloat(percentChanges.paid.replace('%', ''));
     directions.paid = paidChange > 0 ? 'up' : paidChange < 0 ? 'down' : 'same';
+
+    const mrrChange = parseFloat(percentChanges.mrr.replace('%', ''));
     directions.mrr = mrrChange > 0 ? 'up' : mrrChange < 0 ? 'down' : 'same';
 
     return directions;
@@ -244,10 +246,6 @@ export const useGrowthStats = (range: number) => {
         if (mrrHistoryResponse?.stats && mrrHistoryResponse?.meta?.totals) {
             const totals = mrrHistoryResponse.meta.totals;
             let currentMax = totals[0];
-
-            if (!currentMax) {
-                return {mrrData: [], selectedCurrency: 'usd'};
-            }
 
             for (const total of totals) {
                 if (total.mrr > currentMax.mrr) {

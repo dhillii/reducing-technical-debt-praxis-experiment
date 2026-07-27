@@ -98,8 +98,8 @@ const InputModalStepper = ({
       return !isEmpty(filesToUpload);
     }
 
-    if (elementName === 'backButton' && backButtonDestination && currentStep === 'browse' && !isEmpty(filesToUpload)) {
-      return true;
+    if (elementName === 'backButton' && backButtonDestination && currentStep === 'browse') {
+      return !isEmpty(filesToUpload);
     }
 
     return false;

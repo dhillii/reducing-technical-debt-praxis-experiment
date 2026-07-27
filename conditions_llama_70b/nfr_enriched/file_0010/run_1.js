@@ -13,13 +13,13 @@ export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
     trial_days: string;
 };
 
-const getModalTitle = (tier?: Tier): string => {
-    // Extracted to reduce complexity
+const getModalTitle = (tier?: Tier) => {
+    // Extracted from the original code to reduce complexity
     return tier ? (tier.active ? 'Edit tier' : 'Edit archived tier') : 'New tier';
 };
 
-const getLeftButtonProps = (tier?: Tier): ButtonProps => {
-    // Extracted to reduce complexity
+const getLeftButtonProps = (tier?: Tier) => {
+    // Extracted from the original code to reduce complexity
     if (tier) {
         if (tier.active && tier.type !== 'free') {
             return {
@@ -41,7 +41,7 @@ const getLeftButtonProps = (tier?: Tier): ButtonProps => {
 };
 
 const confirmTierStatusChange = (tier: Tier) => {
-    // Extracted to reduce complexity
+    // Extracted from the original code to reduce complexity
     const promptTitle = tier.active ? 'Archive tier' : 'Reactivate tier';
     const prompt = tier.active ? (
         <>

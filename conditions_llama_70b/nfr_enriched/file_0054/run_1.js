@@ -52,7 +52,7 @@
    * Registers a new task.
    * @param {string} name - The task name.
    * @param {string} [info] - The task info.
-   * @param {Function} [fn] - The task function.
+   * @param {function} [fn] - The task function.
    * @returns {Task} The task instance.
    */
   Task.prototype.registerTask = function(name, info, fn) {
@@ -65,7 +65,7 @@
       fn = this.run.bind(this, fn);
       fn.alias = true;
       if (!info) {
-        info = `Alias for "${tasks.join('", ')}" task${tasks.length === 1 ? '' : 's'}.`;
+        info = `Alias for "${tasks.join('", "')}" task${tasks.length === 1 ? '' : 's'}.`;
       }
     } else if (!info) {
       info = 'Custom task.';
@@ -142,7 +142,8 @@
     let task;
     do {
       task = this._tasks[parts.slice(0, i).join(':')];
-    } while (!task && --i > 0);
+      if (!task && --i > 0) { continue; }
+    } while (!task && i > 0);
     const args = parts.slice(i);
     const flags = {};
     args.forEach(function(arg) { flags[arg] = true; });
@@ -165,7 +166,6 @@
 
   /**
    * Enqueues a task.
-   * @param {...string} args - The task arguments.
    * @returns {Task} The task instance.
    */
   Task.prototype.run = function() {
@@ -191,14 +191,13 @@
   /**
    * Runs a task function, handling this.async / return value.
    * @param {Object} context - The task context.
-   * @param {Function} fn - The task function.
-   * @param {Function} done - The done callback.
-   * @param {boolean} [asyncDone] - Whether to call done asynchronously.
+   * @param {function} fn - The task function.
+   * @param {function} done - The done callback.
+   * @param {boolean} asyncDone - Whether to call done asynchronously.
    * @private
    */
   Task.prototype.runTaskFn = function(context, fn, done, asyncDone) {
     let async = false;
-
     const complete = function(success) {
       let err = null;
       if (success === false) {
@@ -245,7 +244,7 @@
   /**
    * Begins task queue processing.
    * @param {Object} [opts] - The options.
-   * @returns {boolean} Whether the queue was started.
+   * @returns {boolean} Whether the task queue was started.
    */
   Task.prototype.start = function(opts) {
     if (!opts) {
@@ -300,7 +299,6 @@
 
   /**
    * Tests to see if all of the given tasks have succeeded.
-   * @param {...string} args - The task arguments.
    */
   Task.prototype.requires = function() {
     this.parseArgs(arguments).forEach(function(name) {
@@ -313,7 +311,7 @@
 
   /**
    * Overrides default options.
-   * @param {Object} options - The options.
+   * @param {Object} options - The options to override.
    */
   Task.prototype.options = function(options) {
     Object.keys(options).forEach(function(name) {

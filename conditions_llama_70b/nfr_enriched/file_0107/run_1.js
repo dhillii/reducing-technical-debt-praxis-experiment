@@ -142,9 +142,9 @@ Runner.prototype.globalProps = function () {
   const props = Object.keys(global);
 
   // non-enumerables
-  for (const globalName of globals) {
-    if (!props.includes(globalName)) {
-      props.push(globalName);
+  for (const globalKey of globals) {
+    if (!props.includes(globalKey)) {
+      props.push(globalKey);
     }
   }
 
@@ -320,7 +320,9 @@ Runner.prototype.hook = function (name, fn) {
     });
   }
 
-  Runner.immediately(() => next(0));
+  Runner.immediately(() => {
+    next(0);
+  });
 };
 
 /**
@@ -637,7 +639,9 @@ Runner.prototype.runSuite = function (suite, fn) {
     // huge recursive loop and thus a maximum call stack error.
     // See comment in `this.runTests()` for more information.
     if (self._grep !== self._defaultGrep) {
-      Runner.immediately(() => self.runSuite(curr, next));
+      Runner.immediately(() => {
+        self.runSuite(curr, next);
+      });
     } else {
       self.runSuite(curr, next);
     }
@@ -949,11 +953,11 @@ function filterLeaks(ok, globals) {
 function extraGlobals() {
   if (typeof process === 'object' && typeof process.version === 'string') {
     const parts = process.version.split('.');
-    const nodeVersion = parts.reduce((a, v) => a << 8 | v);
+    const nodeVersion = parts.reduce((a, v) => a << 8 | v, 0);
 
     // 'errno' was renamed to process._errno in v0.9.11.
 
-    if (nodeVersion < 0x00090B) {
+    if (nodeVersion < 0x00090b) {
       return ['errno'];
     }
   }

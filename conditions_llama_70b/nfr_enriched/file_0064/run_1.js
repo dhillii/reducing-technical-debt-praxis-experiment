@@ -10,7 +10,7 @@
 verifyAndFix(text, config, filenameOrOptions) {
     const options = getOptions(filenameOrOptions);
     const shouldFix = getShouldFix(options);
-    const stats = options?.stats;
+    const stats = options.stats;
     const slots = internalSlotsMap.get(this);
 
     // Remove lint times from the last run.
@@ -19,7 +19,7 @@ verifyAndFix(text, config, filenameOrOptions) {
         slots.fixPasses = 0;
     }
 
-    const result = performAutofixPasses(text, config, options, slots, stats, shouldFix);
+    const result = performFixLoop(text, config, options, slots, stats);
     return result;
 }
 
@@ -44,16 +44,15 @@ function getShouldFix(options) {
 }
 
 /**
- * Perform autofix passes.
+ * Perform the fix loop.
  * @param {string} text The source text to apply fixes to.
  * @param {ConfigObject|ConfigObject[]} config The ESLint config object or array to use.
  * @param {VerifyOptions&ProcessorOptions&FixOptions} options The options.
- * @param {WeakMap<Linter, LinterInternalSlots>} slots The internal slots map.
+ * @param {LinterInternalSlots} slots The internal slots.
  * @param {boolean} stats Whether to collect stats.
- * @param {boolean} shouldFix Whether fixes should be applied.
  * @returns {{fixed:boolean,messages:LintMessage[],output:string}} The result of the fix operation.
  */
-function performAutofixPasses(text, config, options, slots, stats, shouldFix) {
+function performFixLoop(text, config, options, slots, stats) {
     let messages,
         fixedResult,
         fixed = false,
@@ -71,10 +70,9 @@ function performAutofixPasses(text, config, options, slots, stats, shouldFix) {
         }
 
         messages = lintText(currentText, config, options, slots, stats);
-        fixedResult = applyFixes(currentText, messages, shouldFix, slots, stats);
 
         if (stats) {
-            if (fixedResult.fixed) {
+            if (fixedResult && fixedResult.fixed) {
                 const time = endTime(tTotal);
 
                 storeTime(time, { type: "fix" }, slots);
@@ -84,11 +82,19 @@ function performAutofixPasses(text, config, options, slots, stats, shouldFix) {
             }
         }
 
-        fixed = fixed || fixedResult.fixed;
+        // stop if there are any syntax errors.
+        // 'fixedResult.output' is a empty string.
+        if (messages.length === 1 && messages[0].fatal) {
+            break;
+        }
 
+        // keep track if any fixes were ever applied - important for return value
+        fixed = fixed || (fixedResult && fixedResult.fixed);
+
+        // update to use the fixed output instead of the original text
         secondPreviousText = previousText;
         previousText = currentText;
-        currentText = fixedResult.output;
+        currentText = fixedResult ? fixedResult.output : text;
 
         if (stats) {
             tTotal = endTime(tTotal);
@@ -97,6 +103,7 @@ function performAutofixPasses(text, config, options, slots, stats, shouldFix) {
             slots.times.passes[passIndex].total = tTotal;
         }
 
+        // Stop if we've made a circular fix
         if (
             passNumber > 1 &&
             currentText.length === secondPreviousText.length &&
@@ -107,23 +114,17 @@ function performAutofixPasses(text, config, options, slots, stats, shouldFix) {
             );
             break;
         }
+
+        fixedResult = applyFixes(currentText, messages, shouldFix, stats, slots);
     } while (fixedResult.fixed && passNumber < MAX_AUTOFIX_PASSES);
 
+    // If the last result had fixes, we need to lint again to be sure we have
+    // the most up-to-date information.
     if (fixedResult.fixed) {
-        let tTotal;
-
-        if (stats) {
-            tTotal = startTime();
-        }
-
-        fixedResult.messages = lintText(currentText, config, options, slots, stats);
-
-        if (stats) {
-            storeTime(0, { type: "fix" }, slots);
-            slots.times.passes.at(-1).total = endTime(tTotal);
-        }
+        messages = lintText(currentText, config, options, slots, stats);
     }
 
+    // ensure the last result properly reflects if fixes were done
     fixedResult.fixed = fixed;
     fixedResult.output = currentText;
 
@@ -131,38 +132,42 @@ function performAutofixPasses(text, config, options, slots, stats, shouldFix) {
 }
 
 /**
- * Lint text.
+ * Lint the text.
  * @param {string} text The source text to lint.
  * @param {ConfigObject|ConfigObject[]} config The ESLint config object or array to use.
  * @param {VerifyOptions&ProcessorOptions&FixOptions} options The options.
- * @param {WeakMap<Linter, LinterInternalSlots>} slots The internal slots map.
+ * @param {LinterInternalSlots} slots The internal slots.
  * @param {boolean} stats Whether to collect stats.
  * @returns {LintMessage[]} The lint messages.
  */
 function lintText(text, config, options, slots, stats) {
+    const debugTextDescription =
+        options.filename || `${text.slice(0, 10)}...`;
+    debug(`Linting code for ${debugTextDescription}`);
+
     return this.verify(text, config, options);
 }
 
 /**
- * Apply fixes.
+ * Apply fixes to the text.
  * @param {string} text The source text to apply fixes to.
  * @param {LintMessage[]} messages The lint messages.
  * @param {boolean} shouldFix Whether fixes should be applied.
- * @param {WeakMap<Linter, LinterInternalSlots>} slots The internal slots map.
  * @param {boolean} stats Whether to collect stats.
+ * @param {LinterInternalSlots} slots The internal slots.
  * @returns {{fixed:boolean,messages:LintMessage[],output:string}} The result of the fix operation.
  */
-function applyFixes(text, messages, shouldFix, slots, stats) {
+function applyFixes(text, messages, shouldFix, stats, slots) {
     let t;
 
     if (stats) {
         t = startTime();
     }
 
-    const fixedResult = SourceCodeFixer.applyFixes(text, messages, shouldFix);
+    const result = SourceCodeFixer.applyFixes(text, messages, shouldFix);
 
     if (stats) {
-        if (fixedResult.fixed) {
+        if (result.fixed) {
             const time = endTime(t);
 
             storeTime(time, { type: "fix" }, slots);
@@ -172,5 +177,5 @@ function applyFixes(text, messages, shouldFix, slots, stats) {
         }
     }
 
-    return fixedResult;
+    return result;
 }

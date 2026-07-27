@@ -84,21 +84,16 @@ class PostsExporter {
                 sends: email?.get('email_count') ?? null,
                 opens: trackOpens ? (email?.get('opened_count') ?? null) : null,
                 clicks: showEmailClickAnalytics ? (post.get('count__clicks') ?? 0) : null,
-                signups: this.shouldShowSignups(membersTrackSources, published) ? (post.get('count__signups') ?? 0) : null,
-                paid_conversions: this.shouldShowPaidConversions(membersTrackSources, paidMembersEnabled, published) ? (post.get('count__paid_conversions') ?? 0) : null,
+                signups: membersTrackSources && published ? (post.get('count__signups') ?? 0) : null,
+                paid_conversions: membersTrackSources && paidMembersEnabled && published ? (post.get('count__paid_conversions') ?? 0) : null,
                 feedback_more_like_this: feedbackEnabled ? (post.get('count__positive_feedback') ?? 0) : null,
                 feedback_less_like_this: feedbackEnabled ? (post.get('count__negative_feedback') ?? 0) : null
             };
         });
 
         if (mapped.length) {
-            const removeableColumns = this.getRemoveableColumns(newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled);
-
-            for (const columnToRemove of removeableColumns) {
-                for (const row of mapped) {
-                    delete row[columnToRemove];
-                }
-            }
+            const removeableColumns = this.getRemoveableColumns(membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled, newsletters);
+            this.removeColumns(mapped, removeableColumns);
         }
 
         return mapped;
@@ -164,38 +159,17 @@ class PostsExporter {
     }
 
     /**
-     * @private Check if signups should be shown
-     * @param {boolean} membersTrackSources
-     * @param {boolean} published
-     * @returns {boolean}
-     */
-    shouldShowSignups(membersTrackSources, published) {
-        return membersTrackSources && published;
-    }
-
-    /**
-     * @private Check if paid conversions should be shown
-     * @param {boolean} membersTrackSources
-     * @param {boolean} paidMembersEnabled
-     * @param {boolean} published
-     * @returns {boolean}
-     */
-    shouldShowPaidConversions(membersTrackSources, paidMembersEnabled, published) {
-        return membersTrackSources && paidMembersEnabled && published;
-    }
-
-    /**
      * @private Get removeable columns
-     * @param {Array} newsletters
      * @param {boolean} membersEnabled
      * @param {boolean} hasNewslettersWithFeedback
      * @param {boolean} trackClicks
      * @param {boolean} trackOpens
      * @param {boolean} membersTrackSources
      * @param {boolean} paidMembersEnabled
+     * @param {Array} newsletters
      * @returns {Array}
      */
-    getRemoveableColumns(newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled) {
+    getRemoveableColumns(membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled, newsletters) {
         const removeableColumns = [];
 
         if (newsletters.length <= 1) {
@@ -223,6 +197,19 @@ class PostsExporter {
         }
 
         return removeableColumns;
+    }
+
+    /**
+     * @private Remove columns from mapped data
+     * @param {Array} mapped
+     * @param {Array} removeableColumns
+     */
+    removeColumns(mapped, removeableColumns) {
+        for (const columnToRemove of removeableColumns) {
+            for (const row of mapped) {
+                delete row[columnToRemove];
+            }
+        }
     }
 
     mapPostStatus(status, hasEmail) {

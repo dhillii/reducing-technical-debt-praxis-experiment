@@ -83,45 +83,27 @@ export default class Analytics extends Component {
     }
 
     get allowedDisplayOptions() {
-        if (!this.hasPaidConversionData) {
-            return this.displayOptions.filter(d => d.value === 'signups');
-        }
+        return this.displayOptions.filter(option => this.isDisplayOptionAllowed(option.value));
+    }
 
-        if (!this.hasFreeSignups) {
-            return this.displayOptions.filter(d => d.value === 'paid');
+    isDisplayOptionAllowed(optionValue) {
+        if (optionValue === 'signups') {
+            return this.hasFreeSignups;
+        } else if (optionValue === 'paid') {
+            return this.hasPaidConversionData;
         }
-
-        return this.displayOptions;
+        return true;
     }
 
     get isDropdownDisabled() {
-        if (!this.hasPaidConversionData || !this.hasFreeSignups) {
-            return true;
-        }
-
-        return false;
+        return !this.hasPaidConversionData || !this.hasFreeSignups;
     }
 
     get selectedDisplayOption() {
-        if (!this.hasPaidConversionData) {
-            return this.displayOptions.find(d => d.value === 'signups');
-        }
-
-        if (!this.hasFreeSignups) {
-            return this.displayOptions.find(d => d.value === 'paid');
-        }
-
-        return this.displayOptions.find(d => d.value === this.sortColumn) ?? this.displayOptions[0];
+        return this.allowedDisplayOptions.find(option => option.value === this.sortColumn) ?? this.allowedDisplayOptions[0];
     }
 
     get selectedSortColumn() {
-        if (!this.hasPaidConversionData) {
-            return 'signups';
-        }
-
-        if (!this.hasFreeSignups) {
-            return 'paid';
-        }
         return this.sortColumn;
     }
 
@@ -141,8 +123,8 @@ export default class Analytics extends Component {
         const values = [this.post.count.positive_feedback, this.post.count.negative_feedback];
         const labels = ['More like this', 'Less like this'];
         const links = [
-            {filterParam: '(feedback.post_id:\'' + this.post.id + '\'+feedback.score:1)'},
-            {filterParam: '(feedback.post_id:\'' + this.post.id + '\'+feedback.score:0)'}
+            {filterParam: `(feedback.post_id:'${this.post.id}'+feedback.score:1)`},
+            {filterParam: `(feedback.post_id:'${this.post.id}'+feedback.score:0)`}
         ];
         const colors = ['#F080B2', '#8452f633'];
         return {values, labels, links, colors};
@@ -378,30 +360,27 @@ export default class Analytics extends Component {
         return true;
     }
 
-    /**
-     * Checks if the element should be animated.
-     * @param {HTMLElement} element
-     * @returns {boolean}
-     */
-    shouldElementBeAnimated(element) {
-        return this.shouldAnimate &&
-            !(element.classList.contains('sent') && this.post.email.emailCount === this.previousSentCount) &&
-            !(element.classList.contains('opened') && this.post.email.openedCount === this.previousOpenedCount) &&
-            !(element.classList.contains('clicked') && this.post.count.clicks === this.previousClickedCount) &&
-            !(element.classList.contains('feedback') && this.totalFeedback === this.previousFeedbackCount) &&
-            !(element.classList.contains('conversions') && this.post.count.conversions === this.previousConversionsCount);
+    @action
+    applyClasses(element) {
+        if (!this.shouldAnimate ||
+            (element.classList.contains('sent') && this.post.email.emailCount === this.previousSentCount) ||
+            (element.classList.contains('opened') && this.post.email.openedCount === this.previousOpenedCount) ||
+            (element.classList.contains('clicked') && this.post.count.clicks === this.previousClickedCount) ||
+            (element.classList.contains('feedback') && this.totalFeedback === this.previousFeedbackCount) ||
+            (element.classList.contains('conversions') && this.post.count.conversions === this.previousConversionsCount)
+        ) {
+            return;
+        }
+
+        this.animateNewNumber(element);
+        this.animateOldNumber(element);
     }
 
-    /**
-     * Animates the new number element.
-     * @param {HTMLElement} element
-     */
     animateNewNumber(element) {
-        const targets = `${Array.from(element.classList).map(className => `.${className}`).join('')} .new-number span`;
+        const targets = this.getTargets(element);
         anime({
             targets,
             translateY: [10,0],
-            // translateZ: 0,
             opacity: [0,1],
             easing: 'easeOutElastic',
             elasticity: 650,
@@ -410,12 +389,8 @@ export default class Analytics extends Component {
         });
     }
 
-    /**
-     * Animates the old number element.
-     * @param {HTMLElement} element
-     */
     animateOldNumber(element) {
-        const targets = `${Array.from(element.classList).map(className => `.${className}`).join('')} .old-number span`;
+        const targets = this.getTargets(element, 'old-number');
         anime({
             targets,
             translateY: [0,-10],
@@ -426,12 +401,8 @@ export default class Analytics extends Component {
         });
     }
 
-    @action
-    applyClasses(element) {
-        if (this.shouldElementBeAnimated(element)) {
-            this.animateNewNumber(element);
-            this.animateOldNumber(element);
-        }
+    getTargets(element, className = 'new-number') {
+        return `${Array.from(element.classList).map(c => `.${c}`).join('')} .${className} span`;
     }
 
     get showLinks() {

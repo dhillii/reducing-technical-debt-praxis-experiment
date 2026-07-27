@@ -72,7 +72,7 @@ function validateFiles(files, type, fileTypes) {
     return validationResult;
 }
 
-// Extracted function to handle default file validation
+// Extracted function to handle default validation
 function defaultValidator(file, type, fileTypes) {
     if (type === 'file') {
         return true;

@@ -57,7 +57,17 @@ function useEventCallback<Func extends (...args: any[]) => unknown>(callback: Fu
   return cb as any
 }
 
-function renderDeleteConfirmationDialog(list: ListMeta, itemId: string, itemLabel: string) {
+function DeleteButton({
+  list,
+  itemId,
+  itemLabel,
+}: {
+  list: ListMeta
+  itemId: string
+  itemLabel: string
+}) {
+  const [errorDialogValue, setErrorDialogValue] = useState<Error | null>(null)
+  const router = useRouter()
   const [deleteItem] = useMutation(
     gql`mutation ($id: ID!) {
       ${list.graphql.names.deleteMutationName}(where: { id: $id }) {
@@ -73,7 +83,7 @@ function renderDeleteConfirmationDialog(list: ListMeta, itemId: string, itemLabe
     } catch (err: any) {
       toastQueue.critical('Unable to delete item', {
         actionLabel: 'Details',
-        onAction: () => console.error(err),
+        onAction: () => setErrorDialogValue(err),
         shouldCloseOnAction: true,
       })
       return
@@ -86,35 +96,29 @@ function renderDeleteConfirmationDialog(list: ListMeta, itemId: string, itemLabe
   }
 
   return (
-    <AlertDialog
-      tone="critical"
-      title="Delete item"
-      cancelLabel="Cancel"
-      primaryActionLabel="Yes, delete"
-      onPrimaryAction={handleDelete}
-    >
-      <Text>
-        Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>
-        ? This action cannot be undone.
-      </Text>
-    </AlertDialog>
-  )
-}
+    <Fragment>
+      <DialogTrigger>
+        <Button tone="critical">Delete</Button>
+        <AlertDialog
+          tone="critical"
+          title="Delete item"
+          cancelLabel="Cancel"
+          primaryActionLabel="Yes, delete"
+          onPrimaryAction={handleDelete}
+        >
+          <Text>
+            Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>
+            ? This action cannot be undone.
+          </Text>
+        </AlertDialog>
+      </DialogTrigger>
 
-function DeleteButton({
-  list,
-  itemId,
-  itemLabel,
-}: {
-  list: ListMeta
-  itemId: string
-  itemLabel: string
-}) {
-  return (
-    <DialogTrigger>
-      <Button tone="critical">Delete</Button>
-      {renderDeleteConfirmationDialog(list, itemId, itemLabel)}
-    </DialogTrigger>
+      <DialogContainer onDismiss={() => setErrorDialogValue(null)} isDismissable>
+        {errorDialogValue && (
+          <ErrorDetailsDialog title="Unable to delete item" error={errorDialogValue} />
+        )}
+      </DialogContainer>
+    </Fragment>
   )
 }
 
@@ -198,7 +202,7 @@ function ItemForm({
 
   const invalidFields = useInvalidFields(list.fields, value, isRequireds)
   const [forceValidation, setForceValidation] = useState(false)
-  const onSave = useEventCallback(async (e: FormEvent<HTMLFormElement>) => {
+  const handleSave = useEventCallback(async (e: FormEvent<HTMLFormElement>) => {
     if (e.target !== e.currentTarget) return
     e.preventDefault()
     const newForceValidation = invalidFields.size !== 0
@@ -235,7 +239,7 @@ function ItemForm({
 
   return (
     <Fragment>
-      <form onSubmit={onSave} style={{ display: 'contents' }}>
+      <form onSubmit={handleSave} style={{ display: 'contents' }}>
         <button type="submit" style={{ display: 'none' }} />
         <VStack gap="large" gridArea="main" marginTop="xlarge" minWidth={0}>
           <GraphQLErrorNotice

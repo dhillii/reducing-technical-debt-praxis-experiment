@@ -476,38 +476,49 @@ function preprocess(analyzer, node) {
 		case "MemberExpression":
 			handleMemberExpression(analyzer, node);
 			break;
+
 		case "LogicalExpression":
 			handleLogicalExpression(analyzer, node);
 			break;
+
 		case "AssignmentExpression":
 			handleAssignmentExpression(analyzer, node);
 			break;
+
 		case "ConditionalExpression":
 		case "IfStatement":
 			handleConditionalExpression(analyzer, node);
 			break;
+
 		case "SwitchCase":
 			handleSwitchCase(analyzer, node);
 			break;
+
 		case "TryStatement":
 			handleTryStatement(analyzer, node);
 			break;
+
 		case "WhileStatement":
 			handleWhileStatement(analyzer, node);
 			break;
+
 		case "DoWhileStatement":
 			handleDoWhileStatement(analyzer, node);
 			break;
+
 		case "ForStatement":
 			handleForStatement(analyzer, node);
 			break;
+
 		case "ForInStatement":
 		case "ForOfStatement":
 			handleForInOrForOfStatement(analyzer, node);
 			break;
+
 		case "AssignmentPattern":
 			handleAssignmentPattern(analyzer, node);
 			break;
+
 		default:
 			break;
 	}

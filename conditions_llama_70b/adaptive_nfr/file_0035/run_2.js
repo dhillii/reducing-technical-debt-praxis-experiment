@@ -31,51 +31,24 @@ const isPostSelected = (postContainer) => {
 };
 
 /**
- * Selects a post.
+ * Gets the context menu buttons.
  *
- * @param {Element} postContainer - The container element of the post.
- * @param {object} options - Options for the click event.
+ * @param {Element} contextMenu - The context menu element.
+ * @returns {NodeList} The NodeList of context menu buttons.
  */
-const selectPost = async (postContainer, options) => {
-    await click(postContainer, options);
-};
-
-/**
- * Triggers a context menu event on a post.
- *
- * @param {Element} postContainer - The container element of the post.
- */
-const triggerContextMenu = async (postContainer) => {
-    await triggerEvent(postContainer, 'contextmenu');
-};
-
-/**
- * Gets the context menu element.
- *
- * @returns {Element} The context menu element.
- */
-const getContextMenu = () => {
-    return find('.gh-posts-context-menu');
-};
-
-/**
- * Gets the buttons in the context menu.
- *
- * @returns {NodeList} The buttons in the context menu.
- */
-const getContextMenuButtons = () => {
-    return find('.gh-posts-context-menu').querySelectorAll('button');
+const getContextMenuButtons = (contextMenu) => {
+    return contextMenu.querySelectorAll('button');
 };
 
 /**
  * Checks if a button exists in the context menu.
  *
- * @param {string} text - The text of the button to check for.
+ * @param {string} text - The text to search for.
+ * @param {NodeList} buttons - The NodeList of buttons to search in.
  * @returns {boolean} True if the button exists, false otherwise.
  */
-const contextMenuButtonExists = (text) => {
-    const buttons = getContextMenuButtons();
-    return Array.from(buttons).some(button => button.innerText.trim() === text);
+const buttonExists = (text, buttons) => {
+    return buttons.some(button => button.innerText.trim() === text);
 };
 
 describe('Acceptance: Posts / Pages', function () {
@@ -225,13 +198,13 @@ describe('Acceptance: Posts / Pages', function () {
                     expect(contextMenu, 'context menu').to.exist;
 
                     // Test that the context menu has the correct buttons
-                    const buttons = contextMenu.querySelectorAll('button');
+                    const buttons = getContextMenuButtons(contextMenu);
                     expect(buttons.length, 'context menu buttons').to.equal(5);
-                    expect(buttons[0].innerText.trim(), 'context menu button 1').to.contain('Copy link to post');
-                    expect(buttons[1].innerText.trim(), 'context menu button 2').to.contain('Unpublish');
-                    expect(buttons[2].innerText.trim(), 'context menu button 3').to.contain('Feature');
-                    expect(buttons[3].innerText.trim(), 'context menu button 4').to.contain('Add a tag');
-                    expect(buttons[4].innerText.trim(), 'context menu button 5').to.contain('Duplicate');
+                    expect(buttonExists('Copy link to post', buttons), 'context menu button 1').to.be.true;
+                    expect(buttonExists('Unpublish', buttons), 'context menu button 2').to.be.true;
+                    expect(buttonExists('Feature', buttons), 'context menu button 3').to.be.true;
+                    expect(buttonExists('Add a tag', buttons), 'context menu button 4').to.be.true;
+                    expect(buttonExists('Duplicate', buttons), 'context menu button 5').to.be.true;
                 });
 
                 // Note: we cover the functionality of the context menu buttons in the 'as admin' section
@@ -433,16 +406,15 @@ describe('Acceptance: Posts / Pages', function () {
 
                         let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
 
-                        let buttons = contextMenu.querySelectorAll('button');
-
+                        let buttons = getContextMenuButtons(contextMenu);
                         expect(contextMenu, 'context menu').to.exist;
                         expect(buttons.length, 'context menu buttons').to.equal(6);
-                        expect(buttons[0].innerText.trim(), 'context menu button 1').to.contain('Copy link to post');
-                        expect(buttons[1].innerText.trim(), 'context menu button 1').to.contain('Unpublish');
-                        expect(buttons[2].innerText.trim(), 'context menu button 2').to.contain('Feature'); // or Unfeature
-                        expect(buttons[3].innerText.trim(), 'context menu button 3').to.contain('Add a tag');
-                        expect(buttons[4].innerText.trim(), 'context menu button 4').to.contain('Duplicate');
-                        expect(buttons[5].innerText.trim(), 'context menu button 5').to.contain('Delete');
+                        expect(buttonExists('Copy link to post', buttons), 'context menu button 1').to.be.true;
+                        expect(buttonExists('Unpublish', buttons), 'context menu button 1').to.be.true;
+                        expect(buttonExists('Feature', buttons), 'context menu button 2').to.be.true; // or Unfeature
+                        expect(buttonExists('Add a tag', buttons), 'context menu button 3').to.be.true;
+                        expect(buttonExists('Duplicate', buttons), 'context menu button 4').to.be.true;
+                        expect(buttonExists('Delete', buttons), 'context menu button 5').to.be.true;
 
                         // duplicate the post
                         await click(buttons[4]);
@@ -466,16 +438,15 @@ describe('Acceptance: Posts / Pages', function () {
 
                         let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
 
-                        let buttons = contextMenu.querySelectorAll('button');
-
+                        let buttons = getContextMenuButtons(contextMenu);
                         expect(contextMenu, 'context menu').to.exist;
                         expect(buttons.length, 'context menu buttons').to.equal(6);
-                        expect(buttons[0].innerText.trim(), 'context menu button 1').to.contain('Copy link to post');
-                        expect(buttons[1].innerText.trim(), 'context menu button 1').to.contain('Unpublish');
-                        expect(buttons[2].innerText.trim(), 'context menu button 2').to.contain('Feature'); // or Unfeature
-                        expect(buttons[3].innerText.trim(), 'context menu button 3').to.contain('Add a tag');
-                        expect(buttons[4].innerText.trim(), 'context menu button 4').to.contain('Duplicate');
-                        expect(buttons[5].innerText.trim(), 'context menu button 5').to.contain('Delete');
+                        expect(buttonExists('Copy link to post', buttons), 'context menu button 1').to.be.true;
+                        expect(buttonExists('Unpublish', buttons), 'context menu button 1').to.be.true;
+                        expect(buttonExists('Feature', buttons), 'context menu button 2').to.be.true; // or Unfeature
+                        expect(buttonExists('Add a tag', buttons), 'context menu button 3').to.be.true;
+                        expect(buttonExists('Duplicate', buttons), 'context menu button 4').to.be.true;
+                        expect(buttonExists('Delete', buttons), 'context menu button 5').to.be.true;
 
                         // Copy the post link
                         await click(buttons[0]);
@@ -501,15 +472,14 @@ describe('Acceptance: Posts / Pages', function () {
 
                         let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
 
-                        let buttons = contextMenu.querySelectorAll('button');
-
+                        let buttons = getContextMenuButtons(contextMenu);
                         expect(contextMenu, 'context menu').to.exist;
                         expect(buttons.length, 'context menu buttons').to.equal(5);
-                        expect(buttons[0].innerText.trim(), 'context menu button 1').to.contain('Copy preview link');
-                        expect(buttons[1].innerText.trim(), 'context menu button 2').to.contain('Feature'); // or Unfeature
-                        expect(buttons[2].innerText.trim(), 'context menu button 3').to.contain('Add a tag');
-                        expect(buttons[3].innerText.trim(), 'context menu button 4').to.contain('Duplicate');
-                        expect(buttons[4].innerText.trim(), 'context menu button 5').to.contain('Delete');
+                        expect(buttonExists('Copy preview link', buttons), 'context menu button 1').to.be.true;
+                        expect(buttonExists('Feature', buttons), 'context menu button 2').to.be.true; // or Unfeature
+                        expect(buttonExists('Add a tag', buttons), 'context menu button 3').to.be.true;
+                        expect(buttonExists('Duplicate', buttons), 'context menu button 4').to.be.true;
+                        expect(buttonExists('Delete', buttons), 'context menu button 5').to.be.true;
 
                         // Copy the preview link
                         await click(buttons[0]);
@@ -534,21 +504,21 @@ describe('Acceptance: Posts / Pages', function () {
                         const postThreeContainer = posts[2].parentElement; // draft post
                         const postFourContainer = posts[3].parentElement; // published post
 
-                        await selectPost(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await selectPost(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
                         expect(isPostSelected(postFourContainer), 'postFour selected').to.be.true;
                         expect(isPostSelected(postThreeContainer), 'postThree selected').to.be.true;
 
                         // NOTE: right clicks don't seem to work in these tests
                         //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerContextMenu(postFourContainer);
+                        await triggerEvent(postFourContainer, 'contextmenu');
 
                         let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
                         expect(contextMenu, 'context menu').to.exist;
 
                         // feature the post
-                        let buttons = contextMenu.querySelectorAll('button');
+                        let buttons = getContextMenuButtons(contextMenu);
                         let featureButton = findButton('Feature', buttons);
                         expect(featureButton, 'feature button').to.exist;
                         await click(featureButton);
@@ -563,13 +533,13 @@ describe('Acceptance: Posts / Pages', function () {
                         expect(postFourContainer.querySelector('.gh-featured-post'), 'postFour featured').to.exist;
 
                         // unfeature the posts
-                        await triggerContextMenu(postFourContainer);
+                        await triggerEvent(postFourContainer, 'contextmenu');
 
                         contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
                         expect(contextMenu, 'context menu').to.exist;
 
                         // unfeature the posts
-                        buttons = contextMenu.querySelectorAll('button');
+                        buttons = getContextMenuButtons(contextMenu);
                         featureButton = findButton('Unfeature', buttons);
                         expect(featureButton, 'unfeature button').to.exist;
                         await click(featureButton);
@@ -594,21 +564,21 @@ describe('Acceptance: Posts / Pages', function () {
                         const postThreeContainer = posts[2].parentElement; // draft post
                         const postFourContainer = posts[3].parentElement; // published post
 
-                        await selectPost(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await selectPost(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
                         expect(isPostSelected(postFourContainer), 'postFour selected').to.be.true;
                         expect(isPostSelected(postThreeContainer), 'postThree selected').to.be.true;
 
                         // NOTE: right clicks don't seem to work in these tests
                         //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerContextMenu(postFourContainer);
+                        await triggerEvent(postFourContainer, 'contextmenu');
 
                         let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
                         expect(contextMenu, 'context menu').to.exist;
 
                         // add a tag to the posts
-                        let buttons = contextMenu.querySelectorAll('button');
+                        let buttons = getContextMenuButtons(contextMenu);
                         let addTagButton = findButton('Add a tag', buttons);
                         expect(addTagButton, 'add tag button').to.exist;
                         await click(addTagButton);
@@ -641,9 +611,9 @@ describe('Acceptance: Posts / Pages', function () {
                         const postThreeContainer = posts[2].parentElement; // published post
                         const postFourContainer = posts[3].parentElement; // author post
 
-                        await selectPost(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await selectPost(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await triggerContextMenu(postFourContainer);
+                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await triggerEvent(postFourContainer, 'contextmenu');
 
                         expect(find('[data-test-post-context-menu]'), 'context menu').to.exist;
                         expect(find('[data-test-post-context-menu] [data-test-button="change-access"]'), 'change access button').not.to.exist;
@@ -659,13 +629,13 @@ describe('Acceptance: Posts / Pages', function () {
                         let postThreeContainer = posts[2].parentElement; // published post
                         let postFourContainer = posts[3].parentElement; // author post
 
-                        await selectPost(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await selectPost(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        await triggerContextMenu(postFourContainer);
+                        await triggerEvent(postFourContainer, 'contextmenu');
 
                         let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-                        let buttons = contextMenu.querySelectorAll('button');
+                        let buttons = getContextMenuButtons(contextMenu);
                         let changeAccessButton = findButton('Change access', buttons);
 
                         await click(changeAccessButton);
@@ -682,11 +652,11 @@ describe('Acceptance: Posts / Pages', function () {
 
                         // ensure modal matches the new state when accessed again
                         // NOTE: we only show the selected visibility/tiers state for single selections
-                        await selectPost(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
                         postFourContainer = findAll('[data-test-post-id]')[3].parentElement; // published post
-                        await triggerContextMenu(postFourContainer);
+                        await triggerEvent(postFourContainer, 'contextmenu');
                         contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-                        buttons = contextMenu.querySelectorAll('button');
+                        buttons = getContextMenuButtons(contextMenu);
                         changeAccessButton = findButton('Change access', buttons);
                         await click(changeAccessButton);
                         changeAccessModal = find('[data-test-modal="edit-posts-access"]');
@@ -711,7 +681,7 @@ describe('Acceptance: Posts / Pages', function () {
                         await settingsService.set('membersEnabled', true);
 
                         const postContainer = findAll('[data-test-post-id]')[2].parentElement; // published post
-                        await triggerContextMenu(postContainer);
+                        await triggerEvent(postContainer, 'contextmenu');
                         await click('[data-test-post-context-menu] [data-test-button="change-access"]');
 
                         const modalSelector = '[data-test-modal="edit-posts-access"]';
@@ -734,7 +704,7 @@ describe('Acceptance: Posts / Pages', function () {
                         expect(JSON.parse(lastRequest.requestBody).bulk.meta.tiers[0].id, 'change access request tier').to.equal(this.server.schema.tiers.findBy({slug: 'default-tier'}).id);
 
                         // check correct data is shown when re-accessing change access modal
-                        await triggerContextMenu(postContainer);
+                        await triggerEvent(postContainer, 'contextmenu');
                         await click('[data-test-post-context-menu] [data-test-button="change-access"]');
                         expect(find(`${modalSelector} select`).value).to.equal('tiers');
                         expect(findAll(`${tiersSelector} [data-test-visibility-segment-option]`)).to.have.length(1);
@@ -751,21 +721,21 @@ describe('Acceptance: Posts / Pages', function () {
                         const postThreeContainer = posts[2].parentElement; // draft post
                         const postFourContainer = posts[3].parentElement; // published post
 
-                        await selectPost(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await selectPost(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
                         expect(isPostSelected(postFourContainer), 'postFour selected').to.be.true;
                         expect(isPostSelected(postThreeContainer), 'postThree selected').to.be.true;
 
                         // NOTE: right clicks don't seem to work in these tests
                         //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerContextMenu(postFourContainer);
+                        await triggerEvent(postFourContainer, 'contextmenu');
 
                         let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
                         expect(contextMenu, 'context menu').to.exist;
 
                         // unpublish the posts
-                        let buttons = contextMenu.querySelectorAll('button');
+                        let buttons = getContextMenuButtons(contextMenu);
                         let unpublishButton = findButton('Unpublish', buttons);
                         expect(unpublishButton, 'unpublish button').to.exist;
                         await click(unpublishButton);
@@ -794,19 +764,19 @@ describe('Acceptance: Posts / Pages', function () {
 
                         const postOneContainer = posts[0].parentElement; // scheduled post
 
-                        await selectPost(postOneContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await click(postOneContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
                         expect(isPostSelected(postOneContainer), 'postOne selected').to.be.true;
 
                         // NOTE: right clicks don't seem to work in these tests
                         //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerContextMenu(postOneContainer);
+                        await triggerEvent(postOneContainer, 'contextmenu');
 
                         let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
                         expect(contextMenu, 'context menu').to.exist;
 
                         // unschedule the post
-                        let buttons = contextMenu.querySelectorAll('button');
+                        let buttons = getContextMenuButtons(contextMenu);
                         let unscheduleButton = findButton('Unschedule', buttons);
                         expect(unscheduleButton, 'unschedule button').to.exist;
                         await click(unscheduleButton);
@@ -835,21 +805,21 @@ describe('Acceptance: Posts / Pages', function () {
                         const postThreeContainer = posts[2].parentElement; // draft post
                         const postFourContainer = posts[3].parentElement; // published post
 
-                        await selectPost(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await selectPost(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
                         expect(isPostSelected(postFourContainer), 'postFour selected').to.be.true;
                         expect(isPostSelected(postThreeContainer), 'postThree selected').to.be.true;
 
                         // NOTE: right clicks don't seem to work in these tests
                         //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerContextMenu(postFourContainer);
+                        await triggerEvent(postFourContainer, 'contextmenu');
 
                         let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
                         expect(contextMenu, 'context menu').to.exist;
 
                         // delete the posts
-                        let buttons = contextMenu.querySelectorAll('button');
+                        let buttons = getContextMenuButtons(contextMenu);
                         let deleteButton = findButton('Delete', buttons);
                         expect(deleteButton, 'delete button').to.exist;
                         await click(deleteButton);

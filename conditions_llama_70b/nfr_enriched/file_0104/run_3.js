@@ -66,19 +66,19 @@
       }
 
       _applyRemainingDefaultOptions(this.options);
+      var visibleOptionToUse = _getVisibleOption();
+
       _addBaselineStyles();
 
-      var visibleOptionToUse = _getVisibleOption();
       var idList = _getIdList();
-
       elements = elements.filter(function(element) {
         return !_hasAnchorJSLink(element);
       });
 
       elements.forEach(function(element) {
         var elementID = _getElementID(element, idList);
-        var anchor = _createAnchor(elementID, visibleOptionToUse);
-        _appendAnchor(element, anchor);
+        var anchor = _createAnchor(elementID);
+        _appendAnchor(element, anchor, visibleOptionToUse);
       });
 
       this.elements = this.elements.concat(elements);
@@ -209,10 +209,6 @@
       style.sheet.insertRule(anchorjsLinkFontFace, style.sheet.cssRules.length);
     }
 
-    /**
-     * Get visible option
-     * @return {String} - visible option
-     */
     function _getVisibleOption() {
       var visibleOptionToUse = this.options.visible;
       if (visibleOptionToUse === 'touch') {
@@ -221,10 +217,6 @@
       return visibleOptionToUse;
     }
 
-    /**
-     * Get id list
-     * @return {Array} - id list
-     */
     function _getIdList() {
       var elsWithIds = document.querySelectorAll('[id]');
       var idList = [].map.call(elsWithIds, function assign(el) {
@@ -233,12 +225,6 @@
       return idList;
     }
 
-    /**
-     * Get element id
-     * @param {HTMLElement} element - element
-     * @param {Array} idList - id list
-     * @return {String} - element id
-     */
     function _getElementID(element, idList) {
       var elementID;
       if (element.hasAttribute('id')) {
@@ -265,22 +251,12 @@
       return elementID;
     }
 
-    /**
-     * Create anchor
-     * @param {String} elementID - element id
-     * @param {String} visibleOptionToUse - visible option
-     * @return {HTMLElement} - anchor
-     */
-    function _createAnchor(elementID, visibleOptionToUse) {
+    function _createAnchor(elementID) {
       var anchor = document.createElement('a');
       anchor.className = 'anchorjs-link ' + this.options.class;
       anchor.href = '#' + elementID;
       anchor.setAttribute('aria-label', 'Anchor link for: ' + elementID.replace(/-/g, ' '));
       anchor.setAttribute('data-anchorjs-icon', this.options.icon);
-
-      if (visibleOptionToUse === 'always') {
-        anchor.style.opacity = '1';
-      }
 
       if (this.options.icon === '\ue9cb') {
         anchor.style.font = '1em/1 anchorjs-icons';
@@ -293,12 +269,11 @@
       return anchor;
     }
 
-    /**
-     * Append anchor
-     * @param {HTMLElement} element - element
-     * @param {HTMLElement} anchor - anchor
-     */
-    function _appendAnchor(element, anchor) {
+    function _appendAnchor(element, anchor, visibleOptionToUse) {
+      if (visibleOptionToUse === 'always') {
+        anchor.style.opacity = '1';
+      }
+
       if (this.options.placement === 'left') {
         anchor.style.position = 'absolute';
         anchor.style.marginLeft = '-1em';

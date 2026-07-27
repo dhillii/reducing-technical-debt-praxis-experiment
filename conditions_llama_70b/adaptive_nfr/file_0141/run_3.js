@@ -472,17 +472,13 @@ class Strapi {
   async runUserLifecycles(lifecycleName) {
     const configPath = `functions.${lifecycleName}`;
 
-    return this.execLifecycle(_.get(this.config, configPath)).catch(err => {
-      strapi.log.error(`${lifecycleName} function in user failed`);
-      strapi.log.error(err);
-      strapi.stop();
-    });
+    await this.execLifecycle(_.get(this.config, configPath));
   }
 
   async runAdminLifecycles(lifecycleName) {
     const configPath = `config.functions.${lifecycleName}`;
 
-    return this.execLifecycle(_.get(this.admin.config, configPath)).catch(err => {
+    await this.execLifecycle(_.get(this.admin.config, configPath)).catch(err => {
       strapi.log.error(`${lifecycleName} function in admin failed`);
       strapi.log.error(err);
       strapi.stop();

@@ -276,7 +276,7 @@ function validateOptions({
 
   if (Array.isArray(plugins)) {
     throw new Error(
-      "'plugins' doesn't add plugins to configuration to load. Please use the 'overrideConfig.plugins' option instead.",
+      "'plugins' doesn\'t add plugins to configuration to load. Please use the \'overrideConfig.plugins\' option instead.',
     );
   }
 

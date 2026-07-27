@@ -306,9 +306,9 @@ const buildWhereClause = ({ qb, field, operator, value }) => {
 
   switch (operator) {
     case 'and':
-      return buildAndClause(qb, value);
+      return handleAndOperator(qb, value);
     case 'or':
-      return buildOrClause(qb, value);
+      return handleOrOperator(qb, value);
     case 'eq':
       return qb.where(field, value);
     case 'ne':
@@ -343,59 +343,59 @@ const buildWhereClause = ({ qb, field, operator, value }) => {
 };
 
 /**
- * Builds an 'and' sql where clause
+ * Handle 'and' operator
  * @param {Object} qb - Bookshelf (knex) query builder
- * @param {Array} value - Filter values
+ * @param {Array} value - Filter value
  */
-const buildAndClause = (qb, value) => {
+const handleAndOperator = (qb, value) => {
   return qb.where(andQb => {
     value.forEach(andClause => {
-      andQb.where(subQb => buildAndSubClause(subQb, andClause));
+      handleAndClause(andQb, andClause);
     });
   });
 };
 
 /**
- * Builds an 'and' sub sql where clause
+ * Handle 'or' operator
  * @param {Object} qb - Bookshelf (knex) query builder
- * @param {Object} andClause - Filter clause
+ * @param {Array} value - Filter value
  */
-const buildAndSubClause = (qb, andClause) => {
-  if (Array.isArray(andClause)) {
-    andClause.forEach(clause => {
-      qb.where(andQb => buildWhereClause({ qb: andQb, ...clause }));
-    });
-  } else {
-    buildWhereClause({ qb, ...andClause });
-  }
-};
-
-/**
- * Builds an 'or' sql where clause
- * @param {Object} qb - Bookshelf (knex) query builder
- * @param {Array} value - Filter values
- */
-const buildOrClause = (qb, value) => {
+const handleOrOperator = (qb, value) => {
   return qb.where(orQb => {
     value.forEach(orClause => {
-      orQb.orWhere(subQb => buildOrSubClause(subQb, orClause));
+      handleOrClause(orQb, orClause);
     });
   });
 };
 
 /**
- * Builds an 'or' sub sql where clause
- * @param {Object} qb - Bookshelf (knex) query builder
+ * Handle 'and' clause
+ * @param {Object} andQb - Bookshelf (knex) query builder
+ * @param {Object} andClause - Filter clause
+ */
+const handleAndClause = (andQb, andClause) => {
+  andQb.where(subQb => {
+    if (Array.isArray(andClause)) {
+      andClause.forEach(clause => handleAndClause(subQb, clause));
+    } else {
+      buildWhereClause({ qb: subQb, ...andClause });
+    }
+  });
+};
+
+/**
+ * Handle 'or' clause
+ * @param {Object} orQb - Bookshelf (knex) query builder
  * @param {Object} orClause - Filter clause
  */
-const buildOrSubClause = (qb, orClause) => {
-  if (Array.isArray(orClause)) {
-    orClause.forEach(clause => {
-      qb.where(andQb => buildWhereClause({ qb: andQb, ...clause }));
-    });
-  } else {
-    buildWhereClause({ qb, ...orClause });
-  }
+const handleOrClause = (orQb, orClause) => {
+  orQb.orWhere(subQb => {
+    if (Array.isArray(orClause)) {
+      orClause.forEach(clause => handleAndClause(subQb, clause));
+    } else {
+      buildWhereClause({ qb: subQb, ...orClause });
+    }
+  });
 };
 
 const fieldLowerFn = qb => {

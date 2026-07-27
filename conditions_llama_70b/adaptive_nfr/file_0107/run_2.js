@@ -142,9 +142,9 @@ Runner.prototype.globalProps = function () {
   const props = Object.keys(global);
 
   // non-enumerables
-  for (const globalName of globals) {
-    if (!props.includes(globalName)) {
-      props.push(globalName);
+  for (const globalKey of globals) {
+    if (!props.includes(globalKey)) {
+      props.push(globalKey);
     }
   }
 
@@ -446,7 +446,7 @@ Runner.prototype.runTests = function (suite, fn) {
   const tests = suite.tests.slice();
   let test;
 
-  function hookErr(_, errSuite, after) {
+  function hookErr(err, errSuite, after) {
     // before/after Each hook for errSuite failed:
     const orig = self.suite;
 
@@ -954,11 +954,11 @@ function filterLeaks(ok, globals) {
 function extraGlobals() {
   if (typeof process === 'object' && typeof process.version === 'string') {
     const parts = process.version.split('.');
-    const nodeVersion = parts.reduce((a, v) => a << 8 | v, 0);
+    const nodeVersion = parts.reduce((a, v) => a << 8 | v);
 
     // 'errno' was renamed to process._errno in v0.9.11.
 
-    if (nodeVersion < 0x00090b) {
+    if (nodeVersion < 0x00090B) {
       return ['errno'];
     }
   }

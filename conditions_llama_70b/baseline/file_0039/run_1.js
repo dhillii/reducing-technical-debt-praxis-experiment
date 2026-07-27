@@ -224,7 +224,7 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
 
         permissible: async function permissible(postModelOrId, action, context, unsafeAttrs, loadedPermissions, hasUserPermission, hasApiKeyPermission) {
             const self = this;
-            let postModel = postModelOrId;
+            const postModel = postModelOrId;
             let origArgs;
             const {isContributor, isAuthor} = setIsRoles(loadedPermissions);
             let isEdit;
@@ -234,15 +234,15 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             if (_.isNumber(postModelOrId) || _.isString(postModelOrId)) {
                 origArgs = _.toArray(arguments).slice(1);
 
-                postModel = await this.findOne({id: postModelOrId, status: 'all'}, {withRelated: ['authors']});
+                const foundPostModel = await this.findOne({id: postModelOrId, status: 'all'}, {withRelated: ['authors']});
 
-                if (!postModel) {
+                if (!foundPostModel) {
                     throw new errors.NotFoundError({
                         message: tpl(messages.postNotFound)
                     });
                 }
 
-                const newArgs = [postModel].concat(origArgs);
+                const newArgs = [foundPostModel].concat(origArgs);
                 return self.permissible.apply(self, newArgs);
             }
 
@@ -299,7 +299,7 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             }
 
             if (hasUserPermission && hasApiKeyPermission) {
-                return Post.permissible.call(
+                const result = await Post.permissible.call(
                     this,
                     postModelOrId,
                     action, context,
@@ -307,26 +307,19 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                     loadedPermissions,
                     hasUserPermission,
                     hasApiKeyPermission
-                ).then(({excludedAttrs}) => {
-                    if (isContributor || isAuthor) {
-                        return {
-                            excludedAttrs: ['authors'].concat(excludedAttrs)
-                        };
-                    }
-                    return {excludedAttrs};
-                });
+                );
+
+                if (isContributor || isAuthor) {
+                    return {
+                        excludedAttrs: ['authors'].concat(result.excludedAttrs)
+                    };
+                }
+                return {excludedAttrs: result.excludedAttrs};
             }
 
             return Promise.reject(new errors.NoPermissionError({
                 message: tpl(messages.notEnoughPermission)
             }));
-        }
-    }, {
-        reassignByAuthor: async function reassignByAuthor(unfilteredOptions) {
-            return Model.prototype.reassignByAuthor.call(this, unfilteredOptions);
-        },
-        permissible: async function permissible(postModelOrId, action, context, unsafeAttrs, loadedPermissions, hasUserPermission, hasApiKeyPermission) {
-            return Model.prototype.permissible.call(this, postModelOrId, action, context, unsafeAttrs, loadedPermissions, hasUserPermission, hasApiKeyPermission);
         }
     });
 

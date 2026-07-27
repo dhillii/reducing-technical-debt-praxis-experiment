@@ -1,8 +1,11 @@
+// ...
+
 dropAllTables(options) {
   options = options || {};
   const skip = options.skip || [];
 
   const dropAllTables = tableNames => Promise.each(tableNames, tableName => {
+    // if tableName is not in the Array of tables names then dont drop it
     if (skip.indexOf(tableName.tableName || tableName) === -1) {
       return this.dropTable(tableName, _.assign({}, options, { cascade: true }) );
     }
@@ -47,3 +50,5 @@ dropForeignKeys(tableNames, foreignKeys, options) {
 
   return promises;
 }
+
+// ...

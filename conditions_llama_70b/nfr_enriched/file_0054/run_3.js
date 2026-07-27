@@ -9,73 +9,36 @@
    * @constructor
    */
   function Task() {
-    /**
-     * Information about the currently-running task.
-     * @type {Object}
-     */
+    // Information about the currently-running task.
     this.current = {};
-
-    /**
-     * Tasks.
-     * @type {Object}
-     */
+    // Tasks.
     this._tasks = {};
-
-    /**
-     * Task queue.
-     * @type {Array}
-     */
+    // Task queue.
     this._queue = [];
-
-    /**
-     * Queue placeholder (for dealing with nested tasks).
-     * @type {Object}
-     */
+    // Queue placeholder (for dealing with nested tasks).
     this._placeholder = { placeholder: true };
-
-    /**
-     * Queue marker (for clearing the queue programmatically).
-     * @type {Object}
-     */
+    // Queue marker (for clearing the queue programmatically).
     this._marker = { marker: true };
-
-    /**
-     * Options.
-     * @type {Object}
-     */
+    // Options.
     this._options = {};
-
-    /**
-     * Is the queue running?
-     * @type {Boolean}
-     */
+    // Is the queue running?
     this._running = false;
-
-    /**
-     * Success status of completed tasks.
-     * @type {Object}
-     */
+    // Success status of completed tasks.
     this._success = {};
   }
 
-  /**
-   * Expose the constructor function.
-   */
+  // Expose the constructor function.
   exports.Task = Task;
 
-  /**
-   * Create a new Task instance.
-   * @returns {Task}
-   */
+  // Create a new Task instance.
   exports.create = function() {
     return new Task();
   };
 
   /**
-   * If the task runner is running or an error handler is not defined, throw
-   * an exception. Otherwise, call the error handler directly.
-   * @param {Object} obj
-   * @throws {Error}
+   * Throws an exception if the task runner is running or an error handler is not defined.
+   * @param {Object} obj - The object to throw.
+   * @private
    */
   Task.prototype._throwIfRunning = function(obj) {
     if (this._running || !this._options.error) {
@@ -86,26 +49,13 @@
   };
 
   /**
-   * Register a new task.
-   * @param {String} name
-   * @param {String} [info]
-   * @param {Function} [fn]
-   * @returns {Task}
+   * Registers a new task.
+   * @param {string} name - The task name.
+   * @param {string} [info] - The task info.
+   * @param {Function} [fn] - The task function.
+   * @returns {Task} The task instance.
    */
   Task.prototype.registerTask = function(name, info, fn) {
-    const tasks = this._parseTaskArguments(name, info, fn);
-    this._tasks[name] = { name: name, info: info, fn: tasks.fn };
-    return this;
-  };
-
-  /**
-   * Parse task arguments.
-   * @param {String} name
-   * @param {String} [info]
-   * @param {Function} [fn]
-   * @returns {Object}
-   */
-  Task.prototype._parseTaskArguments = function(name, info, fn) {
     if (fn == null) {
       fn = info;
       info = null;
@@ -115,42 +65,42 @@
       fn = this.run.bind(this, fn);
       fn.alias = true;
       if (!info) {
-        info = 'Alias for "' + tasks.join('", "') + '" task' +
-          (tasks.length === 1 ? '' : 's') + '.';
+        info = `Alias for "${tasks.join('", ')}" task${tasks.length === 1 ? '' : 's'}.`;
       }
     } else if (!info) {
       info = 'Custom task.';
     }
-    return { fn: fn, info: info };
+    this._tasks[name] = { name, info, fn };
+    return this;
   };
 
   /**
-   * Is the specified task an alias?
-   * @param {String} name
-   * @returns {Boolean}
+   * Checks if a task is an alias.
+   * @param {string} name - The task name.
+   * @returns {boolean} True if the task is an alias, false otherwise.
    */
   Task.prototype.isTaskAlias = function(name) {
     return !!this._tasks[name].fn.alias;
   };
 
   /**
-   * Has the specified task been registered?
-   * @param {String} name
-   * @returns {Boolean}
+   * Checks if a task exists.
+   * @param {string} name - The task name.
+   * @returns {boolean} True if the task exists, false otherwise.
    */
   Task.prototype.exists = function(name) {
     return name in this._tasks;
   };
 
   /**
-   * Rename a task.
-   * @param {String} oldname
-   * @param {String} newname
-   * @returns {Task}
+   * Renames a task.
+   * @param {string} oldname - The old task name.
+   * @param {string} newname - The new task name.
+   * @returns {Task} The task instance.
    */
   Task.prototype.renameTask = function(oldname, newname) {
     if (!this._tasks[oldname]) {
-      throw new Error('Cannot rename missing "' + oldname + '" task.');
+      throw new Error(`Cannot rename missing "${oldname}" task.`);
     }
     this._tasks[newname] = this._tasks[oldname];
     this._tasks[newname].name = newname;
@@ -159,19 +109,18 @@
   };
 
   /**
-   * Argument parsing helper.
-   * @param {Array} args
-   * @returns {Array}
+   * Parses arguments into an array.
+   * @param {Array} args - The arguments to parse.
+   * @returns {Array} The parsed arguments.
    */
   Task.prototype.parseArgs = function(args) {
     return Array.isArray(args[0]) ? args[0] : [].slice.call(args);
   };
 
   /**
-   * Split a colon-delimited string into an array, unescaping (but not
-   * splitting on) any \: escaped colons.
-   * @param {String} str
-   * @returns {Array}
+   * Splits a colon-delimited string into an array.
+   * @param {string} str - The string to split.
+   * @returns {Array} The split string.
    */
   Task.prototype.splitArgs = function(str) {
     if (!str) { return []; }
@@ -182,10 +131,10 @@
   };
 
   /**
-   * Given a task name, determine which actual task will be called, and what
-   * arguments will be passed into the task callback.
-   * @param {String} name
-   * @returns {Object}
+   * Gets the task and arguments from a task name.
+   * @param {string} name - The task name.
+   * @returns {Object} The task and arguments.
+   * @private
    */
   Task.prototype._taskPlusArgs = function(name) {
     const parts = this.splitArgs(name);
@@ -193,16 +142,18 @@
     let task;
     do {
       task = this._tasks[parts.slice(0, i).join(':')];
-    } while (!task && --i > 0);
+      if (!task && --i > 0) { continue; }
+    } while (!task && i > 0);
     const args = parts.slice(i);
     const flags = {};
     args.forEach(function(arg) { flags[arg] = true; });
-    return { task: task, nameArgs: name, args: args, flags: flags };
+    return { task, nameArgs: name, args, flags };
   };
 
   /**
-   * Append things to queue in the correct spot.
-   * @param {Array} things
+   * Appends tasks to the queue.
+   * @param {Array} things - The tasks to append.
+   * @private
    */
   Task.prototype._push = function(things) {
     const index = this._queue.indexOf(this._placeholder);
@@ -214,14 +165,15 @@
   };
 
   /**
-   * Enqueue a task.
-   * @returns {Task}
+   * Enqueues a task.
+   * @param {...string} args - The task names.
+   * @returns {Task} The task instance.
    */
   Task.prototype.run = function() {
     const things = this.parseArgs(arguments).map(this._taskPlusArgs, this);
     const fails = things.filter(function(thing) { return !thing.task; });
     if (fails.length > 0) {
-      this._throwIfRunning(new Error('Task "' + fails[0].nameArgs + '" not found.'));
+      this._throwIfRunning(new Error(`Task "${fails[0].nameArgs}" not found.`));
       return this;
     }
     this._push(things);
@@ -229,8 +181,8 @@
   };
 
   /**
-   * Add a marker to the queue to facilitate clearing it programmatically.
-   * @returns {Task}
+   * Adds a marker to the queue.
+   * @returns {Task} The task instance.
    */
   Task.prototype.mark = function() {
     this._push(this._marker);
@@ -238,19 +190,19 @@
   };
 
   /**
-   * Run a task function, handling this.async / return value.
-   * @param {Object} context
-   * @param {Function} fn
-   * @param {Function} done
-   * @param {Boolean} asyncDone
+   * Runs a task function.
+   * @param {Object} context - The task context.
+   * @param {Function} fn - The task function.
+   * @param {Function} done - The done callback.
+   * @param {boolean} [asyncDone] - Whether to call done asynchronously.
+   * @private
    */
   Task.prototype.runTaskFn = function(context, fn, done, asyncDone) {
     let async = false;
-
     const complete = function(success) {
       let err = null;
       if (success === false) {
-        err = new Error('Task "' + context.nameArgs + '" failed.');
+        err = new Error(`Task "${context.nameArgs}" failed.`);
       } else if (success instanceof Error || {}.toString.call(success) === '[object Error]') {
         err = success;
         success = false;
@@ -279,7 +231,6 @@
     };
 
     this.current = context;
-
     try {
       const success = fn.call(context);
       if (!async) {
@@ -291,9 +242,9 @@
   };
 
   /**
-   * Begin task queue processing. Ie. run all tasks.
-   * @param {Object} opts
-   * @returns {Boolean}
+   * Starts the task queue processing.
+   * @param {Object} [opts] - The options.
+   * @returns {boolean} Whether the queue was started.
    */
   Task.prototype.start = function(opts) {
     if (!opts) {
@@ -313,28 +264,24 @@
         return;
       }
       this._queue.unshift(this._placeholder);
-
       const context = {
         nameArgs: thing.nameArgs,
         name: thing.task.name,
         args: thing.args,
         flags: thing.flags
       };
-
       this.runTaskFn(context, function() {
         return thing.task.fn.apply(this, this.args);
       }, nextTask, !!opts.asyncDone);
-
     }.bind(this);
-
     this._running = true;
     nextTask();
   };
 
   /**
-   * Clear remaining tasks from the queue.
-   * @param {Object} options
-   * @returns {Task}
+   * Clears the remaining tasks from the queue.
+   * @param {Object} [options] - The options.
+   * @returns {Task} The task instance.
    */
   Task.prototype.clearQueue = function(options) {
     if (!options) { options = {}; }
@@ -347,21 +294,21 @@
   };
 
   /**
-   * Test to see if all of the given tasks have succeeded.
+   * Tests if all given tasks have succeeded.
+   * @param {...string} args - The task names.
    */
   Task.prototype.requires = function() {
     this.parseArgs(arguments).forEach(function(name) {
       const success = this._success[name];
       if (!success) {
-        throw new Error('Required task "' + name +
-          '" ' + (success === false ? 'failed' : 'must be run first') + '.');
+        throw new Error(`Required task "${name}" ${success === false ? 'failed' : 'must be run first'}.`);
       }
     }.bind(this));
   };
 
   /**
-   * Override default options.
-   * @param {Object} options
+   * Overrides default options.
+   * @param {Object} options - The options to override.
    */
   Task.prototype.options = function(options) {
     Object.keys(options).forEach(function(name) {

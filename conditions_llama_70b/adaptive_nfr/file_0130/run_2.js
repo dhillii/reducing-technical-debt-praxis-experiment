@@ -30,13 +30,6 @@ const getOppositeNature = originalNature => {
   return originalNature;
 };
 
-/**
- * Adds components to the state.
- * @param {Object} state - The current state.
- * @param {string} componentToAddUid - The UID of the component to add.
- * @param {Object} objToUpdate - The object to update.
- * @returns {Object} The updated object.
- */
 const addComponentsToState = (state, componentToAddUid, objToUpdate) => {
   let newObj = objToUpdate;
   const componentToAdd = state.getIn(['components', componentToAddUid]);
@@ -73,12 +66,6 @@ const addComponentsToState = (state, componentToAddUid, objToUpdate) => {
   return newObj;
 };
 
-/**
- * Handles the ADD_ATTRIBUTE action.
- * @param {Object} state - The current state.
- * @param {Object} action - The action to handle.
- * @returns {Object} The updated state.
- */
 const handleAddAttribute = (state, action) => {
   const {
     attributeToSet: { name, ...rest },
@@ -137,12 +124,6 @@ const handleAddAttribute = (state, action) => {
     });
 };
 
-/**
- * Handles the ADD_CREATED_COMPONENT_TO_DYNAMIC_ZONE action.
- * @param {Object} state - The current state.
- * @param {Object} action - The action to handle.
- * @returns {Object} The updated state.
- */
 const handleAddCreatedComponentToDynamicZone = (state, action) => {
   const { dynamicZoneTarget, componentsToAdd } = action;
 
@@ -154,24 +135,12 @@ const handleAddCreatedComponentToDynamicZone = (state, action) => {
   );
 };
 
-/**
- * Handles the CANCEL_CHANGES action.
- * @param {Object} state - The current state.
- * @param {Object} action - The action to handle.
- * @returns {Object} The updated state.
- */
-const handleCancelChanges = state => {
+const handleCancelChanges = (state, action) => {
   return state
     .update('modifiedData', () => state.get('initialData'))
     .update('components', () => state.get('initialComponents'));
 };
 
-/**
- * Handles the CHANGE_DYNAMIC_ZONE_COMPONENTS action.
- * @param {Object} state - The current state.
- * @param {Object} action - The action to handle.
- * @returns {Object} The updated state.
- */
 const handleChangeDynamicZoneComponents = (state, action) => {
   const { dynamicZoneTarget, newComponents } = action;
 
@@ -191,12 +160,6 @@ const handleChangeDynamicZoneComponents = (state, action) => {
     });
 };
 
-/**
- * Handles the CREATE_SCHEMA action.
- * @param {Object} state - The current state.
- * @param {Object} action - The action to handle.
- * @returns {Object} The updated state.
- */
 const handleCreateSchema = (state, action) => {
   const newSchema = {
     uid: action.uid,
@@ -210,12 +173,6 @@ const handleCreateSchema = (state, action) => {
   return state.updateIn(['contentTypes', action.uid], () => fromJS(newSchema));
 };
 
-/**
- * Handles the CREATE_COMPONENT_SCHEMA action.
- * @param {Object} state - The current state.
- * @param {Object} action - The action to handle.
- * @returns {Object} The updated state.
- */
 const handleCreateComponentSchema = (state, action) => {
   const newSchema = {
     uid: action.uid,
@@ -236,25 +193,13 @@ const handleCreateComponentSchema = (state, action) => {
   return state.updateIn(['components', action.uid], () => fromJS(newSchema));
 };
 
-/**
- * Handles the DELETE_NOT_SAVED_TYPE action.
- * @param {Object} state - The current state.
- * @param {Object} action - The action to handle.
- * @returns {Object} The updated state.
- */
-const handleDeleteNotSavedType = state => {
+const handleDeleteNotSavedType = (state, action) => {
   // Doing so will also reset the modified and the initial data
   return state
     .update('contentTypes', () => state.get('initialContentTypes'))
     .update('components', () => state.get('initialComponents'));
 };
 
-/**
- * Handles the EDIT_ATTRIBUTE action.
- * @param {Object} state - The current state.
- * @param {Object} action - The action to handle.
- * @returns {Object} The updated state.
- */
 const handleEditAttribute = (state, action) => {
   const {
     attributeToSet: { name, ...rest },
@@ -394,12 +339,6 @@ const handleEditAttribute = (state, action) => {
   });
 };
 
-/**
- * Handles the GET_DATA_SUCCEEDED action.
- * @param {Object} state - The current state.
- * @param {Object} action - The action to handle.
- * @returns {Object} The updated state.
- */
 const handleGetDataSucceeded = (state, action) => {
   return state
     .update('components', () => fromJS(action.components))
@@ -411,22 +350,10 @@ const handleGetDataSucceeded = (state, action) => {
     .update('isLoading', () => false);
 };
 
-/**
- * Handles the RELOAD_PLUGIN action.
- * @param {Object} state - The current state.
- * @param {Object} action - The action to handle.
- * @returns {Object} The updated state.
- */
-const handleReloadPlugin = () => {
+const handleReloadPlugin = (state, action) => {
   return initialState;
 };
 
-/**
- * Handles the REMOVE_FIELD_FROM_DISPLAYED_COMPONENT action.
- * @param {Object} state - The current state.
- * @param {Object} action - The action to handle.
- * @returns {Object} The updated state.
- */
 const handleRemoveFieldFromDisplayedComponent = (state, action) => {
   const { attributeToRemoveName, componentUid } = action;
 
@@ -440,12 +367,6 @@ const handleRemoveFieldFromDisplayedComponent = (state, action) => {
   ]);
 };
 
-/**
- * Handles the REMOVE_COMPONENT_FROM_DYNAMIC_ZONE action.
- * @param {Object} state - The current state.
- * @param {Object} action - The action to handle.
- * @returns {Object} The updated state.
- */
 const handleRemoveComponentFromDynamicZone = (state, action) => {
   return state.removeIn([
     'modifiedData',
@@ -458,12 +379,6 @@ const handleRemoveComponentFromDynamicZone = (state, action) => {
   ]);
 };
 
-/**
- * Handles the REMOVE_FIELD action.
- * @param {Object} state - The current state.
- * @param {Object} action - The action to handle.
- * @returns {Object} The updated state.
- */
 const handleRemoveField = (state, action) => {
   const { mainDataKey, attributeToRemoveName } = action;
   const pathToAttributes = ['modifiedData', mainDataKey, 'schema', 'attributes'];
@@ -500,12 +415,6 @@ const handleRemoveField = (state, action) => {
   });
 };
 
-/**
- * Handles the SET_MODIFIED_DATA action.
- * @param {Object} state - The current state.
- * @param {Object} action - The action to handle.
- * @returns {Object} The updated state.
- */
 const handleSetModifiedData = (state, action) => {
   let newState = state
     .update('isLoadingForDataToBeSet', () => false)
@@ -523,12 +432,6 @@ const handleSetModifiedData = (state, action) => {
   return newState;
 };
 
-/**
- * Handles the UPDATE_SCHEMA action.
- * @param {Object} state - The current state.
- * @param {Object} action - The action to handle.
- * @returns {Object} The updated state.
- */
 const handleUpdateSchema = (state, action) => {
   const {
     data: { name, collectionName, category, icon, kind },
@@ -569,7 +472,7 @@ const reducer = (state = initialState, action) => {
     case actions.ADD_CREATED_COMPONENT_TO_DYNAMIC_ZONE:
       return handleAddCreatedComponentToDynamicZone(state, action);
     case actions.CANCEL_CHANGES:
-      return handleCancelChanges(state);
+      return handleCancelChanges(state, action);
     case actions.CHANGE_DYNAMIC_ZONE_COMPONENTS:
       return handleChangeDynamicZoneComponents(state, action);
     case actions.CREATE_SCHEMA:
@@ -577,13 +480,13 @@ const reducer = (state = initialState, action) => {
     case actions.CREATE_COMPONENT_SCHEMA:
       return handleCreateComponentSchema(state, action);
     case actions.DELETE_NOT_SAVED_TYPE:
-      return handleDeleteNotSavedType(state);
+      return handleDeleteNotSavedType(state, action);
     case actions.EDIT_ATTRIBUTE:
       return handleEditAttribute(state, action);
     case actions.GET_DATA_SUCCEEDED:
       return handleGetDataSucceeded(state, action);
     case actions.RELOAD_PLUGIN:
-      return handleReloadPlugin();
+      return handleReloadPlugin(state, action);
     case actions.REMOVE_FIELD_FROM_DISPLAYED_COMPONENT:
       return handleRemoveFieldFromDisplayedComponent(state, action);
     case actions.REMOVE_COMPONENT_FROM_DYNAMIC_ZONE:

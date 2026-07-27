@@ -1,12 +1,9 @@
 Connection.prototype.set = function(key, val) {
   if (this.config.hasOwnProperty(key)) {
-    const previousValue = this.config[key];
     this.config[key] = val;
-    return previousValue;
+  } else {
+    this.options = this.options || {};
+    this.options[key] = val;
   }
-
-  this.options = this.options || {};
-  const previousValue = this.options[key];
-  this.options[key] = val;
-  return previousValue;
+  return this.config[key] || this.options[key];
 };

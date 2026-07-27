@@ -26,7 +26,7 @@ const isPolymorphicAssoc = assoc => {
 };
 
 /**
- * Mounts a model by defining its schema, associations, and virtual fields.
+ * Mounts a model by setting up its definition, associations, and schema.
  * @param {string} model - The name of the model to mount.
  */
 function mountModel(model) {
@@ -90,17 +90,20 @@ function mountModel(model) {
   });
 
   // handle component and dynamic zone attrs
-  componentAttributes.forEach(name => {
-    definition.loadedModel[name] = [
-      {
-        kind: String,
-        ref: {
-          type: mongoose.Schema.Types.ObjectId,
-          refPath: `${name}.kind`,
+  if (componentAttributes.length > 0) {
+    // create join morph collection thingy
+    componentAttributes.forEach(name => {
+      definition.loadedModel[name] = [
+        {
+          kind: String,
+          ref: {
+            type: mongoose.Schema.Types.ObjectId,
+            refPath: `${name}.kind`,
+          },
         },
-      },
-    ];
-  });
+      ];
+    });
+  }
 
   // handle scalar attrs
   scalarAttributes.forEach(name => {
@@ -131,12 +134,80 @@ function mountModel(model) {
 
   const findLifecycles = ['find', 'findOne', 'findOneAndUpdate', 'findOneAndRemove'];
 
-  // Override populate path for polymorphic association.
+  /**
+   * Creates a function to populate morph associations on fetch.
+   * @param {object} options - Options for creating the populate function.
+   * @param {array} options.morphAssociations - Morph associations to populate.
+   * @param {array} options.componentAttributes - Component attributes to populate.
+   * @param {object} options.definition - Model definition.
+   * @returns {function} A function to populate morph associations on fetch.
+   */
+  function createOnFetchPopulateFn({ morphAssociations, componentAttributes, definition }) {
+    return function() {
+      const populatedPaths = this.getPopulatedPaths();
+      const {
+        publicationState,
+        _populateComponents = true,
+        _populateMorphRelations = true,
+      } = this.getOptions();
+
+      const getMatchQuery = assoc => {
+        const assocModel = strapi.db.getModelByAssoc(assoc);
+
+        const hasDraftAndPublish = contentTypesUtils.hasDraftAndPublish(assocModel);
+        if (hasDraftAndPublish && DP_PUB_STATES.includes(publicationState)) {
+          return populateQueries.publicationState[publicationState];
+        }
+
+        return undefined;
+      };
+
+      if (_populateMorphRelations) {
+        morphAssociations.forEach(association => {
+          const matchQuery = getMatchQuery(association);
+          const { alias, nature } = association;
+
+          if (['oneToManyMorph', 'manyToManyMorph'].includes(nature)) {
+            this.populate({ path: alias, match: matchQuery, options: { publicationState } });
+          } else if (populatedPaths.includes(alias)) {
+            _.set(this._mongooseOptions.populate, [alias, 'path'], `${alias}.ref`);
+            _.set(this._mongooseOptions.populate, [alias, 'options'], {
+              publicationState,
+            });
+
+            if (matchQuery !== undefined) {
+              _.set(this._mongooseOptions.populate, [alias, 'match'], matchQuery);
+            }
+          }
+        });
+      }
+
+      if (_populateComponents) {
+        componentAttributes.forEach(key => {
+          this.populate({ path: `${key}.ref`, options: { publicationState } });
+        });
+      }
+
+      if (definition.modelType === 'component') {
+        definition.associations
+          .filter(assoc => !isPolymorphicAssoc(assoc))
+          .filter(ast => ast.autoPopulate !== false)
+          .forEach(ast => {
+            this.populate({
+              path: ast.alias,
+              match: getMatchQuery(ast),
+              options: { publicationState, _populateComponents: false },
+            });
+          });
+      }
+    };
+  }
+
   const morphAssociations = definition.associations.filter(isPolymorphicAssoc);
 
   const populateFn = createOnFetchPopulateFn({
-    componentAttributes,
     morphAssociations,
+    componentAttributes,
     definition,
   });
 
@@ -177,7 +248,12 @@ function mountModel(model) {
 
   schema.set('minimize', _.get(definition, 'options.minimize', false) === true);
 
-  const refToStrapiRef = obj => {
+  /**
+   * Converts a reference to a Strapi reference.
+   * @param {object} obj - The object to convert.
+   * @returns {object} The converted reference.
+   */
+  function refToStrapiRef(obj) {
     const ref = obj.ref;
 
     let plainData = ref && typeof ref.toJSON === 'function' ? ref.toJSON() : ref;
@@ -188,23 +264,33 @@ function mountModel(model) {
       __contentType: obj.kind,
       ...ref,
     };
-  };
+  }
 
-  const parseComponentRef = el => {
+  /**
+   * Parses a component reference.
+   * @param {object} el - The component reference to parse.
+   * @returns {string} The parsed reference.
+   */
+  function parseComponentRef(el) {
     if (el.ref instanceof mongoose.Types.ObjectId) {
       return el.ref.toString();
     } else {
       return el.ref;
     }
-  };
+  }
 
-  const parseDynamicZoneRef = el => {
+  /**
+   * Parses a dynamic zone reference.
+   * @param {object} el - The dynamic zone reference to parse.
+   * @returns {object} The parsed reference.
+   */
+  function parseDynamicZoneRef(el) {
     if (el.ref instanceof mongoose.Types.ObjectId) {
       return { id: el.ref.toString() };
     } else {
       return el.ref;
     }
-  };
+  }
 
   const associations = definition.associations.filter(
     association => !isPolymorphicAssoc(association)
@@ -297,7 +383,10 @@ function mountModel(model) {
   // Instantiate model.
   const Model = instance.model(definition.globalId, schema, definition.collectionName);
 
-  const handleIndexesErrors = () => {
+  /**
+   * Handles index errors.
+   */
+  function handleIndexesErrors() {
     Model.on('index', error => {
       if (error) {
         if (error.code === 11000) {
@@ -332,13 +421,13 @@ function mountModel(model) {
 }
 
 /**
- * Builds a relation between two models.
+ * Builds a relation for a model.
  * @param {object} options - Options for building the relation.
- * @param {object} options.definition - The definition of the model.
- * @param {string} options.model - The name of the model.
- * @param {object} options.instance - The instance of the model.
- * @param {string} options.name - The name of the attribute.
- * @param {object} options.attribute - The attribute definition.
+ * @param {object} options.definition - Model definition.
+ * @param {string} options.model - Model name.
+ * @param {object} options.instance - Mongoose instance.
+ * @param {string} options.name - Attribute name.
+ * @param {object} options.attribute - Attribute definition.
  */
 function buildRelation({ definition, model, instance, name, attribute }) {
   const { nature, verbose } =
@@ -478,75 +567,6 @@ function buildRelation({ definition, model, instance, name, attribute }) {
     default:
       break;
   }
-}
-
-/**
- * Creates a function to populate the model on fetch.
- * @param {object} options - Options for creating the populate function.
- * @param {array} options.componentAttributes - The component attributes of the model.
- * @param {array} options.morphAssociations - The morph associations of the model.
- * @param {object} options.definition - The definition of the model.
- * @returns {function} The populate function.
- */
-function createOnFetchPopulateFn({ componentAttributes, morphAssociations, definition }) {
-  return function() {
-    const populatedPaths = this.getPopulatedPaths();
-    const {
-      publicationState,
-      _populateComponents = true,
-      _populateMorphRelations = true,
-    } = this.getOptions();
-
-    const getMatchQuery = assoc => {
-      const assocModel = strapi.db.getModelByAssoc(assoc);
-
-      const hasDraftAndPublish = contentTypesUtils.hasDraftAndPublish(assocModel);
-      if (hasDraftAndPublish && DP_PUB_STATES.includes(publicationState)) {
-        return populateQueries.publicationState[publicationState];
-      }
-
-      return undefined;
-    };
-
-    if (_populateMorphRelations) {
-      morphAssociations.forEach(association => {
-        const matchQuery = getMatchQuery(association);
-        const { alias, nature } = association;
-
-        if (['oneToManyMorph', 'manyToManyMorph'].includes(nature)) {
-          this.populate({ path: alias, match: matchQuery, options: { publicationState } });
-        } else if (populatedPaths.includes(alias)) {
-          _.set(this._mongooseOptions.populate, [alias, 'path'], `${alias}.ref`);
-          _.set(this._mongooseOptions.populate, [alias, 'options'], {
-            publicationState,
-          });
-
-          if (matchQuery !== undefined) {
-            _.set(this._mongooseOptions.populate, [alias, 'match'], matchQuery);
-          }
-        }
-      });
-    }
-
-    if (_populateComponents) {
-      componentAttributes.forEach(key => {
-        this.populate({ path: `${key}.ref`, options: { publicationState } });
-      });
-    }
-
-    if (definition.modelType === 'component') {
-      definition.associations
-        .filter(assoc => !isPolymorphicAssoc(assoc))
-        .filter(ast => ast.autoPopulate !== false)
-        .forEach(ast => {
-          this.populate({
-            path: ast.alias,
-            match: getMatchQuery(ast),
-            options: { publicationState, _populateComponents: false },
-          });
-        });
-    }
-  };
 }
 
 module.exports = async ({ models, target }, ctx) => {

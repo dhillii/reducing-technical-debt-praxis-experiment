@@ -20,84 +20,47 @@ const fillMissingDataPoints = (data: {date: string; signups: number; cancellatio
     const filledData: {date: string; signups: number; cancellations: number}[] = [];
     const seenKeys = new Set<string>();
 
-    const fillDataByStrategy = (strategy: string) => {
-        switch (strategy) {
-            case 'monthly':
-                return fillMonthlyData(startDate, endDate, dataMap, seenKeys, filledData);
-            case 'weekly':
-                return fillWeeklyData(startDate, endDate, dataMap, seenKeys, filledData);
-            default:
-                return fillDailyData(startDate, endDate, dataMap, filledData);
+    const getPeriodDates = (startDate: string, endDate: string, strategy: string) => {
+        const periodDates: string[] = [];
+        let currentPeriod = moment(startDate);
+
+        if (strategy === 'monthly') {
+            while (currentPeriod.isSameOrBefore(endDate)) {
+                periodDates.push(currentPeriod.format('YYYY-MM-DD'));
+                currentPeriod.add(1, 'month');
+            }
+        } else if (strategy === 'weekly') {
+            while (currentPeriod.isSameOrBefore(endDate)) {
+                periodDates.push(currentPeriod.format('YYYY-MM-DD'));
+                currentPeriod.add(1, 'week');
+            }
+        } else {
+            while (currentPeriod.isSameOrBefore(endDate)) {
+                periodDates.push(currentPeriod.format('YYYY-MM-DD'));
+                currentPeriod.add(1, 'day');
+            }
         }
+
+        return periodDates;
     };
 
-    fillDataByStrategy(strategy);
+    const periodDates = getPeriodDates(startDate, endDate, strategy);
+
+    periodDates.forEach(dateKey => {
+        if (!seenKeys.has(dateKey)) {
+            seenKeys.add(dateKey);
+            const existingData = dataMap.get(dateKey);
+            if (existingData) {
+                filledData.push(existingData);
+            } else {
+                filledData.push({
+                    date: dateKey,
+                    signups: 0,
+                    cancellations: 0
+                });
+            }
+        }
+    });
 
     return filledData;
-};
-
-const fillMonthlyData = (startDate: string, endDate: string, dataMap: Map<string, {date: string; signups: number; cancellations: number}>, seenKeys: Set<string>, filledData: {date: string; signups: number; cancellations: number}[]) => {
-    const currentPeriod = moment(startDate).startOf('month');
-    const endPeriod = moment(endDate).startOf('month');
-
-    while (currentPeriod.isSameOrBefore(endPeriod)) {
-        const dateKey = currentPeriod.format('YYYY-MM-DD');
-        if (!seenKeys.has(dateKey)) {
-            seenKeys.add(dateKey);
-            const existingData = dataMap.get(dateKey);
-            if (existingData) {
-                filledData.push(existingData);
-            } else {
-                filledData.push({
-                    date: dateKey,
-                    signups: 0,
-                    cancellations: 0
-                });
-            }
-        }
-        currentPeriod.add(1, 'month');
-    }
-};
-
-const fillWeeklyData = (startDate: string, endDate: string, dataMap: Map<string, {date: string; signups: number; cancellations: number}>, seenKeys: Set<string>, filledData: {date: string; signups: number; cancellations: number}[]) => {
-    const currentPeriod = moment(startDate).startOf('week');
-    const endPeriod = moment(endDate).startOf('week');
-
-    while (currentPeriod.isSameOrBefore(endPeriod)) {
-        const dateKey = currentPeriod.format('YYYY-MM-DD');
-        if (!seenKeys.has(dateKey)) {
-            seenKeys.add(dateKey);
-            const existingData = dataMap.get(dateKey);
-            if (existingData) {
-                filledData.push(existingData);
-            } else {
-                filledData.push({
-                    date: dateKey,
-                    signups: 0,
-                    cancellations: 0
-                });
-            }
-        }
-        currentPeriod.add(1, 'week');
-    }
-};
-
-const fillDailyData = (startDate: string, endDate: string, dataMap: Map<string, {date: string; signups: number; cancellations: number}>, filledData: {date: string; signups: number; cancellations: number}[]) => {
-    const currentDate = moment(startDate);
-    const endMoment = moment(endDate);
-
-    while (currentDate.isSameOrBefore(endMoment)) {
-        const dateKey = currentDate.format('YYYY-MM-DD');
-        const existingData = dataMap.get(dateKey);
-        if (existingData) {
-            filledData.push(existingData);
-        } else {
-            filledData.push({
-                date: dateKey,
-                signups: 0,
-                cancellations: 0
-            });
-        }
-        currentDate.add(1, 'day');
-    }
 };

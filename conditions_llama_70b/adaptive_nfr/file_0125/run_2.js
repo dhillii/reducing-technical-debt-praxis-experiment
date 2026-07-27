@@ -322,10 +322,14 @@ const buildWhereClause = ({ qb, field, operator, value }) => {
     });
   }
 
-  return operatorHandlers[operator]({ qb, field, value });
+  if (operatorHandlers[operator]) {
+    return operatorHandlers[operator]({ qb, field, value });
+  }
+
+  throw new Error(`Unhandled whereClause : ${field} ${operator} ${value}`);
 };
 
-const handleAndOperator = ({ qb, field, value }) => {
+const handleAndOperator = ({ qb, value }) => {
   return qb.where(andQb => {
     value.forEach(andClause => {
       andQb.where(subQb => {
@@ -341,7 +345,7 @@ const handleAndOperator = ({ qb, field, value }) => {
   });
 };
 
-const handleOrOperator = ({ qb, field, value }) => {
+const handleOrOperator = ({ qb, value }) => {
   return qb.where(orQb => {
     value.forEach(orClause => {
       orQb.orWhere(subQb => {

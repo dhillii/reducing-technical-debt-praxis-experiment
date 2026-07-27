@@ -37,6 +37,7 @@ const handleOnChange = (state, action) => {
     keys,
     value,
     oneThatIsCreatingARelationWithAnother,
+    targetContentTypeAllowedRelations,
   } = action;
   const hasDefaultValue = Boolean(state.getIn(['modifiedData', 'default']));
 
@@ -44,114 +45,98 @@ const handleOnChange = (state, action) => {
     const previousType = state.getIn(['modifiedData', 'type']);
 
     if (previousType && ['date', 'datetime', 'time'].includes(previousType)) {
-      return state.updateIn(['modifiedData', keys], () => value).removeIn(['modifiedData', 'default']);
+      return state.updateIn(['modifiedData', ...keys], () => value).removeIn(['modifiedData', 'default']);
     }
   }
 
   if (keys.length === 1 && keys.includes('nature')) {
-    return handleNatureChange(state, action);
+    return state.updateIn(['modifiedData'], obj => {
+      return obj
+        .update('nature', () => value)
+        .update('dominant', () => {
+          if (value === 'manyToMany') {
+            return true;
+          }
+
+          return null;
+        })
+        .update('name', oldValue => {
+          return pluralize(snakeCase(oldValue), shouldPluralizeName(value));
+        })
+        .update('targetAttribute', oldValue => {
+          if (['oneWay', 'manyWay'].includes(value)) {
+            return '-';
+          }
+
+          return pluralize(
+            oldValue === '-' ? snakeCase(oneThatIsCreatingARelationWithAnother) : oldValue,
+            shouldPluralizeTargetAttribute(value)
+          );
+        })
+        .update('targetColumnName', oldValue => {
+          if (['oneWay', 'manyWay'].includes(value)) {
+            return null;
+          }
+
+          return oldValue;
+        });
+    });
   }
 
   if (keys.length === 1 && keys.includes('target')) {
-    return handleTargetChange(state, action);
+    let didChangeNatureBecauseOfRestrictedRelation = false;
+
+    return state.updateIn(['modifiedData'], obj => {
+      return obj
+        .update('target', () => value)
+        .update('nature', currentNature => {
+          if (targetContentTypeAllowedRelations === null) {
+            return currentNature;
+          }
+
+          if (!targetContentTypeAllowedRelations.includes(currentNature)) {
+            didChangeNatureBecauseOfRestrictedRelation = true;
+
+            return targetContentTypeAllowedRelations[0];
+          }
+
+          return currentNature;
+        })
+        .update('name', () => {
+          if (didChangeNatureBecauseOfRestrictedRelation) {
+            return pluralize(
+              snakeCase(selectedContentTypeFriendlyName),
+              shouldPluralizeName(targetContentTypeAllowedRelations[0])
+            );
+          }
+
+          return pluralize(
+            snakeCase(selectedContentTypeFriendlyName),
+
+            shouldPluralizeName(obj.get('nature'))
+          );
+        })
+        .update('targetAttribute', () => {
+          if (['oneWay', 'manyWay'].includes(obj.get('nature'))) {
+            return '-';
+          }
+
+          if (
+            didChangeNatureBecauseOfRestrictedRelation &&
+            ['oneWay', 'manyWay'].includes(targetContentTypeAllowedRelations[0])
+          ) {
+            return '-';
+          }
+
+          return pluralize(
+            snakeCase(oneThatIsCreatingARelationWithAnother),
+            shouldPluralizeTargetAttribute(obj.get('nature'))
+          );
+        });
+    });
   }
 
-  return state.updateIn(['modifiedData', keys], () => value);
-};
-
-const handleNatureChange = (state, action) => {
-  const {
-    selectedContentTypeFriendlyName,
-    keys,
-    value,
-    oneThatIsCreatingARelationWithAnother,
-  } = action;
-
-  return state.updateIn(['modifiedData'], obj => {
-    return obj
-      .update('nature', () => value)
-      .update('dominant', () => {
-        if (value === 'manyToMany') {
-          return true;
-        }
-
-        return null;
-      })
-      .update('name', oldValue => {
-        return pluralize(snakeCase(oldValue), shouldPluralizeName(value));
-      })
-      .update('targetAttribute', oldValue => {
-        if (['oneWay', 'manyWay'].includes(value)) {
-          return '-';
-        }
-
-        return pluralize(
-          oldValue === '-' ? snakeCase(oneThatIsCreatingARelationWithAnother) : oldValue,
-          shouldPluralizeTargetAttribute(value)
-        );
-      })
-      .update('targetColumnName', oldValue => {
-        if (['oneWay', 'manyWay'].includes(value)) {
-          return null;
-        }
-
-        return oldValue;
-      });
-  });
-};
-
-const handleTargetChange = (state, action) => {
-  const { targetContentTypeAllowedRelations } = action;
-  let didChangeNatureBecauseOfRestrictedRelation = false;
-
-  return state.updateIn(['modifiedData'], obj => {
-    return obj
-      .update('target', () => action.value)
-      .update('nature', currentNature => {
-        if (targetContentTypeAllowedRelations === null) {
-          return currentNature;
-        }
-
-        if (!targetContentTypeAllowedRelations.includes(currentNature)) {
-          didChangeNatureBecauseOfRestrictedRelation = true;
-
-          return targetContentTypeAllowedRelations[0];
-        }
-
-        return currentNature;
-      })
-      .update('name', () => {
-        if (didChangeNatureBecauseOfRestrictedRelation) {
-          return pluralize(
-            snakeCase(action.selectedContentTypeFriendlyName),
-            shouldPluralizeName(targetContentTypeAllowedRelations[0])
-          );
-        }
-
-        return pluralize(
-          snakeCase(action.selectedContentTypeFriendlyName),
-
-          shouldPluralizeName(obj.get('nature'))
-        );
-      })
-      .update('targetAttribute', () => {
-        if (['oneWay', 'manyWay'].includes(obj.get('nature'))) {
-          return '-';
-        }
-
-        if (
-          didChangeNatureBecauseOfRestrictedRelation &&
-          ['oneWay', 'manyWay'].includes(targetContentTypeAllowedRelations[0])
-        ) {
-          return '-';
-        }
-
-        return pluralize(
-          snakeCase(action.oneThatIsCreatingARelationWithAnother),
-          shouldPluralizeTargetAttribute(obj.get('nature'))
-        );
-      });
-  });
+  return state.updateIn(['modifiedData', ...keys], () => value);
 };
 
 const handleOnChangeAllowedType = (state, action) => {

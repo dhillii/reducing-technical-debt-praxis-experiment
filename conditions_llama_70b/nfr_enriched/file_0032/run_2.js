@@ -19,6 +19,7 @@ function statusCompare(postA, postB) {
     let status1 = postA.get('status');
     let status2 = postB.get('status');
 
+    // if any of those is empty
     if (!status1 && !status2) {
         return 0;
     }
@@ -30,6 +31,10 @@ function statusCompare(postA, postB) {
     if (!status2 && status1) {
         return 1;
     }
+
+    // We have to make sure, that scheduled posts will be listed first
+    // after that, draft and published will be sorted alphabetically and don't need
+    // any manual comparison.
 
     if (status1 === 'scheduled' && (status2 === 'draft' || status2 === 'published')) {
         return -1;
@@ -61,11 +66,23 @@ function publishedAtCompare(postA, postB) {
     return compare(published1.valueOf(), published2.valueOf());
 }
 
-function isPublic(visibility) {
-    // Simplified conditional expression
+/**
+ * Returns whether the post is public based on its visibility.
+ * @param {string} visibility - The post's visibility.
+ * @returns {boolean} Whether the post is public.
+ */
+function isPostPublic(visibility) {
     return visibility === 'public';
 }
 
+/**
+ * Returns the visibility segment for the post.
+ * @param {string} visibility - The post's visibility.
+ * @param {boolean} isPublic - Whether the post is public.
+ * @param {object} tiers - The post's tiers.
+ * @param {object} settings - The application settings.
+ * @returns {string} The visibility segment.
+ */
 function getVisibilitySegment(visibility, isPublic, tiers, settings) {
     if (isPublic) {
         return settings.defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
@@ -86,101 +103,210 @@ function getVisibilitySegment(visibility, isPublic, tiers, settings) {
     }
 }
 
-function getFullRecipientFilter(newsletter, emailSegment) {
-    if (!newsletter) {
-        return emailSegment;
-    }
-
-    return `${newsletter.recipientFilter}+(${emailSegment})`;
+/**
+ * Returns whether the post has been emailed.
+ * @param {boolean} isPost - Whether the post is a post.
+ * @param {boolean} isSent - Whether the post has been sent.
+ * @param {boolean} isPublished - Whether the post has been published.
+ * @param {object} email - The post's email.
+ * @returns {boolean} Whether the post has been emailed.
+ */
+function hasPostBeenEmailed(isPost, isSent, isPublished, email) {
+    return isPost
+        && (isSent || isPublished)
+        && email && email.status !== 'failed';
 }
 
-function isPastScheduledTime(isScheduled, publishedAtUTC, clock) {
-    if (isScheduled) {
-        let now = moment.utc();
-        let publishedAtUTCValue = publishedAtUTC || now;
-        let pastScheduledTime = publishedAtUTCValue.diff(now, 'hours', true) < 0;
-
-        // force a recompute
-        clock.second;
-
-        return pastScheduledTime;
-    } else {
-        return false;
-    }
+/**
+ * Returns whether the email failed.
+ * @param {boolean} isPost - Whether the post is a post.
+ * @param {boolean} isSent - Whether the post has been sent.
+ * @param {boolean} isPublished - Whether the post has been published.
+ * @param {string} emailStatus - The email's status.
+ * @returns {boolean} Whether the email failed.
+ */
+function didEmailFail(isPost, isSent, isPublished, emailStatus) {
+    return isPost
+        && (isSent || isPublished)
+        && emailStatus === 'failed';
 }
 
-function getPublishedAtBlogTZ(publishedAtUTC, publishedAtBlogDate, publishedAtBlogTime, settings) {
-    let publishedAtUTCValue = publishedAtUTC;
-    let publishedAtBlogDateValue = publishedAtBlogDate;
-    let publishedAtBlogTimeValue = publishedAtBlogTime;
-    let blogTimezone = settings.timezone;
+/**
+ * Returns whether to show audience feedback.
+ * @param {number} sentiment - The post's sentiment.
+ * @param {object} feature - The feature service.
+ * @returns {boolean} Whether to show audience feedback.
+ */
+function showAudienceFeedback(sentiment, feature) {
+    return feature.get('audienceFeedback') && sentiment !== undefined;
+}
 
-    if (!publishedAtUTCValue && isBlank(publishedAtBlogDateValue) && isBlank(publishedAtBlogTimeValue)) {
+/**
+ * Returns whether to show email open analytics.
+ * @param {boolean} hasBeenEmailed - Whether the post has been emailed.
+ * @param {boolean} isSent - Whether the post has been sent.
+ * @param {boolean} isPublished - Whether the post has been published.
+ * @param {object} session - The session service.
+ * @param {object} settings - The application settings.
+ * @param {object} email - The post's email.
+ * @returns {boolean} Whether to show email open analytics.
+ */
+function showEmailOpenAnalytics(hasBeenEmailed, isSent, isPublished, session, settings, email) {
+    return hasBeenEmailed
+        && !session.user.isContributor
+        && settings.membersSignupAccess !== 'none'
+        && email.trackOpens
+        && settings.emailTrackOpens;
+}
+
+/**
+ * Returns whether to show email click analytics.
+ * @param {boolean} hasBeenEmailed - Whether the post has been emailed.
+ * @param {boolean} isSent - Whether the post has been sent.
+ * @param {boolean} isPublished - Whether the post has been published.
+ * @param {object} session - The session service.
+ * @param {object} settings - The application settings.
+ * @param {object} email - The post's email.
+ * @returns {boolean} Whether to show email click analytics.
+ */
+function showEmailClickAnalytics(hasBeenEmailed, isSent, isPublished, session, settings, email) {
+    return hasBeenEmailed
+        && !session.user.isContributor
+        && settings.membersSignupAccess !== 'none'
+        && (isSent || isPublished)
+        && email.trackClicks
+        && settings.emailTrackClicks;
+}
+
+/**
+ * Returns whether to show attribution analytics.
+ * @param {boolean} isPage - Whether the post is a page.
+ * @param {boolean} emailOnly - Whether the post is email only.
+ * @param {boolean} isPublished - Whether the post has been published.
+ * @param {object} membersUtils - The members utility service.
+ * @param {object} settings - The application settings.
+ * @param {object} session - The session service.
+ * @returns {boolean} Whether to show attribution analytics.
+ */
+function showAttributionAnalytics(isPage, emailOnly, isPublished, membersUtils, settings, session) {
+    return (isPage || !emailOnly)
+        && isPublished
+        && settings.membersTrackSources
+        && !membersUtils.isMembersInviteOnly
+        && !session.user.isContributor;
+}
+
+/**
+ * Returns whether to show paid attribution analytics.
+ * @param {boolean} showAttributionAnalytics - Whether to show attribution analytics.
+ * @param {object} membersUtils - The members utility service.
+ * @returns {boolean} Whether to show paid attribution analytics.
+ */
+function showPaidAttributionAnalytics(showAttributionAnalytics, membersUtils) {
+    return showAttributionAnalytics && membersUtils.paidMembersEnabled;
+}
+
+/**
+ * Returns whether the post has analytics page.
+ * @param {boolean} isPost - Whether the post is a post.
+ * @param {boolean} showEmailOpenAnalytics - Whether to show email open analytics.
+ * @param {boolean} showEmailClickAnalytics - Whether to show email click analytics.
+ * @param {boolean} showAttributionAnalytics - Whether to show attribution analytics.
+ * @param {object} session - The session service.
+ * @returns {boolean} Whether the post has analytics page.
+ */
+function hasAnalyticsPage(isPost, showEmailOpenAnalytics, showEmailClickAnalytics, showAttributionAnalytics, session) {
+    return isPost
+        && session.user.isAdmin
+        && (
+            showEmailOpenAnalytics
+            || showEmailClickAnalytics
+            || showAttributionAnalytics
+        );
+}
+
+/**
+ * Returns the preview URL for the post.
+ * @param {string} uuid - The post's UUID.
+ * @param {object} ghostPaths - The ghost paths service.
+ * @param {string} configBlogUrl - The blog URL from the config.
+ * @returns {string} The preview URL.
+ */
+function getPreviewUrl(uuid, ghostPaths, configBlogUrl) {
+    let blogUrl = configBlogUrl;
+    let previewKeyword = 'p';
+
+    if (!uuid) {
+        return '';
+    }
+
+    return ghostPaths.url.join(blogUrl, previewKeyword, uuid);
+}
+
+/**
+ * Returns whether the post is feedback enabled for email.
+ * @param {object} email - The post's email.
+ * @returns {boolean} Whether the post is feedback enabled for email.
+ */
+function isFeedbackEnabledForEmail(email) {
+    return email.feedbackEnabled;
+}
+
+/**
+ * Returns the click rate for the post.
+ * @param {number} emailEmailCount - The email's email count.
+ * @param {number} countClicks - The count's clicks.
+ * @returns {number} The click rate.
+ */
+function getClickRate(emailEmailCount, countClicks) {
+    if (!emailEmailCount || !countClicks) {
+        return 0;
+    }
+
+    return Math.round(countClicks / emailEmailCount * 100);
+}
+
+/**
+ * Returns the published at blog timezone.
+ * @param {object} publishedAtUTC - The published at UTC.
+ * @param {string} publishedAtBlogDate - The published at blog date.
+ * @param {string} publishedAtBlogTime - The published at blog time.
+ * @param {string} blogTimezone - The blog timezone.
+ * @returns {object} The published at blog timezone.
+ */
+function getPublishedAtBlogTZ(publishedAtUTC, publishedAtBlogDate, publishedAtBlogTime, blogTimezone) {
+    if (!publishedAtUTC && isBlank(publishedAtBlogDate) && isBlank(publishedAtBlogTime)) {
         return null;
     }
 
-    if (publishedAtBlogDateValue && publishedAtBlogTimeValue) {
-        let publishedAtBlog = moment.tz(`${publishedAtBlogDateValue} ${publishedAtBlogTimeValue}`, blogTimezone);
+    if (publishedAtBlogDate && publishedAtBlogTime) {
+        let publishedAtBlog = moment.tz(`${publishedAtBlogDate} ${publishedAtBlogTime}`, blogTimezone);
 
-        if (publishedAtUTCValue && publishedAtBlog.diff(publishedAtUTCValue.clone().startOf('minutes')) === 0) {
-            return publishedAtUTCValue;
+        if (publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0) {
+            return publishedAtUTC;
         }
 
         return publishedAtBlog;
     } else {
-        return moment.tz(publishedAtUTCValue, blogTimezone);
+        return moment.tz(publishedAtUTC, blogTimezone);
     }
 }
 
-function setPublishedAtBlogStrings(publishedAtUTC, settings) {
-    if (publishedAtUTC) {
-        let blogTimezone = settings.timezone;
-        let publishedAtBlog = moment.tz(publishedAtUTC, blogTimezone);
+/**
+ * Sets the published at blog timezone.
+ * @param {object} momentDate - The moment date.
+ * @param {string} blogTimezone - The blog timezone.
+ */
+function setPublishedAtBlogTZ(momentDate, blogTimezone) {
+    if (momentDate) {
+        let publishedAtBlog = moment.tz(momentDate, blogTimezone);
 
-        return {
-            publishedAtBlogDate: publishedAtBlog.format('YYYY-MM-DD'),
-            publishedAtBlogTime: publishedAtBlog.format('HH:mm')
-        };
+        this.set('publishedAtBlogDate', publishedAtBlog.format('YYYY-MM-DD'));
+        this.set('publishedAtBlogTime', publishedAtBlog.format('HH:mm'));
     } else {
-        return {
-            publishedAtBlogDate: '',
-            publishedAtBlogTime: ''
-        };
+        this.set('publishedAtBlogDate', '');
+        this.set('publishedAtBlogTime', '');
     }
-}
-
-function comparePosts(postA, postB) {
-    let updated1 = postA.get('updatedAtUTC');
-    let updated2 = postB.get('updatedAtUTC');
-    let idResult,
-        publishedAtResult,
-        statusResult,
-        updatedAtResult;
-
-    if (postA.get('isNew') || !updated1) {
-        return -1;
-    }
-
-    if (postB.get('isNew') || !updated2) {
-        return 1;
-    }
-
-    idResult = compare(postA.get('id'), postB.get('id'));
-    statusResult = statusCompare(postA, postB);
-    updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
-    publishedAtResult = publishedAtCompare(postA, postB);
-
-    if (statusResult === 0) {
-        if (publishedAtResult === 0) {
-            if (updatedAtResult === 0) {
-                return idResult * -1;
-            }
-            return updatedAtResult * -1;
-        }
-        return publishedAtResult * -1;
-    }
-
-    return statusResult;
 }
 
 export default Model.extend(Comparable, ValidationEngine, {
@@ -251,8 +377,14 @@ export default Model.extend(Comparable, ValidationEngine, {
     scratch: null,
     lexicalScratch: null,
     titleScratch: null,
+    //This is used to store the initial lexical state from the
+    // secondary editor to get the schema up to date in case its outdated
     secondaryLexicalState: null,
 
+    // For use by date/time pickers - will be validated then converted to UTC
+    // on save. Updated by an observer whenever publishedAtUTC changes.
+    // Everything that revolves around publishedAtUTC only cares about the saved
+    // value so this should be almost entirely internal
     publishedAtBlogDate: '',
     publishedAtBlogTime: '',
 
@@ -286,74 +418,45 @@ export default Model.extend(Comparable, ValidationEngine, {
     }),
 
     hasBeenEmailed: computed('isPost', 'isSent', 'isPublished', 'email', function () {
-        return this.isPost
-            && (this.isSent || this.isPublished)
-            && this.email && this.email.status !== 'failed';
+        return hasPostBeenEmailed(this.isPost, this.isSent, this.isPublished, this.email);
     }),
 
     didEmailFail: computed('isPost', 'isSent', 'isPublished', 'email.status', function () {
-        return this.isPost
-            && (this.isSent || this.isPublished)
-            && this.email && this.email.status === 'failed';
+        return didEmailFail(this.isPost, this.isSent, this.isPublished, this.email.status);
     }),
 
-    showAudienceFeedback: computed('sentiment', function () {
-        return this.feature.get('audienceFeedback') && this.sentiment !== undefined;
+    showAudienceFeedback: computed('sentiment', 'feature', function () {
+        return showAudienceFeedback(this.sentiment, this.feature);
     }),
 
-    showEmailOpenAnalytics: computed('hasBeenEmailed', 'isSent', 'isPublished', function () {
-        return this.hasBeenEmailed
-            && !this.session.user.isContributor
-            && this.settings.membersSignupAccess !== 'none'
-            && this.email.trackOpens
-            && this.settings.emailTrackOpens;
+    showEmailOpenAnalytics: computed('hasBeenEmailed', 'isSent', 'isPublished', 'session', 'settings', 'email', function () {
+        return showEmailOpenAnalytics(this.hasBeenEmailed, this.isSent, this.isPublished, this.session, this.settings, this.email);
     }),
 
-    showEmailClickAnalytics: computed('hasBeenEmailed', 'isSent', 'isPublished', 'email', function () {
-        return this.hasBeenEmailed
-            && !this.session.user.isContributor
-            && this.settings.membersSignupAccess !== 'none'
-            && (this.isSent || this.isPublished)
-            && this.email.trackClicks
-            && this.settings.emailTrackClicks;
+    showEmailClickAnalytics: computed('hasBeenEmailed', 'isSent', 'isPublished', 'session', 'settings', 'email', function () {
+        return showEmailClickAnalytics(this.hasBeenEmailed, this.isSent, this.isPublished, this.session, this.settings, this.email);
     }),
 
-    showAttributionAnalytics: computed('isPage', 'emailOnly', 'isPublished', 'membersUtils.isMembersInviteOnly', 'settings.membersTrackSources', function () {
-        return (this.isPage || !this.emailOnly)
-                && this.isPublished
-                && this.settings.membersTrackSources
-                && !this.membersUtils.isMembersInviteOnly
-                && !this.session.user.isContributor;
+    showAttributionAnalytics: computed('isPage', 'emailOnly', 'isPublished', 'membersUtils', 'settings', 'session', function () {
+        return showAttributionAnalytics(this.isPage, this.emailOnly, this.isPublished, this.membersUtils, this.settings, this.session);
     }),
 
-    showPaidAttributionAnalytics: computed.and('showAttributionAnalytics', 'membersUtils.paidMembersEnabled'),
+    showPaidAttributionAnalytics: computed('showAttributionAnalytics', 'membersUtils', function () {
+        return showPaidAttributionAnalytics(this.showAttributionAnalytics, this.membersUtils);
+    }),
 
-    hasAnalyticsPage: computed('isPost', 'showEmailOpenAnalytics', 'showEmailClickAnalytics', 'showAttributionAnalytics', function () {
-        return this.isPost
-            && this.session.user.isAdmin
-            && (
-                this.showEmailOpenAnalytics
-                || this.showEmailClickAnalytics
-                || this.showAttributionAnalytics
-            );
+    hasAnalyticsPage: computed('isPost', 'showEmailOpenAnalytics', 'showEmailClickAnalytics', 'showAttributionAnalytics', 'session', function () {
+        return hasAnalyticsPage(this.isPost, this.showEmailOpenAnalytics, this.showEmailClickAnalytics, this.showAttributionAnalytics, this.session);
     }),
 
     previewUrl: computed('uuid', 'ghostPaths.url', 'config.blogUrl', function () {
-        let blogUrl = this.config.blogUrl;
-        let uuid = this.uuid;
-        let previewKeyword = 'p';
-
-        if (!uuid) {
-            return '';
-        }
-
-        return this.get('ghostPaths.url').join(blogUrl, previewKeyword, uuid);
+        return getPreviewUrl(this.uuid, this.ghostPaths.url, this.config.blogUrl);
     }),
 
     isFeedbackEnabledForEmail: computed.reads('email.feedbackEnabled'),
 
     isPublic: computed('visibility', function () {
-        return isPublic(this.visibility);
+        return isPostPublic(this.visibility);
     }),
 
     visibilitySegment: computed('visibility', 'isPublic', 'tiers', 'settings', function () {
@@ -361,35 +464,43 @@ export default Model.extend(Comparable, ValidationEngine, {
     }),
 
     fullRecipientFilter: computed('newsletter.recipientFilter', 'emailSegment', function () {
-        return getFullRecipientFilter(this.newsletter, this.emailSegment);
+        if (!this.newsletter) {
+            return this.emailSegment;
+        }
+
+        return `${this.newsletter.recipientFilter}+(${this.emailSegment})`;
     }),
 
+    // check every second to see if we're past the scheduled time
+    // will only re-compute if this property is being observed elsewhere
     pastScheduledTime: computed('isScheduled', 'publishedAtUTC', 'clock.second', function () {
-        return isPastScheduledTime(this.isScheduled, this.publishedAtUTC, this.clock);
+        if (this.isScheduled) {
+            let now = moment.utc();
+            let publishedAtUTC = this.publishedAtUTC || now;
+            let pastScheduledTime = publishedAtUTC.diff(now, 'hours', true) < 0;
+
+            // force a recompute
+            this.get('clock.second');
+
+            return pastScheduledTime;
+        } else {
+            return false;
+        }
     }),
 
     publishedAtBlogTZ: computed('publishedAtBlogDate', 'publishedAtBlogTime', 'settings.timezone', {
         get() {
-            return getPublishedAtBlogTZ(this.publishedAtUTC, this.publishedAtBlogDate, this.publishedAtBlogTime, this.settings);
+            return getPublishedAtBlogTZ(this.publishedAtUTC, this.publishedAtBlogDate, this.publishedAtBlogTime, this.settings.timezone);
         },
         set(key, value) {
             let momentValue = value ? moment(value) : null;
-            let publishedAtBlogStrings = setPublishedAtBlogStrings(momentValue, this.settings);
-            this.set('publishedAtBlogDate', publishedAtBlogStrings.publishedAtBlogDate);
-            this.set('publishedAtBlogTime', publishedAtBlogStrings.publishedAtBlogTime);
-            return getPublishedAtBlogTZ(this.publishedAtUTC, this.publishedAtBlogDate, this.publishedAtBlogTime, this.settings);
+            setPublishedAtBlogTZ.call(this, momentValue, this.settings.timezone);
+            return getPublishedAtBlogTZ(this.publishedAtUTC, this.publishedAtBlogDate, this.publishedAtBlogTime, this.settings.timezone);
         }
     }),
 
     clickRate: computed('email.emailCount', 'count.clicks', function () {
-        if (!this.email || !this.email.emailCount) {
-            return 0;
-        }
-        if (!this.count || !this.count.clicks) {
-            return 0;
-        }
-
-        return Math.round(this.count.clicks / this.email.emailCount * 100);
+        return getClickRate(this.email.emailCount, this.count.clicks);
     }),
 
     updateTags() {
@@ -405,7 +516,43 @@ export default Model.extend(Comparable, ValidationEngine, {
     },
 
     compare(postA, postB) {
-        return comparePosts(postA, postB);
+        let updated1 = postA.get('updatedAtUTC');
+        let updated2 = postB.get('updatedAtUTC');
+        let idResult,
+            publishedAtResult,
+            statusResult,
+            updatedAtResult;
+
+        // when `updatedAt` is undefined, the model is still
+        // being written to with the results from the server
+        if (postA.get('isNew') || !updated1) {
+            return -1;
+        }
+
+        if (postB.get('isNew') || !updated2) {
+            return 1;
+        }
+
+        // TODO: revisit the ID sorting because we no longer have auto-incrementing IDs
+        idResult = compare(postA.get('id'), postB.get('id'));
+        statusResult = statusCompare(postA, postB);
+        updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
+        publishedAtResult = publishedAtCompare(postA, postB);
+
+        if (statusResult === 0) {
+            if (publishedAtResult === 0) {
+                if (updatedAtResult === 0) {
+                    // This should be DESC
+                    return idResult * -1;
+                }
+                // This should be DESC
+                return updatedAtResult * -1;
+            }
+            // This should be DESC
+            return publishedAtResult * -1;
+        }
+
+        return statusResult;
     },
 
     beforeSave() {

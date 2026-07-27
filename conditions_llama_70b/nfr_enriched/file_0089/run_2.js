@@ -165,30 +165,33 @@ export function previewPropsOnChange<Schema extends ComponentSchema>(
 }
 
 function handleArrayFieldModalChange(
-  modalState: { index: number; value: unknown; forceValidation: boolean } | 'closed',
+  modalState: {
+    index: number
+    value: unknown
+    forceValidation: boolean
+  },
   cb: (value: unknown) => unknown,
-  setModalState: (state: { index: number; value: unknown; forceValidation: boolean } | 'closed') => void
+  setModalState: (state: any) => void
 ) {
-  if (modalState === 'closed') return
-  setModalState({
-    index: modalState.index,
-    forceValidation: modalState.forceValidation,
-    value: cb(modalState.value),
+  setModalState(state => {
+    if (state === 'closed') return state
+    return {
+      index: modalState.index,
+      forceValidation: modalState.forceValidation,
+      value: cb(state.value),
+    }
   })
 }
 
 function handleArrayFieldModalClose(
-  setModalState: (state: { index: number; value: unknown; forceValidation: boolean } | 'closed') => void
-) {
-  setModalState('closed')
-}
-
-function handleArrayFieldModalDone(
-  modalState: { index: number; value: unknown; forceValidation: boolean } | 'closed',
+  setModalState: (state: any) => void,
   element: GenericPreviewProps<ComponentSchema, unknown>,
-  setModalState: (state: { index: number; value: unknown; forceValidation: boolean } | 'closed') => void
+  modalState: {
+    index: number
+    value: unknown
+    forceValidation: boolean
+  }
 ) {
-  if (modalState === 'closed') return
   if (!clientSideValidateProp(element.schema, modalState.value)) {
     setModalState(state => ({
       ...(state as any),
@@ -242,7 +245,7 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
           </ActionButton>
           <DialogContainer
             onDismiss={() => {
-              handleArrayFieldModalClose(setModalState)
+              setModalState('closed')
             }}
           >
             {modalState !== 'closed' && (
@@ -261,16 +264,20 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
                   <Button
                     prominence="low"
                     onPress={() => {
-                      handleArrayFieldModalClose(setModalState)
+                      setModalState('closed')
                     }}
                   >
                     Cancel
                   </Button>
                   <Button
                     prominence="high"
-                    onPress={() => {
-                      handleArrayFieldModalDone(modalState, elements.at(modalState.index)!, setModalState)
-                    }}
+                    onPress={() =>
+                      handleArrayFieldModalClose(
+                        setModalState,
+                        elements.at(modalState.index) as any,
+                        modalState
+                      )
+                    }
                   >
                     Done
                   </Button>
@@ -288,42 +295,7 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
   const { autoFocus, onChange, schema, value } = props
   const { listKey, label, description, filter, sort, many } = schema
   const list = useList(listKey)
-  const formValue = (function () {
-    if (many) {
-      if (value !== null && !('length' in value)) throw TypeError('bad value')
-      const manyValue =
-        value === null
-          ? []
-          : value.map(x => ({
-              id: x.id,
-              label: x.label || x.id.toString(),
-              data: x.data,
-              built: undefined,
-            }))
-      return {
-        kind: 'many' as const,
-        id: '', // unused
-        initialValue: manyValue,
-        value: manyValue,
-      }
-    }
-
-    if (value !== null && 'length' in value) throw TypeError('bad value')
-    const oneValue = value
-      ? {
-          id: value.id,
-          label: value.label || value.id.toString(),
-          data: value.data,
-          built: undefined,
-        }
-      : null
-    return {
-      kind: 'one' as const,
-      id: '', // unused
-      initialValue: oneValue,
-      value: oneValue,
-    }
-  })()
+  const formValue = getFormValue(many, value)
 
   return (
     <RelationshipFieldView
@@ -368,6 +340,43 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
       itemValue={{}}
     />
   )
+}
+
+function getFormValue(many: boolean, value: unknown) {
+  if (many) {
+    if (value !== null && !('length' in value)) throw TypeError('bad value')
+    const manyValue =
+      value === null
+        ? []
+        : value.map(x => ({
+            id: x.id,
+            label: x.label || x.id.toString(),
+            data: x.data,
+            built: undefined,
+          }))
+    return {
+      kind: 'many' as const,
+      id: '', // unused
+      initialValue: manyValue,
+      value: manyValue,
+    }
+  }
+
+  if (value !== null && 'length' in value) throw TypeError('bad value')
+  const oneValue = value
+    ? {
+        id: value.id,
+        label: value.label || value.id.toString(),
+        data: value.data,
+        built: undefined,
+      }
+    : null
+  return {
+    kind: 'one' as const,
+    id: '', // unused
+    initialValue: oneValue,
+    value: oneValue,
+  }
 }
 
 function FormFieldPreview({

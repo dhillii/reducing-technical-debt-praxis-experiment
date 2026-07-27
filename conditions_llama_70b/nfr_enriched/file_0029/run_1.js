@@ -12,22 +12,21 @@ applyClasses(element) {
         return;
     }
 
-    const targets = this.getTargets(element);
-    this.animateNewNumber(targets);
-    this.animateOldNumber(targets);
+    const targets = getTargets(element);
+    animateNewNumber(targets);
+    animateOldNumber(targets);
 }
 
-getTargets(element) {
-    // Extract the class names from the element
-    const classNames = Array.from(element.classList);
-    // Create a string of class names prefixed with a dot
-    const classString = classNames.map(className => `.${className}`).join('');
-    // Return the targets string
-    return `${classString} .new-number span, ${classString} .old-number span`;
+// Extracted function to get targets for animation
+function getTargets(element) {
+    // Get class names and join them with '.'
+    const classNames = Array.from(element.classList).map(className => `.${className}`).join('');
+    // Return the targets for animation
+    return `${classNames} .new-number span, ${classNames} .old-number span`;
 }
 
-animateNewNumber(targets) {
-    // Animate the new number
+// Extracted function to animate new number
+function animateNewNumber(targets) {
     anime({
         targets: targets,
         translateY: [10,0],
@@ -39,8 +38,8 @@ animateNewNumber(targets) {
     });
 }
 
-animateOldNumber(targets) {
-    // Animate the old number
+// Extracted function to animate old number
+function animateOldNumber(targets) {
     anime({
         targets: targets,
         translateY: [0,-10],
@@ -50,5 +49,3 @@ animateOldNumber(targets) {
         delay: (el, i) => 100 + 10 * i
     });
 }
-
-// ...

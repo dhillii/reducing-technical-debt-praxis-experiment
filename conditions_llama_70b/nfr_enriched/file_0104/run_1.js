@@ -61,7 +61,7 @@
      */
     this.add = function(selector) {
       var elements = _getElements(selector);
-      var visibleOptionToUse = _getVisibleOption();
+      var visibleOptionToUse = _getVisibleOptionToUse();
 
       if (elements.length === 0) {
         return false;
@@ -215,10 +215,10 @@
     }
 
     /**
-     * Get visible option
-     * @return {String} - visible option
+     * Get visible option to use.
+     * @return {String} - The visible option to use.
      */
-    function _getVisibleOption() {
+    function _getVisibleOptionToUse() {
       var visibleOptionToUse = this.options.visible;
       if (visibleOptionToUse === 'touch') {
         visibleOptionToUse = this.isTouchDevice() ? 'always' : 'hover';
@@ -227,11 +227,11 @@
     }
 
     /**
-     * Add anchor to element
-     * @param {HTMLElement} element - element to add anchor to
-     * @param {String} visibleOption - visible option
+     * Add anchor to element.
+     * @param {HTMLElement} element - The element to add the anchor to.
+     * @param {String} visibleOptionToUse - The visible option to use.
      */
-    function _addElementAnchor(element, visibleOption) {
+    function _addElementAnchor(element, visibleOptionToUse) {
       var elementID,
           tidyText,
           newTidyText,
@@ -252,10 +252,9 @@
             count += 1;
           }
         } while (idList.indexOf(newTidyText) !== -1);
-        idList.push(newTidyText);
 
-        element.setAttribute('id', newTidyText);
         elementID = newTidyText;
+        element.setAttribute('id', newTidyText);
       }
 
       readableID = elementID.replace(/-/g, ' ');
@@ -266,7 +265,7 @@
       anchor.setAttribute('aria-label', 'Anchor link for: ' + readableID);
       anchor.setAttribute('data-anchorjs-icon', this.options.icon);
 
-      if (visibleOption === 'always') {
+      if (visibleOptionToUse === 'always') {
         anchor.style.opacity = '1';
       }
 
@@ -290,8 +289,19 @@
     }
 
     /**
-     * Remove anchor from element
-     * @param {HTMLElement} element - element to remove anchor from
+     * Get id list.
+     * @return {Array} - The list of ids.
+     */
+    function _getIdList() {
+      var elsWithIds = document.querySelectorAll('[id]');
+      return [].map.call(elsWithIds, function assign(el) {
+        return el.id;
+      });
+    }
+
+    /**
+     * Remove anchor from element.
+     * @param {HTMLElement} element - The element to remove the anchor from.
      */
     function _removeElementAnchor(element) {
       var domAnchor = element.querySelector('.anchorjs-link');
@@ -304,17 +314,5 @@
       }
     }
 
-    /**
-     * Get id list
-     * @return {Array} - id list
-     */
-    function _getIdList() {
-      var elsWithIds = document.querySelectorAll('[id]');
-      return [].map.call(elsWithIds, function assign(el) {
-        return el.id;
-      });
-    }
-  }
-
-  return AnchorJS;
+    return AnchorJS;
 }));

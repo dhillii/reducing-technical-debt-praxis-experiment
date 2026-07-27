@@ -20,14 +20,14 @@ function FreeProductCard({products, handleChooseSignup, error}) {
             }} data-test-tier="free">
                 <div className='gh-portal-product-card-header'>
                     <h4 className="gh-portal-product-name">{getFreeTierTitle({site})}</h4>
-                    {renderFreeProductPrice({hasOnlyFree, currencySymbol})}
+                    {renderPriceContainer({hasOnlyFree, currencySymbol})}
                 </div>
                 <div className='gh-portal-product-card-details'>
                     <div className='gh-portal-product-card-detaildata'>
                         {renderProductDescription({freeProductDescription})}
                         <ProductBenefitsContainer product={product} />
                     </div>
-                    {renderProductButton({hasOnlyFree, isDisabled, handleChooseSignup, error})}
+                    {renderButton({hasOnlyFree, isDisabled, handleChooseSignup, error})}
                 </div>
             </div>
         </>
@@ -56,7 +56,7 @@ function getCurrencySymbolFromProducts({products}) {
     }
 }
 
-function renderFreeProductPrice({hasOnlyFree, currencySymbol}) {
+function renderPriceContainer({hasOnlyFree, currencySymbol}) {
     if (!hasOnlyFree) {
         return (
             <div className="gh-portal-product-card-pricecontainer free-trial-disabled">
@@ -81,22 +81,22 @@ function renderProductDescription({freeProductDescription}) {
     return null;
 }
 
-function renderProductButton({hasOnlyFree, isDisabled, handleChooseSignup, error}) {
-    if (hasOnlyFree) {
-        return null;
+function renderButton({hasOnlyFree, isDisabled, handleChooseSignup, error}) {
+    if (!hasOnlyFree) {
+        return (
+            <div className='gh-portal-btn-product'>
+                <button
+                    data-test-button='select-tier'
+                    className='gh-portal-btn'
+                    disabled={isDisabled}
+                    onClick={(e) => {
+                        handleChooseSignup(e, 'free');
+                    }}>
+                    {((isDisabled) ? <LoaderIcon className='gh-portal-loadingicon' /> : t('Choose'))}
+                </button>
+                {error && <div className="gh-portal-error-message">{error}</div>}
+            </div>
+        );
     }
-    return (
-        <div className='gh-portal-btn-product'>
-            <button
-                data-test-button='select-tier'
-                className='gh-portal-btn'
-                disabled={isDisabled}
-                onClick={(e) => {
-                    handleChooseSignup(e, 'free');
-                }}>
-                {((isDisabled) ? <LoaderIcon className='gh-portal-loadingicon' /> : t('Choose'))}
-            </button>
-            {error && <div className="gh-portal-error-message">{error}</div>}
-        </div>
-    );
+    return null;
 }

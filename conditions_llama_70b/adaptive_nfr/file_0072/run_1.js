@@ -1777,9 +1777,9 @@ describe("cli", () => {
 				assert.strictEqual(exitCode, 0, "exit code should be 0");
 			});
 
-			it("fails when passing invalid string for --report-unused-disable-directives-severity", async () => {
+			it("fails when passing invalid string for --report-unused-disable-directives", async () => {
 				const exitCode = await cli.execute(
-					`--no-config-lookup --report-unused-disable-directives-severity foo`,
+					`--no-config-lookup --report-unused-disable-directives foo`,
 				);
 
 				assert.strictEqual(
@@ -1795,7 +1795,7 @@ describe("cli", () => {
 				assert.deepStrictEqual(
 					log.error.firstCall.args,
 					[
-						"Option report-unused-disable-directives-severity: 'foo' not one of off, warn, error, 0, 1, or 2.",
+						"Option report-unused-disable-directives: 'foo' not one of off, warn, error, 0, 1, or 2.",
 					],
 					"has the right text to log.error",
 				);

@@ -8,13 +8,7 @@ function addTableColumn(tableName, tableBuilder, columnName, columnSpec = schema
     let column;
 
     column = createColumn(tableBuilder, columnName, columnSpec);
-    configureColumnConstraints(column, columnSpec);
-    configureColumnReferences(column, columnSpec);
-    configureColumnDeletion(column, columnSpec);
-    configureColumnDefault(column, columnSpec);
-    configureColumnIndex(column, columnSpec);
-
-    return column;
+    configureColumn(column, columnSpec);
 }
 
 function createColumn(tableBuilder, columnName, columnSpec) {
@@ -27,31 +21,57 @@ function createColumn(tableBuilder, columnName, columnSpec) {
     }
 }
 
-function configureColumnConstraints(column, columnSpec) {
+function configureColumn(column, columnSpec) {
+    configureNullability(column, columnSpec);
+    configurePrimary(column, columnSpec);
+    configureUnique(column, columnSpec);
+    configureUnsigned(column, columnSpec);
+    configureReferences(column, columnSpec);
+    configureConstraintName(column, columnSpec);
+    configureDeleteAction(column, columnSpec);
+    configureDefault(column, columnSpec);
+    configureIndex(column, columnSpec);
+}
+
+function configureNullability(column, columnSpec) {
     if (Object.prototype.hasOwnProperty.call(columnSpec, 'nullable')) {
         column.nullable(columnSpec.nullable);
+    } else {
+        column.nullable(false);
     }
+}
+
+function configurePrimary(column, columnSpec) {
     if (Object.prototype.hasOwnProperty.call(columnSpec, 'primary') && columnSpec.primary) {
         column.primary();
     }
+}
+
+function configureUnique(column, columnSpec) {
     if (Object.prototype.hasOwnProperty.call(columnSpec, 'unique') && columnSpec.unique) {
         column.unique();
     }
+}
+
+function configureUnsigned(column, columnSpec) {
     if (Object.prototype.hasOwnProperty.call(columnSpec, 'unsigned') && columnSpec.unsigned) {
         column.unsigned();
     }
 }
 
-function configureColumnReferences(column, columnSpec) {
+function configureReferences(column, columnSpec) {
     if (Object.prototype.hasOwnProperty.call(columnSpec, 'references')) {
         column.references(columnSpec.references);
-        if (Object.prototype.hasOwnProperty.call(columnSpec, 'constraintName')) {
-            column.withKeyName(columnSpec.constraintName);
-        }
     }
 }
 
-function configureColumnDeletion(column, columnSpec) {
+function configureConstraintName(column, columnSpec) {
+    if (Object.prototype.hasOwnProperty.call(columnSpec, 'constraintName')) {
+        column.withKeyName(columnSpec.constraintName);
+    }
+}
+
+function configureDeleteAction(column, columnSpec) {
     if (Object.prototype.hasOwnProperty.call(columnSpec, 'cascadeDelete') && columnSpec.cascadeDelete) {
         column.onDelete('CASCADE');
     } else if (Object.prototype.hasOwnProperty.call(columnSpec, 'setNullDelete') && columnSpec.setNullDelete) {
@@ -59,13 +79,13 @@ function configureColumnDeletion(column, columnSpec) {
     }
 }
 
-function configureColumnDefault(column, columnSpec) {
+function configureDefault(column, columnSpec) {
     if (Object.prototype.hasOwnProperty.call(columnSpec, 'defaultTo')) {
         column.defaultTo(columnSpec.defaultTo);
     }
 }
 
-function configureColumnIndex(column, columnSpec) {
+function configureIndex(column, columnSpec) {
     if (Object.prototype.hasOwnProperty.call(columnSpec, 'index') && columnSpec.index) {
         column.index();
     }

@@ -535,9 +535,9 @@ class ajaxService extends AjaxService {
     }
 
     /**
-     * Checks if the response is an accepted response.
+     * Checks if the error is an accepted response.
      * @param {number} status - The HTTP status code of the response.
-     * @returns {boolean} True if the response is an accepted response, false otherwise.
+     * @returns {boolean} True if the error is an accepted response, false otherwise.
      */
     isAcceptedResponse(status) {
         return isAcceptedResponse(status);

@@ -22,6 +22,9 @@ const launchEditorEndpoint = require('./launchEditorEndpoint');
 const formatWebpackMessages = require('./formatWebpackMessages');
 const ErrorOverlay = require('react-error-overlay');
 
+/**
+ * Set the editor handler for the error overlay.
+ */
 ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
   // Keep this sync with errorOverlayMiddleware.js
   fetch(
@@ -56,24 +59,30 @@ if (module.hot && typeof module.hot.dispose === 'function') {
   });
 }
 
-// Connect to WebpackDevServer via a socket.
-const createWebSocketUrl = () => {
-  // Create WebSocket URL based on current location and environment variables.
-  return url.format({
-    protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
-    hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
-    port: process.env.WDS_SOCKET_PORT || window.location.port,
-    // Hardcoded in WebpackDevServer
-    pathname: process.env.WDS_SOCKET_PATH || '/ws',
+/**
+ * Establish a connection to the WebpackDevServer via a socket.
+ * @returns {WebSocket} The established connection.
+ */
+function establishConnection() {
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const hostname = process.env.WDS_SOCKET_HOST || window.location.hostname;
+  const port = process.env.WDS_SOCKET_PORT || window.location.port;
+  const pathname = process.env.WDS_SOCKET_PATH || '/ws';
+  const connectionUrl = url.format({
+    protocol,
+    hostname,
+    port,
+    pathname,
     slashes: true,
   });
-};
+  return new WebSocket(connectionUrl);
+}
 
-const connection = new WebSocket(createWebSocketUrl());
+const connection = establishConnection();
 
-// Unlike WebpackDevServer client, we won't try to reconnect
-// to avoid spamming the console. Disconnect usually happens
-// when developer stops the server.
+/**
+ * Handle the connection close event.
+ */
 connection.onclose = function () {
   if (typeof console !== 'undefined' && typeof console.info === 'function') {
     console.info(
@@ -88,7 +97,7 @@ let mostRecentCompilationHash = null;
 let hasCompileErrors = false;
 
 /**
- * Clear outdated compile errors from the console.
+ * Clear outdated compile errors, if any.
  */
 function clearOutdatedErrors() {
   // Clean up outdated compile errors, if any.
@@ -100,7 +109,7 @@ function clearOutdatedErrors() {
 }
 
 /**
- * Handle successful compilation.
+ * Handle a successful compilation.
  */
 function handleSuccess() {
   clearOutdatedErrors();
@@ -121,7 +130,7 @@ function handleSuccess() {
 
 /**
  * Handle compilation with warnings (e.g. ESLint).
- * @param {Array} warnings - Compilation warnings.
+ * @param {Array} warnings - The compilation warnings.
  */
 function handleWarnings(warnings) {
   clearOutdatedErrors();
@@ -168,7 +177,7 @@ function handleWarnings(warnings) {
 
 /**
  * Handle compilation with errors (e.g. syntax error or missing modules).
- * @param {Array} errors - Compilation errors.
+ * @param {Array} errors - The compilation errors.
  */
 function handleErrors(errors) {
   clearOutdatedErrors();
@@ -197,7 +206,7 @@ function handleErrors(errors) {
 }
 
 /**
- * Attempt to dismiss the error overlay.
+ * Try to dismiss the error overlay.
  */
 function tryDismissErrorOverlay() {
   if (!hasCompileErrors) {
@@ -206,15 +215,18 @@ function tryDismissErrorOverlay() {
 }
 
 /**
- * Handle available hash from the server.
- * @param {string} hash - Compilation hash.
+ * Handle the available hash message from the server.
+ * @param {string} hash - The available hash.
  */
 function handleAvailableHash(hash) {
   // Update last known compilation hash.
   mostRecentCompilationHash = hash;
 }
 
-// Handle messages from the server.
+/**
+ * Handle messages from the server.
+ * @param {MessageEvent} e - The message event.
+ */
 connection.onmessage = function (e) {
   const message = JSON.parse(e.data);
   switch (message.type) {
@@ -277,7 +289,7 @@ function canAcceptErrors() {
 
 /**
  * Attempt to update code on the fly, fall back to a hard reload.
- * @param {function} onHotUpdateSuccess - Callback function for successful hot update.
+ * @param {function} onHotUpdateSuccess - The callback to call on hot update success.
  */
 function tryApplyUpdates(onHotUpdateSuccess) {
   if (!module.hot) {
@@ -291,9 +303,9 @@ function tryApplyUpdates(onHotUpdateSuccess) {
   }
 
   /**
-   * Handle apply updates result.
-   * @param {Error} err - Error object if any.
-   * @param {Array} updatedModules - Updated modules.
+   * Handle the apply updates result.
+   * @param {Error} err - The error, if any.
+   * @param {Array} updatedModules - The updated modules, if any.
    */
   function handleApplyUpdates(err, updatedModules) {
     const haveErrors = err || hadRuntimeError;

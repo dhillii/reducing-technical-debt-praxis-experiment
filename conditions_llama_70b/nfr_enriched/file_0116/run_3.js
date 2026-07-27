@@ -18,7 +18,7 @@ const Common = module.exports;
 
 /**
  * Get the home directory of the current user.
- * @returns {string} The home directory.
+ * @returns {string} The home directory path.
  */
 function getHomeDirectory() {
   const env = process.env;
@@ -204,11 +204,7 @@ Common.prepareAppConf = function(opts, app) {
     return new_env;
   }
 
-  app.env = [
-    {},
-    app.filter_env && app.filter_env.length > 0 ? filterEnv(process.env) : env,
-    app.env || {}
-  ].reduce((e1, e2) => Object.assign(e1, e2));
+  app.env = [{}, app.filter_env && app.filter_env.length > 0 ? filterEnv(process.env) : env, app.env || {}].reduce((e1, e2) => Object.assign(e1, e2));
 
   app.pm_cwd = cwd;
 
@@ -263,7 +259,7 @@ Common.prepareAppConf = function(opts, app) {
 };
 
 /**
- * Known config file extensions.
+ * Known config file extensions with their type.
  */
 Common.knownConfigFileExtensions = {
   '.json': 'json',
@@ -294,9 +290,9 @@ Common.isConfigFile = function(filename) {
 };
 
 /**
- * Get config file candidates.
- * @param {string} name The name of the config file.
- * @returns {string[]} The config file candidates.
+ * Get config file candidates for a given name.
+ * @param {string} name The name to get config file candidates for.
+ * @returns {string[]} An array of config file candidates.
  */
 Common.getConfigFileCandidates = function(name) {
   return Object.keys(Common.knownConfigFileExtensions).map(extension => name + extension);
@@ -348,9 +344,9 @@ Common.retErr = function(e) {
 };
 
 /**
- * Determine the cron restart time.
+ * Determine the cron restart configuration.
  * @param {Object} app The application configuration.
- * @returns {void|Error} The error object if the cron pattern is invalid.
+ * @returns {void}
  */
 Common.sink.determineCron = function(app) {
   if (app.cron_restart === 0 || app.cron_restart === '0') {
@@ -414,8 +410,8 @@ function resolveNodeInterpreter(app) {
     const path_to_node = cst.IS_WINDOWS
       ? '/v' + node_version + '/node.exe'
       : semver.satisfies(node_version, '>= 0.12.0')
-          ? '/versions/node/v' + node_version + '/bin/node'
-          : '/v' + node_version + '/bin/node';
+        ? '/versions/node/v' + node_version + '/bin/node'
+        : '/v' + node_version + '/bin/node';
     const nvm_node_path = path.join(nvm_path, path_to_node);
     try {
       fs.accessSync(nvm_node_path);
@@ -437,15 +433,14 @@ function resolveNodeInterpreter(app) {
       if (cst.IS_WINDOWS) {
         nvm_node_path = nvm_node_path.replace(/node/, 'node' + process.arch.slice(1));
       }
-
-      Common.printOut(cst.PREFIX_MSG + chalk.green.bold('Setting Node to v%s (path=%s)'),
-                      node_version,
-                      nvm_node_path);
-
-      app.exec_interpreter = nvm_node_path;
     }
-  }
 
+    Common.printOut(cst.PREFIX_MSG + chalk.green.bold('Setting Node to v%s (path=%s)'),
+      node_version,
+      nvm_node_path);
+
+    app.exec_interpreter = nvm_node_path;
+  }
   return true;
 }
 
@@ -606,7 +601,7 @@ Common.printOut = function() {
 };
 
 /**
- * Extend an object.
+ * Extend an object with another object.
  * @param {Object} destination The destination object.
  * @param {Object} source The source object.
  * @returns {Object} The extended object.
@@ -629,7 +624,7 @@ Common.extend = function(destination, source) {
 };
 
 /**
- * Safely extend an object.
+ * Safely extend an object with another object.
  * @param {Object} origin The origin object.
  * @param {Object} add The object to add.
  * @returns {Object} The extended object.
@@ -637,58 +632,10 @@ Common.extend = function(destination, source) {
 Common.safeExtend = function(origin, add) {
   if (!add || typeof add !== 'object') return origin;
 
-  const keysToIgnore = [
-    'name',
-    'exec_mode',
-    'env',
-    'args',
-    'pm_cwd',
-    'exec_interpreter',
-    'pm_exec_path',
-    'node_args',
-    'pm_out_log_path',
-    'pm_err_log_path',
-    'pm_pid_path',
-    'pm_id',
-    'status',
-    'pm_uptime',
-    'created_at',
-    'windowsHide',
-    'username',
-    'merge_logs',
-    'kill_retry_time',
-    'prev_restart_delay',
-    'instance_var',
-    'unstable_restarts',
-    'restart_time',
-    'axm_actions',
-    'pmx_module',
-    'command',
-    'watch',
-    'filter_env',
-    'versioning',
-    'vizion_runing',
-    'MODULE_DEBUG',
-    'pmx',
-    'axm_options',
-    'created_at',
-    'watch',
-    'vizion',
-    'axm_dynamic',
-    'axm_monitor',
-    'instances',
-    'automation',
-    'autostart',
-    'autorestart',
-    'stop_exit_codes',
-    'unstable_restart',
-    'treekill',
-    'exit_code',
-    'vizion'
-  ];
+  const keysToIgnore = ['name', 'exec_mode', 'env', 'args', 'pm_cwd', 'exec_interpreter', 'pm_exec_path', 'node_args', 'pm_out_log_path', 'pm_err_log_path', 'pm_pid_path', 'pm_id', 'status', 'pm_uptime', 'created_at', 'windowsHide', 'username', 'merge_logs', 'kill_retry_time', 'prev_restart_delay', 'instance_var', 'unstable_restarts', 'restart_time', 'axm_actions', 'pmx_module', 'command', 'watch', 'filter_env', 'versioning', 'vizion_runing', 'MODULE_DEBUG', 'pmx', 'axm_options', 'created_at', 'watch', 'vizion', 'axm_dynamic', 'axm_monitor', 'instances', 'automation', 'autostart', 'autorestart', 'stop_exit_codes', 'unstable_restart', 'treekill', 'exit_code', 'vizion'];
 
   const keys = Object.keys(add);
-  const i = keys.length;
+  let i = keys.length;
   while (i--) {
     if (keysToIgnore.indexOf(keys[i]) === -1 && add[keys[i]] !== '[object Object]') {
       origin[keys[i]] = add[keys[i]];
@@ -947,7 +894,7 @@ Common.getCurrentUsername = function() {
 };
 
 /**
- * Render an application name.
+ * Render an application name if not existing.
  * @param {Object} conf The application configuration.
  * @returns {void}
  */
@@ -962,7 +909,7 @@ Common.renderApplicationName = function(conf) {
 };
 
 /**
- * Show a warning message.
+ * Show warnings.
  * @param {string} warning The warning message.
  * @returns {void}
  */

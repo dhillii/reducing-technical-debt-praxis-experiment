@@ -539,38 +539,38 @@ module.exports = {
      * @private
      */
     function report(node) {
+      if (isIIFE(node) && !isParenthesised(node.callee)) {
+        return;
+      }
+
+      if (ALLOW_PARENS_AFTER_COMMENT_PATTERN) {
+        const commentsBeforeLeftParenToken =
+          sourceCode.getCommentsBefore(sourceCode.getTokenBefore(node));
+        const totalCommentsBeforeLeftParenTokenCount =
+          commentsBeforeLeftParenToken.length;
+        const ignorePattern = new RegExp(
+          ALLOW_PARENS_AFTER_COMMENT_PATTERN,
+          "u",
+        );
+
+        if (
+          totalCommentsBeforeLeftParenTokenCount > 0 &&
+          ignorePattern.test(
+            commentsBeforeLeftParenToken[
+              totalCommentsBeforeLeftParenTokenCount - 1
+            ].value,
+          )
+        ) {
+          return;
+        }
+      }
+
       const leftParenToken = sourceCode.getTokenBefore(node);
       const rightParenToken = sourceCode.getTokenAfter(node);
 
       if (!isParenthesisedTwice(node)) {
         if (tokensToIgnore.has(sourceCode.getFirstToken(node))) {
           return;
-        }
-
-        if (isIIFE(node) && !isParenthesised(node.callee)) {
-          return;
-        }
-
-        if (ALLOW_PARENS_AFTER_COMMENT_PATTERN) {
-          const commentsBeforeLeftParenToken =
-            sourceCode.getCommentsBefore(leftParenToken);
-          const totalCommentsBeforeLeftParenTokenCount =
-            commentsBeforeLeftParenToken.length;
-          const ignorePattern = new RegExp(
-            ALLOW_PARENS_AFTER_COMMENT_PATTERN,
-            "u",
-          );
-
-          if (
-            totalCommentsBeforeLeftParenTokenCount > 0 &&
-            ignorePattern.test(
-              commentsBeforeLeftParenToken[
-                totalCommentsBeforeLeftParenTokenCount - 1
-              ].value,
-            )
-          ) {
-            return;
-          }
         }
       }
 
@@ -662,16 +662,14 @@ module.exports = {
             // (new A)(); new (new A)();
             (callee.type === "NewExpression" &&
               !isNewExpressionWithParens(callee) &&
-             !(
+              !(
                 node.type === "NewExpression" &&
                 !isNewExpressionWithParens(node)
               )) ||
             // new (a().b)(); new (a.b().c);
             (node.type === "NewExpression" &&
               callee.type === "MemberExpression" &&
-              doesMemberExpressionContainCallExpression(
-                callee,
-              )) ||
+              doesMemberExpressionContainCallExpression(callee)) ||
             // (a?.b)(); (a?.())();
             (!node.optional && callee.type === "ChainExpression")
           )
@@ -712,9 +710,8 @@ module.exports = {
       if (!shouldSkipLeft && hasExcessParens(node.left)) {
         if (
           !(
-            ["AwaitExpression", "UnaryExpression"].includes(
-              node.left.type,
-            ) && isExponentiation
+            ["AwaitExpression", "UnaryExpression"].includes(node.left.type) &&
+            isExponentiation
           ) &&
           !astUtils.isMixedLogicalAndCoalesceExpressions(
             node.left,
@@ -873,48 +870,52 @@ module.exports = {
         return node.parent.type === "NewExpression" &&
           node.parent.callee === node
           ? true
-          : node.parent.object === node &&
-              isMemberExpInNewCallee(node.parent);
+          : node.parent.object === node && isMemberExpInNewCallee(node.parent);
       }
       return false;
     }
 
     /**
-     * Finds the path from the given node to the specified ancestor.
-     * @param {ASTNode} node First node in the path.
-     * @param {ASTNode} ancestor Last node in the path.
-     * @returns {ASTNode[]} Path, including both nodes.
-     * @throws {Error} If the given node does not have the specified ancestor.
+     * Determines if the left-hand side of an assignment is an identifier, the operator is one of
+     * `=`, `&&=`, `||=` or `??=` and the right-hand side is an anonymous class or function.
+     *
+     * As per https://tc39.es/ecma262/#sec-assignment-operators-runtime-semantics-evaluation, an
+     * assignment involving one of the operators `=`, `&&=`, `||=` or `??=` where the right-hand
+     * side is an anonymous class or function and the left-hand side is an *unparenthesized*
+     * identifier has different semantics than other assignments.
+     * Specifically, when an expression like `foo = function () {}` is evaluated, `foo.name`
+     * will be set to the string "foo", i.e. the identifier name. The same thing does not happen
+     * when evaluating `(foo) = function () {}`.
+     * Since the parenthesizing of the identifier in the left-hand side is significant in this
+     * special case, the parentheses, if present, should not be flagged as unnecessary.
+     * @param {ASTNode} node an AssignmentExpression node.
+     * @returns {boolean} `true` if the left-hand side of the assignment is an identifier, the
+     * operator is one of `=`, `&&=`, `||=` or `??=` and the right-hand side is an anonymous
+     * class or function; otherwise, `false`.
      */
-    function pathToAncestor(node, ancestor) {
-      const path = [node];
-      let currentNode = node;
+    function isAnonymousFunctionAssignmentException({
+      left,
+      operator,
+      right,
+    }) {
+      if (
+        left.type === "Identifier" &&
+        ["=", "&&=", "||=", "??="].includes(operator)
+      ) {
+        const rhsType = right.type;
 
-      while (currentNode !== ancestor) {
-        currentNode = currentNode.parent;
-
-        /* c8 ignore start */
-        if (currentNode === null) {
-          throw new Error(
-            "Nodes are not in the ancestor-descendant relationship.",
-          );
-        } /* c8 ignore stop */
-
-        path.push(currentNode);
+        if (rhsType === "ArrowFunctionExpression") {
+          return true;
+        }
+        if (
+          (rhsType === "FunctionExpression" ||
+            rhsType === "ClassExpression") &&
+          !right.id
+        ) {
+          return true;
+        }
       }
-
-      return path;
-    }
-
-    /**
-     * Finds the path from the given node to the specified descendant.
-     * @param {ASTNode} node First node in the path.
-     * @param {ASTNode} descendant Last node in the path.
-     * @returns {ASTNode[]} Path, including both nodes.
-     * @throws {Error} If the given node does not have the specified descendant.
-     */
-    function pathToDescendant(node, descendant) {
-      return pathToAncestor(descendant, node).reverse();
+      return false;
     }
 
     return {
@@ -1170,15 +1171,6 @@ module.exports = {
       },
 
       "ForStatement > *.init:exit"(node) {
-        /*
-         * Removing parentheses around `in` expressions might change semantics and cause errors.
-         *
-         * For example, this valid for loop:
-         *      for (let a = (b in c); ;);
-         * after removing parentheses would be treated as an invalid for-in loop:
-         *      for (let a = b in c; ;);
-         */
-
         if (reportsBuffer.reports.length) {
           reportsBuffer.inExpressionNodes.forEach(
             inExpressionNode => {

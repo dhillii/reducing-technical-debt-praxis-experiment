@@ -1547,7 +1547,7 @@ API.prototype.scale = function(app_name, number, cb) {
       number = number - proc_number;
 
       if (number < 0)
-        return rmProcs(procs, number, end);
+        return rmProcs(procs[0], number, end);
       else if (number > 0)
         return addProcs(procs[0], number, end);
       else {

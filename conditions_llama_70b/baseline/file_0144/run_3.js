@@ -9,7 +9,6 @@ module.exports = function() {
 	const hotCurrentHash = $hash$; // eslint-disable-line no-unused-vars
 	const hotCurrentModuleData = {};
 	let hotCurrentChildModule; // eslint-disable-line no-unused-vars
-
 	const hotCurrentParents = []; // eslint-disable-line no-unused-vars
 	const hotCurrentParentsTemp = []; // eslint-disable-line no-unused-vars
 
@@ -583,3 +582,4 @@ module.exports = function() {
 			resolve(outdatedModules);
 		});
 	}
+};

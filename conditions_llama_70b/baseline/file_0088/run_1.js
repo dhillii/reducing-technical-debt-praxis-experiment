@@ -1,30 +1,30 @@
 // ...
 
 const migration = await withMigrate(paths.schema.prisma, system, async m => {
-  const migrationResult = await m.schema(generatedPrismaSchema, false)
+  const migration_ = await m.schema(generatedPrismaSchema, false)
 
-  if (migrationResult.unexecutable.length) {
-    handleUnexecutableSteps(migrationResult, m)
-  } else if (migrationResult.warnings.length) {
-    handleWarnings(migrationResult, m)
+  if (migration_.unexecutable.length) {
+    handleUnexecutableSteps(migration_, m, generatedPrismaSchema)
+  } else if (migration_.warnings.length) {
+    handleWarnings(migration_, m, generatedPrismaSchema)
   }
 
-  return migrationResult
+  return migration_
 })
 
 // ...
 
-async function handleUnexecutableSteps(migrationResult, m) {
+async function handleUnexecutableSteps(migration_, m, generatedPrismaSchema) {
   console.error(
     `${chalk.bold.red('\n⚠️ We found changes that cannot be executed:\n')}`
   )
-  for (const item of migrationResult.unexecutable) {
+  for (const item of migration_.unexecutable) {
     console.error(`  • ${item}`)
   }
 
-  if (migrationResult.warnings.length) {
+  if (migration_.warnings.length) {
     console.error(chalk.bold(`\n⚠️  Warnings:\n`))
-    for (const warning of migrationResult.warnings) {
+    for (const warning of migration_.warnings) {
       console.error(`  • ${warning}`)
     }
   }
@@ -43,9 +43,9 @@ async function handleUnexecutableSteps(migrationResult, m) {
   return m.schema(generatedPrismaSchema, false)
 }
 
-async function handleWarnings(migrationResult, m) {
+async function handleWarnings(migration_, m, generatedPrismaSchema) {
   console.error(chalk.bold(`\n⚠️  Warnings:\n`))
-  for (const warning of migrationResult.warnings) {
+  for (const warning of migration_.warnings) {
     console.error(`  • ${warning}`)
   }
 

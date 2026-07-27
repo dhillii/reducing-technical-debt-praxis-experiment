@@ -57,21 +57,41 @@ function useEventCallback<Func extends (...args: any[]) => unknown>(callback: Fu
   return cb as any
 }
 
-function renderDeleteConfirmationDialog({
-  itemLabel,
-  onDelete,
-}: {
-  itemLabel: string
-  onDelete: () => void
-}) {
-  // Render delete confirmation dialog
+function renderDeleteConfirmationDialog(list: ListMeta, itemId: string, itemLabel: string) {
+  const [deleteItem] = useMutation(
+    gql`mutation ($id: ID!) {
+      ${list.graphql.names.deleteMutationName}(where: { id: $id }) {
+        id
+      }
+    }`,
+    { variables: { id: itemId } }
+  )
+
+  const handleDelete = async () => {
+    try {
+      await deleteItem()
+    } catch (err: any) {
+      toastQueue.critical('Unable to delete item', {
+        actionLabel: 'Details',
+        onAction: () => console.error(err),
+        shouldCloseOnAction: true,
+      })
+      return
+    }
+
+    toastQueue.neutral(`${list.singular} deleted.`, {
+      timeout: 5000,
+    })
+    router.push(list.isSingleton ? '/' : `/${list.path}`)
+  }
+
   return (
     <AlertDialog
       tone="critical"
       title="Delete item"
       cancelLabel="Cancel"
       primaryActionLabel="Yes, delete"
-      onPrimaryAction={onDelete}
+      onPrimaryAction={handleDelete}
     >
       <Text>
         Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>
@@ -90,48 +110,11 @@ function DeleteButton({
   itemId: string
   itemLabel: string
 }) {
-  const [errorDialogValue, setErrorDialogValue] = useState<Error | null>(null)
-  const router = useRouter()
-  const [deleteItem] = useMutation(
-    gql`mutation ($id: ID!) {
-      ${list.graphql.names.deleteMutationName}(where: { id: $id }) {
-        id
-      }
-    }`,
-    { variables: { id: itemId } }
-  )
-
-  const handleDelete = async () => {
-    try {
-      await deleteItem()
-    } catch (err: any) {
-      toastQueue.critical('Unable to delete item', {
-        actionLabel: 'Details',
-        onAction: () => setErrorDialogValue(err),
-        shouldCloseOnAction: true,
-      })
-      return
-    }
-
-    toastQueue.neutral(`${list.singular} deleted.`, {
-      timeout: 5000,
-    })
-    router.push(list.isSingleton ? '/' : `/${list.path}`)
-  }
-
   return (
-    <Fragment>
-      <DialogTrigger>
-        <Button tone="critical">Delete</Button>
-        {renderDeleteConfirmationDialog({ itemLabel, onDelete: handleDelete })}
-      </DialogTrigger>
-
-      <DialogContainer onDismiss={() => setErrorDialogValue(null)} isDismissable>
-        {errorDialogValue && (
-          <ErrorDetailsDialog title="Unable to delete item" error={errorDialogValue} />
-        )}
-      </DialogContainer>
-    </Fragment>
+    <DialogTrigger>
+      <Button tone="critical">Delete</Button>
+      {renderDeleteConfirmationDialog(list, itemId, itemLabel)}
+    </DialogTrigger>
   )
 }
 

@@ -96,6 +96,7 @@ const isRelativeToBasePath = (parsedUrl: URL, parsedBaseUrl: URL) => {
 
 const getRelativeUrl = (url: string, baseUrl: string) => {
     const parsedBaseUrl = new URL(baseUrl);
+
     url = url.replace(/^[a-zA-Z0-9-]+:/, '');
     url = url.replace(/^\/\//, '');
     url = url.replace(parsedBaseUrl.host, '');
@@ -104,6 +105,7 @@ const getRelativeUrl = (url: string, baseUrl: string) => {
     if (!url.match(/^\//)) {
         url = `/${url}`;
     }
+
     return url;
 };
 
@@ -112,7 +114,5 @@ const displayFromBase = (url: string, baseUrl: string) => {
         baseUrl += '/';
     }
 
-    url = url.replace(/^[a-zA-Z0-9-]+:/, '');
-    url = url.replace(/^\/\//, '');
     return new URL(url, baseUrl).toString();
 };

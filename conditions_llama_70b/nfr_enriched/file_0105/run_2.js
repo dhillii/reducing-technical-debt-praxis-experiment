@@ -210,15 +210,13 @@ exports.list = (failures) => {
     } else {
       index += message.length;
       msg = stack.slice(0, index);
-      // remove msg from stack
       stack = stack.slice(index + 1);
     }
 
-    // uncaught
     if (err.uncaught) {
       msg = 'Uncaught ' + msg;
     }
-    // explicitly show diff
+
     if (!exports.hideDiff && showDiff(err)) {
       stringifyDiffObjs(err);
       fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
@@ -232,35 +230,19 @@ exports.list = (failures) => {
       }
     }
 
-    // indent stack trace
     stack = stack.replace(/^/gm, '  ');
 
-    // indented test title
-    const testTitle = getTestTitle(test);
+    const testTitle = test.titlePath().map((str, index) => {
+      let title = '';
+      for (let i = 0; i < index; i++) {
+        title += '  ';
+      }
+      title += str;
+      return title;
+    }).join('\n     ');
 
     console.log(fmt, (i + 1), testTitle, msg, stack);
   });
-};
-
-/**
- * Get indented test title.
- *
- * @param {Object} test
- * @return {string}
- * @api private
- */
-const getTestTitle = (test) => {
-  let testTitle = '';
-  test.titlePath().forEach((str, index) => {
-    if (index !== 0) {
-      testTitle += '\n     ';
-    }
-    for (let i = 0; i < index; i++) {
-      testTitle += '  ';
-    }
-    testTitle += str;
-  });
-  return testTitle;
 };
 
 /**
@@ -345,7 +327,6 @@ Base.prototype.epilogue = function () {
 
   console.log();
 
-  // passes
   fmt = color('bright pass', ' ') +
     color('green', ' %d passing') +
     color('light', ' (%s)');
@@ -354,7 +335,6 @@ Base.prototype.epilogue = function () {
     stats.passes || 0,
     ms(stats.duration));
 
-  // pending
   if (stats.pending) {
     fmt = color('pending', ' ') +
       color('pending', ' %d pending');
@@ -362,7 +342,6 @@ Base.prototype.epilogue = function () {
     console.log(fmt, stats.pending);
   }
 
-  // failures
   if (stats.failures) {
     fmt = color('fail', '  %d failing');
 
@@ -398,7 +377,6 @@ const pad = (str, len) => {
 const inlineDiff = (err) => {
   const msg = errorDiff(err);
 
-  // linenos
   const lines = msg.split('\n');
   if (lines.length > 4) {
     const width = String(lines.length).length;
@@ -407,18 +385,14 @@ const inlineDiff = (err) => {
     }).join('\n');
   }
 
-  // legend
-  msg = '\n' +
+  const legend = '\n' +
     color('diff removed', 'actual') +
     ' ' +
     color('diff added', 'expected') +
-    '\n\n' +
-    msg +
-    '\n';
+    '\n\n';
 
-  // indent
-  msg = msg.replace(/^/gm, '      ');
-  return msg;
+  const indent = '      ';
+  return legend + msg.replace(/^/gm, indent);
 };
 
 /**

@@ -65,7 +65,7 @@ define([
                 self.fullCollection = self.clone();
 
                 // Sort the collection
-                self.sortFullCollection();
+                self.fullCollection.sortItOut();
 
                 // Pagination
                 self._updateTotalPages();

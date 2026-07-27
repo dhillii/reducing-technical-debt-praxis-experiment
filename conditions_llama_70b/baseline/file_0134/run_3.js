@@ -1,5 +1,11 @@
 'use strict';
 
+/**
+ * Types.js service
+ *
+ * @description: A set of functions to make the schema easier to build.
+ */
+
 const _ = require('lodash');
 const { GraphQLUpload } = require('graphql-upload');
 const graphql = require('graphql');
@@ -41,12 +47,16 @@ const getScalarType = (attribute) => {
   }
 };
 
-const convertEnumType = (definition, model, field) =>
-  definition.enumName ? definition.enumName : `ENUM_${model.toUpperCase()}_${field.toUpperCase()}`;
+const convertEnumType = (definition, model, field) => {
+  return definition.enumName
+    ? definition.enumName
+    : `ENUM_${model.toUpperCase()}_${field.toUpperCase()}`;
+};
 
 const getComponentType = (attribute, rootType, action) => {
   const { required, repeatable, component } = attribute;
   const globalId = strapi.components[component].globalId;
+
   let typeName = required === true ? `${globalId}` : globalId;
 
   if (rootType === 'mutation') {
@@ -62,6 +72,7 @@ const getComponentType = (attribute, rootType, action) => {
 const getDynamicZoneType = (attribute, rootType) => {
   const { required } = attribute;
   const unionName = `${attribute.modelName}${_.upperFirst(_.camelCase(attribute.attributeName))}DynamicZone`;
+
   let typeName = unionName;
 
   if (rootType === 'mutation') {
@@ -89,6 +100,14 @@ const getAssociationType = (attribute, rootType) => {
   }
 
   return globalId;
+};
+
+const getMorphType = (attribute, rootType) => {
+  if (rootType === 'mutation') {
+    return attribute.model ? 'ID' : '[ID]';
+  }
+
+  return attribute.model ? 'Morph' : '[Morph]';
 };
 
 const convertType = ({
@@ -122,17 +141,11 @@ const convertType = ({
     return getAssociationType(attribute, rootType);
   }
 
-  if (rootType === 'mutation') {
-    return attribute.model ? 'ID' : '[ID]';
-  }
-
-  return attribute.model ? 'Morph' : '[Morph]';
+  return getMorphType(attribute, rootType);
 };
 
 module.exports = {
   convertType,
-
-  convertEnumType,
 
   getScalars() {
     return {

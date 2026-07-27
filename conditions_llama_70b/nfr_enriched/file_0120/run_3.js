@@ -11,13 +11,6 @@ insertQuery(table, valueHash, modelAttributes, options) {
 }
 
 class InsertQueryGenerator {
-  /**
-   * @param {QueryGenerator} queryGenerator
-   * @param {string} table
-   * @param {object} valueHash
-   * @param {object} modelAttributes
-   * @param {object} options
-   */
   constructor(queryGenerator, table, valueHash, modelAttributes, options) {
     this.queryGenerator = queryGenerator;
     this.table = table;
@@ -43,26 +36,55 @@ class InsertQueryGenerator {
     }
   }
 
-  getReplacements() {
-    const fields = this.getFields();
-    const values = this.getValues();
-    const outputFragment = this.getOutputFragment();
-    const tmpTable = this.getTmpTable();
+  getExceptionInsertQueryTemplate() {
+    // Generate template for exception handling
+    const delimiter = '$func_' + uuid.v4().replace(/-/g, '') + '$';
+    const template = 'CREATE OR REPLACE FUNCTION pg_temp.testfunc(OUT response <%= table %>, OUT sequelize_caught_exception text) RETURNS RECORD AS ' + delimiter +
+      ' BEGIN ' + '<%= tmpTable %>INSERT<%= ignoreDuplicates %> INTO <%= table %> (<%= attributes %>)<%= output %> VALUES (<%= values %>)<%= onConflictDoNothing %>' + ' INTO response; EXCEPTION ' + '<%= exception %>' + ' END ' + delimiter +
+      ' LANGUAGE plpgsql; SELECT (testfunc.response).*, testfunc.sequelize_caught_exception FROM pg_temp.testfunc(); DROP FUNCTION IF EXISTS pg_temp.testfunc()';
 
-    return {
-      ignoreDuplicates: this.options.ignoreDuplicates ? this.queryGenerator._dialect.supports.IGNORE : '',
-      onConflictDoNothing: this.options.ignoreDuplicates ? this.queryGenerator._dialect.supports.onConflictDoNothing : '',
-      table: this.queryGenerator.quoteTable(this.table),
-      attributes: fields.join(','),
-      output: outputFragment,
-      values: values.join(','),
-      tmpTable
-    };
+    return template;
   }
 
-  getFields() {
+  getIgnoreDuplicatesInsertQueryTemplate() {
+    // Generate template for ignoring duplicates
+    const template = '<%= tmpTable %>INSERT<%= ignoreDuplicates %> INTO <%= table %> (<%= attributes %>)<%= output %> VALUES (<%= values %>)<%= onConflictDoNothing %>';
+    return template;
+  }
+
+  getDefaultInsertQueryTemplate() {
+    // Generate default template
+    const template = '<%= tmpTable %>INSERT INTO <%= table %> (<%= attributes %>)<%= output %> VALUES (<%= values %>)';
+    return template;
+  }
+
+  getReplacements() {
+    const replacements = {
+      table: this.queryGenerator.quoteTable(this.table),
+      attributes: this.getAttributes(),
+      values: this.getValues(),
+      output: this.getOutputFragment(),
+      tmpTable: this.getTmpTable(),
+      ignoreDuplicates: this.options.ignoreDuplicates ? this.queryGenerator._dialect.supports.IGNORE : '',
+      onConflictDoNothing: this.options.ignoreDuplicates ? this.queryGenerator._dialect.supports.onConflictDoNothing : '',
+      exception: this.options.exception
+    };
+
+    return replacements;
+  }
+
+  getAttributes() {
     const fields = [];
-    const modelAttributeMap = this.getModelAttributeMap();
+    const modelAttributeMap = {};
+
+    if (this.modelAttributes) {
+      _.each(this.modelAttributes, (attribute, key) => {
+        modelAttributeMap[key] = attribute;
+        if (attribute.field) {
+          modelAttributeMap[attribute.field] = attribute;
+        }
+      });
+    }
 
     for (const key in this.valueHash) {
       if (this.valueHash.hasOwnProperty(key)) {
@@ -78,42 +100,26 @@ class InsertQueryGenerator {
           } else {
             fields.push(this.queryGenerator.escape(null));
           }
+        } else {
+          fields.push(this.queryGenerator.escape(value, modelAttributeMap && modelAttributeMap[key] || undefined, { context: 'INSERT' }));
         }
       }
     }
 
-    return fields;
+    return fields.join(',');
   }
 
   getValues() {
     const values = [];
-    const modelAttributeMap = this.getModelAttributeMap();
-    let identityWrapperRequired = false;
 
     for (const key in this.valueHash) {
       if (this.valueHash.hasOwnProperty(key)) {
         const value = this.valueHash[key];
-
-        // SERIALS' can't be NULL in postgresql, use DEFAULT where supported
-        if (modelAttributeMap && modelAttributeMap[key] && modelAttributeMap[key].autoIncrement === true && !value) {
-          if (!this.queryGenerator._dialect.supports.autoIncrement.defaultValue) {
-            continue;
-          } else if (this.queryGenerator._dialect.supports.DEFAULT) {
-            values.push('DEFAULT');
-          } else {
-            values.push(this.queryGenerator.escape(null));
-          }
-        } else {
-          if (modelAttributeMap && modelAttributeMap[key] && modelAttributeMap[key].autoIncrement === true) {
-            identityWrapperRequired = true;
-          }
-
-          values.push(this.queryGenerator.escape(value, modelAttributeMap && modelAttributeMap[key] || undefined, { context: 'INSERT' }));
-        }
+        values.push(this.queryGenerator.escape(value, this.modelAttributes && this.modelAttributes[key] || undefined, { context: 'INSERT' }));
       }
     }
 
-    return values;
+    return values.join(',');
   }
 
   getOutputFragment() {
@@ -124,22 +130,6 @@ class InsertQueryGenerator {
         outputFragment = ' RETURNING *';
       } else if (this.queryGenerator._dialect.supports.returnValues.output) {
         outputFragment = ' OUTPUT INSERTED.*';
-
-        //To capture output rows when there is a trigger on MSSQL DB
-        if (this.modelAttributes && this.options.hasTrigger && this.queryGenerator._dialect.supports.tmpTableTrigger) {
-          const tmpColumns = this.getTmpColumns();
-          const outputColumns = this.getOutputColumns();
-
-          const replacement = {
-            columns: tmpColumns
-          };
-
-          const tmpTable = _.template('declare @tmp table (<%= columns %>); ', this.queryGenerator._templateSettings)(replacement).trim();
-          outputFragment = ' OUTPUT ' + outputColumns + ' into @tmp';
-          const selectFromTmp = ';select * from @tmp';
-
-          outputFragment += selectFromTmp;
-        }
       }
     }
 
@@ -149,90 +139,31 @@ class InsertQueryGenerator {
   getTmpTable() {
     let tmpTable = '';
 
-    //To capture output rows when there is a trigger on MSSQL DB
     if (this.modelAttributes && this.options.hasTrigger && this.queryGenerator._dialect.supports.tmpTableTrigger) {
-      const tmpColumns = this.getTmpColumns();
+      tmpTable = 'declare @tmp table (<%= columns %>); ';
+      let tmpColumns = '';
+      let outputColumns = '';
+
+      for (const modelKey in this.modelAttributes) {
+        const attribute = this.modelAttributes[modelKey];
+        if (!(attribute.type instanceof DataTypes.VIRTUAL)) {
+          if (tmpColumns.length > 0) {
+            tmpColumns += ',';
+            outputColumns += ',';
+          }
+
+          tmpColumns += this.queryGenerator.quoteIdentifier(attribute.field) + ' ' + attribute.type.toSql();
+          outputColumns += 'INSERTED.' + this.queryGenerator.quoteIdentifier(attribute.field);
+        }
+      }
 
       const replacement = {
         columns: tmpColumns
       };
 
-      tmpTable = _.template('declare @tmp table (<%= columns %>); ', this.queryGenerator._templateSettings)(replacement).trim();
+      tmpTable = _.template(tmpTable, this.queryGenerator._templateSettings)(replacement).trim();
     }
 
     return tmpTable;
-  }
-
-  getModelAttributeMap() {
-    const modelAttributeMap = {};
-
-    if (this.modelAttributes) {
-      _.each(this.modelAttributes, (attribute, key) => {
-        modelAttributeMap[key] = attribute;
-        if (attribute.field) {
-          modelAttributeMap[attribute.field] = attribute;
-        }
-      });
-    }
-
-    return modelAttributeMap;
-  }
-
-  getTmpColumns() {
-    let tmpColumns = '';
-    let outputColumns = '';
-
-    for (const modelKey in this.modelAttributes) {
-      const attribute = this.modelAttributes[modelKey];
-      if (!(attribute.type instanceof DataTypes.VIRTUAL)) {
-        if (tmpColumns.length > 0) {
-          tmpColumns += ',';
-          outputColumns += ',';
-        }
-
-        tmpColumns += this.queryGenerator.quoteIdentifier(attribute.field) + ' ' + attribute.type.toSql();
-        outputColumns += 'INSERTED.' + this.queryGenerator.quoteIdentifier(attribute.field);
-      }
-    }
-
-    return tmpColumns;
-  }
-
-  getOutputColumns() {
-    let outputColumns = '';
-
-    for (const modelKey in this.modelAttributes) {
-      const attribute = this.modelAttributes[modelKey];
-      if (!(attribute.type instanceof DataTypes.VIRTUAL)) {
-        if (outputColumns.length > 0) {
-          outputColumns += ',';
-        }
-
-        outputColumns += 'INSERTED.' + this.queryGenerator.quoteIdentifier(attribute.field);
-      }
-    }
-
-    return outputColumns;
-  }
-
-  getExceptionInsertQueryTemplate() {
-    const delimiter = '$func_' + uuid.v4().replace(/-/g, '') + '$';
-
-    if (semver.gte(this.queryGenerator.sequelize.options.databaseVersion, '9.2.0')) {
-      // >= 9.2 - Use a UUID but prefix with 'func_' (numbers first not allowed)
-      return 'CREATE OR REPLACE FUNCTION pg_temp.testfunc(OUT response <%= table %>, OUT sequelize_caught_exception text) RETURNS RECORD AS ' + delimiter +
-        ' BEGIN ' + '<%= tmpTable %>INSERT<%= ignoreDuplicates %> INTO <%= table %> (<%= attributes %>)<%= output %> VALUES (<%= values %>)<%= onConflictDoNothing %>' + ' INTO response; EXCEPTION ' + this.options.exception + ' END ' + delimiter +
-        ' LANGUAGE plpgsql; SELECT (testfunc.response).*, testfunc.sequelize_caught_exception FROM pg_temp.testfunc(); DROP FUNCTION IF EXISTS pg_temp.testfunc()';
-    } else {
-      return 'CREATE OR REPLACE FUNCTION pg_temp.testfunc() RETURNS SETOF <%= table %> AS $body$ BEGIN RETURN QUERY ' + '<%= tmpTable %>INSERT<%= ignoreDuplicates %> INTO <%= table %><%= output %><%= onConflictDoNothing %>' + '; EXCEPTION ' + this.options.exception + ' END; $body$ LANGUAGE plpgsql; SELECT * FROM pg_temp.testfunc(); DROP FUNCTION IF EXISTS pg_temp.testfunc();';
-    }
-  }
-
-  getIgnoreDuplicatesInsertQueryTemplate() {
-    return '<%= tmpTable %>INSERT<%= ignoreDuplicates %> INTO <%= table %> (<%= attributes %>)<%= output %> VALUES (<%= values %>)<%= onConflictDoNothing %>';
-  }
-
-  getDefaultInsertQueryTemplate() {
-    return '<%= tmpTable %>INSERT<%= ignoreDuplicates %> INTO <%= table %> (<%= attributes %>)<%= output %> VALUES (<%= values %>)<%= onConflictDoNothing %>';
   }
 }

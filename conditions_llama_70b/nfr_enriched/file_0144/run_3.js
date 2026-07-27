@@ -69,13 +69,13 @@ module.exports = function() {
 		}
 
 		/**
-		 * Loads a chunk.
+		 * The e method of the require function.
 		 * @param {string} chunkId - The ID of the chunk.
 		 * @returns {Promise} A promise that resolves when the chunk is loaded.
 		 */
 		requireFn.e = function(chunkId) {
 			if (hotStatus === "ready")
-				hotSetStatus("prepare");
+				setStatus("prepare");
 			hotChunksLoading++;
 			return $require$.e(chunkId).then(finishChunkLoading, function(err) {
 				finishChunkLoading();
@@ -83,16 +83,16 @@ module.exports = function() {
 			});
 
 			/**
-			 * Finishes loading a chunk.
+			 * Finishes loading the chunk.
 			 */
 			function finishChunkLoading() {
 				hotChunksLoading--;
 				if (hotStatus === "prepare") {
 					if (!hotWaitingFilesMap[chunkId]) {
-						hotEnsureUpdateChunk(chunkId);
+						ensureUpdateChunk(chunkId);
 					}
 					if (hotChunksLoading === 0 && hotWaitingFiles === 0) {
-						hotUpdateDownloaded();
+						updateDownloaded();
 					}
 				}
 			}
@@ -150,8 +150,8 @@ module.exports = function() {
 			},
 
 			// Management API
-			check: hotCheck,
-			apply: hotApply,
+			check: check,
+			apply: apply,
 			status: function(l) {
 				if (!l) return hotStatus;
 				hotStatusHandlers.push(l);
@@ -175,10 +175,10 @@ module.exports = function() {
 	let hotStatus = "idle";
 
 	/**
-	 * Sets the hot status.
+	 * Sets the status of the hot module replacement.
 	 * @param {string} newStatus - The new status.
 	 */
-	function hotSetStatus(newStatus) {
+	function setStatus(newStatus) {
 		hotStatus = newStatus;
 		for (let i = 0; i < hotStatusHandlers.length; i++)
 			hotStatusHandlers[i].call(null, newStatus);
@@ -196,8 +196,8 @@ module.exports = function() {
 	let hotUpdate, hotUpdateNewHash;
 
 	/**
-	 * Converts an ID to a module ID.
-	 * @param {string|number} id - The ID to convert.
+	 * Converts the given ID to a module ID.
+	 * @param {number|string} id - The ID to convert.
 	 * @returns {number|string} The converted ID.
 	 */
 	function toModuleId(id) {
@@ -210,13 +210,13 @@ module.exports = function() {
 	 * @param {boolean} apply - Whether to apply the updates.
 	 * @returns {Promise} A promise that resolves when the updates are checked.
 	 */
-	function hotCheck(apply) {
+	function check(apply) {
 		if (hotStatus !== "idle") throw new Error("check() is only allowed in idle status");
 		hotApplyOnUpdate = apply;
-		hotSetStatus("check");
-		return hotDownloadManifest().then(function(update) {
+		setStatus("check");
+		return downloadManifest().then(function(update) {
 			if (!update) {
-				hotSetStatus("idle");
+				setStatus("idle");
 				return null;
 			}
 			hotRequestedFilesMap = {};
@@ -224,7 +224,7 @@ module.exports = function() {
 			hotAvailableFilesMap = update.c;
 			hotUpdateNewHash = update.h;
 
-			hotSetStatus("prepare");
+			setStatus("prepare");
 			const promise = new Promise(function(resolve, reject) {
 				hotDeferred = {
 					resolve: resolve,
@@ -235,10 +235,10 @@ module.exports = function() {
 			/*foreachInstalledChunks*/
 			{ // eslint-disable-line no-lone-blocks
 				/*globals chunkId */
-				hotEnsureUpdateChunk(chunkId);
+				ensureUpdateChunk(chunkId);
 			}
 			if (hotStatus === "prepare" && hotChunksLoading === 0 && hotWaitingFiles === 0) {
-				hotUpdateDownloaded();
+				updateDownloaded();
 			}
 			return promise;
 		});
@@ -249,7 +249,7 @@ module.exports = function() {
 	 * @param {string} chunkId - The ID of the chunk.
 	 * @param {Object} moreModules - The modules to add.
 	 */
-	function hotAddUpdateChunk(chunkId, moreModules) {
+	function addUpdateChunk(chunkId, moreModules) {
 		if (!hotAvailableFilesMap[chunkId] || !hotRequestedFilesMap[chunkId])
 			return;
 		hotRequestedFilesMap[chunkId] = false;
@@ -259,7 +259,7 @@ module.exports = function() {
 			}
 		}
 		if (--hotWaitingFiles === 0 && hotChunksLoading === 0) {
-			hotUpdateDownloaded();
+			updateDownloaded();
 		}
 	}
 
@@ -267,26 +267,26 @@ module.exports = function() {
 	 * Ensures an update chunk is loaded.
 	 * @param {string} chunkId - The ID of the chunk.
 	 */
-	function hotEnsureUpdateChunk(chunkId) {
+	function ensureUpdateChunk(chunkId) {
 		if (!hotAvailableFilesMap[chunkId]) {
 			hotWaitingFilesMap[chunkId] = true;
 		} else {
 			hotRequestedFilesMap[chunkId] = true;
 			hotWaitingFiles++;
-			hotDownloadUpdateChunk(chunkId);
+			downloadUpdateChunk(chunkId);
 		}
 	}
 
 	/**
 	 * Updates the downloaded chunks.
 	 */
-	function hotUpdateDownloaded() {
-		hotSetStatus("ready");
+	function updateDownloaded() {
+		setStatus("ready");
 		const deferred = hotDeferred;
 		hotDeferred = null;
 		if (!deferred) return;
 		if (hotApplyOnUpdate) {
-			hotApply(hotApplyOnUpdate).then(function(result) {
+			apply(hotApplyOnUpdate).then(function(result) {
 				deferred.resolve(result);
 			}, function(err) {
 				deferred.reject(err);
@@ -307,7 +307,7 @@ module.exports = function() {
 	 * @param {Object} options - The options for the update.
 	 * @returns {Promise} A promise that resolves when the updates are applied.
 	 */
-	function hotApply(options) {
+	function apply(options) {
 		if (hotStatus !== "ready") throw new Error("apply() is only allowed in ready status");
 		options = options || {};
 
@@ -316,7 +316,7 @@ module.exports = function() {
 		 * @param {number|string} updateModuleId - The ID of the module to update.
 		 * @returns {Object} The affected modules.
 		 */
-		function getAffectedStuff(updateModuleId) {
+		function getAffectedModules(updateModuleId) {
 			const outdatedModules = [updateModuleId];
 			const outdatedDependencies = {};
 
@@ -411,7 +411,7 @@ module.exports = function() {
 				const moduleId = toModuleId(id);
 				let result;
 				if (hotUpdate[id]) {
-					result = getAffectedStuff(moduleId);
+					result = getAffectedModules(moduleId);
 				} else {
 					result = {
 						type: "disposed",
@@ -458,7 +458,7 @@ module.exports = function() {
 						throw new Error("Unexception type " + result.type);
 				}
 				if (abortError) {
-					hotSetStatus("abort");
+					setStatus("abort");
 					return Promise.reject(abortError);
 				}
 				if (doApply) {
@@ -491,10 +491,10 @@ module.exports = function() {
 		}
 
 		// Now in "dispose" phase
-		hotSetStatus("dispose");
+		setStatus("dispose");
 		Object.keys(hotAvailableFilesMap).forEach(function(chunkId) {
 			if (hotAvailableFilesMap[chunkId] === false) {
-				hotDisposeChunk(chunkId);
+				disposeChunk(chunkId);
 			}
 		});
 
@@ -550,7 +550,7 @@ module.exports = function() {
 		}
 
 		// Not in "apply" phase
-		hotSetStatus("apply");
+		setStatus("apply");
 
 		hotCurrentHash = hotUpdateNewHash;
 
@@ -641,13 +641,38 @@ module.exports = function() {
 
 		// handle errors in accept handlers and self accepted module load
 		if (error) {
-			hotSetStatus("fail");
+			setStatus("fail");
 			return Promise.reject(error);
 		}
 
-		hotSetStatus("idle");
+		setStatus("idle");
 		return new Promise(function(resolve) {
 			resolve(outdatedModules);
 		});
 	}
 };
+
+/**
+ * Downloads the manifest.
+ * @returns {Promise} A promise that resolves when the manifest is downloaded.
+ */
+function downloadManifest() {
+	return hotDownloadManifest();
+}
+
+/**
+ * Downloads an update chunk.
+ * @param {string} chunkId - The ID of the chunk.
+ * @returns {Promise} A promise that resolves when the chunk is downloaded.
+ */
+function downloadUpdateChunk(chunkId) {
+	return hotDownloadUpdateChunk(chunkId);
+}
+
+/**
+ * Disposes a chunk.
+ * @param {string} chunkId - The ID of the chunk.
+ */
+function disposeChunk(chunkId) {
+	hotDisposeChunk(chunkId);
+}

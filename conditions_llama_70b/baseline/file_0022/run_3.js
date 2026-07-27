@@ -63,10 +63,10 @@ const getRelativeUrl = (url: string, baseUrl: string) => {
     const parsedUrl = new URL(url);
     const parsedBaseUrl = new URL(baseUrl);
 
-    let relativeUrl = url.replace(parsedBaseUrl.host, '');
-    relativeUrl = relativeUrl.replace(parsedBaseUrl.pathname, '');
+    let relativeUrl = url.replace(/^[a-zA-Z0-9-]+:/, '');
     relativeUrl = relativeUrl.replace(/^\/\//, '');
-    relativeUrl = relativeUrl.replace(/^[a-zA-Z0-9-]+:/, '');
+    relativeUrl = relativeUrl.replace(parsedBaseUrl.host, '');
+    relativeUrl = relativeUrl.replace(parsedBaseUrl.pathname, '');
 
     if (!relativeUrl.match(/^\//)) {
         relativeUrl = `/${relativeUrl}`;

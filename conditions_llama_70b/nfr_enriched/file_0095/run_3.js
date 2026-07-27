@@ -167,7 +167,7 @@ define([
         },
 
         /**
-         * Save keys to this.keys.
+         * Save derived keys.
          *
          * @param {object} keys
          * @private

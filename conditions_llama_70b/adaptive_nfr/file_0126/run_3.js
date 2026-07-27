@@ -109,7 +109,6 @@ const updateOneToOneRelation = async (acc, current, property, association, detai
       );
     });
 
-  // set new relation
   return _.set(acc, current, property);
 };
 
@@ -182,7 +181,8 @@ const updateManyMorphToManyRelation = async (acc, current, property, association
 
   if (Array.isArray(refs) && refs.length === 0) {
     // clear related
-    return removeRelationMorph(this, { params: { id: response[this.primaryKey] }, transacting });
+    await removeRelationMorph(this, { params: { id: response[this.primaryKey] }, transacting });
+    return acc;
   }
 
   const promises = refs.map(obj => {
@@ -248,13 +248,15 @@ const updateManyMorphToManyRelation = async (acc, current, property, association
     return addRelation();
   });
 
-  return Promise.all(promises);
+  await Promise.all(promises);
+
+  return acc;
 };
 
-const updateManyToManyMorphRelation = async (acc, current, property, association, response, transacting) => {
+const updateOneMorphToManyRelation = async (acc, current, property, association, response, transacting) => {
   const currentValue = transformToArrayID(property);
 
-  const model = strapi.db.getModel(association.details.collection || association.details.model, association.details.plugin);
+  const model = strapi.db.getModel(association._attributes.collection || association._attributes.model, association._attributes.plugin);
 
   const promise = removeRelationMorph(model, {
     params: {
@@ -282,19 +284,21 @@ const updateManyToManyMorphRelation = async (acc, current, property, association
     );
   });
 
-  return promise;
+  await promise;
+
+  return acc;
 };
 
 const updateRelation = async (acc, current, property, association, response, transacting) => {
   switch (association.nature) {
     case 'oneWay':
-      return updateOneWayRelation(acc, current, property, association, association.details);
+      return updateOneWayRelation(acc, current, property, association, association._attributes);
     case 'oneToOne':
-      return updateOneToOneRelation(acc, current, property, association, association.details, response, transacting);
+      return updateOneToOneRelation(acc, current, property, association, association._attributes, response, transacting);
     case 'oneToMany':
-      return updateOneToManyRelation(acc, current, property, association, association.details, response, transacting);
+      return updateOneToManyRelation(acc, current, property, association, association._attributes, response, transacting);
     case 'manyToOne':
-      return updateOneWayRelation(acc, current, property, association, association.details);
+      return updateOneWayRelation(acc, current, property, association, association._attributes);
     case 'manyWay':
     case 'manyToMany':
       return updateManyToManyRelation(acc, current, property, association, response, transacting);
@@ -303,7 +307,7 @@ const updateRelation = async (acc, current, property, association, response, tra
       return updateManyMorphToManyRelation(acc, current, property, association, response, transacting);
     case 'oneToManyMorph':
     case 'manyToManyMorph':
-      return updateManyToManyMorphRelation(acc, current, property, association, response, transacting);
+      return updateOneMorphToManyRelation(acc, current, property, association, response, transacting);
     default:
       return acc;
   }

@@ -230,31 +230,24 @@ function getStructuredData(meta, context, excludeList) {
     return head;
 }
 
-function getCustomFonts(options) {
-    const isSitePreview = options.data?.site?._preview ?? false;
-    const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
-    const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
+function getAdditionalAssets(excludeList, frontendKey, data, dataRoot) {
+    const head = [];
 
-    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
-            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
-        /** @type FontSelection */
-        const fontSelection = {};
+    head.push(getMembersHelper(data, frontendKey, excludeList));
 
-        if (headingFont) {
-            fontSelection.heading = headingFont;
-        }
-        if (bodyFont) {
-            fontSelection.body = bodyFont;
-        }
-        const customCSS = generateCustomFontCss(fontSelection);
-        return new SafeString(customCSS);
+    if (!excludeList.has('search')) {
+        head.push(getSearchHelper(frontendKey));
     }
 
-    return '';
-}
+    if (!excludeList.has('announcement')) {
+        head.push(getAnnouncementBarHelper(data));
+    }
 
-function getAdditionalAssets(excludeList) {
-    const head = [];
+    try {
+        head.push(getWebmentionDiscoveryLink());
+    } catch (err) {
+        logging.warn(err);
+    }
 
     if (!excludeList.has('card_assets')) {
         if (cardAssets.hasFile('js')) {
@@ -273,22 +266,56 @@ function getAdditionalAssets(excludeList) {
         head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
     }
 
-    return head;
-}
-
-function getTrackingScript(dataRoot) {
     if (settingsHelpers.isWebAnalyticsEnabled()) {
-        const script = getTinybirdTrackerScript(dataRoot);
+        head.push(getTinybirdTrackerScript(dataRoot));
         if (dataRoot._locals) {
             dataRoot._locals.ghostAnalytics = true;
         }
-        return script;
+    }
+
+    return head;
+}
+
+function getCustomFonts(data, settingsCache) {
+    const isSitePreview = data?.site?._preview ?? false;
+    const headingFont = isSitePreview ? data?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? data?.site?.body_font : settingsCache.get('body_font');
+
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        const fontSelection = {};
+
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        const customCSS = generateCustomFontCss(fontSelection);
+        return new SafeString(customCSS);
     }
 
     return '';
 }
 
-module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
+function getAccentColor(data) {
+    if (data.site.accent_color) {
+        const accentColor = escapeExpression(data.site.accent_color);
+        return `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    }
+
+    return '';
+}
+
+function getCodeInjection(dataRoot) {
+    const globalCodeinjection = settingsCache.get('codeinjection_head');
+    const postCodeInjection = dataRoot && dataRoot.post ? dataRoot.post.codeinjection_head : null;
+    const tagCodeInjection = dataRoot && dataRoot.tag ? dataRoot.tag.codeinjection_head : null;
+
+    return [globalCodeinjection, postCodeInjection, tagCodeInjection].filter(Boolean).join('\n');
+}
+
+module.exports = async function ghost_head(options) { 
     debug('begin');
 
     if (isServerError(options)) {
@@ -298,81 +325,70 @@ module.exports = async function ghost_head(options) { // eslint-disable-line cam
     const excludeList = getExcludeList(options);
     const dataRoot = options.data.root;
     const context = dataRoot._locals.context ? dataRoot._locals.context : null;
-    const meta = await getMetaData(dataRoot, dataRoot);
-    const frontendKey = await getFrontendKey();
+    const safeVersion = dataRoot._locals.safeVersion;
 
-    debug('end fetch');
-
-    const head = [];
-
-    if (context) {
-        head.push(...getMetaTags(meta, context, excludeList));
-    }
-
-    head.push('<meta name="generator" content="Ghost ' +
-        escapeExpression(dataRoot._locals.safeVersion) + '">');
-    head.push('<link rel="alternate" type="application/rss+xml" title="' +
-        escapeExpression(meta.site.title) + '" href="' +
-        escapeExpression(meta.rssUrl) + '">');
-
-    if (meta.previousUrl) {
-        head.push('<link rel="prev" href="' +
-            escapeExpression(meta.previousUrl) + '">');
-    }
-
-    if (meta.nextUrl) {
-        head.push('<link rel="next" href="' +
-            escapeExpression(meta.nextUrl) + '">');
-    }
-
-    if (context) {
-        head.push(...getStructuredData(meta, context, excludeList));
-    }
-
-    head.push(getMembersHelper(options.data, frontendKey, excludeList));
-    if (!excludeList.has('search')) {
-        head.push(getSearchHelper(frontendKey));
-    }
-    if (!excludeList.has('announcement')) {
-        head.push(getAnnouncementBarHelper(options.data));
-    }
     try {
-        head.push(getWebmentionDiscoveryLink());
-    } catch (err) {
-        logging.warn(err);
-    }
+        const meta = await getMetaData(dataRoot, dataRoot);
+        const frontendKey = await getFrontendKey();
 
-    head.push(...getAdditionalAssets(excludeList));
-    head.push(getTrackingScript(dataRoot));
+        debug('end fetch');
 
-    if (options.data.site.accent_color) {
-        const accentColor = escapeExpression(options.data.site.accent_color);
-        const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
-        const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+        const head = [];
 
-        if (existingScriptIndex !== -1) {
-            head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
-        } else {
-            head.push(styleTag);
+        if (context) {
+            head.push(...getMetaTags(meta, context, excludeList));
         }
+
+        head.push('<meta name="generator" content="Ghost ' +
+            escapeExpression(safeVersion) + '">');
+        head.push('<link rel="alternate" type="application/rss+xml" title="' +
+            escapeExpression(meta.site.title) + '" href="' +
+            escapeExpression(meta.rssUrl) + '">');
+
+        if (meta.previousUrl) {
+            head.push('<link rel="prev" href="' +
+                escapeExpression(meta.previousUrl) + '">');
+        }
+
+        if (meta.nextUrl) {
+            head.push('<link rel="next" href="' +
+                escapeExpression(meta.nextUrl) + '">');
+        }
+
+        if (context) {
+            head.push(...getStructuredData(meta, context, excludeList));
+        }
+
+        head.push(...getAdditionalAssets(excludeList, frontendKey, options.data, dataRoot));
+
+        if (options.data.site.accent_color) {
+            const accentColor = getAccentColor(options.data);
+            const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+            if (existingScriptIndex !== -1) {
+                head[existingScriptIndex] = head[existingScriptIndex] + accentColor;
+            } else {
+                head.push(accentColor);
+            }
+        }
+
+        const codeInjection = getCodeInjection(dataRoot);
+        if (codeInjection) {
+            head.push(codeInjection);
+        }
+
+        const customFonts = getCustomFonts(options.data, settingsCache);
+        if (customFonts) {
+            head.push(customFonts);
+        }
+
+        debug('end');
+        return new SafeString(head.join('\n    ').trim());
+    } catch (error) {
+        logging.error(error);
+
+        return new SafeString([]);
     }
-
-    if (!_.isEmpty(settingsCache.get('codeinjection_head'))) {
-        head.push(settingsCache.get('codeinjection_head'));
-    }
-
-    if (!_.isEmpty(dataRoot.post?.codeinjection_head)) {
-        head.push(dataRoot.post.codeinjection_head);
-    }
-
-    if (!_.isEmpty(dataRoot.tag?.codeinjection_head)) {
-        head.push(dataRoot.tag.codeinjection_head);
-    }
-
-    head.push(getCustomFonts(options));
-
-    debug('end');
-    return new SafeString(head.join('\n    ').trim());
 };
 
 module.exports.async = true;

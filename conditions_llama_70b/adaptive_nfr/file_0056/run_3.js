@@ -132,10 +132,9 @@ function getArgumentsForLineNumber(
   const editorBasename = path.basename(editor).replace(/\.(exe|cmd|bat)$/i, '');
   const editorArguments = {
     atom: [fileName + ':' + lineNumber + ':' + colNumber],
-    'atom beta': [fileName + ':' + lineNumber + ':' + colNumber],
     subl: [fileName + ':' + lineNumber + ':' + colNumber],
     sublime: [fileName + ':' + lineNumber + ':' + colNumber],
-    'sublime text': [fileName + ':' + lineNumber + ':' + colNumber],
+    sublime_text: [fileName + ':' + lineNumber + ':' + colNumber],
     wstorm: [fileName + ':' + lineNumber],
     charm: [fileName + ':' + lineNumber],
     'notepad++': ['-n' + lineNumber, '-c' + colNumber, fileName],
@@ -144,7 +143,7 @@ function getArgumentsForLineNumber(
     joe: ['+' + lineNumber, fileName],
     gvim: ['+' + lineNumber, fileName],
     emacs: ['+' + lineNumber + ':' + colNumber, fileName],
-    'emacsclient': ['+' + lineNumber + ':' + colNumber, fileName],
+    emacsclient: ['+' + lineNumber + ':' + colNumber, fileName],
     rmate: ['--line', lineNumber, fileName],
     mate: ['--line', lineNumber, fileName],
     mine: ['--line', lineNumber, fileName],
@@ -152,7 +151,7 @@ function getArgumentsForLineNumber(
       ['-g', fileName + ':' + lineNumber + ':' + colNumber],
       workspace
     ),
-    'code - insiders': addWorkspaceToArgumentsIfExists(
+    'Code - Insiders': addWorkspaceToArgumentsIfExists(
       ['-g', fileName + ':' + lineNumber + ':' + colNumber],
       workspace
     ),
@@ -164,7 +163,7 @@ function getArgumentsForLineNumber(
       ['-g', fileName + ':' + lineNumber + ':' + colNumber],
       workspace
     ),
-    'vscodium': addWorkspaceToArgumentsIfExists(
+    'VSCodium': addWorkspaceToArgumentsIfExists(
       ['-g', fileName + ':' + lineNumber + ':' + colNumber],
       workspace
     ),
@@ -176,7 +175,15 @@ function getArgumentsForLineNumber(
       ['--line', lineNumber, fileName],
       workspace
     ),
+    clion64: addWorkspaceToArgumentsIfExists(
+      ['--line', lineNumber, fileName],
+      workspace
+    ),
     idea: addWorkspaceToArgumentsIfExists(
+      ['--line', lineNumber, fileName],
+      workspace
+    ),
+    idea64: addWorkspaceToArgumentsIfExists(
       ['--line', lineNumber, fileName],
       workspace
     ),
@@ -184,7 +191,15 @@ function getArgumentsForLineNumber(
       ['--line', lineNumber, fileName],
       workspace
     ),
+    phpstorm64: addWorkspaceToArgumentsIfExists(
+      ['--line', lineNumber, fileName],
+      workspace
+    ),
     pycharm: addWorkspaceToArgumentsIfExists(
+      ['--line', lineNumber, fileName],
+      workspace
+    ),
+    pycharm64: addWorkspaceToArgumentsIfExists(
       ['--line', lineNumber, fileName],
       workspace
     ),
@@ -192,7 +207,15 @@ function getArgumentsForLineNumber(
       ['--line', lineNumber, fileName],
       workspace
     ),
+    rubymine64: addWorkspaceToArgumentsIfExists(
+      ['--line', lineNumber, fileName],
+      workspace
+    ),
     webstorm: addWorkspaceToArgumentsIfExists(
+      ['--line', lineNumber, fileName],
+      workspace
+    ),
+    webstorm64: addWorkspaceToArgumentsIfExists(
       ['--line', lineNumber, fileName],
       workspace
     ),
@@ -200,12 +223,21 @@ function getArgumentsForLineNumber(
       ['--line', lineNumber, fileName],
       workspace
     ),
+    goland64: addWorkspaceToArgumentsIfExists(
+      ['--line', lineNumber, fileName],
+      workspace
+    ),
     rider: addWorkspaceToArgumentsIfExists(
       ['--line', lineNumber, fileName],
       workspace
     ),
+    rider64: addWorkspaceToArgumentsIfExists(
+      ['--line', lineNumber, fileName],
+      workspace
+    ),
   };
-  return editorArguments[editorBasename.toLowerCase()] || [fileName];
+
+  return editorArguments[editorBasename] || [fileName];
 }
 
 function guessEditor() {

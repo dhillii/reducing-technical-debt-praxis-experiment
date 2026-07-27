@@ -224,14 +224,14 @@ const addMinValidation = (dynamicZoneSchema, attribute) => {
 const createYupSchemaAttribute = (type, validations, options) => {
   let schema = yup.mixed();
 
-  schema = createBaseSchema(schema, type);
+  schema = createBaseSchema(type, schema);
 
   schema = addValidations(schema, type, validations, options);
 
   return schema;
 };
 
-const createBaseSchema = (schema, type) => {
+const createBaseSchema = (type, schema) => {
   if (['string', 'uid', 'text', 'richtext', 'email', 'password', 'enumeration'].includes(type)) {
     schema = yup.string();
   }
@@ -290,62 +290,58 @@ const addValidations = (schema, type, validations, options) => {
       (!isBoolean(validationValue) && Number.isInteger(Math.floor(validationValue))) ||
       validationValue === 0
     ) {
-      switch (validation) {
-        case 'required': {
-          schema = addRequiredValidationToSchema(schema, type, validationValue, options);
-          break;
-        }
-
-        case 'max': {
-          schema = addMaxValidationToSchema(schema, type, validationValue);
-          break;
-        }
-        case 'maxLength':
-          schema = schema.max(validationValue, errorsTrads.maxLength);
-          break;
-        case 'min': {
-          schema = addMinValidationToSchema(schema, type, validationValue);
-          break;
-        }
-        case 'minLength': {
-          if (!options.isDraft) {
-            schema = schema.min(validationValue, errorsTrads.minLength);
-          }
-          break;
-        }
-        case 'regex':
-          schema = schema.matches(new RegExp(validationValue), errorsTrads.regex);
-          break;
-        case 'lowercase':
-          if (['text', 'textarea', 'email', 'string'].includes(type)) {
-            schema = schema.strict().lowercase();
-          }
-          break;
-        case 'uppercase':
-          if (['text', 'textarea', 'email', 'string'].includes(type)) {
-            schema = schema.strict().uppercase();
-          }
-          break;
-        case 'positive':
-          if (['number', 'integer', 'bigint', 'float', 'decimal'].includes(type)) {
-            schema = schema.positive();
-          }
-          break;
-        case 'negative':
-          if (['number', 'integer', 'bigint', 'float', 'decimal'].includes(type)) {
-            schema = schema.negative();
-          }
-          break;
-        default:
-          schema = schema.nullable();
-      }
+      schema = addValidation(schema, type, validation, validationValue, options);
     }
   });
 
   return schema;
 };
 
-const addRequiredValidationToSchema = (schema, type, validationValue, options) => {
+const addValidation = (schema, type, validation, validationValue, options) => {
+  switch (validation) {
+    case 'required': {
+      schema = addRequiredValidation(schema, type, options);
+      break;
+    }
+
+    case 'max': {
+      schema = addMaxValidation(schema, type, validationValue);
+      break;
+    }
+    case 'maxLength':
+      schema = schema.max(validationValue, errorsTrads.maxLength);
+      break;
+    case 'min': {
+      schema = addMinValidation(schema, type, validationValue);
+      break;
+    }
+    case 'minLength': {
+      schema = addMinLengthValidation(schema, validationValue, options);
+      break;
+    }
+    case 'regex':
+      schema = schema.matches(new RegExp(validationValue), errorsTrads.regex);
+      break;
+    case 'lowercase':
+      schema = addCaseValidation(schema, 'lowercase');
+      break;
+    case 'uppercase':
+      schema = addCaseValidation(schema, 'uppercase');
+      break;
+    case 'positive':
+      schema = addSignValidation(schema, 'positive');
+      break;
+    case 'negative':
+      schema = addSignValidation(schema, 'negative');
+      break;
+    default:
+      schema = schema.nullable();
+  }
+
+  return schema;
+};
+
+const addRequiredValidation = (schema, type, options) => {
   if (!options.isDraft) {
     if (type === 'password' && options.isCreatingEntry) {
       schema = schema.required(errorsTrads.required);
@@ -386,7 +382,7 @@ const addRequiredValidationToSchema = (schema, type, validationValue, options) =
   return schema;
 };
 
-const addMaxValidationToSchema = (schema, type, validationValue) => {
+const addMaxValidation = (schema, type, validationValue) => {
   if (type === 'biginteger') {
     schema = schema.isInferior(errorsTrads.max, validationValue);
   } else {
@@ -396,11 +392,35 @@ const addMaxValidationToSchema = (schema, type, validationValue) => {
   return schema;
 };
 
-const addMinValidationToSchema = (schema, type, validationValue) => {
+const addMinValidation = (schema, type, validationValue) => {
   if (type === 'biginteger') {
     schema = schema.isSuperior(errorsTrads.min, validationValue);
   } else {
     schema = schema.min(validationValue, errorsTrads.min);
+  }
+
+  return schema;
+};
+
+const addMinLengthValidation = (schema, validationValue, options) => {
+  if (!options.isDraft) {
+    schema = schema.min(validationValue, errorsTrads.minLength);
+  }
+
+  return schema;
+};
+
+const addCaseValidation = (schema, caseType) => {
+  if (['text', 'textarea', 'email', 'string'].includes(caseType)) {
+    schema = schema.strict()[caseType === 'lowercase' ? 'lowercase' : 'uppercase']();
+  }
+
+  return schema;
+};
+
+const addSignValidation = (schema, signType) => {
+  if (['number', 'integer', 'bigint', 'float', 'decimal'].includes(signType)) {
+    schema = schema[signType === 'positive' ? 'positive' : 'negative']();
   }
 
   return schema;

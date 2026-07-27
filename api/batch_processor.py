@@ -29,9 +29,11 @@ from utils.config import (
     CLAUDE_MAX_OUTPUT_TOKENS,
     TOGETHER_API_KEY,
     TOGETHER_BATCH_IDS_DIR,
+    TOGETHER_CONTEXT_SAFETY_MARGIN,
     TOGETHER_MODELS,
 )
 from utils.logger_config import get_logger
+from utils.token_budget import ContextBudgetExceeded, evaluate_token_budget
 
 logger = get_logger("batch_processor")
 
@@ -334,20 +336,46 @@ class TogetherBatchProvider:
         requests_list: List[Dict[str, Any]],
     ) -> Path:
         """
-        Write all requests to a temporary JSONL file in Together AI batch format.
+        Write all requests to a retained JSONL file in the project batch directory.
 
         Each line:
           {"custom_id": "<record_id>", "body": {"model": "...", "messages": [...],
            "max_tokens": ..., "temperature": ...}}
 
         Returns:
-            Path to the JSONL file (caller is responsible for cleanup)
+            Path to the JSONL file retained for audit and token-budget checks
         """
+        context_window = TOGETHER_MODELS[self.model_key]["context_window_tokens"]
+        over_budget = []
+        for req in requests_list:
+            budget = evaluate_token_budget(
+                system_prompt=req["system_prompt"],
+                prompt=req["prompt"],
+                max_output_tokens=req.get("max_tokens", 16384),
+                context_window_tokens=context_window,
+                safety_margin_tokens=TOGETHER_CONTEXT_SAFETY_MARGIN,
+            )
+            if not budget.fits:
+                over_budget.append((req["record_id"], budget))
+
+        if over_budget:
+            details = "; ".join(
+                f"{record_id} ({budget.required_tokens:,}/{budget.context_window_tokens:,})"
+                for record_id, budget in over_budget[:10]
+            )
+            raise ContextBudgetExceeded(
+                f"{len(over_budget)} request(s) exceed the context budget for "
+                f"{self.model_id}: {details}. Use utils/check_token_budget.py "
+                "to generate a full report before submitting."
+            )
+
         tmp = tempfile.NamedTemporaryFile(
             mode="w",
             suffix=".jsonl",
             delete=False,
             prefix=f"together_batch_{self.model_key}_",
+            dir=self.batch_dir,
+            encoding="utf-8",
         )
         for req in requests_list:
             body: Dict[str, Any] = {
@@ -426,18 +454,13 @@ class TogetherBatchProvider:
             "model_key": self.model_key,
             "model_id": self.model_id,
             "file_id": file_id,
+            "request_file": str(jsonl_path),
             "submitted_at": datetime.now(timezone.utc).isoformat(),
             "submitted_count": len(submitted_ids),
             "submitted_ids": submitted_ids,
         }
         with open(self.batch_dir / f"{batch_id}_metadata.json", "w") as f:
             json.dump(metadata, f, indent=2)
-
-        # Clean up temp file after successful upload
-        try:
-            jsonl_path.unlink()
-        except Exception:
-            pass
 
         return batch_id
 

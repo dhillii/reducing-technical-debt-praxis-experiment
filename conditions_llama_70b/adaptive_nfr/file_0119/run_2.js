@@ -371,6 +371,10 @@ inherits(TIME, ABSTRACT);
 
 TIME.prototype.key = TIME.key = 'TIME';
 
+TIME.prototype.toSql = function toSql() {
+  return 'TIME';
+};
+
 function DATE(length) {
   const options = typeof length === 'object' && length || {length};
 

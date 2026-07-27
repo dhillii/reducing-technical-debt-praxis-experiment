@@ -27,16 +27,13 @@ handleResponse(status, headers, payload, request) {
         { check: this.isThemeValidationError, error: ThemeValidationError },
         { check: this.isHostLimitError, error: HostLimitError },
         { check: this.isEmailError, error: EmailError },
+        { check: this.isAcceptedResponse, error: AcceptedResponse },
     ];
 
     for (const { check, error } of errorHandlers) {
-        if (check(status, headers, payload)) {
+        if (check.call(this, status, headers, payload)) {
             return new error(payload);
         }
-    }
-
-    if (this.isAcceptedResponse(status)) {
-        return new AcceptedResponse(payload);
     }
 
     let isGhostRequest = GHOST_REQUEST.test(request.url);

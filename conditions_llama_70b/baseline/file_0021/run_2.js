@@ -139,7 +139,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
     api.feedback = {
         async add({uuid, key, postId, score}) {
             let url = endpointFor({type: 'members', resource: 'feedback'});
-            if (uuid && key) { 
+            if (uuid && key) { // only necessary if not logged in, and both are required if so
                 url = url + `?uuid=${uuid}&key=${key}`;
             }
             const body = {

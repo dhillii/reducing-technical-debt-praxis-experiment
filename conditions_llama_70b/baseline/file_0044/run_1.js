@@ -1,6 +1,6 @@
 async add(data, options) {
     if (!this.stripeService.configured && (data.comped || data.stripe_customer_id)) {
-        this.throwStripeNotConnectedError(data);
+        throw this.getStripeValidationError(data);
     }
 
     let model;
@@ -12,12 +12,8 @@ async add(data, options) {
         }
         model = await this.memberRepository.create(data, options);
     } catch (error) {
-        if (this.isDuplicateEmailError(error)) {
-            throw new errors.ValidationError({
-                message: tpl(messages.memberAlreadyExists),
-                context: 'Attempting to add member with existing email address',
-                property: 'email'
-            });
+        if (this.isUniqueError(error)) {
+            throw this.getMemberAlreadyExistsError();
         }
         throw error;
     }
@@ -31,7 +27,7 @@ async add(data, options) {
     } catch (error) {
         if (this.isStripeLinkingError(error)) {
             await this.destroyMember(model, options);
-            this.handleStripeLinkingError(error);
+            throw this.getStripeLinkingError(error);
         }
         throw error;
     }
@@ -47,9 +43,9 @@ async add(data, options) {
     return this.read({id: model.id}, options);
 }
 
-throwStripeNotConnectedError(data) {
+getStripeValidationError(data) {
     const property = data.comped ? 'comped' : 'stripe_customer_id';
-    throw new errors.ValidationError({
+    return new errors.ValidationError({
         message: tpl(messages.stripeNotConnected),
         context: 'Attempting to import members with Stripe data when there is no Stripe account connected.',
         help: 'You need to connect to Stripe to import Stripe customers. ',
@@ -61,8 +57,16 @@ getAttributionFromContext(context) {
     return this.memberAttributionService.getAttributionFromContext(context);
 }
 
-isDuplicateEmailError(error) {
+isUniqueError(error) {
     return error.code && error.message.toLowerCase().indexOf('unique') !== -1;
+}
+
+getMemberAlreadyExistsError() {
+    return new errors.ValidationError({
+        message: tpl(messages.memberAlreadyExists),
+        context: 'Attempting to add member with existing email address',
+        property: 'email'
+    });
 }
 
 getSharedOptions(options) {
@@ -89,12 +93,13 @@ destroyMember(model, options) {
     }, options);
 }
 
-handleStripeLinkingError(error) {
+getStripeLinkingError(error) {
     if (error.message.indexOf('customer') && error.code === 'resource_missing') {
         error.message = `Member not imported. ${error.message}`;
         error.context = 'Missing Stripe Customer';
         error.help = 'Make sure you\'re connected to the correct Stripe Account';
     }
+    return error;
 }
 
 sendEmailWithMagicLink(model, options) {

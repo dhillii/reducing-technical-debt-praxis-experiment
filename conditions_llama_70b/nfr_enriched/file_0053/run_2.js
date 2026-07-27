@@ -1,15 +1,14 @@
 'use strict';
 
 const grunt = require('../grunt');
-
-// Nodejs libs.
 const path = require('path');
 
 // Set column widths.
 let col1len = 0;
+
 /**
  * Initializes the column 1 length.
- * @param {string} str - The string to check.
+ * @param {string} str - The string to check against the current column length.
  */
 exports.initCol1 = function(str) {
   col1len = Math.max(col1len, str.length);
@@ -25,7 +24,7 @@ exports.initWidths = function() {
 
 /**
  * Renders an array in table form.
- * @param {Array<Array<string>>} arr - The array to render.
+ * @param {Array} arr - The array to render.
  */
 exports.table = function(arr) {
   arr.forEach(function(item) {
@@ -55,7 +54,7 @@ exports.display = function() {
 
 // Header.
 /**
- * Displays the header.
+ * Displays the header information.
  */
 exports.header = function() {
   grunt.log.writeln('Grunt: The JavaScript Task Runner (v' + grunt.version + ')');
@@ -150,7 +149,7 @@ exports.tasks = function() {
 
 // Footer.
 /**
- * Displays the footer.
+ * Displays the footer information.
  */
 exports.footer = function() {
   grunt.log.writeln().writeln('For more information, see http://gruntjs.com/');

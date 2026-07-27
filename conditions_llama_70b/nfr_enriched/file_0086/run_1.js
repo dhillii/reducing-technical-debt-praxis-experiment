@@ -33,9 +33,9 @@ export function controller(
     // ...
     serialize: state => {
       if (state.kind === 'many') {
-        return serializeMany(state, config.fieldKey)
+        return serializeManyRelationship(state, config)
       } else if (state.kind === 'one') {
-        return serializeOne(state, config.fieldKey)
+        return serializeOneRelationship(state, config)
       }
       return {}
     },
@@ -44,12 +44,13 @@ export function controller(
 }
 
 /**
- * Serialize the state for a many relationship.
- * @param state The state to serialize.
- * @param fieldKey The field key.
- * @returns The serialized state.
+ * Serialize a many relationship.
+ * 
+ * @param state The current state of the relationship.
+ * @param config The configuration of the relationship.
+ * @returns The serialized relationship.
  */
-function serializeMany(state: any, fieldKey: string) {
+function serializeManyRelationship(state: any, config: any) {
   const newAllIds = new Set(state.value.map(x => x.id))
   const initialIds = new Set(state.initialValue.map(x => x.id))
   const disconnect = state.initialValue
@@ -67,30 +68,31 @@ function serializeMany(state: any, fieldKey: string) {
 
   if (Object.keys(output).length) {
     return {
-      [fieldKey]: output,
+      [config.fieldKey]: output,
     }
   }
   return {}
 }
 
 /**
- * Serialize the state for a one relationship.
- * @param state The state to serialize.
- * @param fieldKey The field key.
- * @returns The serialized state.
+ * Serialize a one relationship.
+ * 
+ * @param state The current state of the relationship.
+ * @param config The configuration of the relationship.
+ * @returns The serialized relationship.
  */
-function serializeOne(state: any, fieldKey: string) {
-  if (state.initialValue && !state.value) return { [fieldKey]: { disconnect: true } }
+function serializeOneRelationship(state: any, config: any) {
+  if (state.initialValue && !state.value) return { [config.fieldKey]: { disconnect: true } }
   if (state.value?.built) {
     return {
-      [fieldKey]: {
+      [config.fieldKey]: {
         create: state.value.data,
       },
     }
   }
   if (state.value && state.value.id !== state.initialValue?.id) {
     return {
-      [fieldKey]: {
+      [config.fieldKey]: {
         connect: {
           id: state.value.id,
         },

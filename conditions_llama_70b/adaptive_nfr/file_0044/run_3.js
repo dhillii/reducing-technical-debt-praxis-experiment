@@ -532,84 +532,98 @@ module.exports = class MemberBREADService {
 
     /**
      * @private
-     * @param {Object} data
-     * @param {Object} options
-     * @returns {Promise<void>}
+     * @param {Object} error
+     * @returns {boolean}
      */
-    async validateStripeConnection(data, options) {
-        if (!this.stripeService.configured && (data.comped || data.stripe_customer_id)) {
-            const property = data.comped ? 'comped' : 'stripe_customer_id';
-            throw new errors.ValidationError({
-                message: tpl(messages.stripeNotConnected),
-                context: 'Attempting to import members with Stripe data when there is no Stripe account connected.',
-                help: 'You need to connect to Stripe to import Stripe customers. ',
-                property
-            });
-        }
+    isStripeLinkingError(error) {
+        return error.message && (error.message.match(/customer|plan|subscription/g));
+    }
+
+    /**
+     * @private
+     * @param {Object} error
+     * @returns {boolean}
+     */
+    isUniqueError(error) {
+        return error.code && error.message.toLowerCase().indexOf('unique') !== -1;
     }
 
     /**
      * @private
      * @param {Object} data
      * @param {Object} options
-     * @returns {Promise<void>}
+     * @returns {Promise<Object>}
      */
-    async handleUniqueEmailError(error) {
-        if (error.code && error.message.toLowerCase().indexOf('unique') !== -1) {
-            throw new errors.ValidationError({
-                message: tpl(messages.memberAlreadyExists),
-                context: 'Attempting to add member with existing email address',
-                property: 'email'
-            });
-        }
-        throw error;
-    }
-
-    /**
-     * @private
-     * @param {Object} data
-     * @param {Object} options
-     * @returns {Promise<void>}
-     */
-    async handleStripeLinkingError(error, model, options) {
-        const isStripeLinkingError = error.message && (error.message.match(/customer|plan|subscription/g));
-        if (isStripeLinkingError) {
-            if (error.message.indexOf('customer') && error.code === 'resource_missing') {
-                error.message = `Member not imported. ${error.message}`;
-                error.context = 'Missing Stripe Customer';
-                error.help = 'Make sure you\'re connected to the correct Stripe Account';
+    async createMember(data, options) {
+        try {
+            const attribution = await this.memberAttributionService.getAttributionFromContext(options?.context);
+            if (attribution) {
+                data.attribution = attribution;
             }
+            return await this.memberRepository.create(data, options);
+        } catch (error) {
+            if (this.isUniqueError(error)) {
+                throw new errors.ValidationError({
+                    message: tpl(messages.memberAlreadyExists),
+                    context: 'Attempting to add member with existing email address',
+                    property: 'email'
+                });
+            }
+            throw error;
+        }
+    }
 
-            await this.memberRepository.destroy({
-                id: model.id
+    /**
+     * @private
+     * @param {Object} data
+     * @param {Object} options
+     * @returns {Promise<Object>}
+     */
+    async updateMember(data, options) {
+        try {
+            // Update email_disabled based on whether the new email is suppressed
+            if (data.email) {
+                const isSuppressed = (await this.emailSuppressionList.getSuppressionData(data.email))?.suppressed;
+                data.email_disabled = !!isSuppressed;
+            }
+            return await this.memberRepository.update(data, options);
+        } catch (error) {
+            if (this.isUniqueError(error)) {
+                throw new errors.ValidationError({
+                    message: tpl(messages.memberAlreadyExists),
+                    context: 'Attempting to edit member with existing email address',
+                    property: 'email'
+                });
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * @private
+     * @param {Object} model
+     * @param {Object} options
+     * @returns {Promise<void>}
+     */
+    async linkStripeCustomer(model, options) {
+        try {
+            await this.memberRepository.linkStripeCustomer({
+                customer_id: model.stripe_customer_id,
+                member_id: model.id
             }, options);
-        }
-        throw error;
-    }
+        } catch (error) {
+            if (this.isStripeLinkingError(error)) {
+                if (error.message.indexOf('customer') && error.code === 'resource_missing') {
+                    error.message = `Member not imported. ${error.message}`;
+                    error.context = 'Missing Stripe Customer';
+                    error.help = 'Make sure you\'re connected to the correct Stripe Account';
+                }
 
-    /**
-     * @private
-     * @param {Object} data
-     * @param {Object} options
-     * @returns {Promise<void>}
-     */
-    async sendEmailWithMagicLink(model, options) {
-        if (options.send_email) {
-            await this.emailService.sendEmailWithMagicLink({
-                email: model.get('email'), requestedType: options.email_type
-            });
-        }
-    }
-
-    /**
-     * @private
-     * @param {Object} data
-     * @param {Object} options
-     * @returns {Promise<void>}
-     */
-    async setComplimentarySubscription(model, data, options) {
-        if (data.comped) {
-            await this.memberRepository.setComplimentarySubscription(model, options);
+                await this.memberRepository.destroy({
+                    id: model.id
+                }, options);
+            }
+            throw error;
         }
     }
 };

@@ -66,55 +66,6 @@ function readonlyCheckboxProps(isSet: null | undefined | boolean) {
   }
 }
 
-function getValidationMessage(
-  value: Value,
-  validation: Validation,
-  isRequired: boolean,
-  fieldLabel: string,
-  forceValidation: boolean,
-  touched: { value: boolean; confirm: boolean }
-): string | undefined {
-  if (forceValidation || (touched.value && touched.confirm)) {
-    return validate(value, validation, isRequired, fieldLabel)
-  }
-  return undefined
-}
-
-function getIds(
-  field: { description: string | null; label: string },
-  validationMessage: string | undefined
-): { labelId: string; descriptionId: string; messageId: string } {
-  const labelId = useId()
-  const descriptionId = useSlotId([!!field.description, !!validationMessage])
-  const messageId = useSlotId([!!field.description, !!validationMessage])
-  return { labelId, descriptionId, messageId }
-}
-
-function handleEscape(
-  e: React.KeyboardEvent,
-  value: Value,
-  onChange: ((value: Value) => void) | undefined,
-  cancelEditing: () => void
-) {
-  if (e.key !== 'Escape' || value.kind !== 'editing') return
-  if (value.value === '' && value.confirm === '') {
-    cancelEditing()
-  }
-}
-
-function handleCancelEditing(
-  onChange: ((value: Value) => void) | undefined,
-  value: Value,
-  triggerRef: React.RefObject<HTMLButtonElement>
-) {
-  return () => {
-    onChange?.({ kind: 'initial', isSet: value.isSet })
-    setTimeout(() => {
-      triggerRef.current?.focus()
-    }, 0)
-  }
-}
-
 export function Field(props: FieldProps<typeof controller>) {
   const { autoFocus, field, forceValidation, onChange, value } = props
 
@@ -123,21 +74,29 @@ export function Field(props: FieldProps<typeof controller>) {
   const triggerRef = useRef<HTMLButtonElement>(null)
 
   const isReadOnly = onChange == null
-  const validationMessage = getValidationMessage(
-    value,
-    field.validation,
-    props.isRequired,
-    field.label,
-    forceValidation,
-    touched
-  )
+  const validationMessage =
+    forceValidation || (touched.value && touched.confirm)
+      ? validate(value, field.validation, props.isRequired, field.label)
+      : undefined
 
-  const { labelId, descriptionId, messageId } = getIds(field, validationMessage)
+  const labelId = useId()
+  const descriptionId = useSlotId([!!field.description, !!validationMessage])
+  const messageId = useSlotId([!!field.description, !!validationMessage])
 
-  const cancelEditing = handleCancelEditing(onChange, value, triggerRef)
-  const onEscape = (e: React.KeyboardEvent) =>
-    handleEscape(e, value, onChange, cancelEditing)
+  const cancelEditing = () => {
+    onChange?.({ kind: 'initial', isSet: value.isSet })
+    setTimeout(() => {
+      triggerRef.current?.focus()
+    }, 0)
+  }
+  const onEscape = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Escape' || value.kind !== 'editing') return
+    if (value.value === '' && value.confirm === '') {
+      cancelEditing()
+    }
+  }
 
+  // reset when the user cancels, or when the form is submitted
   useEffect(() => {
     if (value.kind === 'initial') {
       setTouched({ value: false, confirm: false })

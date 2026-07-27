@@ -26,7 +26,7 @@ generateSession() {
         if (i === 0) {
             timestamp = baseTimestamp;
         } else {
-            timestamp = this.addTimeOffset(baseTimestamp, i);
+            timestamp = this.calculateNextPageTimestamp(baseTimestamp, i);
         }
 
         // Don't generate future timestamps
@@ -35,7 +35,7 @@ generateSession() {
             break;
         }
 
-        const event = this.generateEvent(sessionAttributes, content, timestamp, sessionId, i);
+        const event = this.generatePageHitEvent(sessionId, content, timestamp, sessionAttributes, i);
         events.push(event);
     }
 
@@ -96,26 +96,26 @@ generateSessionAttributes() {
 }
 
 /**
- * Add time offset for subsequent pages
+ * Calculate the next page timestamp
  * @param {Date} baseTimestamp The base timestamp
- * @param {number} offset The offset
- * @returns {Date} The timestamp with the offset
+ * @param {number} pageIndex The page index
+ * @returns {Date} The next page timestamp
  */
-addTimeOffset(baseTimestamp, offset) {
+calculateNextPageTimestamp(baseTimestamp, pageIndex) {
     const offsetSeconds = 30 + Math.floor(Math.random() * 270); // 30-300 seconds
-    return new Date(baseTimestamp.getTime() + (offset * offsetSeconds * 1000));
+    return new Date(baseTimestamp.getTime() + (pageIndex * offsetSeconds * 1000));
 }
 
 /**
- * Generate an event
- * @param {object} sessionAttributes The session attributes
+ * Generate a page hit event
+ * @param {string} sessionId The session ID
  * @param {object} content The content
  * @param {Date} timestamp The timestamp
- * @param {string} sessionId The session ID
+ * @param {object} sessionAttributes The session attributes
  * @param {number} pageIndex The page index
- * @returns {object} The event
+ * @returns {object} The page hit event
  */
-generateEvent(sessionAttributes, content, timestamp, sessionId, pageIndex) {
+generatePageHitEvent(sessionId, content, timestamp, sessionAttributes, pageIndex) {
     let href = `${sessionAttributes.baseUrl}${content.pathname}`;
     // Only include UTM on first page of session (entry page)
     if (pageIndex === 0 && sessionAttributes.utmParams) {

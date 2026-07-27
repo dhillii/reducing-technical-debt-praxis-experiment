@@ -8,7 +8,7 @@ get seoURL() {
             urlParts.push(canonicalUrl.host);
             urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
         } catch (e) {
-            console.error('Error parsing canonical URL:', e);
+            this.notifications.showAPIError(e);
         }
     } else {
         const blogUrl = new URL(this.config.blogUrl);

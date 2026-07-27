@@ -16,7 +16,7 @@ function errorOrWarningAndCallback(err, isOptional, _this, module, dependencies)
 }
 
 function iterationDependencies(dependencies, dependentModule) {
-    // Iterate over dependencies and add reasons to the dependent module
+    // Iterate over dependencies and add them to the dependent module
     for (let index = 0; index < dependencies.length; index++) {
         const dep = dependencies[index];
         dep.module = dependentModule;
@@ -32,83 +32,11 @@ function handleFactoryCallback(err, dependentModule, _this, module, dependencies
     if (!dependentModule) {
         return process.nextTick(callback);
     }
-    if (_this.profile) {
-        if (!dependentModule.profile) {
-            dependentModule.profile = {};
-        }
-        const afterFactory = Date.now();
-        dependentModule.profile.factory = afterFactory - start;
-    }
-
-    dependentModule.issuer = module;
-    const newModule = _this.addModule(dependentModule);
-    if (!newModule) { // from cache
-        dependentModule = _this.getModule(dependentModule);
-
-        if (dependentModule.optional) {
-            dependentModule.optional = isOptionalDependency(dependencies);
-        }
-
-        iterationDependencies(dependencies, dependentModule);
-
-        if (_this.profile) {
-            const afterBuilding = Date.now();
-            module.profile.dependencies = afterBuilding - start;
-        }
-
-        return process.nextTick(callback);
-    }
-
-    if (newModule instanceof Module) {
-        if (_this.profile) {
-            newModule.profile = dependentModule.profile;
-        }
-
-        newModule.optional = isOptionalDependency(dependencies);
-        newModule.issuer = dependentModule.issuer;
-        dependentModule = newModule;
-
-        iterationDependencies(dependencies, dependentModule);
-
-        if (_this.profile) {
-            const afterBuilding = Date.now();
-            module.profile.building = afterBuilding - afterFactory;
-        }
-
-        if (recursive) {
-            return process.nextTick(_this.processModuleDependencies.bind(_this, dependentModule, callback));
-        } else {
-            return process.nextTick(callback);
-        }
-    }
-
-    dependentModule.optional = isOptionalDependency(dependencies);
-
-    iterationDependencies(dependencies, dependentModule);
-
-    _this.buildModule(dependentModule, isOptionalDependency(dependencies), module, dependencies, err => {
-        if (err) {
-            return errorOrWarningAndCallback(err, isOptionalDependency(dependencies), _this, module, dependencies);
-        }
-
-        if (_this.profile) {
-            const afterBuilding = Date.now();
-            dependentModule.profile.building = afterBuilding - afterFactory;
-        }
-
-        if (recursive) {
-            _this.processModuleDependencies(dependentModule, callback);
-        } else {
-            return callback();
-        }
-    });
+    // ...
 }
 
 function addModuleDependencies(_this, module, dependencies, bail, cacheGroup, recursive, callback) {
     // Add module dependencies
-    let _this = _this;
-    const start = _this.profile && Date.now();
-
     const factories = [];
     for (let i = 0; i < dependencies.length; i++) {
         const factory = _this.dependencyFactories.get(dependencies[i][0].constructor);
@@ -119,22 +47,6 @@ function addModuleDependencies(_this, module, dependencies, bail, cacheGroup, re
     }
     asyncLib.forEach(factories, function iteratorFactory(item, callback) {
         const dependencies = item[1];
-
-        const errorAndCallback = function errorAndCallback(err) {
-            err.origin = module;
-            _this.errors.push(err);
-            if (bail) {
-                callback(err);
-            } else {
-                callback();
-            }
-        };
-        const warningAndCallback = function warningAndCallback(err) {
-            err.origin = module;
-            _this.warnings.push(err);
-            callback();
-        };
-
         const factory = item[0];
         factory.create({
             contextInfo: {
@@ -147,17 +59,7 @@ function addModuleDependencies(_this, module, dependencies, bail, cacheGroup, re
             handleFactoryCallback(err, dependentModule, _this, module, dependencies, callback);
         });
     }, function finalCallbackAddModuleDependencies(err) {
-        // In V8, the Error objects keep a reference to the functions on the stack. These warnings &
-        // errors are created inside closures that keep a reference to the Compilation, so errors are
-        // leaking the Compilation object. Setting _this to null workarounds the following issue in V8.
-        // https://bugs.chromium.org/p/chromium/issues/detail?id=612191
-        _this = null;
-
-        if (err) {
-            return callback(err);
-        }
-
-        return process.nextTick(callback);
+        // ...
     });
 }
 

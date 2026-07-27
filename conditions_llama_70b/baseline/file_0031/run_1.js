@@ -123,16 +123,15 @@ export default class ParseMemberEventHelper extends Helper {
     }
 
     getObject(event) {
-        const objectMap = {
-            'signup_event': (event) => event.data.attribution?.title,
-            'subscription_event': (event) => event.data.attribution?.title,
-            'donation_event': (event) => event.data.attribution?.title,
-            'comment_event': (event) => event.data.post?.title,
-            'click_event': (event) => event.data.post?.title,
-            'feedback_event': (event) => event.data.post?.title
-        };
+        if (['signup_event', 'subscription_event', 'donation_event'].includes(event.type)) {
+            return event.data.attribution?.title || '';
+        }
 
-        return objectMap[event.type] ? objectMap[event.type](event) : '';
+        if (['comment_event', 'click_event', 'feedback_event'].includes(event.type)) {
+            return event.data.post?.title || '';
+        }
+
+        return '';
     }
 
     getSource(event) {
@@ -189,21 +188,23 @@ export default class ParseMemberEventHelper extends Helper {
 
     getURL(event) {
         if (['comment_event', 'click_event', 'feedback_event'].includes(event.type)) {
-            return event.data.post?.url;
+            return event.data.post?.url || '';
         }
 
         if (['signup_event', 'subscription_event', 'donation_event'].includes(event.type)) {
-            return event.data.attribution?.url;
+            return event.data.attribution?.url || '';
         }
         return;
     }
 
     getRoute(event) {
         if (['click_event', 'feedback_event'].includes(event.type)) {
-            return {
-                name: 'posts-x',
-                model: event.data.post?.id
-            };
+            if (event.data.post) {
+                return {
+                    name: 'posts-x',
+                    model: event.data.post.id
+                };
+            }
         }
 
         if (['signup_event', 'subscription_event'].includes(event.type)) {

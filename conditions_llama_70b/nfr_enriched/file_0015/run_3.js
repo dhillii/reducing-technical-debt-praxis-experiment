@@ -532,7 +532,7 @@ async function refreshMemberData({state, api}) {
 }
 
 async function handleUpdateProfileSuccess({dataUpdate, emailUpdate, state}) {
-    // Handle success case when both data and email updates are successful
+    // Handle the case where both data and email updates are successful
     return {
         action: 'updateProfile:success',
         ...(dataUpdate.success ? {member: dataUpdate.member} : {}),
@@ -545,7 +545,7 @@ async function handleUpdateProfileSuccess({dataUpdate, emailUpdate, state}) {
 }
 
 async function handleUpdateProfileFailure({dataUpdate, emailUpdate, state}) {
-    // Handle failure case when either data or email update fails
+    // Handle the case where either data or email update fails
     const message = !dataUpdate.success ? t('Failed to update account data') : t('Failed to send verification email');
     return {
         action: 'updateProfile:failed',
@@ -557,7 +557,7 @@ async function handleUpdateProfileFailure({dataUpdate, emailUpdate, state}) {
 }
 
 async function handleUpdateProfileDataOnly({dataUpdate, state}) {
-    // Handle case when only data update is successful or fails
+    // Handle the case where only data update is successful
     const action = dataUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
     const status = dataUpdate.success ? 'success' : 'error';
     const message = !dataUpdate.success ? t('Failed to update account details') : t('Account details updated successfully');
@@ -572,7 +572,7 @@ async function handleUpdateProfileDataOnly({dataUpdate, state}) {
 }
 
 async function handleUpdateProfileEmailOnly({emailUpdate, state}) {
-    // Handle case when only email update is successful or fails
+    // Handle the case where only email update is successful
     const action = emailUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
     const status = emailUpdate.success ? 'success' : 'error';
     let message = '';

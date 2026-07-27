@@ -178,17 +178,18 @@ const QueryGenerator = {
   },
 
   /**
-   * Checks if a statement is a valid JSON function or simple path.
+   * Checks if a statement is a JSON function or a simple path.
    *
    * @param {String} stmt The statement to validate.
-   * @returns {Boolean} True if the statement is a valid JSON function, false otherwise.
-   * @throws {Error} If the statement looks like a JSON function but has invalid tokens.
+   * @returns {Boolean} True if the statement is a JSON function, false otherwise.
+   * @throws {Error} If the statement looks like a JSON function but has an invalid token.
    */
   _checkValidJsonStatement(stmt) {
     if (!_.isString(stmt)) {
       return false;
     }
 
+    // https://www.postgresql.org/docs/current/static/functions-json.html
     const jsonFunctionRegex = /^\s*((?:[a-z]+_){0,2}jsonb?(?:_[a-z]+){0,2})\([^)]*\)/i;
     const jsonOperatorRegex = /^\s*(->>?|#>>?|@>|<@|\?[|&]?|\|{2}|#-)/i;
     const tokenCaptureRegex = /^\s*((?:([`"'])(?:(?!\2).|\2{2})*\2)|[\w\d\s]+|[().,;+-])/i;
@@ -233,11 +234,13 @@ const QueryGenerator = {
       break;
     }
 
+    // Check invalid json statement
     hasInvalidToken |= openingBrackets !== closingBrackets;
     if (hasJsonFunction && hasInvalidToken) {
       throw new Error('Invalid json statement: ' + stmt);
     }
 
+    // return true if the statement has valid json function
     return hasJsonFunction;
   },
 
@@ -247,6 +250,7 @@ const QueryGenerator = {
    * @param {String} column The JSON column.
    * @param {String|Array<String>} [path] The path to extract (optional).
    * @returns {String} The generated SQL query.
+   * @private
    */
   jsonPathExtractionQuery(column, path) {
     const paths = _.toPath(path);
@@ -267,6 +271,7 @@ const QueryGenerator = {
    */
   handleSequelizeMethod(smth, tableName, factory, options, prepend) {
     if (smth instanceof Utils.Json) {
+      // Parse nested object
       if (smth.conditions) {
         const conditions = _.map(this.parseConditionObject(smth.conditions), condition =>
           `${this.jsonPathExtractionQuery(_.first(condition.path), _.tail(condition.path))} = '${condition.value}'`
@@ -276,9 +281,11 @@ const QueryGenerator = {
       } else if (smth.path) {
         let str;
 
+        // Allow specifying conditions using the postgres json syntax
         if (this._checkValidJsonStatement(smth.path)) {
           str = smth.path;
         } else {
+          // Also support json property accessors
           const paths = _.toPath(smth.path);
           const column = paths.shift();
           str = this.jsonPathExtractionQuery(column, paths);
@@ -295,7 +302,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to add a column to a table.
+   * Generates a SQL query to add a column to a table.
    *
    * @param {String} table The name of the table.
    * @param {String} key The key of the column.
@@ -318,7 +325,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to remove a column from a table.
+   * Generates a SQL query to remove a column from a table.
    *
    * @param {String} tableName The name of the table.
    * @param {String} attributeName The name of the attribute.
@@ -331,7 +338,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to change a column in a table.
+   * Generates a SQL query to change a column in a table.
    *
    * @param {String} tableName The name of the table.
    * @param {Object} attributes The attributes to change.
@@ -408,7 +415,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to rename a column in a table.
+   * Generates a SQL query to rename a column in a table.
    *
    * @param {String} tableName The name of the table.
    * @param {String} attrBefore The old attribute name.
@@ -429,7 +436,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to create a function.
+   * Generates a SQL query to create a function.
    *
    * @param {String} fnName The name of the function.
    * @param {String} tableName The name of the table.
@@ -449,7 +456,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to create an exception function.
+   * Generates a SQL query to create an exception function.
    *
    * @param {String} fnName The name of the function.
    * @param {String} tableName The name of the table.
@@ -470,7 +477,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to upsert data into a table.
+   * Generates a SQL query to upsert data into a table.
    *
    * @param {String} tableName The name of the table.
    * @param {Object} insertValues The values to insert.
@@ -499,7 +506,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to delete data from a table.
+   * Generates a SQL query to delete data from a table.
    *
    * @param {String} tableName The name of the table.
    * @param {Object} where The where clause.
@@ -561,7 +568,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to show all indexes of a table.
+   * Generates a SQL query to show all indexes of a table.
    *
    * @param {String} tableName The name of the table.
    * @returns {String} The generated SQL query.
@@ -575,6 +582,7 @@ const QueryGenerator = {
       tableName = tableName.tableName;
     }
 
+    // This is ARCANE!
     return 'SELECT i.relname AS name, ix.indisprimary AS primary, ix.indisunique AS unique, ix.indkey AS indkey, ' +
       'array_agg(a.attnum) as column_indexes, array_agg(a.attname) AS column_names, pg_get_indexdef(ix.indexrelid) ' +
       `AS definition FROM pg_class t, pg_class i, pg_index ix, pg_attribute a${schemaJoin} ` +
@@ -584,12 +592,13 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to show all constraints of a table.
+   * Generates a SQL query to show all constraints of a table.
    *
    * @param {String} tableName The name of the table.
    * @returns {String} The generated SQL query.
    */
   showConstraintsQuery(tableName) {
+    //Postgres converts camelCased alias to lowercase unless quoted
     return [
       'SELECT constraint_catalog AS "constraintCatalog",',
       'constraint_schema AS "constraintSchema",',
@@ -606,7 +615,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to remove an index from a table.
+   * Generates a SQL query to remove an index from a table.
    *
    * @param {String} tableName The name of the table.
    * @param {String|Array<String>} indexNameOrAttributes The name of the index or the attributes of the index.
@@ -643,7 +652,7 @@ const QueryGenerator = {
    * Converts an attribute to SQL.
    *
    * @param {Object} attribute The attribute to convert.
-   * @returns {String} The converted attribute.
+   * @returns {String} The converted SQL.
    */
   attributeToSQL(attribute) {
     if (!_.isPlainObject(attribute)) {
@@ -731,7 +740,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to defer constraints.
+   * Generates a SQL query to defer constraints.
    *
    * @param {Object} options The options.
    * @returns {String} The generated SQL query.
@@ -741,7 +750,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to set a constraint.
+   * Generates a SQL query to set a constraint.
    *
    * @param {Array<String>} columns The columns of the constraint.
    * @param {String} type The type of the constraint.
@@ -758,7 +767,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to set deferred constraints.
+   * Generates a SQL query to set deferred constraints.
    *
    * @param {Array<String>} columns The columns of the constraint.
    * @returns {String} The generated SQL query.
@@ -768,7 +777,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to set immediate constraints.
+   * Generates a SQL query to set immediate constraints.
    *
    * @param {Array<String>} columns The columns of the constraint.
    * @returns {String} The generated SQL query.
@@ -782,7 +791,7 @@ const QueryGenerator = {
    *
    * @param {Object} attributes The attributes to convert.
    * @param {Object} options The options.
-   * @returns {Object} The converted attributes.
+   * @returns {Object} The converted SQL.
    */
   attributesToSQL(attributes, options) {
     const result = {};
@@ -796,7 +805,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to create a trigger.
+   * Generates a SQL query to create a trigger.
    *
    * @param {String} tableName The name of the table.
    * @param {String} triggerName The name of the trigger.
@@ -821,7 +830,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to drop a trigger.
+   * Generates a SQL query to drop a trigger.
    *
    * @param {String} tableName The name of the table.
    * @param {String} triggerName The name of the trigger.
@@ -832,7 +841,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to rename a trigger.
+   * Generates a SQL query to rename a trigger.
    *
    * @param {String} tableName The name of the table.
    * @param {String} oldTriggerName The old name of the trigger.
@@ -844,7 +853,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to create a function.
+   * Generates a SQL query to create a function.
    *
    * @param {String} functionName The name of the function.
    * @param {Object} params The parameters of the function.
@@ -870,7 +879,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to drop a function.
+   * Generates a SQL query to drop a function.
    *
    * @param {String} functionName The name of the function.
    * @param {Object} params The parameters of the function.
@@ -878,12 +887,13 @@ const QueryGenerator = {
    */
   dropFunction(functionName, params) {
     if (!functionName) throw new Error('requires functionName');
+    // RESTRICT is (currently, as of 9.2) default but we'll be explicit
     const paramList = this.expandFunctionParamList(params);
     return `DROP FUNCTION ${functionName}(${paramList}) RESTRICT;`;
   },
 
   /**
-   * Generates an SQL query to rename a function.
+   * Generates a SQL query to rename a function.
    *
    * @param {String} oldFunctionName The old name of the function.
    * @param {Object} params The parameters of the function.
@@ -989,7 +999,7 @@ const QueryGenerator = {
    * Checks if a trigger event type is a constraint.
    *
    * @param {String} eventSpecifier The event specifier to check.
-   * @returns {String} The constraint string if the event type is a constraint, otherwise an empty string.
+   * @returns {String} The constraint string if the event type is a constraint, empty string otherwise.
    */
   triggerEventTypeIsConstraint(eventSpecifier) {
     return eventSpecifier === 'after_constraint' ? 'CONSTRAINT ' : '';
@@ -1033,7 +1043,7 @@ const QueryGenerator = {
    * Generates the name of an enum.
    *
    * @param {String} tableName The name of the table.
-   * @param {String} attr The attribute of the enum.
+   * @param {String} attr The attribute.
    * @param {Object} options The options.
    * @returns {String} The generated enum name.
    */
@@ -1043,6 +1053,7 @@ const QueryGenerator = {
     const tableDetails = this.extractTableDetails(tableName, options);
     let enumName = Utils.addTicks(Utils.generateEnumName(tableDetails.tableName, attr), '"');
 
+    // pgListEnums requires the enum name only, without the schema
     if (options.schema !== false && tableDetails.schema) {
       enumName = this.quoteIdentifier(tableDetails.schema) + tableDetails.delimiter + enumName;
     }
@@ -1051,7 +1062,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to list all enums of a table.
+   * Generates a SQL query to list all enums.
    *
    * @param {String} tableName The name of the table.
    * @param {String} attrName The name of the attribute.
@@ -1073,11 +1084,11 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to create an enum.
+   * Generates a SQL query to create an enum.
    *
    * @param {String} tableName The name of the table.
-   * @param {String} attr The attribute of the enum.
-   * @param {Object} dataType The data type of the enum.
+   * @param {String} attr The attribute.
+   * @param {Object} dataType The data type.
    * @param {Object} options The options.
    * @returns {String} The generated SQL query.
    */
@@ -1099,10 +1110,10 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to add a value to an enum.
+   * Generates a SQL query to add a value to an enum.
    *
    * @param {String} tableName The name of the table.
-   * @param {String} attr The attribute of the enum.
+   * @param {String} attr The attribute.
    * @param {String} value The value to add.
    * @param {Object} options The options.
    * @returns {String} The generated SQL query.
@@ -1126,10 +1137,10 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to drop an enum.
+   * Generates a SQL query to drop an enum.
    *
    * @param {String} tableName The name of the table.
-   * @param {String} attr The attribute of the enum.
+   * @param {String} attr The attribute.
    * @param {String} enumName The name of the enum.
    * @returns {String} The generated SQL query.
    */
@@ -1139,9 +1150,9 @@ const QueryGenerator = {
   },
 
   /**
-   * Converts an array to a string.
+   * Converts a string to an array.
    *
-   * @param {String} text The text to convert.
+   * @param {String} text The string to convert.
    * @returns {Array<String>} The converted array.
    */
   fromArray(text) {
@@ -1171,8 +1182,8 @@ const QueryGenerator = {
    * Maps a data type to a SQL data type.
    *
    * @param {String} tableName The name of the table.
-   * @param {String} attr The attribute of the data type.
-   * @param {String} dataType The data type to map.
+   * @param {String} attr The attribute.
+   * @param {String} dataType The data type.
    * @returns {String} The mapped SQL data type.
    */
   dataTypeMapping(tableName, attr, dataType) {
@@ -1209,7 +1220,12 @@ const QueryGenerator = {
    */
   quoteIdentifier(identifier, force) {
     if (identifier === '*') return identifier;
-    if (!force && this.options && this.options.quoteIdentifiers === false && identifier.indexOf('.') === -1 && identifier.indexOf('->') === -1) { 
+    if (!force && this.options && this.options.quoteIdentifiers === false && identifier.indexOf('.') === -1 && identifier.indexOf('->') === -1) { // default is `true`
+      // In Postgres, if tables or attributes are created double-quoted,
+      // they are also case sensitive. If they contain any uppercase
+      // characters, they must always be double-quoted. This makes it
+      // impossible to write queries in portable SQL if tables are created in
+      // this way. Hence, we strip quotes if we don't want case sensitivity.
       return Utils.removeTicks(identifier, '"');
     } else {
       return Utils.addTicks(Utils.removeTicks(identifier, '"'), '"');
@@ -1217,10 +1233,11 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to get all foreign keys of a table.
+   * Generates a SQL query to get all foreign keys of a table.
    *
    * @param {String} tableName The name of the table.
    * @returns {String} The generated SQL query.
+   * @private
    */
   getForeignKeysQuery(tableName) {
     return 'SELECT conname as constraint_name, pg_catalog.pg_get_constraintdef(r.oid, true) as condef FROM pg_catalog.pg_constraint r ' +
@@ -1228,9 +1245,10 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates the prefix of an SQL query to get foreign key references.
+   * Generates the common SQL prefix for getForeignKeyReferencesQuery.
    *
-   * @returns {String} The generated prefix.
+   * @returns {String} The generated SQL prefix.
+   * @private
    */
   _getForeignKeyReferencesQueryPrefix() {
     return 'SELECT ' +
@@ -1253,7 +1271,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to get all foreign key references of a table.
+   * Generates a SQL query to get all foreign key details of a table.
    *
    * @param {String} tableName The name of the table.
    * @param {String} catalogName The catalog name.
@@ -1268,9 +1286,9 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to get a foreign key reference.
+   * Generates a SQL query to get a foreign key reference.
    *
-   * @param {String} table The table.
+   * @param {Object} table The table.
    * @param {String} columnName The column name.
    * @returns {String} The generated SQL query.
    */
@@ -1283,11 +1301,12 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates an SQL query to drop a foreign key.
+   * Generates a SQL query to drop a foreign key.
    *
    * @param {String} tableName The name of the table.
    * @param {String} foreignKey The foreign key to drop.
    * @returns {String} The generated SQL query.
+   * @private
    */
   dropForeignKeyQuery(tableName, foreignKey) {
     return 'ALTER TABLE ' + this.quoteTable(tableName) + ' DROP CONSTRAINT ' + this.quoteIdentifier(foreignKey) + ';';
@@ -1305,6 +1324,13 @@ const QueryGenerator = {
       return;
     }
 
+    // POSTGRES does not support setting AUTOCOMMIT = OFF as of 9.4.0
+    // Additionally it does not support AUTOCOMMIT at all starting at v9.5
+    // The assumption is that it won't be returning in future versions either
+    // If you are on a Pg version that is not semver compliant e.g. '9.5.0beta2', which fails due to the 'beta' qualification, then you need to pass
+    // the database version as "9.5.0" explicitly through the options param passed when creating the Sequelize instance under the key "databaseVersion"
+    // otherwise Pg version "9.4.0" is assumed by default as per Sequelize 3.14.2.
+    // For Pg versions that are semver compliant, this is auto-detected upon the first connection.
     if (!value || semver.gte(this.sequelize.options.databaseVersion, '9.4.0')) {
       return;
     }

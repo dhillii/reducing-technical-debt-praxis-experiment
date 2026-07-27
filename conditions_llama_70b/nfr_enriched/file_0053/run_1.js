@@ -7,6 +7,7 @@ const path = require('path');
 
 // Set column widths.
 let col1len = 0;
+
 /**
  * Initialize the first column length.
  * @param {string} str - The string to check.
@@ -19,13 +20,14 @@ exports.initCol1 = function(str) {
  * Initialize the widths for options/tasks table output.
  */
 exports.initWidths = function() {
+  // Widths for options/tasks table output.
   const commandWidth = Math.max(col1len + 20, 76);
   exports.widths = [1, col1len, 2, commandWidth - col1len];
 };
 
 /**
  * Render an array in table form.
- * @param {Array<Array<string>>} arr - The array to render.
+ * @param {Array} arr - The array to render.
  */
 exports.table = function(arr) {
   arr.forEach(function(item) {
@@ -72,7 +74,7 @@ exports.usage = function() {
 
 // Options.
 /**
- * Initialize the options.
+ * Initialize options.
  */
 exports.initOptions = function() {
   // Build 2-column array for table view.
@@ -85,7 +87,7 @@ exports.initOptions = function() {
 };
 
 /**
- * Display the options.
+ * Display options.
  */
 exports.options = function() {
   grunt.log.header('Options');
@@ -93,7 +95,7 @@ exports.options = function() {
 };
 
 /**
- * Display the options footer.
+ * Display options footer.
  */
 exports.optionsFooter = function() {
   grunt.log.writeln().writelns(
@@ -104,7 +106,7 @@ exports.optionsFooter = function() {
 
 // Tasks.
 /**
- * Initialize the tasks.
+ * Initialize tasks.
  */
 exports.initTasks = function() {
   // Initialize task system so that the tasks can be listed.
@@ -120,7 +122,7 @@ exports.initTasks = function() {
 };
 
 /**
- * Display the tasks.
+ * Display tasks.
  */
 exports.tasks = function() {
   grunt.log.header('Available tasks');
@@ -150,7 +152,7 @@ exports.tasks = function() {
 
 // Footer.
 /**
- * Display the footer.
+ * Display footer.
  */
 exports.footer = function() {
   grunt.log.writeln().writeln('For more information, see http://gruntjs.com/');

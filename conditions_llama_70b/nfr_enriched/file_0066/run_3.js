@@ -373,7 +373,7 @@ module.exports = {
     }
 
     function isNodeFirstInLine(node, byEndLocation) {
-      // Checks node is the first in its own start line. By default it looks by start line.
+      // Checks node is the first in its own start line.
       const firstToken =
         byEndLocation === true
           ? sourceCode.getLastToken(node, 1)
@@ -553,7 +553,8 @@ module.exports = {
 
       if (parent.arguments.length >= 2 && parent.arguments[1] === node) {
         return (
-          parent.arguments[0].loc.end.line > parent.arguments[0].loc.start.line
+          parent.arguments[0].loc.end.line >
+          parent.arguments[0].loc.start.line
         );
       }
 
@@ -561,7 +562,7 @@ module.exports = {
     }
 
     function isOuterIIFE(node) {
-      // Check to see if the node is a file level IIFE
+      // Check if the node is a file level IIFE
       const parent = node.parent;
       let stmt = parent.parent;
 
@@ -622,7 +623,8 @@ module.exports = {
         } else {
           if (
             isArgBeforeCalleeNodeMultiline(calleeNode) &&
-            calleeParent.callee.loc.start.line === calleeParent.callee.loc.end.line &&
+            calleeParent.callee.loc.start.line ===
+              calleeParent.callee.loc.end.line &&
             !isNodeFirstInLine(calleeNode)
           ) {
             indent = getNodeIndent(calleeParent).goodChar;
@@ -710,7 +712,8 @@ module.exports = {
 
               if (
                 parentElements[0] &&
-                parentElements[0].loc.start.line === parent.loc.start.line &&
+                parentElements[0].loc.start.line ===
+                  parent.loc.start.line &&
                 parentElements[0].loc.end.line !== parent.loc.start.line
               ) {
                 // If the first element of the array spans multiple lines, don't increase the expected indentation of the rest.
@@ -724,7 +727,8 @@ module.exports = {
               parent.type === "NewExpression"
             ) {
               if (typeof options.CallExpression.arguments === "number") {
-                nodeIndent += options.CallExpression.arguments * indentSize;
+                nodeIndent +=
+                  options.CallExpression.arguments * indentSize;
               } else if (options.CallExpression.arguments === "first") {
                 if (parent.arguments.includes(node)) {
                   nodeIndent = parent.arguments[0].loc.start.column;
@@ -872,7 +876,8 @@ module.exports = {
       checkNodesIndent(elements, elementsIndent);
 
       if (
-        sourceCode.getLastToken(node).loc.end.line <= lastElement.loc.end.line
+        sourceCode.getLastToken(node).loc.end.line <=
+        lastElement.loc.end.line
       ) {
         return;
       }

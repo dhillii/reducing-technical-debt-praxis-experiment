@@ -257,7 +257,7 @@ define([
                 return false;
             }
 
-            const coll = this._getFullCollection();
+            const coll = this.fullCollection || this;
             const index = this.indexOf(model);
 
             coll.remove(model);
@@ -272,14 +272,6 @@ define([
             }
 
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
-        },
-
-        /**
-         * Get full collection.
-         * @return {Backbone.Collection} Full collection.
-         */
-        _getFullCollection: function() {
-            return this.fullCollection || this;
         },
 
         /**
@@ -312,7 +304,8 @@ define([
                 return this._navigateOnRemove(model);
             }
 
-            const coll = this._getFullCollection();
+            // If the model already exists, update it
+            const coll = this.fullCollection || this;
             const colModel = coll.get(model.id);
 
             if (colModel) {
@@ -328,8 +321,7 @@ define([
          * Update pagination when a model is removed
          */
         _onRemoveItem: function(model) {
-            const coll = this._getFullCollection();
-            coll.remove(model);
+            this.fullCollection.remove(model);
             this.sortFullCollection();
         },
 

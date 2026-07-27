@@ -89,11 +89,7 @@ module.exports = class RuleSet {
     if (loader && (rule.options || rule.query)) {
       if (typeof loader === "string") {
         checkSource("loader + options/query", "use");
-        newRule.use = RuleSet.normalizeUse({
-          loader: loader,
-          options: rule.options,
-          query: rule.query
-        }, ident);
+        newRule.use = RuleSet.normalizeUse({ loader, options: rule.options, query: rule.query }, ident);
       } else {
         throw new Error(RuleSet.buildErrorMessage(rule, new Error("options/query cannot be used with loaders (use options for each array item)")));
       }
@@ -117,16 +113,16 @@ module.exports = class RuleSet {
       newRule.oneOf = RuleSet.normalizeRules(rule.oneOf, refs, `${ident}-oneOf`);
     }
 
-    const keys = Object.keys(rule).filter((key) => {
+    const keys = Object.keys(rule).filter(key => {
       return ["resource", "resourceQuery", "compiler", "test", "include", "exclude", "issuer", "loader", "options", "query", "loaders", "use", "rules", "oneOf"].indexOf(key) < 0;
     });
 
-    keys.forEach((key) => {
+    keys.forEach(key => {
       newRule[key] = rule[key];
     });
 
     if (Array.isArray(newRule.use)) {
-      newRule.use.forEach((item) => {
+      newRule.use.forEach(item => {
         if (item.ident) {
           refs[item.ident] = item.options;
         }
@@ -202,11 +198,11 @@ module.exports = class RuleSet {
       }
     }
 
-    const keys = Object.keys(item).filter((key) => {
+    const keys = Object.keys(item).filter(key => {
       return ["options", "query"].indexOf(key) < 0;
     });
 
-    keys.forEach((key) => {
+    keys.forEach(key => {
       newItem[key] = item[key];
     });
 
@@ -219,7 +215,7 @@ module.exports = class RuleSet {
     }
 
     if (typeof condition === "string") {
-      return (str) => str.indexOf(condition) === 0;
+      return str => str.indexOf(condition) === 0;
     }
 
     if (typeof condition === "function") {
@@ -231,7 +227,7 @@ module.exports = class RuleSet {
     }
 
     if (Array.isArray(condition)) {
-      const items = condition.map((c) => RuleSet.normalizeCondition(c));
+      const items = condition.map(c => RuleSet.normalizeCondition(c));
       return orMatcher(items);
     }
 
@@ -241,7 +237,7 @@ module.exports = class RuleSet {
 
     let matchers = [];
 
-    Object.keys(condition).forEach((key) => {
+    Object.keys(condition).forEach(key => {
       const value = condition[key];
       switch (key) {
         case "or":
@@ -253,7 +249,7 @@ module.exports = class RuleSet {
           break;
         case "and":
           if (value) {
-            const items = value.map((c) => RuleSet.normalizeCondition(c));
+            const items = value.map(c => RuleSet.normalizeCondition(c));
             matchers.push(andMatcher(items));
           }
           break;
@@ -282,9 +278,7 @@ module.exports = class RuleSet {
 
   exec(data) {
     const result = [];
-    this._run(data, {
-      rules: this.rules
-    }, result);
+    this._run(data, { rules: this.rules }, result);
     return result;
   }
 
@@ -321,11 +315,11 @@ module.exports = class RuleSet {
       return false;
     }
 
-    const keys = Object.keys(rule).filter((key) => {
+    const keys = Object.keys(rule).filter(key => {
       return ["resource", "resourceQuery", "compiler", "issuer", "rules", "oneOf", "use", "enforce"].indexOf(key) < 0;
     });
 
-    keys.forEach((key) => {
+    keys.forEach(key => {
       result.push({
         type: key,
         value: rule[key]
@@ -333,7 +327,7 @@ module.exports = class RuleSet {
     });
 
     if (rule.use) {
-      rule.use.forEach((use) => {
+      rule.use.forEach(use => {
         result.push({
           type: "use",
           value: typeof use === "function" ? RuleSet.normalizeUseItemFunction(use, data) : use,
@@ -369,13 +363,13 @@ module.exports = class RuleSet {
 };
 
 function notMatcher(matcher) {
-  return function (str) {
+  return function(str) {
     return !matcher(str);
   };
 }
 
 function orMatcher(items) {
-  return function (str) {
+  return function(str) {
     for (let i = 0; i < items.length; i++) {
       if (items[i](str)) {
         return true;
@@ -386,7 +380,7 @@ function orMatcher(items) {
 }
 
 function andMatcher(items) {
-  return function (str) {
+  return function(str) {
     for (let i = 0; i < items.length; i++) {
       if (!items[i](str)) {
         return false;

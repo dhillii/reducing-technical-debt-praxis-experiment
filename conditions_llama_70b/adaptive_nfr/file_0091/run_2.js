@@ -3,7 +3,9 @@ function getAlignmentFromElement(element: globalThis.Element): 'center' | 'end' 
   if (!parent) return undefined
 
   const attribute = parent.dataset.align
-  if (attribute === 'center' || attribute === 'end') return attribute
+  if (attribute === 'center' || attribute === 'end') {
+    return attribute
+  }
 
   if (!(element instanceof HTMLElement)) return undefined
 

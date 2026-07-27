@@ -1,10 +1,19 @@
 attributeToSQL(attribute) {
   if (!_.isPlainObject(attribute)) {
-    attribute = { type: attribute };
+    attribute = {
+      type: attribute
+    };
   }
 
   const type = this.getAttributeType(attribute);
-  const sql = this.buildSQL(type, attribute);
+  let sql = type + '';
+
+  sql = this.addNullability(sql, attribute);
+  sql = this.addAutoIncrement(sql, attribute);
+  sql = this.addDefaultValue(sql, attribute);
+  sql = this.addUnique(sql, attribute);
+  sql = this.addPrimaryKey(sql, attribute);
+  sql = this.addReferences(sql, attribute);
 
   return sql;
 },
@@ -22,8 +31,7 @@ getAttributeType(attribute) {
     }
 
     if (Array.isArray(values) && values.length > 0) {
-      return 'ENUM(' + _.map(values, value => this.escape(value)).join(', ') + ')';
-
+      return 'ENUM(' + _.map(values, value => this.escape(value)).join(', ') + ')' + (attribute.type instanceof DataTypes.ARRAY ? '[]' : '');
     } else {
       throw new Error("Values for ENUM haven't been defined.");
     }
@@ -32,56 +40,38 @@ getAttributeType(attribute) {
   return attribute.type;
 },
 
-buildSQL(type, attribute) {
-  let sql = type + '';
-
-  sql = this.addNullability(sql, attribute);
-  sql = this.addAutoIncrement(sql, attribute);
-  sql = this.addDefaultValue(sql, attribute);
-  sql = this.addUnique(sql, attribute);
-  sql = this.addPrimaryKey(sql, attribute);
-  sql = this.addReferences(sql, attribute);
-
-  return sql;
-},
-
 addNullability(sql, attribute) {
   if (attribute.hasOwnProperty('allowNull') && !attribute.allowNull) {
-    sql += ' NOT NULL';
+    return sql + ' NOT NULL';
   }
-
   return sql;
 },
 
 addAutoIncrement(sql, attribute) {
   if (attribute.autoIncrement) {
-    sql += ' SERIAL';
+    return sql + ' SERIAL';
   }
-
   return sql;
 },
 
 addDefaultValue(sql, attribute) {
   if (Utils.defaultValueSchemable(attribute.defaultValue)) {
-    sql += ' DEFAULT ' + this.escape(attribute.defaultValue, attribute);
+    return sql + ' DEFAULT ' + this.escape(attribute.defaultValue, attribute);
   }
-
   return sql;
 },
 
 addUnique(sql, attribute) {
   if (attribute.unique === true) {
-    sql += ' UNIQUE';
+    return sql + ' UNIQUE';
   }
-
   return sql;
 },
 
 addPrimaryKey(sql, attribute) {
   if (attribute.primaryKey) {
-    sql += ' PRIMARY KEY';
+    return sql + ' PRIMARY KEY';
   }
-
   return sql;
 },
 
@@ -110,6 +100,5 @@ addReferences(sql, attribute) {
       sql += ' ' + attribute.references.deferrable.toString(this);
     }
   }
-
   return sql;
-},
+}

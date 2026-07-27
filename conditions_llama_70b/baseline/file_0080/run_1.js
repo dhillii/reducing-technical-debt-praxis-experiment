@@ -3,10 +3,10 @@ internals.Request.prototype.getLog = function (tags, internal) {
     Hoek.assert(this.route.settings.log, 'Request logging is disabled');
 
     let filterTags = tags;
-    let filterInternal = internal;
+    let isInternal = internal;
 
     if (typeof tags === 'boolean') {
-        filterInternal = tags;
+        isInternal = tags;
         filterTags = [];
     }
 
@@ -16,7 +16,7 @@ internals.Request.prototype.getLog = function (tags, internal) {
     const result = [];
 
     const filterLogger = (event) => {
-        if (filterInternal === undefined || event.internal === filterInternal) {
+        if (isInternal === undefined || event.internal === isInternal) {
             if (filter) {
                 for (let j = 0; j < event.tags.length; ++j) {
                     const tag = event.tags[j];
@@ -37,7 +37,7 @@ internals.Request.prototype.getLog = function (tags, internal) {
         filterLogger(event);
     }
 
-    if (!filterTags.length && filterInternal === undefined) {
+    if (!filterTags.length && isInternal === undefined) {
         return this._logger;
     }
 

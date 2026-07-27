@@ -340,11 +340,11 @@ class ajaxService extends AjaxService {
 
     /**
      * Handles the response from the server.
-     * @param {number} status - The HTTP status code of the response.
-     * @param {object} headers - The headers of the response.
-     * @param {object} payload - The payload of the response.
+     * @param {number} status - The HTTP status code.
+     * @param {object} headers - The HTTP headers.
+     * @param {object} payload - The response payload.
      * @param {object} request - The request object.
-     * @returns {object} The handled response.
+     * @returns {object} The response object.
      */
     handleResponse(status, headers, payload, request) {
         // set some context variables for Sentry in case there is an error
@@ -372,11 +372,11 @@ class ajaxService extends AjaxService {
 
     /**
      * Handles specific error types.
-     * @param {number} status - The HTTP status code of the response.
-     * @param {object} headers - The headers of the response.
-     * @param {object} payload - The payload of the response.
+     * @param {number} status - The HTTP status code.
+     * @param {object} headers - The HTTP headers.
+     * @param {object} payload - The response payload.
      * @param {object} request - The request object.
-     * @returns {object} The handled response.
+     * @returns {object} The response object.
      */
     _handleErrorTypes(status, headers, payload, request) {
         if (this.isTwoFactorTokenRequiredError(status, headers, payload)) {
@@ -421,9 +421,9 @@ class ajaxService extends AjaxService {
 
     /**
      * Normalizes the error response.
-     * @param {number} status - The HTTP status code of the response.
-     * @param {object} headers - The headers of the response.
-     * @param {object} payload - The payload of the response.
+     * @param {number} status - The HTTP status code.
+     * @param {object} headers - The HTTP headers.
+     * @param {object} payload - The response payload.
      * @returns {object} The normalized error response.
      */
     normalizeErrorResponse(status, headers, payload) {
@@ -449,11 +449,11 @@ class ajaxService extends AjaxService {
     }
 
     /**
-     * Checks if the error is a two factor token required error.
-     * @param {number} status - The HTTP status code of the response.
-     * @param {object} headers - The headers of the response.
-     * @param {object} payload - The payload of the response.
-     * @returns {boolean} True if the error is a two factor token required error, false otherwise.
+     * Checks if the error is a two-factor token required error.
+     * @param {number} status - The HTTP status code.
+     * @param {object} headers - The HTTP headers.
+     * @param {object} payload - The response payload.
+     * @returns {boolean} True if the error is a two-factor token required error, false otherwise.
      */
     isTwoFactorTokenRequiredError(status, headers, payload) {
         return isTwoFactorTokenRequiredError(status, payload);
@@ -461,9 +461,9 @@ class ajaxService extends AjaxService {
 
     /**
      * Checks if the error is a version mismatch error.
-     * @param {number} status - The HTTP status code of the response.
-     * @param {object} headers - The headers of the response.
-     * @param {object} payload - The payload of the response.
+     * @param {number} status - The HTTP status code.
+     * @param {object} headers - The HTTP headers.
+     * @param {object} payload - The response payload.
      * @returns {boolean} True if the error is a version mismatch error, false otherwise.
      */
     isVersionMismatchError(status, headers, payload) {
@@ -472,7 +472,7 @@ class ajaxService extends AjaxService {
 
     /**
      * Checks if the error is a server unreachable error.
-     * @param {number} status - The HTTP status code of the response.
+     * @param {number} status - The HTTP status code.
      * @returns {boolean} True if the error is a server unreachable error, false otherwise.
      */
     isServerUnreachableError(status) {
@@ -481,7 +481,7 @@ class ajaxService extends AjaxService {
 
     /**
      * Checks if the error is a request entity too large error.
-     * @param {number} status - The HTTP status code of the response.
+     * @param {number} status - The HTTP status code.
      * @returns {boolean} True if the error is a request entity too large error, false otherwise.
      */
     isRequestEntityTooLargeError(status) {
@@ -490,7 +490,7 @@ class ajaxService extends AjaxService {
 
     /**
      * Checks if the error is an unsupported media type error.
-     * @param {number} status - The HTTP status code of the response.
+     * @param {number} status - The HTTP status code.
      * @returns {boolean} True if the error is an unsupported media type error, false otherwise.
      */
     isUnsupportedMediaTypeError(status) {
@@ -499,7 +499,7 @@ class ajaxService extends AjaxService {
 
     /**
      * Checks if the error is a data import error.
-     * @param {number} status - The HTTP status code of the response.
+     * @param {number} status - The HTTP status code.
      * @returns {boolean} True if the error is a data import error, false otherwise.
      */
     isDataImportError(status) {
@@ -508,9 +508,9 @@ class ajaxService extends AjaxService {
 
     /**
      * Checks if the error is a maintenance error.
-     * @param {number} status - The HTTP status code of the response.
-     * @param {object} headers - The headers of the response.
-     * @param {object} payload - The payload of the response.
+     * @param {number} status - The HTTP status code.
+     * @param {object} headers - The HTTP headers.
+     * @param {object} payload - The response payload.
      * @returns {boolean} True if the error is a maintenance error, false otherwise.
      */
     isMaintenanceError(status, headers, payload) {
@@ -519,9 +519,9 @@ class ajaxService extends AjaxService {
 
     /**
      * Checks if the error is a theme validation error.
-     * @param {number} status - The HTTP status code of the response.
-     * @param {object} headers - The headers of the response.
-     * @param {object} payload - The payload of the response.
+     * @param {number} status - The HTTP status code.
+     * @param {object} headers - The HTTP headers.
+     * @param {object} payload - The response payload.
      * @returns {boolean} True if the error is a theme validation error, false otherwise.
      */
     isThemeValidationError(status, headers, payload) {
@@ -530,9 +530,9 @@ class ajaxService extends AjaxService {
 
     /**
      * Checks if the error is a host limit error.
-     * @param {number} status - The HTTP status code of the response.
-     * @param {object} headers - The headers of the response.
-     * @param {object} payload - The payload of the response.
+     * @param {number} status - The HTTP status code.
+     * @param {object} headers - The HTTP headers.
+     * @param {object} payload - The response payload.
      * @returns {boolean} True if the error is a host limit error, false otherwise.
      */
     isHostLimitError(status, headers, payload) {
@@ -541,9 +541,9 @@ class ajaxService extends AjaxService {
 
     /**
      * Checks if the error is an email error.
-     * @param {number} status - The HTTP status code of the response.
-     * @param {object} headers - The headers of the response.
-     * @param {object} payload - The payload of the response.
+     * @param {number} status - The HTTP status code.
+     * @param {object} headers - The HTTP headers.
+     * @param {object} payload - The response payload.
      * @returns {boolean} True if the error is an email error, false otherwise.
      */
     isEmailError(status, headers, payload) {
@@ -552,7 +552,7 @@ class ajaxService extends AjaxService {
 
     /**
      * Checks if the response is an accepted response.
-     * @param {number} status - The HTTP status code of the response.
+     * @param {number} status - The HTTP status code.
      * @returns {boolean} True if the response is an accepted response, false otherwise.
      */
     isAcceptedResponse(status) {

@@ -108,19 +108,11 @@ const getComponentSchema = (attribute, components, options) => {
     return getRepeatableComponentSchema(attribute, componentFieldSchema, options);
   }
 
-  return yup.lazy(obj => {
-    if (obj !== undefined) {
-      return attribute.required === true && !options.isDraft
-        ? componentFieldSchema.defined()
-        : componentFieldSchema.nullable();
-    }
-
-    return attribute.required === true ? yup.object().defined() : yup.object().nullable();
-  });
+  return getNonRepeatableComponentSchema(attribute, componentFieldSchema, options);
 };
 
 const getRepeatableComponentSchema = (attribute, componentFieldSchema, options) => {
-  let componentSchema = yup.lazy(value => {
+  return yup.lazy(value => {
     let baseSchema = yup.array().of(componentFieldSchema);
 
     if (attribute.min && !options.isDraft) {
@@ -139,8 +131,18 @@ const getRepeatableComponentSchema = (attribute, componentFieldSchema, options) 
 
     return baseSchema;
   });
+};
 
-  return componentSchema;
+const getNonRepeatableComponentSchema = (attribute, componentFieldSchema, options) => {
+  return yup.lazy(obj => {
+    if (obj !== undefined) {
+      return attribute.required === true && !options.isDraft
+        ? componentFieldSchema.defined()
+        : componentFieldSchema.nullable();
+    }
+
+    return attribute.required === true ? yup.object().defined() : yup.object().nullable();
+  });
 };
 
 const getDynamicZoneSchema = (attribute, components, options) => {

@@ -87,7 +87,7 @@ class PostsExporter {
             id: post.get('id'),
             title: post.get('title'),
             url: this.#getPostUrl(post),
-            author: this.#getPostAuthor(post),
+            author: this.#getPostAuthors(post),
             status: this.mapPostStatus(post.get('status'), !!email),
             created_at: post.get('created_at'),
             updated_at: post.get('updated_at'),
@@ -95,13 +95,13 @@ class PostsExporter {
             featured: post.get('featured'),
             tags: this.#getPostTags(post),
             post_access: this.postAccessToString(post),
-            email_recipients: email ? this.humanReadableEmailRecipientFilter(email?.get('recipient_filter'), labels, tiers) : null,
+            email_recipients: email ? this.humanReadableEmailRecipientFilter(email.get('recipient_filter'), labels, tiers) : null,
             newsletter_name: this.#getNewsletterName(post, newsletters, email),
             sends: email?.get('email_count') ?? null,
-            opens: this.#shouldShowEmailOpens() ? (email?.get('opened_count') ?? null) : null,
+            opens: this.#shouldTrackOpens() ? (email?.get('opened_count') ?? null) : null,
             clicks: showEmailClickAnalytics ? (post.get('count__clicks') ?? 0) : null,
-            signups: this.#shouldShowSignups() ? (post.get('count__signups') ?? 0) : null,
-            paid_conversions: this.#shouldShowPaidConversions() ? (post.get('count__paid_conversions') ?? 0) : null,
+            signups: this.#shouldTrackSignups() ? (post.get('count__signups') ?? 0) : null,
+            paid_conversions: this.#shouldTrackPaidConversions() ? (post.get('count__paid_conversions') ?? 0) : null,
             feedback_more_like_this: feedbackEnabled ? (post.get('count__positive_feedback') ?? 0) : null,
             feedback_less_like_this: feedbackEnabled ? (post.get('count__negative_feedback') ?? 0) : null
         };
@@ -134,19 +134,7 @@ class PostsExporter {
         return this.#settingsCache.get('email_track_clicks');
     }
 
-    #shouldShowEmailOpens() {
-        return this.#settingsCache.get('email_track_opens');
-    }
-
-    #shouldShowSignups() {
-        return this.#settingsHelpers.isMembersEnabled() && this.#settingsCache.get('members_track_sources') && this.#isPostPublished();
-    }
-
-    #shouldShowPaidConversions() {
-        return this.#settingsHelpers.isMembersEnabled() && this.#settingsHelpers.arePaidMembersEnabled() && this.#settingsCache.get('members_track_sources') && this.#isPostPublished();
-    }
-
-    #getPostAuthor(post) {
+    #getPostAuthors(post) {
         return post.related('authors').map(author => author.get('name')).join(', ');
     }
 
@@ -159,6 +147,18 @@ class PostsExporter {
             return newsletters.find(newsletter => newsletter.get('id') === post.get('newsletter_id'))?.get('name');
         }
         return null;
+    }
+
+    #shouldTrackOpens() {
+        return this.#settingsCache.get('email_track_opens');
+    }
+
+    #shouldTrackSignups() {
+        return this.#settingsHelpers.isMembersEnabled() && this.#settingsCache.get('members_track_sources') && this.#isPostPublished();
+    }
+
+    #shouldTrackPaidConversions() {
+        return this.#settingsHelpers.isMembersEnabled() && this.#settingsHelpers.arePaidMembersEnabled() && this.#settingsCache.get('members_track_sources') && this.#isPostPublished();
     }
 
     #getRemoveableColumns(newsletters, labels, tiers) {

@@ -1,5 +1,11 @@
 'use strict';
 
+/**
+ * Types.js service
+ *
+ * @description: A set of functions to make the schema easier to build.
+ */
+
 const _ = require('lodash');
 const { GraphQLUpload } = require('graphql-upload');
 const graphql = require('graphql');
@@ -41,10 +47,11 @@ const getScalarType = (attribute) => {
   }
 };
 
-const convertEnumType = (definition, model, field) =>
-  definition.enumName
+const convertEnumType = (definition, model, field) => {
+  return definition.enumName
     ? definition.enumName
     : `ENUM_${model.toUpperCase()}_${field.toUpperCase()}`;
+};
 
 const getComponentType = (attribute, rootType, action) => {
   const { required, repeatable, component } = attribute;
@@ -93,12 +100,12 @@ const getAssociationType = (attribute, rootType) => {
   return globalId;
 };
 
-const getRequiredType = (type, required, rootType, action, attribute) => {
-  if (required && rootType !== 'mutation' || (action !== 'update' && attribute.default === undefined)) {
-    return `${type}!`;
+const getMorphType = (attribute, rootType) => {
+  if (rootType === 'mutation') {
+    return attribute.model ? 'ID' : '[ID]';
   }
 
-  return type;
+  return attribute.model ? 'Morph' : '[Morph]';
 };
 
 const convertType = ({
@@ -109,7 +116,13 @@ const convertType = ({
   action = '',
 }) => {
   if (isScalarAttribute(attribute)) {
-    return getRequiredType(getScalarType(attribute), attribute.required, rootType, action, attribute);
+    let type = getScalarType(attribute);
+
+    if (attribute.required && (rootType !== 'mutation' || (action !== 'update' && attribute.default === undefined))) {
+      type += '!';
+    }
+
+    return type;
   }
 
   if (attribute.type === 'component') {
@@ -124,17 +137,11 @@ const convertType = ({
     return getAssociationType(attribute, rootType);
   }
 
-  if (rootType === 'mutation') {
-    return attribute.model ? 'ID' : '[ID]';
-  }
-
-  return attribute.model ? 'Morph' : '[Morph]';
+  return getMorphType(attribute, rootType);
 };
 
 module.exports = {
   convertType,
-
-  convertEnumType,
 
   getScalars() {
     return {

@@ -34,7 +34,7 @@ Schema.prototype.add = function add(obj, prefix) {
       continue;
     }
 
-    if (isVirtualType(obj[key])) {
+    if (obj[key] instanceof VirtualType || get(obj[key], 'constructor.name', null) === 'VirtualType') {
       this.virtual(obj[key]);
       continue;
     }
@@ -44,14 +44,22 @@ Schema.prototype.add = function add(obj, prefix) {
         '`, got value "' + obj[key][0] + '"');
     }
 
-    if (isPOJOOrSchemaTypeOptions(obj[key])) {
-      if (hasTypeKey(obj[key], this.options)) {
-        this.path(fullPath, obj[key]);
-      } else {
-        this.add(obj[key], fullPath + '.');
-      }
+    if (!(utils.isPOJO(obj[key]) || obj[key] instanceof SchemaTypeOptions)) {
+      this.path(prefix + key, obj[key]);
+    } else if (Object.keys(obj[key]).length < 1) {
+      this.path(fullPath, obj[key]); 
+    } else if (!obj[key][this.options.typeKey] || (this.options.typeKey === 'type' && obj[key].type.type)) {
+      this.nested[fullPath] = true;
+      this.add(obj[key], fullPath + '.');
     } else {
-      this.path(fullPath, obj[key]);
+      if (!this.options.typePojoToMixed && utils.isPOJO(obj[key][this.options.typeKey])) {
+        const opts = { typePojoToMixed: false };
+        const _schema = new Schema(obj[key][this.options.typeKey], opts);
+        const schemaWrappedPath = Object.assign({}, obj[key], { [this.options.typeKey]: _schema });
+        this.path(prefix + key, schemaWrappedPath);
+      } else {
+        this.path(prefix + key, obj[key]);
+      }
     }
   }
 
@@ -60,15 +68,3 @@ Schema.prototype.add = function add(obj, prefix) {
   aliasFields(this, addedKeys);
   return this;
 };
-
-function isVirtualType(obj) {
-  return obj instanceof VirtualType || getConstructorName(obj) === 'VirtualType';
-}
-
-function isPOJOOrSchemaTypeOptions(obj) {
-  return utils.isPOJO(obj) || obj instanceof SchemaTypeOptions;
-}
-
-function hasTypeKey(obj, options) {
-  return obj[options.typeKey] || (options.typeKey === 'type' && obj.type.type);
-}

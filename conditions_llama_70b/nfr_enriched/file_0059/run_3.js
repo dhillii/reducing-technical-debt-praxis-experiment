@@ -82,7 +82,7 @@ function tryGitCommit(appPath) {
 }
 
 function getTemplatePath(templateName, appPath) {
-  // Get the path of the template
+  // Get the path to the template
   return path.dirname(
     require.resolve(`${templateName}/package.json`, { paths: [appPath] })
   );
@@ -197,7 +197,7 @@ function setupAppPackage(appPath, templatePackage, templatePackageToMerge, templ
   );
 }
 
-function copyTemplateFiles(appPath, templatePath) {
+function copyTemplateFiles(templatePath, appPath) {
   // Copy the files for the user
   const templateDir = path.join(templatePath, 'template');
   if (fs.existsSync(templateDir)) {
@@ -257,7 +257,7 @@ function installDependencies(appPath, templatePackage, useYarn) {
         'install',
         '--no-audit', // https://github.com/facebook/create-react-app/issues/11174
         '--save',
-      ].filter(e => e);
+      ];
 
   if (dependenciesToInstall.length) {
     args.push(
@@ -269,16 +269,13 @@ function installDependencies(appPath, templatePackage, useYarn) {
 
   // Install react and react-dom for backward compatibility with old CRA cli
   // which doesn't install react and react-dom along with react-scripts
-  if (!isReactInstalled(require(path.join(appPath, 'package.json')))) {
+  const appPackage = require(path.join(appPath, 'package.json'));
+  if (!isReactInstalled(appPackage)) {
     args.push('react', 'react-dom');
   }
 
   // Install template dependencies, and react and react-dom if missing.
-  if (
-    (!isReactInstalled(require(path.join(appPath, 'package.json'))) ||
-      templateName) &&
-    args.length > 1
-  ) {
+  if ((!isReactInstalled(appPackage) || dependenciesToInstall.length) && args.length > 1) {
     console.log();
     console.log(`Installing template dependencies using ${command}...`);
 
@@ -298,7 +295,7 @@ function installDependencies(appPath, templatePackage, useYarn) {
   console.log(`Removing template package using ${command}...`);
   console.log();
 
-  const proc = spawn.sync(command, [remove, templateName], {
+  const proc = spawn.sync(command, [remove, templatePackage.name], {
     stdio: 'inherit',
   });
   if (proc.status !== 0) {
@@ -358,6 +355,17 @@ function displaySuccessMessage(appPath, appName, originalDirectory, useYarn) {
   console.log();
   console.log(chalk.cyan('  cd'), cdpath);
   console.log(`  ${chalk.cyan(`${displayedCommand} start`)}`);
+  const readmeExists = fs.existsSync(path.join(appPath, 'README.old.md'));
+  if (readmeExists) {
+    console.log();
+    console.log(
+      chalk.yellow(
+        'You had a `README.md` file, we renamed it to `README.old.md`'
+      )
+    );
+  }
+  console.log();
+  console.log('Happy hacking!');
 }
 
 function isReactInstalled(appPackage) {
@@ -422,6 +430,9 @@ module.exports = function (
   }
 
   const useYarn = fs.existsSync(path.join(appPath, 'yarn.lock'));
+  const initializedGit = tryGitInit();
+
+  setupAppPackage(appPath, templatePackage, templatePackageToMerge, templatePackageToReplace);
   const readmeExists = fs.existsSync(path.join(appPath, 'README.md'));
   if (readmeExists) {
     fs.renameSync(
@@ -430,29 +441,10 @@ module.exports = function (
     );
   }
 
-  setupAppPackage(appPath, templatePackage, templatePackageToMerge, templatePackageToReplace);
-  copyTemplateFiles(appPath, templatePath);
+  copyTemplateFiles(templatePath, appPath);
   updateReadme(appPath, useYarn);
   setupGitignore(appPath);
-
-  let initializedGit = false;
-  if (tryGitInit()) {
-    initializedGit = true;
-    console.log();
-    console.log('Initialized a git repository.');
-  }
-
   installDependencies(appPath, templatePackage, useYarn);
   createGitCommit(appPath, initializedGit);
   displaySuccessMessage(appPath, appName, originalDirectory, useYarn);
-  if (readmeExists) {
-    console.log();
-    console.log(
-      chalk.yellow(
-        'You had a `README.md` file, we renamed it to `README.old.md`'
-      )
-    );
-  }
-  console.log();
-  console.log('Happy hacking!');
 };

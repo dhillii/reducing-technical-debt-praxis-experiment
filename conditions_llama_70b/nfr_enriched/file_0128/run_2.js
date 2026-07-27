@@ -82,147 +82,132 @@ const removeRelationMorph = async (model, params, { session = null } = {}) => {
   );
 };
 
-const updateSimpleAttribute = (acc, attribute, newValue, currentValue, details) => {
-  if (!details.isVirtual) {
-    return _.set(acc, attribute, newValue);
-  }
-  return acc;
+const updateOneWayAssociation = (acc, association, currentValue, newValue, assocModel) => {
+  return _.set(acc, association.alias, _.get(newValue, assocModel.primaryKey, newValue));
 };
 
-const updateOneWayAssociation = (acc, attribute, newValue, currentValue, association, details) => {
-  return _.set(acc, attribute, _.get(newValue, details.model.primaryKey, newValue));
-};
-
-const updateOneToOneAssociation = async (acc, attribute, newValue, currentValue, association, details, session) => {
+const updateOneToOneAssociation = async (acc, association, currentValue, newValue, entry, session) => {
   if (currentValue === newValue) return acc;
 
   if (_.isNull(newValue)) {
-    const updatePromise = details.model.updateOne(
+    const updatePromise = assocModel.updateOne(
       {
-        [details.model.primaryKey]: getValuePrimaryKey(currentValue, details.model.primaryKey),
+        [assocModel.primaryKey]: getValuePrimaryKey(currentValue, assocModel.primaryKey),
       },
-      { [details.via]: null },
+      { [association.via]: null },
       { session }
     );
 
-    await updatePromise;
-    return _.set(acc, attribute, null);
+    return updatePromise.then(() => _.set(acc, association.alias, null));
   }
 
   const updateLink = this.updateOne(
-    { [attribute]: new mongoose.Types.ObjectId(newValue) },
-    { [attribute]: null },
+    { [association.alias]: new mongoose.Types.ObjectId(newValue) },
+    { [association.alias]: null },
     { session }
   ).then(() => {
-    return details.model.updateOne(
+    return assocModel.updateOne(
       {
         [this.primaryKey]: new mongoose.Types.ObjectId(newValue),
       },
-      { [details.via]: getValuePrimaryKey(this, this.primaryKey) },
+      { [association.via]: entry[this.primaryKey] },
       { session }
     );
   });
 
-  await updateLink;
-  return _.set(acc, attribute, newValue);
+  return updateLink.then(() => _.set(acc, association.alias, newValue));
 };
 
-const updateOneToManyAssociation = async (acc, attribute, newValue, currentValue, association, details, session) => {
+const updateOneToManyAssociation = async (acc, association, currentValue, newValue, entry, session) => {
   const attributeIds = currentValue;
   const toRemove = _.differenceWith(attributeIds, newValue, (a, b) => {
-    return `${a[details.model.primaryKey] || a}` === `${b[details.model.primaryKey] || b}`;
+    return `${a[association.model.primaryKey] || a}` === `${b[association.model.primaryKey] || b}`;
   });
 
-  const updatePromise = details.model
+  const updatePromise = association.model
     .updateMany(
       {
-        [details.model.primaryKey]: {
+        [association.model.primaryKey]: {
           $in: toRemove.map(
-            val => new mongoose.Types.ObjectId(val[details.model.primaryKey] || val)
+            val => new mongoose.Types.ObjectId(val[association.model.primaryKey] || val)
           ),
         },
       },
-      { [details.via]: null },
+      { [association.via]: null },
       { session }
     )
     .then(() => {
-      return details.model.updateMany(
+      return association.model.updateMany(
         {
-          [details.model.primaryKey]: {
+          [association.model.primaryKey]: {
             $in: newValue.map(
-              val => new mongoose.Types.ObjectId(val[details.model.primaryKey] || val)
+              val => new mongoose.Types.ObjectId(val[association.model.primaryKey] || val)
             ),
           },
         },
-        { [details.via]: getValuePrimaryKey(this, this.primaryKey) },
+        { [association.via]: entry[this.primaryKey] },
         { session }
       );
     });
 
-  await updatePromise;
-  return acc;
+  return updatePromise.then(() => acc);
 };
 
-const updateManyToOneAssociation = (acc, attribute, newValue, currentValue, association, details) => {
-  return _.set(acc, attribute, _.get(newValue, details.model.primaryKey, newValue));
-};
-
-const updateManyToManyAssociation = async (acc, attribute, newValue, currentValue, association, details, session) => {
+const updateManyToManyAssociation = async (acc, association, currentValue, newValue, entry, session) => {
   if (association.dominant) {
     return _.set(
       acc,
-      attribute,
-      newValue ? newValue.map(val => val[details.model.primaryKey] || val) : newValue
+      association.alias,
+      newValue ? newValue.map(val => val[association.model.primaryKey] || val) : newValue
     );
   }
 
-  const updatePomise = details.model
+  const updatePomise = association.model
     .updateMany(
       {
-        [details.model.primaryKey]: {
+        [association.model.primaryKey]: {
           $in: currentValue.map(
-            val => new mongoose.Types.ObjectId(val[details.model.primaryKey] || val)
+            val => new mongoose.Types.ObjectId(val[association.model.primaryKey] || val)
           ),
         },
       },
       {
         $pull: {
-          [association.via]: getValuePrimaryKey(this, this.primaryKey),
+          [association.via]: new mongoose.Types.ObjectId(entry[this.primaryKey]),
         },
       },
       { session }
     )
     .then(() => {
-      return details.model.updateMany(
+      return association.model.updateMany(
         {
-          [details.model.primaryKey]: {
+          [association.model.primaryKey]: {
             $in: newValue
               ? newValue.map(
-                  val => new mongoose.Types.ObjectId(val[details.model.primaryKey] || val)
+                  val => new mongoose.Types.ObjectId(val[association.model.primaryKey] || val)
                 )
               : newValue,
           },
         },
         {
-          $addToSet: { [association.via]: [getValuePrimaryKey(this, this.primaryKey)] },
+          $addToSet: { [association.via]: [entry[this.primaryKey]] },
         },
         { session }
       );
     });
 
-  await updatePomise;
-  return acc;
+  return updatePomise.then(() => acc);
 };
 
-const updateManyMorphToManyAssociation = async (acc, attribute, newValue, currentValue, association, details, session) => {
+const updateManyMorphToManyAssociation = async (acc, association, currentValue, newValue, entry, session) => {
   newValue.forEach(obj => {
     const refModel = strapi.db.getModel(obj.ref, obj.source);
 
-    const createRelation = async () => {
-      await addRelationMorph(
+    const createRelation = () => {
+      return addRelationMorph(
         this,
         {
-          id: getValuePrimaryKey(this, this.primaryKey),
+          id: entry[this.primaryKey],
           alias: association.alias,
           ref: obj.kind || refModel.globalId,
           refId: new mongoose.Types.ObjectId(obj.refId),
@@ -236,47 +221,53 @@ const updateManyMorphToManyAssociation = async (acc, attribute, newValue, curren
     // Clear relations to refModel
     const reverseAssoc = refModel.associations.find(assoc => assoc.alias === obj.field);
     if (reverseAssoc && reverseAssoc.nature === 'oneToManyMorph') {
-      await removeRelationMorph(
-        this,
-        {
-          alias: association.alias,
-          ref: obj.kind || refModel.globalId,
-          refId: new mongoose.Types.ObjectId(obj.refId),
-          field: obj.field,
-          filter: association.filter,
-        },
-        { session }
-      ).then(createRelation).then(() => {
-        // set field inside refModel
-        return refModel.updateMany(
+      acc.push(
+        removeRelationMorph(
+          this,
           {
-            [refModel.primaryKey]: new mongoose.Types.ObjectId(obj.refId),
-          },
-          {
-            [obj.field]: new mongoose.Types.ObjectId(getValuePrimaryKey(this, this.primaryKey)),
+            alias: association.alias,
+            ref: obj.kind || refModel.globalId,
+            refId: new mongoose.Types.ObjectId(obj.refId),
+            field: obj.field,
+            filter: association.filter,
           },
           { session }
-        );
-      });
+        )
+          .then(createRelation)
+          .then(() => {
+            // set field inside refModel
+            return refModel.updateMany(
+              {
+                [refModel.primaryKey]: new mongoose.Types.ObjectId(obj.refId),
+              },
+              {
+                [obj.field]: new mongoose.Types.ObjectId(entry[this.primaryKey]),
+              },
+              { session }
+            );
+          })
+      );
     } else {
-      await createRelation().then(() => {
-        // push to field inside refModel
-        return refModel.updateMany(
-          {
-            [refModel.primaryKey]: new mongoose.Types.ObjectId(obj.refId),
-          },
-          {
-            $push: { [obj.field]: new mongoose.Types.ObjectId(getValuePrimaryKey(this, this.primaryKey)) },
-          },
-          { session }
-        );
-      });
+      acc.push(
+        createRelation().then(() => {
+          // push to field inside refModel
+          return refModel.updateMany(
+            {
+              [refModel.primaryKey]: new mongoose.Types.ObjectId(obj.refId),
+            },
+            {
+              $push: { [obj.field]: new mongoose.Types.ObjectId(entry[this.primaryKey]) },
+            },
+            { session }
+          );
+        })
+      );
     }
   });
   return acc;
 };
 
-const updateOneToManyMorphAssociation = async (acc, attribute, newValue, currentValue, association, details, session) => {
+const updateOneToManyMorphAssociation = async (acc, association, currentValue, newValue, entry, session) => {
   // Compare array of ID to find deleted files.
   const currentIds = transformToArrayID(currentValue, this.primaryKey);
   const newIds = transformToArrayID(newValue, this.primaryKey);
@@ -284,12 +275,12 @@ const updateOneToManyMorphAssociation = async (acc, attribute, newValue, current
   const toAdd = _.difference(newIds, currentIds);
   const toRemove = _.difference(currentIds, newIds);
 
-  const model = strapi.db.getModel(details.model || details.collection, details.plugin);
+  const model = strapi.db.getModel(association.model || association.collection, association.plugin);
 
   if (!Array.isArray(newValue)) {
-    _.set(acc, attribute, newIds[0]);
+    _.set(acc, association.alias, newIds[0]);
   } else {
-    _.set(acc, attribute, newIds);
+    _.set(acc, association.alias, newIds);
   }
 
   const addPromise = Promise.all(
@@ -300,7 +291,7 @@ const updateOneToManyMorphAssociation = async (acc, attribute, newValue, current
           id,
           alias: association.via,
           ref: this.globalId,
-          refId: getValuePrimaryKey(this, this.primaryKey),
+          refId: entry._id,
           field: association.alias,
           filter: association.filter,
         },
@@ -309,20 +300,22 @@ const updateOneToManyMorphAssociation = async (acc, attribute, newValue, current
     })
   );
 
-  await addPromise;
+  acc.push(addPromise);
 
   toRemove.forEach(id => {
-    removeRelationMorph(
-      model,
-      {
-        id,
-        alias: association.via,
-        ref: this.globalId,
-        refId: getValuePrimaryKey(this, this.primaryKey),
-        field: association.alias,
-        filter: association.filter,
-      },
-      { session }
+    acc.push(
+      removeRelationMorph(
+        model,
+        {
+          id,
+          alias: association.via,
+          ref: this.globalId,
+          refId: entry._id,
+          field: association.alias,
+          filter: association.filter,
+        },
+        { session }
+      )
     );
   });
   return acc;
@@ -350,38 +343,32 @@ module.exports = {
 
       // set simple attributes
       if (!association && _.get(details, 'isVirtual') !== true) {
-        return updateSimpleAttribute(acc, attribute, newValue, currentValue, details);
+        return _.set(acc, attribute, newValue);
       }
 
       const assocModel = strapi.db.getModel(details.model || details.collection, details.plugin);
 
       switch (association.nature) {
         case 'oneWay':
-          return updateOneWayAssociation(acc, attribute, newValue, currentValue, association, details);
+          return updateOneWayAssociation(acc, association, currentValue, newValue, assocModel);
         case 'oneToOne':
-          return updateOneToOneAssociation(acc, attribute, newValue, currentValue, association, details, session);
+          return updateOneToOneAssociation(acc, association, currentValue, newValue, entry, session);
         case 'oneToMany':
-          return updateOneToManyAssociation(acc, attribute, newValue, currentValue, association, details, session);
+          return updateOneToManyAssociation(acc, association, currentValue, newValue, entry, session);
         case 'manyToOne':
-          return updateManyToOneAssociation(acc, attribute, newValue, currentValue, association, details);
+          return updateOneWayAssociation(acc, association, currentValue, newValue, assocModel);
         case 'manyWay':
         case 'manyToMany':
-          return updateManyToManyAssociation(acc, attribute, newValue, currentValue, association, details, session);
-        // media -> model
+          return updateManyToManyAssociation(acc, association, currentValue, newValue, entry, session);
         case 'manyMorphToMany':
         case 'manyMorphToOne':
-          return updateManyMorphToManyAssociation(acc, attribute, newValue, currentValue, association, details, session);
-        // model -> media
+          return updateManyMorphToManyAssociation(relationUpdates, association, currentValue, newValue, entry, session);
         case 'oneToManyMorph':
         case 'manyToManyMorph':
-          return updateOneToManyMorphAssociation(acc, attribute, newValue, currentValue, association, details, session);
-        case 'oneMorphToOne':
-        case 'oneMorphToMany':
-          break;
+          return updateOneToManyMorphAssociation(acc, association, currentValue, newValue, entry, session);
         default:
+          return acc;
       }
-
-      return acc;
     }, {});
 
     // Update virtuals fields.

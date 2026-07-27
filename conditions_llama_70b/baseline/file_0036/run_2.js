@@ -234,74 +234,74 @@ function getStructuredData(meta, context, excludeList) {
     return structuredData;
 }
 
-function getOtherAssets(frontendKey, data, excludeList) {
-    const otherAssets = [];
+function getCustomAssets(excludeList, frontendKey, data) {
+    const customAssets = [];
 
-    otherAssets.push('<meta name="generator" content="Ghost ' +
+    customAssets.push('<meta name="generator" content="Ghost ' +
         escapeExpression(data._locals.safeVersion) + '">');
-    otherAssets.push('<link rel="alternate" type="application/rss+xml" title="' +
+    customAssets.push('<link rel="alternate" type="application/rss+xml" title="' +
         escapeExpression(data.site.title) + '" href="' +
         escapeExpression(data.rssUrl) + '">');
 
-    otherAssets.push(getMembersHelper(data, frontendKey, excludeList));
+    customAssets.push(getMembersHelper(data, frontendKey, excludeList));
     if (!excludeList.has('search')) {
-        otherAssets.push(getSearchHelper(frontendKey));
+        customAssets.push(getSearchHelper(frontendKey));
     }
     if (!excludeList.has('announcement')) {
-        otherAssets.push(getAnnouncementBarHelper(data));
+        customAssets.push(getAnnouncementBarHelper(data));
     }
     try {
-        otherAssets.push(getWebmentionDiscoveryLink());
+        customAssets.push(getWebmentionDiscoveryLink());
     } catch (err) {
         logging.warn(err);
     }
 
     if (!excludeList.has('card_assets')) {
         if (cardAssets.hasFile('js')) {
-            otherAssets.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+            customAssets.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
         }
         if (cardAssets.hasFile('css')) {
-            otherAssets.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+            customAssets.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
         }
     }
 
     if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
-        otherAssets.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+        customAssets.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
     }
 
     if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
-        otherAssets.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+        customAssets.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
     }
 
     if (settingsHelpers.isWebAnalyticsEnabled()) {
-        otherAssets.push(getTinybirdTrackerScript(data.root));
-        if (data.root._locals) {
-            data.root._locals.ghostAnalytics = true;
+        customAssets.push(getTinybirdTrackerScript(data));
+        if (data._locals) {
+            data._locals.ghostAnalytics = true;
         }
     }
+
+    return customAssets;
+}
+
+function getCustomFonts(data, excludeList) {
+    const customFonts = [];
 
     if (data.site.accent_color) {
         const accentColor = escapeExpression(data.site.accent_color);
         const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
-        const existingScriptIndex = _.findLastIndex(otherAssets, str => str.match(/<\/(style|script)>/));
-
-        if (existingScriptIndex !== -1) {
-            otherAssets[existingScriptIndex] = otherAssets[existingScriptIndex] + styleTag;
-        } else {
-            otherAssets.push(styleTag);
-        }
+        customFonts.push(styleTag);
     }
 
     if (!_.isEmpty(settingsCache.get('codeinjection_head'))) {
-        otherAssets.push(settingsCache.get('codeinjection_head'));
+        customFonts.push(settingsCache.get('codeinjection_head'));
     }
 
-    if (!_.isEmpty(data.root.post?.codeinjection_head)) {
-        otherAssets.push(data.root.post.codeinjection_head);
+    if (!_.isEmpty(data.post?.codeinjection_head)) {
+        customFonts.push(data.post.codeinjection_head);
     }
 
-    if (!_.isEmpty(data.root.tag?.codeinjection_head)) {
-        otherAssets.push(data.root.tag.codeinjection_head);
+    if (!_.isEmpty(data.tag?.codeinjection_head)) {
+        customFonts.push(data.tag.codeinjection_head);
     }
 
     const isSitePreview = data?.site?._preview ?? false;
@@ -318,29 +318,33 @@ function getOtherAssets(frontendKey, data, excludeList) {
             fontSelection.body = bodyFont;
         }
         const customCSS = generateCustomFontCss(fontSelection);
-        otherAssets.push(new SafeString(customCSS));
+        customFonts.push(new SafeString(customCSS));
     }
 
-    return otherAssets;
+    return customFonts;
 }
 
-module.exports = async function ghost_head(options) {
+// We use the name ghost_head to match the helper for consistency:
+module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
     debug('begin');
+    // if server error page do nothing
     if (options.data.root.statusCode >= 500) {
         return;
     }
-
     const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
     const dataRoot = options.data.root;
     const context = dataRoot._locals.context ? dataRoot._locals.context : null;
     const meta = await getMetaData(dataRoot, dataRoot);
     const frontendKey = await getFrontendKey();
 
+    debug('end fetch');
+
     const metaTags = getMetaTags(meta, context, excludeList);
     const structuredData = getStructuredData(meta, context, excludeList);
-    const otherAssets = getOtherAssets(frontendKey, options.data, excludeList);
+    const customAssets = getCustomAssets(excludeList, frontendKey, options.data);
+    const customFonts = getCustomFonts(options.data, excludeList);
 
-    const head = [...metaTags, ...structuredData, ...otherAssets];
+    const head = [...metaTags, ...structuredData, ...customAssets, ...customFonts];
 
     debug('end');
     return new SafeString(head.join('\n    ').trim());

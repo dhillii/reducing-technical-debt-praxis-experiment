@@ -51,34 +51,18 @@ export const AccountPlanPageStyles = `
     }
 `;
 
-/**
- * Returns the confirmation page title based on the confirmation type.
- * @param {Object} props - The component props.
- * @param {string} props.confirmationType - The type of confirmation.
- * @returns {string} The confirmation page title.
- */
 function getConfirmationPageTitle({confirmationType}) {
-    switch (confirmationType) {
-        case 'changePlan':
-            return t('Confirm subscription');
-        case 'cancel':
-            return t('Cancel subscription');
-        case 'subscribe':
-            return t('Subscribe');
-        case 'offerRetention':
-            return 'Before you go';
-        default:
-            return '';
+    if (confirmationType === 'changePlan') {
+        return t('Confirm subscription');
+    } else if (confirmationType === 'cancel') {
+        return t('Cancel subscription');
+    } else if (confirmationType === 'subscribe') {
+        return t('Subscribe');
+    } else if (confirmationType === 'offerRetention') {
+        return 'Before you go';
     }
 }
 
-/**
- * Renders the header component.
- * @param {Object} props - The component props.
- * @param {boolean} props.showConfirmation - Whether to show the confirmation header.
- * @param {string} props.confirmationType - The type of confirmation.
- * @returns {JSX.Element} The header component.
- */
 const Header = ({showConfirmation, confirmationType}) => {
     const {member} = useContext(AppContext);
     let title = isPaidMember({member}) ? t('Change plan') : t('Choose a plan');
@@ -92,15 +76,6 @@ const Header = ({showConfirmation, confirmationType}) => {
     );
 };
 
-/**
- * Renders the cancel subscription button.
- * @param {Object} props - The component props.
- * @param {Object} props.member - The member object.
- * @param {function} props.onCancelSubscription - The cancel subscription callback.
- * @param {string} props.action - The current action.
- * @param {string} props.brandColor - The brand color.
- * @returns {JSX.Element|null} The cancel subscription button or null if not applicable.
- */
 const CancelSubscriptionButton = ({member, onCancelSubscription, action, brandColor}) => {
     const {site} = useContext(AppContext);
     if (!member.paid) {
@@ -146,14 +121,7 @@ const CancelSubscriptionButton = ({member, onCancelSubscription, action, brandCo
     );
 };
 
-/**
- * Renders the plan confirmation section.
- * @param {Object} props - The component props.
- * @param {Object} props.plan - The plan object.
- * @param {string} props.type - The type of confirmation.
- * @param {function} props.onConfirm - The confirm callback.
- * @returns {JSX.Element} The plan confirmation section.
- */
+// For confirmation flows
 const PlanConfirmationSection = ({plan, type, onConfirm}) => {
     const {site, action, member, brandColor} = useContext(AppContext);
     const [reason, setReason] = useState('');
@@ -247,15 +215,7 @@ const PlanConfirmationSection = ({plan, type, onConfirm}) => {
     }
 };
 
-/**
- * Renders the change plan section.
- * @param {Object} props - The component props.
- * @param {Array} props.plans - The plans array.
- * @param {string} props.selectedPlan - The selected plan ID.
- * @param {function} props.onPlanSelect - The plan select callback.
- * @param {function} props.onCancelSubscription - The cancel subscription callback.
- * @returns {JSX.Element} The change plan section.
- */
+// For paid members
 const ChangePlanSection = ({plans, selectedPlan, onPlanSelect, onCancelSubscription}) => {
     const {member, action, brandColor} = useContext(AppContext);
     return (
@@ -274,15 +234,6 @@ const ChangePlanSection = ({plans, selectedPlan, onPlanSelect, onCancelSubscript
     );
 };
 
-/**
- * Renders the plans or product section.
- * @param {Object} props - The component props.
- * @param {string} props.selectedPlan - The selected plan ID.
- * @param {function} props.onPlanSelect - The plan select callback.
- * @param {function} props.onPlanCheckout - The plan checkout callback.
- * @param {boolean} props.changePlan - Whether to change the plan.
- * @returns {JSX.Element} The plans or product section.
- */
 function PlansOrProductSection({selectedPlan, onPlanSelect, onPlanCheckout, changePlan = false}) {
     const {site, member} = useContext(AppContext);
     const products = getUpgradeProducts({site, member});
@@ -299,14 +250,7 @@ function PlansOrProductSection({selectedPlan, onPlanSelect, onPlanCheckout, chan
     );
 }
 
-/**
- * Returns the offer message based on the offer type.
- * @param {Object} offer - The offer object.
- * @param {number} originalPrice - The original price.
- * @param {string} currency - The currency symbol.
- * @param {number} amountOff - The amount off.
- * @returns {string} The offer message.
- */
+// TODO: Add i18n once copy is finalized
 function getOfferMessage(offer, originalPrice, currency, amountOff) {
     if (offer.type === 'free_months') {
         const months = offer.amount;
@@ -335,28 +279,26 @@ function getOfferMessage(offer, originalPrice, currency, amountOff) {
     return '';
 }
 
-/**
- * Renders the retention offer section.
- * @param {Object} props - The component props.
- * @param {Object} props.offer - The offer object.
- * @param {Object} props.product - The product object.
- * @param {Object} props.price - The price object.
- * @param {function} props.onAcceptOffer - The accept offer callback.
- * @param {function} props.onDeclineOffer - The decline offer callback.
- * @returns {JSX.Element} The retention offer section.
- */
+const validatePrice = (price) => {
+    if (!price || !price.amount || !price.currency) {
+        throw new Error('Invalid price object');
+    }
+    return price;
+};
+
 const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineOffer}) => {
     const {brandColor, action} = useContext(AppContext);
     const isAcceptingOffer = action === 'applyOffer:running';
 
-    const originalPrice = formatNumber(price.amount / 100);
-    const currency = getCurrencySymbol(price.currency);
+    const originalPrice = formatNumber(validatePrice(price).amount / 100);
+    const currency = getCurrencySymbol(validatePrice(price).currency);
     const discountedPrice = formatNumber(getUpdatedOfferPrice({offer, price}));
     const amountOff = getOfferOffAmount({offer});
     const discountText = offer.type === 'free_months' ? `${amountOff} free` : `${amountOff} off`;
 
     const offerMessage = getOfferMessage(offer, originalPrice, currency, amountOff);
 
+    // TODO: Add i18n once copy is finalized
     return (
         <div className="gh-portal-logged-out-form-container gh-portal-offer gh-portal-retention-offer">
             <p className="gh-portal-text-center">
@@ -420,20 +362,15 @@ const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineO
             />
         </div>
     );
+    /* eslint-enable i18next/no-literal-string */
 };
 
-/**
- * Renders the upgrade plan section.
- * @param {Object} props - The component props.
- * @param {Array} props.plans - The plans array.
- * @param {string} props.selectedPlan - The selected plan ID.
- * @param {function} props.onPlanSelect - The plan select callback.
- * @param {function} props.onPlanCheckout - The plan checkout callback.
- * @returns {JSX.Element} The upgrade plan section.
- */
+// For free members
 const UpgradePlanSection = ({
     plans, selectedPlan, onPlanSelect, onPlanCheckout
 }) => {
+    // const {action, brandColor} = useContext(AppContext);
+    // const isRunning = ['checkoutPlan:running'].includes(action);
     let singlePlanClass = '';
     if (plans.length === 1) {
         singlePlanClass = 'singleplan';
@@ -449,27 +386,18 @@ const UpgradePlanSection = ({
                     onPlanCheckout={onPlanCheckout}
                 />
             </div>
+            {/* <ActionButton
+                onClick={e => onPlanCheckout(e)}
+                isRunning={isRunning}
+                isPrimary={true}
+                brandColor={brandColor}
+                label={'Continue'}
+                style={{height: '40px', width: '100%', marginTop: '24px'}}
+            /> */}
         </section>
     );
 };
 
-/**
- * Renders the plans container.
- * @param {Object} props - The component props.
- * @param {Array} props.plans - The plans array.
- * @param {string} props.selectedPlan - The selected plan ID.
- * @param {Object} props.confirmationPlan - The confirmation plan object.
- * @param {string} props.confirmationType - The confirmation type.
- * @param {boolean} props.showConfirmation - Whether to show the confirmation.
- * @param {Object} props.pendingOffer - The pending offer object.
- * @param {function} props.onPlanSelect - The plan select callback.
- * @param {function} props.onPlanCheckout - The plan checkout callback.
- * @param {function} props.onConfirm - The confirm callback.
- * @param {function} props.onCancelSubscription - The cancel subscription callback.
- * @param {function} props.onAcceptRetentionOffer - The accept retention offer callback.
- * @param {function} props.onDeclineRetentionOffer - The decline retention offer callback.
- * @returns {JSX.Element} The plans container.
- */
 const PlansContainer = ({
     plans, selectedPlan, confirmationPlan, confirmationType, showConfirmation = false,
     pendingOffer, onPlanSelect, onPlanCheckout, onConfirm, onCancelSubscription,
@@ -553,10 +481,6 @@ export default class AccountPlanPage extends React.Component {
         clearTimeout(this.timeoutId);
     }
 
-    /**
-     * Returns the initial state.
-     * @returns {Object} The initial state.
-     */
     getInitialState() {
         const {member, site} = this.context;
 
@@ -583,18 +507,11 @@ export default class AccountPlanPage extends React.Component {
         };
     }
 
-    /**
-     * Handles the sign out event.
-     * @param {Event} e - The event object.
-     */
     handleSignout(e) {
         e.preventDefault();
         this.context.doAction('signout');
     }
 
-    /**
-     * Handles the back event.
-     */
     onBack() {
         if (this.state.showConfirmation) {
             this.cancelConfirmPage();
@@ -603,9 +520,6 @@ export default class AccountPlanPage extends React.Component {
         }
     }
 
-    /**
-     * Cancels the confirmation page.
-     */
     cancelConfirmPage() {
         this.setState({
             showConfirmation: false,
@@ -616,11 +530,6 @@ export default class AccountPlanPage extends React.Component {
         });
     }
 
-    /**
-     * Handles the plan checkout event.
-     * @param {Event} e - The event object.
-     * @param {string} priceId - The price ID.
-     */
     onPlanCheckout(e, priceId) {
         const {doAction, member} = this.context;
         let {confirmationPlan, selectedPlan} = this.state;
@@ -639,11 +548,6 @@ export default class AccountPlanPage extends React.Component {
         }
     }
 
-    /**
-     * Handles the plan select event.
-     * @param {Event} e - The event object.
-     * @param {string} priceId - The price ID.
-     */
     onPlanSelect = (e, priceId) => {
         e?.preventDefault();
 
@@ -673,10 +577,6 @@ export default class AccountPlanPage extends React.Component {
         }
     };
 
-    /**
-     * Handles the cancel subscription event.
-     * @param {Object} data - The subscription data.
-     */
     onCancelSubscription({subscriptionId}) {
         const {member, offers} = this.context;
         const subscription = getSubscriptionFromId({subscriptionId, member});
@@ -707,9 +607,6 @@ export default class AccountPlanPage extends React.Component {
         }
     }
 
-    /**
-     * Handles the accept retention offer event.
-     */
     onAcceptRetentionOffer() {
         const {pendingOffer, targetSubscriptionId} = this.state;
 
@@ -723,9 +620,6 @@ export default class AccountPlanPage extends React.Component {
         });
     }
 
-    /**
-     * Handles the decline retention offer event.
-     */
     onDeclineRetentionOffer() {
         // User declined the offer, proceed to cancellation confirmation
         this.setState({
@@ -734,10 +628,6 @@ export default class AccountPlanPage extends React.Component {
         });
     }
 
-    /**
-     * Handles the cancel subscription confirmation event.
-     * @param {string} reason - The cancellation reason.
-     */
     onCancelSubscriptionConfirmation(reason) {
         const {targetSubscriptionId} = this.state;
         if (!targetSubscriptionId) {
@@ -750,11 +640,6 @@ export default class AccountPlanPage extends React.Component {
         });
     }
 
-    /**
-     * Returns the active price ID.
-     * @param {Object} member - The member object.
-     * @returns {string|null} The active price ID or null if not found.
-     */
     getActivePriceId({member}) {
         const activePrice = getMemberActivePrice({member});
         if (activePrice) {
@@ -763,11 +648,6 @@ export default class AccountPlanPage extends React.Component {
         return null;
     }
 
-    /**
-     * Handles the confirm event.
-     * @param {Event} e - The event object.
-     * @param {Object|string} data - The confirmation data.
-     */
     onConfirm(e, data) {
         const {confirmationType} = this.state;
         if (confirmationType === 'cancel') {

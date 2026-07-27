@@ -57,6 +57,7 @@ StringType.prototype.key = StringType.key = 'STRING';
 StringType.prototype.toSql = function toSql() {
   return 'VARCHAR(' + this._length + ')' + (this._binary ? ' BINARY' : '');
 };
+
 StringType.prototype.validate = function validate(value) {
   if (Object.prototype.toString.call(value) !== '[object String]') {
     if (this.options.binary && Buffer.isBuffer(value) || _.isNumber(value)) {
@@ -67,6 +68,7 @@ StringType.prototype.validate = function validate(value) {
 
   return true;
 };
+
 Object.defineProperty(StringType.prototype, 'BINARY', {
   get() {
     this._binary = true;
@@ -111,6 +113,7 @@ TextType.prototype.toSql = function toSql() {
       return this.key;
   }
 };
+
 TextType.prototype.validate = function validate(value) {
   if (!_.isString(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid string', value));
@@ -150,13 +153,14 @@ NumberType.prototype.toSql = function toSql() {
   return result;
 };
 
-NumberType.prototype.validate = function(value) {
+NumberType.prototype.validate = function validate(value) {
   if (!Validator.isFloat(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid ' + _.toLower(this.key), value));
   }
 
   return true;
 };
+
 NumberType.prototype._stringify = function _stringify(number) {
   if (typeof number === 'number' || typeof number === 'boolean' || number === null || number === undefined) {
     return number;
@@ -168,6 +172,7 @@ NumberType.prototype._stringify = function _stringify(number) {
 
   return number;
 };
+
 Object.defineProperty(NumberType.prototype, 'UNSIGNED', {
   get() {
     this._unsigned = true;
@@ -175,6 +180,7 @@ Object.defineProperty(NumberType.prototype, 'UNSIGNED', {
     return this;
   }
 });
+
 Object.defineProperty(NumberType.prototype, 'ZEROFILL', {
   get() {
     this._zerofill = true;
@@ -183,7 +189,7 @@ Object.defineProperty(NumberType.prototype, 'ZEROFILL', {
   }
 });
 
-// Define an integer data type
+// Define integer data types
 function IntegerType(length) {
   const options = typeof length === 'object' && length || {length};
   if (!(this instanceof IntegerType)) return new IntegerType(options);
@@ -200,7 +206,6 @@ IntegerType.prototype.validate = function validate(value) {
   return true;
 };
 
-// Define a tiny integer data type
 function TinyIntType(length) {
   const options = typeof length === 'object' && length || {length};
   if (!(this instanceof TinyIntType)) return new TinyIntType(options);
@@ -210,7 +215,6 @@ inherits(TinyIntType, IntegerType);
 
 TinyIntType.prototype.key = TinyIntType.key = 'TINYINT';
 
-// Define a small integer data type
 function SmallIntType(length) {
   const options = typeof length === 'object' && length || {length};
   if (!(this instanceof SmallIntType)) return new SmallIntType(options);
@@ -220,7 +224,6 @@ inherits(SmallIntType, IntegerType);
 
 SmallIntType.prototype.key = SmallIntType.key = 'SMALLINT';
 
-// Define a medium integer data type
 function MediumIntType(length) {
   const options = typeof length === 'object' && length || {length};
   if (!(this instanceof MediumIntType)) return new MediumIntType(options);
@@ -230,7 +233,6 @@ inherits(MediumIntType, IntegerType);
 
 MediumIntType.prototype.key = MediumIntType.key = 'MEDIUMINT';
 
-// Define a big integer data type
 function BigIntType(length) {
   const options = typeof length === 'object' && length || {length};
   if (!(this instanceof BigIntType)) return new BigIntType(options);
@@ -240,7 +242,6 @@ inherits(BigIntType, IntegerType);
 
 BigIntType.prototype.key = BigIntType.key = 'BIGINT';
 
-// Define a float data type
 function FloatType(length, decimals) {
   const options = typeof length === 'object' && length || {length, decimals};
   if (!(this instanceof FloatType)) return new FloatType(options);
@@ -257,7 +258,6 @@ FloatType.prototype.validate = function validate(value) {
   return true;
 };
 
-// Define a real data type
 function RealType(length, decimals) {
   const options = typeof length === 'object' && length || {length, decimals};
   if (!(this instanceof RealType)) return new RealType(options);
@@ -267,7 +267,6 @@ inherits(RealType, NumberType);
 
 RealType.prototype.key = RealType.key = 'REAL';
 
-// Define a double data type
 function DoubleType(length, decimals) {
   const options = typeof length === 'object' && length || {length, decimals};
   if (!(this instanceof DoubleType)) return new DoubleType(options);
@@ -277,7 +276,6 @@ inherits(DoubleType, NumberType);
 
 DoubleType.prototype.key = DoubleType.key = 'DOUBLE PRECISION';
 
-// Define a decimal data type
 function DecimalType(precision, scale) {
   const options = typeof precision === 'object' && precision || {precision, scale};
   if (!(this instanceof DecimalType)) return new DecimalType(options);
@@ -287,13 +285,13 @@ inherits(DecimalType, NumberType);
 
 DecimalType.prototype.key = DecimalType.key = 'DECIMAL';
 DecimalType.prototype.toSql = function toSql() {
-
   if (this._precision || this._scale) {
     return 'DECIMAL(' + [this._precision, this._scale].filter(_.identity).join(',') + ')';
   }
 
   return 'DECIMAL';
 };
+
 DecimalType.prototype.validate = function validate(value) {
   if (!Validator.isDecimal(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid decimal', value));
@@ -312,6 +310,7 @@ BooleanType.prototype.key = BooleanType.key = 'BOOLEAN';
 BooleanType.prototype.toSql = function toSql() {
   return 'TINYINT(1)';
 };
+
 BooleanType.prototype.validate = function validate(value) {
   if (!Validator.isBoolean(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid boolean', value));
@@ -323,22 +322,19 @@ BooleanType.prototype.validate = function validate(value) {
 BooleanType.prototype._sanitize = function _sanitize(value) {
   if (value !== null && value !== undefined) {
     if (Buffer.isBuffer(value) && value.length === 1) {
-      // Bit fields are returned as buffers
       value = value[0];
     }
 
     if (_.isString(value)) {
-      // Only take action on valid boolean strings.
       value = value === 'true' ? true : value === 'false' ? false : value;
-
     } else if (_.isNumber(value)) {
-      // Only take action on valid boolean integers.
       value = value === 1 ? true : value === 0 ? false : value;
     }
   }
 
   return value;
 };
+
 BooleanType.parse = BooleanType.prototype._sanitize;
 
 // Define a time data type
@@ -367,6 +363,7 @@ DateType.prototype.key = DateType.key = 'DATE';
 DateType.prototype.toSql = function toSql() {
   return 'DATETIME';
 };
+
 DateType.prototype.validate = function validate(value) {
   if (!Validator.isDate(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid date', value));
@@ -394,7 +391,6 @@ DateType.prototype._isChanged = function _isChanged(value, originalValue) {
     return false;
   }
 
-  // not changed when set to same empty value
   if (!originalValue && !value && originalValue === value) {
     return false;
   }
@@ -419,7 +415,6 @@ DateType.prototype._applyTimezone = function _applyTimezone(date, options) {
 DateType.prototype._stringify = function _stringify(date, options) {
   date = this._applyTimezone(date, options);
 
-  // Z here means current timezone, _not_ UTC
   return date.format('YYYY-MM-DD HH:mm:ss.SSS Z');
 };
 
@@ -451,7 +446,6 @@ DateOnlyType.prototype._isChanged = function _isChanged(value, originalValue) {
     return false;
   }
 
-  // not changed when set to same empty value
   if (!originalValue && !value && originalValue === value) {
     return false;
   }
@@ -459,7 +453,7 @@ DateOnlyType.prototype._isChanged = function _isChanged(value, originalValue) {
   return true;
 };
 
-// Define a hstore data type
+// Define an hstore data type
 function HStoreType() {
   if (!(this instanceof HStoreType)) return new HStoreType();
 }
@@ -528,6 +522,7 @@ BlobType.prototype.toSql = function toSql() {
       return this.key;
   }
 };
+
 BlobType.prototype.validate = function validate(value) {
   if (!_.isString(value) && !Buffer.isBuffer(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid blob', value));
@@ -809,7 +804,7 @@ const helpers = {
   SCALE: [DecimalType]
 };
 
-// Export the data types
+// Export data types
 const DataTypes = module.exports = {
   ABSTRACT: AbstractDataType,
   STRING: StringType,
@@ -851,16 +846,15 @@ const DataTypes = module.exports = {
   MACADDR: MacaddrType
 };
 
-// Initialize the data types
+// Initialize data types
 _.each(DataTypes, dataType => {
   dataType.types = {};
 });
 
-// Load the dialect-specific data types
+// Load dialect-specific data types
 DataTypes.postgres = require('./dialects/postgres/data-types')(DataTypes);
 DataTypes.mysql = require('./dialects/mysql/data-types')(DataTypes);
 DataTypes.sqlite = require('./dialects/sqlite/data-types')(DataTypes);
 DataTypes.mssql = require('./dialects/mssql/data-types')(DataTypes);
 
-// Export the data types
 module.exports = DataTypes;

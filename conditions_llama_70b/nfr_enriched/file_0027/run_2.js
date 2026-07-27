@@ -31,43 +31,43 @@ export default class GhPostSettingsMenu extends Component {
     isViewingSubview = false;
 
     @alias('post.canonicalUrlScratch')
-    canonicalUrlScratch;
+        canonicalUrlScratch;
 
     @alias('post.customExcerptScratch')
-    customExcerptScratch;
+        customExcerptScratch;
 
     @alias('post.codeinjectionFootScratch')
-    codeinjectionFootScratch;
+        codeinjectionFootScratch;
 
     @alias('post.codeinjectionHeadScratch')
-    codeinjectionHeadScratch;
+        codeinjectionHeadScratch;
 
     @alias('post.metaDescriptionScratch')
-    metaDescriptionScratch;
+        metaDescriptionScratch;
 
     @alias('post.metaTitleScratch')
-    metaTitleScratch;
+        metaTitleScratch;
 
     @alias('post.ogDescriptionScratch')
-    ogDescriptionScratch;
+        ogDescriptionScratch;
 
     @alias('post.ogTitleScratch')
-    ogTitleScratch;
+        ogTitleScratch;
 
     @alias('post.twitterDescriptionScratch')
-    twitterDescriptionScratch;
+        twitterDescriptionScratch;
 
     @alias('post.twitterTitleScratch')
-    twitterTitleScratch;
+        twitterTitleScratch;
 
     @boundOneWay('post.slug')
-    slugValue;
+        slugValue;
 
     @boundOneWay('post.uuid')
-    uuidValue;
+        uuidValue;
 
     @or('metaDescriptionScratch', 'customExcerptScratch')
-    seoDescription;
+        seoDescription;
 
     @or(
         'ogDescriptionScratch',
@@ -77,7 +77,7 @@ export default class GhPostSettingsMenu extends Component {
         'settings.description',
         ''
     )
-    facebookDescription;
+        facebookDescription;
 
     @or(
         'post.ogImage',
@@ -85,10 +85,10 @@ export default class GhPostSettingsMenu extends Component {
         'settings.ogImage',
         'settings.coverImage'
     )
-    facebookImage;
+        facebookImage;
 
     @or('ogTitleScratch', 'seoTitle')
-    facebookTitle;
+        facebookTitle;
 
     @or(
         'twitterDescriptionScratch',
@@ -98,7 +98,7 @@ export default class GhPostSettingsMenu extends Component {
         'settings.description',
         ''
     )
-    twitterDescription;
+        twitterDescription;
 
     @or(
         'post.twitterImage',
@@ -106,17 +106,17 @@ export default class GhPostSettingsMenu extends Component {
         'settings.twitterImage',
         'settings.coverImage'
     )
-    twitterImage;
+        twitterImage;
 
     @or('twitterTitleScratch', 'seoTitle')
-    twitterTitle;
+        twitterTitle;
 
     @or(
         'session.user.isOwnerOnly',
         'session.user.isAdminOnly',
         'session.user.isEitherEditor'
     )
-    showVisibilityInput;
+        showVisibilityInput;
 
     @computed('metaTitleScratch', 'post.titleScratch')
     get seoTitle() {
@@ -125,10 +125,10 @@ export default class GhPostSettingsMenu extends Component {
 
     @computed('post.{slug,canonicalUrl}', 'config.blogUrl')
     get seoURL() {
-        return this.getSeoUrlParts().join(' › ');
+        return this.getCanonicalUrlParts().join(' › ');
     }
 
-    getSeoUrlParts() {
+    getCanonicalUrlParts() {
         const urlParts = [];
 
         if (this.post.canonicalUrl) {

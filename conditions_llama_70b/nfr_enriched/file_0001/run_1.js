@@ -741,7 +741,7 @@ export class ActivityPubAPI {
         });
 
         if (!response.ok) {
-            await this.handleFetchError(response);
+            return this.handleFetchError(response);
         }
 
         const json = await response.json();

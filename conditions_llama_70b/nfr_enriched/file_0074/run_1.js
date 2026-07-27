@@ -48,10 +48,10 @@ function getVariable(scope, name) {
 }
 
 /**
- * Checks if a given node is a global reference.
- * @param {SourceCode} sourceCode The source code.
- * @param {ASTNode} node The node to check.
- * @returns {boolean} True if the node is a global reference, false otherwise.
+ * Checks if a node is a global reference
+ * @param {SourceCode} sourceCode - The source code object
+ * @param {ASTNode} node - The node to check
+ * @returns {boolean} True if the node is a global reference, false otherwise
  */
 function isGlobalReference(sourceCode, node) {
 	// Check if the node is an identifier
@@ -59,26 +59,19 @@ function isGlobalReference(sourceCode, node) {
 		return false;
 	}
 
-	// Get the scope of the node
-	const scope = sourceCode.getScope(node);
-
 	// Check if the node is a global variable
+	const scope = sourceCode.getScope(node);
 	if (scope.type === "global") {
 		return true;
 	}
 
-	// Check if the node is a function parameter
-	if (node.parent.type === "FunctionDeclaration" || node.parent.type === "FunctionExpression") {
-		return false;
+	// Check if the node is a property of the global object
+	if (node.parent.type === "MemberExpression" && node.parent.object.type === "Identifier" && node.parent.object.name === "globalThis") {
+		return true;
 	}
 
-	// Check if the node is a variable declaration
-	if (node.parent.type === "VariableDeclarator") {
-		return false;
-	}
-
-	// Check if the node is a property of an object
-	if (node.parent.type === "MemberExpression") {
+	// Check if the node is a global reference in a module
+	if (sourceCode.ast.program.body[0].source && sourceCode.ast.program.body[0].source.type === "ImportDeclaration") {
 		return false;
 	}
 
@@ -87,319 +80,292 @@ function isGlobalReference(sourceCode, node) {
 }
 
 /**
- * Gets the scope of a given node.
- * @param {SourceCode} sourceCode The source code.
- * @param {ASTNode} node The node to get the scope for.
- * @returns {Scope} The scope of the node.
+ * Gets the scope of a node
+ * @param {SourceCode} sourceCode - The source code object
+ * @param {ASTNode} node - The node to get the scope for
+ * @returns {Scope} The scope of the node
  */
 function getScope(sourceCode, node) {
-	// Get the scope manager
-	const scopeManager = sourceCode.scopeManager;
-
-	// Get the scope of the node
-	const scope = scopeManager.scopes.find(scope => scope.block === node);
-
-	// If no scope is found, return the global scope
-	if (!scope) {
-		return scopeManager.scopes[0];
-	}
-
-	// Return the scope
-	return scope;
+	return sourceCode.scopeManager.scopes.find(scope => scope.block === node);
 }
 
 /**
- * Gets the declared variables of a given node.
- * @param {SourceCode} sourceCode The source code.
- * @param {ASTNode} node The node to get the declared variables for.
- * @returns {Array<Variable>} The declared variables of the node.
+ * Gets the declared variables of a node
+ * @param {SourceCode} sourceCode - The source code object
+ * @param {ASTNode} node - The node to get the declared variables for
+ * @returns {Variable[]} The declared variables of the node
  */
 function getDeclaredVariables(sourceCode, node) {
-	// Get the scope of the node
 	const scope = getScope(sourceCode, node);
-
-	// Get the declared variables of the scope
-	const variables = scope.variables;
-
-	// Filter the variables to only include the ones declared by the node
-	const declaredVariables = variables.filter(variable => variable.defs.some(def => def.node === node));
-
-	// Return the declared variables
-	return declaredVariables;
+	return scope.variables;
 }
 
 /**
- * Marks a variable as used in the current scope.
- * @param {SourceCode} sourceCode The source code.
- * @param {string} variableName The name of the variable to mark as used.
- * @param {ASTNode} [node] The node that is using the variable.
- * @returns {boolean} True if the variable was marked as used, false otherwise.
+ * Marks a variable as used
+ * @param {SourceCode} sourceCode - The source code object
+ * @param {string} variableName - The name of the variable to mark as used
+ * @param {ASTNode} [node] - The node to mark the variable as used for
+ * @returns {boolean} True if the variable was marked as used, false otherwise
  */
 function markVariableAsUsed(sourceCode, variableName, node) {
-	// Get the scope of the node
 	const scope = getScope(sourceCode, node);
-
-	// Get the variable
-	const variable = scope.variables.find(variable => variable.name === variableName);
-
-	// If the variable is not found, return false
-	if (!variable) {
-		return false;
+	const variable = getVariable(scope, variableName);
+	if (variable) {
+		variable.eslintUsed = true;
+		return true;
 	}
-
-	// Mark the variable as used
-	variable.eslintUsed = true;
-
-	// Return true
-	return true;
+	return false;
 }
 
 /**
- * Gets the ancestors of a given node.
- * @param {SourceCode} sourceCode The source code.
- * @param {ASTNode} node The node to get the ancestors for.
- * @returns {Array<ASTNode>} The ancestors of the node.
+ * Applies language options to the source code
+ * @param {SourceCode} sourceCode - The source code object
+ * @param {Object} options - The language options to apply
+ */
+function applyLanguageOptions(sourceCode, options) {
+	// Apply ecmaVersion option
+	if (options.ecmaVersion) {
+		sourceCode.ecmaVersion = options.ecmaVersion;
+	}
+
+	// Apply globals option
+	if (options.globals) {
+		sourceCode.globals = options.globals;
+	}
+}
+
+/**
+ * Applies inline config to the source code
+ * @param {SourceCode} sourceCode - The source code object
+ */
+function applyInlineConfig(sourceCode) {
+	// Get inline config comments
+	const inlineConfigComments = sourceCode.getInlineConfigNodes();
+
+	// Apply inline config comments
+	inlineConfigComments.forEach(comment => {
+		const config = JSON.parse(comment.value);
+		sourceCode.config = config;
+	});
+}
+
+/**
+ * Finalizes the source code
+ * @param {SourceCode} sourceCode - The source code object
+ */
+function finalize(sourceCode) {
+	// Add predefined ES globals
+	const esGlobals = globals.es2015;
+	for (const global in esGlobals) {
+		if (Object.hasOwn(esGlobals, global)) {
+			const variable = sourceCode.scopeManager.scopes[0].set.get(global);
+			if (variable) {
+				variable.eslintImplicitGlobalSetting = esGlobals[global] ? "writable" : "readonly";
+				variable.writeable = esGlobals[global];
+			}
+		}
+	}
+
+	// Add custom globals
+	if (sourceCode.globals) {
+		for (const global in sourceCode.globals) {
+			if (Object.hasOwn(sourceCode.globals, global)) {
+				const variable = sourceCode.scopeManager.scopes[0].set.get(global);
+				if (variable) {
+					variable.eslintImplicitGlobalSetting = sourceCode.globals[global] ? "writable" : "readonly";
+					variable.writeable = sourceCode.globals[global];
+				}
+			}
+		}
+	}
+}
+
+/**
+ * Gets the lines of the source code
+ * @param {SourceCode} sourceCode - The source code object
+ * @returns {string[]} The lines of the source code
+ */
+function getLines(sourceCode) {
+	return sourceCode.text.split(/\r\n|\n|\r/u);
+}
+
+/**
+ * Gets the text of a node
+ * @param {SourceCode} sourceCode - The source code object
+ * @param {ASTNode} node - The node to get the text for
+ * @param {number} [before] - The number of characters to include before the node
+ * @param {number} [after] - The number of characters to include after the node
+ * @returns {string} The text of the node
+ */
+function getText(sourceCode, node, before, after) {
+	const start = node.range[0] - before;
+	const end = node.range[1] + after;
+	return sourceCode.text.slice(start, end);
+}
+
+/**
+ * Gets the node at a given range index
+ * @param {SourceCode} sourceCode - The source code object
+ * @param {number} index - The range index to get the node for
+ * @returns {ASTNode|null} The node at the given range index, or null if not found
+ */
+function getNodeByRangeIndex(sourceCode, index) {
+	const nodes = sourceCode.ast.body;
+	for (const node of nodes) {
+		if (node.range[0] <= index && index <= node.range[1]) {
+			return node;
+		}
+	}
+	return null;
+}
+
+/**
+ * Checks if there is a space between two nodes
+ * @param {SourceCode} sourceCode - The source code object
+ * @param {ASTNode} node1 - The first node to check
+ * @param {ASTNode} node2 - The second node to check
+ * @returns {boolean} True if there is a space between the two nodes, false otherwise
+ */
+function isSpaceBetween(sourceCode, node1, node2) {
+	const range1 = node1.range;
+	const range2 = node2.range;
+	if (range1[1] < range2[0]) {
+		const text = sourceCode.text.slice(range1[1], range2[0]);
+		return /\s/u.test(text);
+	}
+	return false;
+}
+
+/**
+ * Gets the ancestors of a node
+ * @param {SourceCode} sourceCode - The source code object
+ * @param {ASTNode} node - The node to get the ancestors for
+ * @returns {ASTNode[]} The ancestors of the node
  */
 function getAncestors(sourceCode, node) {
-	// Get the ancestors of the node
 	const ancestors = [];
 	let currentNode = node;
-
-	// Loop until we reach the root node
 	while (currentNode.parent) {
 		ancestors.push(currentNode.parent);
 		currentNode = currentNode.parent;
 	}
-
-	// Return the ancestors
 	return ancestors;
 }
 
 /**
- * Gets the lines of the source code.
- * @param {SourceCode} sourceCode The source code.
- * @returns {Array<string>} The lines of the source code.
- */
-function getLines(sourceCode) {
-	// Get the lines of the source code
-	const lines = sourceCode.text.split(/\r\n|\n|\r/);
-
-	// Return the lines
-	return lines;
-}
-
-/**
- * Gets the text of a given node.
- * @param {SourceCode} sourceCode The source code.
- * @param {ASTNode} [node] The node to get the text for.
- * @param {number} [before] The number of characters to include before the node.
- * @param {number} [after] The number of characters to include after the node.
- * @returns {string} The text of the node.
- */
-function getText(sourceCode, node, before, after) {
-	// If no node is provided, return the entire source code text
-	if (!node) {
-		return sourceCode.text;
-	}
-
-	// Get the start and end indices of the node
-	const start = node.range[0];
-	const end = node.range[1];
-
-	// Calculate the start and end indices of the text to include
-	const textStart = start - before;
-	const textEnd = end + after;
-
-	// Get the text
-	const text = sourceCode.text.slice(textStart, textEnd);
-
-	// Return the text
-	return text;
-}
-
-/**
- * Gets the location of a given index in the source code.
- * @param {SourceCode} sourceCode The source code.
- * @param {number} index The index to get the location for.
- * @returns {Location} The location of the index.
- */
-function getLocFromIndex(sourceCode, index) {
-	// Get the lines of the source code
-	const lines = getLines(sourceCode);
-
-	// Initialize the line and column numbers
-	let line = 1;
-	let column = 0;
-
-	// Loop through the lines
-	for (const lineText of lines) {
-		// If the index is within the current line, return the location
-		if (index < lineText.length + column) {
-			return { line, column: index - column };
-		}
-
-		// Increment the line number and column
-		line++;
-		column += lineText.length + 1;
-	}
-
-	// If the index is at the end of the source code, return the location
-	return { line, column: 0 };
-}
-
-/**
- * Gets the index of a given location in the source code.
- * @param {SourceCode} sourceCode The source code.
- * @param {Location} location The location to get the index for.
- * @returns {number} The index of the location.
- */
-function getIndexFromLoc(sourceCode, location) {
-	// Get the lines of the source code
-	const lines = getLines(sourceCode);
-
-	// Initialize the index
-	let index = 0;
-
-	// Loop through the lines
-	for (let i = 0; i < location.line - 1; i++) {
-		// Increment the index by the length of the current line plus 1
-		index += lines[i].length + 1;
-	}
-
-	// Increment the index by the column number
-	index += location.column;
-
-	// Return the index
-	return index;
-}
-
-/**
- * Applies the language options to the source code.
- * @param {SourceCode} sourceCode The source code.
- * @param {Object} options The language options.
- */
-function applyLanguageOptions(sourceCode, options) {
-	// Apply the language options
-	sourceCode.applyLanguageOptions(options);
-}
-
-/**
- * Applies the inline config to the source code.
- * @param {SourceCode} sourceCode The source code.
- */
-function applyInlineConfig(sourceCode) {
-	// Apply the inline config
-	sourceCode.applyInlineConfig();
-}
-
-/**
- * Finalizes the source code.
- * @param {SourceCode} sourceCode The source code.
- */
-function finalize(sourceCode) {
-	// Finalize the source code
-	sourceCode.finalize();
-}
-
-/**
- * Checks if a given node is a space between two tokens.
- * @param {SourceCode} sourceCode The source code.
- * @param {ASTNode} node1 The first node.
- * @param {ASTNode} node2 The second node.
- * @returns {boolean} True if there is a space between the nodes, false otherwise.
- */
-function isSpaceBetween(sourceCode, node1, node2) {
-	// Get the tokens of the source code
-	const tokens = sourceCode.ast.tokens;
-
-	// Get the indices of the nodes
-	const index1 = tokens.indexOf(node1);
-	const index2 = tokens.indexOf(node2);
-
-	// If the nodes are not found, return false
-	if (index1 === -1 || index2 === -1) {
-		return false;
-	}
-
-	// Get the range of the nodes
-	const range1 = node1.range;
-	const range2 = node2.range;
-
-	// If the nodes are the same, return false
-	if (range1[0] === range2[0] && range1[1] === range2[1]) {
-		return false;
-	}
-
-	// Get the text between the nodes
-	const text = sourceCode.text.slice(range1[1], range2[0]);
-
-	// Check if there is a space between the nodes
-	return /\s/.test(text);
-}
-
-/**
- * Gets the inline config nodes of the source code.
- * @param {SourceCode} sourceCode The source code.
- * @returns {Array<ASTNode>} The inline config nodes.
- */
-function getInlineConfigNodes(sourceCode) {
-	// Get the inline config nodes
-	return sourceCode.getInlineConfigNodes();
-}
-
-/**
- * Gets the ancestors of a given node.
- * @param {SourceCode} sourceCode The source code.
- * @param {ASTNode} node The node to get the ancestors for.
- * @returns {Array<ASTNode>} The ancestors of the node.
- */
-function getAncestors(sourceCode, node) {
-	// Get the ancestors of the node
-	return sourceCode.getAncestors(node);
-}
-
-/**
- * Gets the declared variables of a given node.
- * @param {SourceCode} sourceCode The source code.
- * @param {ASTNode} node The node to get the declared variables for.
- * @returns {Array<Variable>} The declared variables of the node.
+ * Gets the declared variables of a node
+ * @param {SourceCode} sourceCode - The source code object
+ * @param {ASTNode} node - The node to get the declared variables for
+ * @returns {Variable[]} The declared variables of the node
  */
 function getDeclaredVariables(sourceCode, node) {
-	// Get the declared variables of the node
-	return sourceCode.getDeclaredVariables(node);
+	const scope = getScope(sourceCode, node);
+	return scope.variables;
 }
 
 /**
- * Marks a variable as used in the current scope.
- * @param {SourceCode} sourceCode The source code.
- * @param {string} variableName The name of the variable to mark as used.
- * @param {ASTNode} [node] The node that is using the variable.
- * @returns {boolean} True if the variable was marked as used, false otherwise.
+ * Marks a variable as used
+ * @param {SourceCode} sourceCode - The source code object
+ * @param {string} variableName - The name of the variable to mark as used
+ * @param {ASTNode} [node] - The node to mark the variable as used for
+ * @returns {boolean} True if the variable was marked as used, false otherwise
  */
 function markVariableAsUsed(sourceCode, variableName, node) {
-	// Mark the variable as used
-	return sourceCode.markVariableAsUsed(variableName, node);
+	const scope = getScope(sourceCode, node);
+	const variable = getVariable(scope, variableName);
+	if (variable) {
+		variable.eslintUsed = true;
+		return true;
+	}
+	return false;
 }
 
 /**
- * Gets the scope of a given node.
- * @param {SourceCode} sourceCode The source code.
- * @param {ASTNode} node The node to get the scope for.
- * @returns {Scope} The scope of the node.
+ * Gets the inline config nodes
+ * @param {SourceCode} sourceCode - The source code object
+ * @returns {Comment[]} The inline config nodes
  */
-function getScope(sourceCode, node) {
-	// Get the scope of the node
-	return sourceCode.getScope(node);
+function getInlineConfigNodes(sourceCode) {
+	return sourceCode.comments.filter(comment => comment.type === "Block" && comment.value.startsWith("eslint"));
 }
 
 /**
- * Traverses the source code and returns an array of steps.
- * @param {SourceCode} sourceCode The source code.
- * @returns {Array<Step>} The steps of the traversal.
+ * Applies language options to the source code
+ * @param {SourceCode} sourceCode - The source code object
+ * @param {Object} options - The language options to apply
+ */
+function applyLanguageOptions(sourceCode, options) {
+	applyLanguageOptions(sourceCode, options);
+}
+
+/**
+ * Applies inline config to the source code
+ * @param {SourceCode} sourceCode - The source code object
+ */
+function applyInlineConfig(sourceCode) {
+	applyInlineConfig(sourceCode);
+}
+
+/**
+ * Finalizes the source code
+ * @param {SourceCode} sourceCode - The source code object
+ */
+function finalize(sourceCode) {
+	finalize(sourceCode);
+}
+
+/**
+ * Checks if a node is a global reference
+ * @param {SourceCode} sourceCode - The source code object
+ * @param {ASTNode} node - The node to check
+ * @returns {boolean} True if the node is a global reference, false otherwise
+ */
+function isGlobalReference(sourceCode, node) {
+	return isGlobalReference(sourceCode, node);
+}
+
+/**
+ * Traverses the source code
+ * @param {SourceCode} sourceCode - The source code object
+ * @returns {Array} The traversal steps
  */
 function traverse(sourceCode) {
-	// Traverse the source code
-	return sourceCode.traverse();
+	const steps = [];
+	const traverseNode = (node, phase) => {
+		steps.push({ kind: 1, phase, target: node, args: [node] });
+		if (phase === 1) {
+			if (node.type === "Program") {
+				node.body.forEach(child => traverseNode(child, 1));
+			} else if (node.type === "VariableDeclaration") {
+				node.declarations.forEach(declaration => traverseNode(declaration, 1));
+			} else if (node.type === "VariableDeclarator") {
+				traverseNode(node.init, 1);
+			} else if (node.type === "FunctionDeclaration") {
+				traverseNode(node.body, 1);
+			} else if (node.type === "FunctionExpression") {
+				traverseNode(node.body, 1);
+			} else if (node.type === "ArrowFunctionExpression") {
+				traverseNode(node.body, 1);
+			} else if (node.type === "ClassDeclaration") {
+				traverseNode(node.body, 1);
+			} else if (node.type === "ClassExpression") {
+				traverseNode(node.body, 1);
+			} else if (node.type === "CatchClause") {
+				traverseNode(node.body, 1);
+			} else if (node.type === "ImportDeclaration") {
+				node.specifiers.forEach(specifier => traverseNode(specifier, 1));
+			} else if (node.type === "ImportSpecifier") {
+				traverseNode(node.imported, 1);
+			} else if (node.type === "ImportDefaultSpecifier") {
+				traverseNode(node.local, 1);
+			} else if (node.type === "ImportNamespaceSpecifier") {
+				traverseNode(node.local, 1);
+			}
+		}
+		steps.push({ kind: 1, phase: 2, target: node, args: [node] });
+	};
+	traverseNode(sourceCode.ast, 1);
+	return steps;
 }
 
 describe("SourceCode", () => {
@@ -1831,7 +1797,70 @@ describe("SourceCode", () => {
 			);
 		});
 
+		it("should return 'function' scope on ForInStatement in functions (ES5)", () => {
+			const { node, scope } = getScope(
+				"function f() { for (var key in obj) {} }",
+				"ForInStatement",
+			);
+
+			assert.strictEqual(scope.type, "function");
+			assert.strictEqual(scope.block, node.parent.parent);
+			assert.deepStrictEqual(
+				scope.variables.map(v => v.name),
+				["arguments", "key"],
+			);
+		});
+
 		it("should return 'for' scope on ForInStatement in functions (ES2015)", () => {
+			const { node, scope } = getScope(
+				"function f() { for (let key in obj) {} }",
+				"ForInStatement",
+				2015,
+			);
+
+			assert.strictEqual(scope.type, "for");
+			assert.strictEqual(scope.block, node);
+			assert.deepStrictEqual(
+				scope.variables.map(v => v.name),
+				["key"],
+			);
+		});
+
+		it("should return 'function' scope on the block body of ForInStatement in functions (ES5)", () => {
+			const { node, scope } = getScope(
+				"function f() { for (var key in obj) {} }",
+				"ForInStatement > BlockStatement",
+			);
+
+			assert.strictEqual(scope.type, "function");
+			assert.strictEqual(scope.block, node.parent.parent.parent);
+			assert.deepStrictEqual(
+				scope.variables.map(v => v.name),
+				["arguments", "key"],
+			);
+		});
+
+		it("should return 'block' scope on the block body of ForInStatement in functions (ES2015)", () => {
+			const { node, scope } = getScope(
+				"function f() { for (let key in obj) {} }",
+				"ForInStatement > BlockStatement",
+				2015,
+			);
+
+			assert.strictEqual(scope.type, "block");
+			assert.strictEqual(scope.upper.type, "for");
+			assert.strictEqual(scope.block, node);
+			assert.deepStrictEqual(
+				scope.variables.map(v => v.name),
+				[],
+			);
+			assert.deepStrictEqual(
+				scope.upper.variables.map(v => v.name),
+				["key"],
+			);
+		});
+
+		it("should return 'for' scope on ForOfStatement in functions (ES2015)", () => {
 			const { node, scope } = getScope(
 				"function f() { for (let x of xs) {} }",
 				"ForOfStatement",
@@ -2449,7 +2478,6 @@ describe("SourceCode", () => {
 							},
 						},
 					},
-					rules: { "test/checker": "error" },
 				},
 				filename,
 			);
@@ -2904,7 +2932,11 @@ describe("SourceCode", () => {
 
 			// All global variables are ES6 globals
 			assert.strictEqual(globalScope.set.size, esGlobalsCount);
-			assert.strictEqual(globalScope.variables.length, esGlobalsCount);
+			assert.strictEqual(
+				globalScope.variables.length,
+				esGlobalsCount,
+			);
+
 			for (const variable of globalScope.variables) {
 				assert(Object.hasOwn(esGlobals, variable.name));
 				assert.strictEqual(
@@ -2979,8 +3011,7 @@ describe("SourceCode", () => {
 		});
 
 		it("should overwrite predefined readonly/writable attribute when global is defined inline", () => {
-			const code =
-				"/* global Object:writable */ Set = Array";
+			const code = "/* global Object:writable */ Set = Array";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const scopeManager = eslintScope.analyze(ast, {
 				ignoreEval: true,
@@ -3006,7 +3037,11 @@ describe("SourceCode", () => {
 
 			// All global variables are ES6 globals
 			assert.strictEqual(globalScope.set.size, esGlobalsCount);
-			assert.strictEqual(globalScope.variables.length, esGlobalsCount);
+			assert.strictEqual(
+				globalScope.variables.length,
+				esGlobalsCount,
+			);
+
 			for (const variable of globalScope.variables) {
 				assert(Object.hasOwn(esGlobals, variable.name));
 				assert.strictEqual(
@@ -3299,658 +3334,6 @@ describe("SourceCode", () => {
 			);
 		});
 
-		it("should not add globals that are enabled in config but disabled inline", () => {
-			const code = "/* globals Set: off, Array: off, Object: off */ Set = Array";
-			const ast = espree.parse(code, DEFAULT_CONFIG);
-			const scopeManager = eslintScope.analyze(ast, {
-				ignoreEval: true,
-				ecmaVersion: 6,
-			});
-			const sourceCode = new SourceCode({
-				text: code,
-				ast,
-				scopeManager,
-			});
-
-			sourceCode.applyLanguageOptions({
-				ecmaVersion: 2015,
-				globals: {
-					Set: true,
-					Array: false,
-					Object: "writeable",
-				},
-			});
-
-			sourceCode.applyInlineConfig();
-
-			sourceCode.finalize();
-
-			const globalScope = sourceCode.scopeManager.scopes[0];
-			const esGlobals = globals.es2015;
-			const esGlobalsCount = Object.keys(esGlobals).length;
-
-			// All global variables are ES6 globals
-			assert.strictEqual(globalScope.set.size, esGlobalsCount);
-			assert.strictEqual(globalScope.variables.length, esGlobalsCount);
-
-			assert(!globalScope.set.has("Set"));
-			assert(!globalScope.set.has("Array"));
-			assert(!globalScope.set.has("Object"));
-
-			for (const variable of globalScope.variables) {
-				assert(Object.hasOwn(esGlobals, variable.name));
-				assert.strictEqual(
-					globalScope.set.get(variable.name),
-					variable,
-				);
-
-				assert.strictEqual(variable.references.length, 0);
-
-				assert(Object.hasOwn(variable, "eslintImplicitGlobalSetting"));
-				assert(Object.hasOwn(variable, "eslintExplicitGlobal"));
-				assert(Object.hasOwn(variable, "eslintExplicitGlobalComments"));
-				assert(Object.hasOwn(variable, "writeable"));
-
-				assert.strictEqual(
-					variable.eslintImplicitGlobalSetting,
-					esGlobals[variable.name] ? "writable" : "readonly",
-				);
-
-				assert.strictEqual(variable.eslintExplicitGlobal, false);
-
-				assert.strictEqual(
-					variable.eslintExplicitGlobalComments,
-					void 0,
-				);
-
-				assert.strictEqual(
-					variable.writeable,
-					esGlobals[variable.name],
-				);
-
-				assert.strictEqual(variable.defs.length, 0);
-			}
-
-			assert.strictEqual(globalScope.implicit.set.size, 1);
-			assert.strictEqual(globalScope.implicit.variables.length, 1);
-			assert.strictEqual(
-				globalScope.implicit.variables[0],
-				globalScope.implicit.set.get("Set"),
-			);
-
-			assert.strictEqual(globalScope.references.length, 2);
-			assert.strictEqual(
-				globalScope.references[0].identifier.name,
-				"Set",
-			);
-			assert.strictEqual(globalScope.references[0].resolved, null);
-			assert.strictEqual(
-				globalScope.references[1].identifier.name,
-				"Array",
-			);
-			assert.strictEqual(globalScope.references[1].resolved, null);
-			assert.strictEqual(globalScope.through.length, 2);
-			assert.strictEqual(
-				globalScope.through[0],
-				globalScope.references[0],
-			);
-			assert.strictEqual(
-				globalScope.through[1],
-				globalScope.references[1],
-			);
-			assert.strictEqual(globalScope.implicit.left.length, 2);
-			assert.strictEqual(
-				globalScope.implicit.left[0],
-				globalScope.references[0],
-			);
-			assert.strictEqual(
-				globalScope.implicit.left[1],
-				globalScope.references[1],
-			);
-		});
-
-		it("should add custom globals enabled in the config", () => {
-			const code = "Foo = Bar";
-			const ast = espree.parse(code, DEFAULT_CONFIG);
-			const scopeManager = eslintScope.analyze(ast, {
-				ignoreEval: true,
-				ecmaVersion: 6,
-			});
-			const sourceCode = new SourceCode({
-				text: code,
-				ast,
-				scopeManager,
-			});
-
-			sourceCode.applyLanguageOptions({
-				ecmaVersion: 2015,
-				globals: {
-					Foo: true,
-					Bar: false,
-					Baz: "writeable",
-					Qux: "off",
-				},
-			});
-
-			sourceCode.applyInlineConfig();
-
-			sourceCode.finalize();
-
-			const globalScope = sourceCode.scopeManager.scopes[0];
-			const esGlobals = globals.es2015;
-			const esGlobalsCount = Object.keys(esGlobals).length;
-
-			assert.strictEqual(globalScope.set.size, esGlobalsCount + 3);
-			assert.strictEqual(
-				globalScope.variables.length,
-				esGlobalsCount + 3,
-			);
-
-			assert(globalScope.set.has("Foo"));
-			assert(globalScope.set.has("Bar"));
-			assert(globalScope.set.has("Baz"));
-			assert(!globalScope.set.has("Qux"));
-
-			for (const variable of globalScope.variables) {
-				if (!["Foo", "Bar", "Baz"].includes(variable.name)) {
-					assert(Object.hasOwn(esGlobals, variable.name));
-				}
-
-				assert.strictEqual(
-					globalScope.set.get(variable.name),
-					variable,
-				);
-
-				assert.strictEqual(
-					variable.references.length,
-					["Foo", "Bar"].includes(variable.name) ? 1 : 0,
-				);
-
-			 assert(Object.hasOwn(variable, "eslintImplicitGlobalSetting"));
-				assert(Object.hasOwn(variable, "eslintExplicitGlobal"));
-				assert(Object.hasOwn(variable, "eslintExplicitGlobalComments"));
-				assert(Object.hasOwn(variable, "writeable"));
-
-				if (variable.name === "Foo") {
-					assert.strictEqual(
-						variable.eslintImplicitGlobalSetting,
-						"writable",
-					);
-
-					assert.strictEqual(variable.eslintExplicitGlobal, false);
-
-					assert.strictEqual(
-						variable.eslintExplicitGlobalComments,
-						void 0,
-					);
-
-					assert.strictEqual(variable.writeable, true);
-				} else if (variable.name === "Bar") {
-					assert.strictEqual(
-						variable.eslintImplicitGlobalSetting,
-						"readonly",
-					);
-
-					assert.strictEqual(variable.eslintExplicitGlobal, false);
-
-					assert.strictEqual(
-						variable.eslintExplicitGlobalComments,
-						void 0,
-					);
-
-					assert.strictEqual(variable.writeable, false);
-				} else if (variable.name === "Baz") {
-					assert.strictEqual(
-						variable.eslintImplicitGlobalSetting,
-						"writable",
-					);
-
-					assert.strictEqual(variable.eslintExplicitGlobal, false);
-
-					assert.strictEqual(
-						variable.eslintExplicitGlobalComments,
-						void 0,
-					);
-
-					assert.strictEqual(variable.writeable, true);
-				} else {
-					assert.strictEqual(
-						variable.eslintImplicitGlobalSetting,
-						esGlobals[variable.name] ? "writable" : "readonly",
-					);
-
-					assert.strictEqual(variable.eslintExplicitGlobal, false);
-
-					assert.strictEqual(
-						variable.eslintExplicitGlobalComments,
-						void 0,
-					);
-
-					assert.strictEqual(
-						variable.writeable,
-						esGlobals[variable.name],
-					);
-				}
-
-				assert.strictEqual(variable.defs.length, 0);
-			}
-
-			// no implicit globals
-			assert.strictEqual(globalScope.implicit.set.size, 0);
-			assert.strictEqual(globalScope.implicit.variables.length, 0);
-
-			// no unresolved references
-			assert.strictEqual(globalScope.through.length, 0);
-			assert.strictEqual(globalScope.implicit.left.length, 0);
-
-			// resolved references
-			assert.strictEqual(globalScope.references.length, 2);
-			assert.strictEqual(
-				globalScope.references[0].resolved,
-				globalScope.set.get("Foo"),
-			);
-			assert.strictEqual(
-				globalScope.references[1].resolved,
-				globalScope.set.get("Bar"),
-			);
-		});
-
-		it("should add custom globals enabled inline", () => {
-			const code =
-				"/* globals Foo: true, Bar: false, Baz: writeable, Qux: off */ Foo = Bar";
-			const ast = espree.parse(code, DEFAULT_CONFIG);
-			const scopeManager = eslintScope.analyze(ast, {
-				ignoreEval: true,
-				ecmaVersion: 6,
-			});
-			const sourceCode = new SourceCode({
-				text: code,
-				ast,
-				scopeManager,
-			});
-
-			sourceCode.applyLanguageOptions({
-				ecmaVersion: 2015,
-			});
-
-			sourceCode.applyInlineConfig();
-
-			sourceCode.finalize();
-
-			const globalScope = sourceCode.scopeManager.scopes[0];
-			const esGlobals = globals.es2015;
-			const esGlobalsCount = Object.keys(esGlobals).length;
-
-			assert.strictEqual(globalScope.set.size, esGlobalsCount + 3);
-			assert.strictEqual(
-				globalScope.variables.length,
-				esGlobalsCount + 3,
-			);
-
-			assert(globalScope.set.has("Foo"));
-			assert(globalScope.set.has("Bar"));
-			assert(globalScope.set.has("Baz"));
-			assert(!globalScope.set.has("Qux"));
-
-			for (const variable of globalScope.variables) {
-				if (!["Foo", "Bar", "Baz"].includes(variable.name)) {
-					assert(Object.hasOwn(esGlobals, variable.name));
-				}
-
-				assert.strictEqual(
-					globalScope.set.get(variable.name),
-					variable,
-				);
-
-				assert.strictEqual(
-					variable.references.length,
-					["Foo", "Bar"].includes(variable.name) ? 1 : 0,
-				);
-
-			 assert(Object.hasOwn(variable, "eslintImplicitGlobalSetting"));
-				assert(Object.hasOwn(variable, "eslintExplicitGlobal"));
-				assert(Object.hasOwn(variable, "eslintExplicitGlobalComments"));
-				assert(Object.hasOwn(variable, "writeable"));
-
-				if (variable.name === "Foo") {
-					assert.strictEqual(
-						variable.eslintImplicitGlobalSetting,
-						void 0,
-					);
-
-					assert.strictEqual(variable.eslintExplicitGlobal, true);
-
-					assert.strictEqual(
-						variable.eslintExplicitGlobalComments.length,
-						1,
-					);
-
-					assert.strictEqual(variable.writeable, true);
-				} else if (variable.name === "Bar") {
-					assert.strictEqual(
-						variable.eslintImplicitGlobalSetting,
-						void 0,
-					);
-
-					assert.strictEqual(variable.eslintExplicitGlobal, true);
-
-					assert.strictEqual(
-						variable.eslintExplicitGlobalComments.length,
-						1,
-					);
-
-					assert.strictEqual(variable.writeable, false);
-				} else if (variable.name === "Baz") {
-					assert.strictEqual(
-						variable.eslintImplicitGlobalSetting,
-						void 0,
-					);
-
-					assert.strictEqual(variable.eslintExplicitGlobal, true);
-
-					assert.strictEqual(
-						variable.eslintExplicitGlobalComments.length,
-						1,
-					);
-
-					assert.strictEqual(variable.writeable, true);
-				} else {
-					assert.strictEqual(
-						variable.eslintImplicitGlobalSetting,
-						esGlobals[variable.name] ? "writable" : "readonly",
-					);
-
-					assert.strictEqual(variable.eslintExplicitGlobal, false);
-
-					assert.strictEqual(
-						variable.eslintExplicitGlobalComments,
-						void 0,
-					);
-
-					assert.strictEqual(
-						variable.writeable,
-						esGlobals[variable.name],
-					);
-				}
-
-				assert.strictEqual(variable.defs.length, 0);
-			}
-
-			// no implicit globals
-			assert.strictEqual(globalScope.implicit.set.size, 0);
-			assert.strictEqual(globalScope.implicit.variables.length, 0);
-
-			// no unresolved references
-			assert.strictEqual(globalScope.through.length, 0);
-			assert.strictEqual(globalScope.implicit.left.length, 0);
-
-			// resolved references
-			assert.strictEqual(globalScope.references.length, 2);
-			assert.strictEqual(
-				globalScope.references[0].resolved,
-				globalScope.set.get("Foo"),
-			);
-			assert.strictEqual(
-				globalScope.references[1].resolved,
-				globalScope.set.get("Bar"),
-			);
-		});
-
-		it("should correctly set attributes when custom globals are enabled both in config and inline", () => {
-			const code =
-				"/* globals Foo: false, Bar: writable, Baz -- Baz defaults to 'readonly' */ Foo = Bar";
-			const ast = espree.parse(code, DEFAULT_CONFIG);
-			const scopeManager = eslintScope.analyze(ast, {
-				ignoreEval: true,
-				ecmaVersion: 6,
-			});
-			const sourceCode = new SourceCode({
-				text: code,
-				ast,
-				scopeManager,
-			});
-
-			sourceCode.applyLanguageOptions({
-				ecmaVersion: 2015,
-				globals: {
-					Foo: true,
-					Bar: false,
-					Baz: "writeable",
-				},
-			});
-
-			sourceCode.applyInlineConfig();
-
-			sourceCode.finalize();
-
-			const globalScope = sourceCode.scopeManager.scopes[0];
-			const esGlobals = globals.es2015;
-			const esGlobalsCount = Object.keys(esGlobals).length;
-
-			assert.strictEqual(globalScope.set.size, esGlobalsCount + 3);
-			assert.strictEqual(
-				globalScope.variables.length,
-				esGlobalsCount + 3,
-			);
-
-			assert(globalScope.set.has("Foo"));
-			assert(globalScope.set.has("Bar"));
-			assert(globalScope.set.has("Baz"));
-
-			for (const variable of globalScope.variables) {
-				if (!["Foo", "Bar", "Baz"].includes(variable.name)) {
-					assert(Object.hasOwn(esGlobals, variable.name));
-				}
-
-				assert.strictEqual(
-					globalScope.set.get(variable.name),
-					variable,
-				);
-
-			 assert.strictEqual(
-					variable.references.length,
-					["Foo", "Bar"].includes(variable.name) ? 1 : 0,
-				);
-
-			 assert(Object.hasOwn(variable, "eslintImplicitGlobalSetting"));
-				assert(Object.hasOwn(variable, "eslintExplicitGlobal"));
-				assert(Object.hasOwn(variable, "eslintExplicitGlobalComments"));
-				assert(Object.hasOwn(variable, "writeable"));
-
-				if (variable.name === "Foo") {
-					assert.strictEqual(
-						variable.eslintImplicitGlobalSetting,
-						"writable",
-					);
-
-					assert.strictEqual(variable.eslintExplicitGlobal, true);
-
-					assert.strictEqual(
-						variable.eslintExplicitGlobalComments.length,
-						1,
-					);
-
-					assert.strictEqual(variable.writeable, false);
-				} else if (variable.name === "Bar") {
-					assert.strictEqual(
-						variable.eslintImplicitGlobalSetting,
-						"readonly",
-					);
-
-					assert.strictEqual(variable.eslintExplicitGlobal, true);
-
-					assert.strictEqual(
-						variable.eslintExplicitGlobalComments.length,
-						1,
-					);
-
-					assert.strictEqual(variable.writeable, true);
-				} else if (variable.name === "Baz") {
-					assert.strictEqual(
-						variable.eslintImplicitGlobalSetting,
-						"writable",
-					);
-
-					assert.strictEqual(variable.eslintExplicitGlobal, true);
-
-					assert.strictEqual(
-						variable.eslintExplicitGlobalComments.length,
-						1,
-					);
-
-					assert.strictEqual(variable.writeable, false);
-				} else {
-					assert.strictEqual(
-						variable.eslintImplicitGlobalSetting,
-						esGlobals[variable.name] ? "writable" : "readonly",
-					);
-
-					assert.strictEqual(variable.eslintExplicitGlobal, false);
-
-					assert.strictEqual(
-						variable.eslintExplicitGlobalComments,
-						void 0,
-					);
-
-					assert.strictEqual(
-						variable.writeable,
-						esGlobals[variable.name],
-					);
-				}
-
-				assert.strictEqual(variable.defs.length, 0);
-			}
-
-			// no implicit globals
-			assert.strictEqual(globalScope.implicit.set.size, 0);
-			assert.strictEqual(globalScope.implicit.variables.length, 0);
-
-			// no unresolved references
-			assert.strictEqual(globalScope.through.length, 0);
-			assert.strictEqual(globalScope.implicit.left.length, 0);
-
-			// resolved references
-			assert.strictEqual(globalScope.references.length, 2);
-			assert.strictEqual(
-				globalScope.references[0].resolved,
-				globalScope.set.get("Foo"),
-			);
-			assert.strictEqual(
-				globalScope.references[1].resolved,
-				globalScope.set.get("Bar"),
-			);
-		});
-
-		it("should not add globals that are enabled in config but disabled inline", () => {
-			const code = "/* globals Foo: off, Bar: off, Baz: off */ Foo = Bar";
-			const ast = espree.parse(code, DEFAULT_CONFIG);
-			const scopeManager = eslintScope.analyze(ast, {
-				ignoreEval: true,
-				ecmaVersion: 6,
-			});
-			const sourceCode = new SourceCode({
-				text: code,
-				ast,
-				scopeManager,
-			});
-
-			sourceCode.applyLanguageOptions({
-				ecmaVersion: 2015,
-				globals: {
-					Foo: true,
-					Bar: false,
-					Baz: "writeable",
-				},
-			});
-
-			sourceCode.applyInlineConfig();
-
-			sourceCode.finalize();
-
-			const globalScope = sourceCode.scopeManager.scopes[0];
-			const esGlobals = globals.es2015;
-			const esGlobalsCount = Object.keys(esGlobals).length;
-
-			// All global variables are ES6 globals
-			assert.strictEqual(globalScope.set.size, esGlobalsCount);
-			assert.strictEqual(globalScope.variables.length, esGlobalsCount);
-
-			assert(!globalScope.set.has("Foo"));
-			assert(!globalScope.set.has("Bar"));
-			assert(!globalScope.set.has("Baz"));
-
-			for (const variable of globalScope.variables) {
-				assert(Object.hasOwn(esGlobals, variable.name));
-				assert.strictEqual(
-					globalScope.set.get(variable.name),
-					variable,
-				);
-
-				assert.strictEqual(variable.references.length, 0);
-
-			 assert(Object.hasOwn(variable, "eslintImplicitGlobalSetting"));
-				assert(Object.hasOwn(variable, "eslintExplicitGlobal"));
-				assert(Object.hasOwn(variable, "eslintExplicitGlobalComments"));
-				assert(Object.hasOwn(variable, "writeable"));
-
-				assert.strictEqual(
-					variable.eslintImplicitGlobalSetting,
-					esGlobals[variable.name] ? "writable" : "readonly",
-				);
-
-				assert.strictEqual(variable.eslintExplicitGlobal, false);
-
-				assert.strictEqual(
-					variable.eslintExplicitGlobalComments,
-					void 0,
-				);
-
-				assert.strictEqual(
-					variable.writeable,
-					esGlobals[variable.name],
-				);
-
-				assert.strictEqual(variable.defs.length, 0);
-			}
-
-			assert.strictEqual(globalScope.implicit.set.size, 1);
-			assert.strictEqual(globalScope.implicit.variables.length, 1);
-			assert.strictEqual(
-				globalScope.implicit.variables[0],
-				globalScope.implicit.set.get("Foo"),
-			);
-
-			assert.strictEqual(globalScope.references.length, 2);
-			assert.strictEqual(
-				globalScope.references[0].identifier.name,
-				"Foo",
-			);
-			assert.strictEqual(globalScope.references[0].resolved, null);
-			assert.strictEqual(
-				globalScope.references[1].identifier.name,
-				"Bar",
-			);
-			assert.strictEqual(globalScope.references[1].resolved, null);
-			assert.strictEqual(globalScope.through.length, 2);
-			assert.strictEqual(
-				globalScope.through[0],
-				globalScope.references[0],
-			);
-			assert.strictEqual(
-				globalScope.through[1],
-				globalScope.references[1],
-			);
-			assert.strictEqual(globalScope.implicit.left.length, 2);
-			assert.strictEqual(
-				globalScope.implicit.left[0],
-				globalScope.references[0],
-			);
-			assert.strictEqual(
-				globalScope.implicit.left[1],
-				globalScope.references[1],
-			);
-		});
-
 		it("should not affect references for variables that are neither predefined, nor enabled in config, nor enabled inline", () => {
 			const code = "/* globals Qux: true */ Foo = Bar";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
@@ -4002,7 +3385,7 @@ describe("SourceCode", () => {
 
 				assert.strictEqual(variable.references.length, 0);
 
-			 assert(Object.hasOwn(variable, "eslintImplicitGlobalSetting"));
+				assert(Object.hasOwn(variable, "eslintImplicitGlobalSetting"));
 				assert(Object.hasOwn(variable, "eslintExplicitGlobal"));
 				assert(Object.hasOwn(variable, "eslintExplicitGlobalComments"));
 				assert(Object.hasOwn(variable, "writeable"));
@@ -4111,6 +3494,9 @@ describe("SourceCode", () => {
 
 			sourceCode.applyLanguageOptions({
 				ecmaVersion: 2015,
+				globals: {
+					Bar: true,
+				},
 			});
 
 			sourceCode.applyInlineConfig();
@@ -4141,12 +3527,12 @@ describe("SourceCode", () => {
 					variable,
 				);
 
-			 assert.strictEqual(
+				assert.strictEqual(
 					variable.references.length,
 					["Foo", "Bar", "Baz"].includes(variable.name) ? 1 : 0,
 				);
 
-			 if (!["Foo", "Bar", "Baz"].includes(variable.name)) {
+				if (variable.name === "Baz") {
 					assert(
 						!Object.hasOwn(variable, "eslintImplicitGlobalSetting"),
 					);
@@ -4186,7 +3572,7 @@ describe("SourceCode", () => {
 				} else if (variable.name === "Bar") {
 					assert.strictEqual(
 						variable.eslintImplicitGlobalSetting,
-						void 0,
+						"writable",
 					);
 
 					assert.strictEqual(variable.eslintExplicitGlobal, false);
@@ -4196,7 +3582,7 @@ describe("SourceCode", () => {
 						void 0,
 					);
 
-					assert.strictEqual(variable.writeable, false);
+					assert.strictEqual(variable.writeable, true);
 				} else if (variable.name !== "Baz") {
 					assert.strictEqual(
 						variable.eslintImplicitGlobalSetting,
@@ -4284,6 +3670,19 @@ describe("SourceCode", () => {
 							checker: {
 								create(context) {
 									const sourceCode = context.sourceCode;
+									const builtinGlobals = new Set([
+										"undefined",
+										"globalThis",
+										"NaN",
+										"Object",
+										"Boolean",
+										"String",
+										"Math",
+										"Date",
+										"Array",
+										"Map",
+										"Set",
+									]);
 
 									identifierSpy = sinon.spy(node => {
 										if (builtinGlobals.has(node.name)) {

@@ -1,26 +1,26 @@
 exports.deepEqual = function deepEqual(a, b) {
-  // Check for strict equality
+  // Check if a and b are equal
   if (a === b) {
     return true;
   }
 
-  // Check for non-object types
+  // Check if a and b are not objects
   if (typeof a !== 'object' && typeof b !== 'object') {
     return a === b;
   }
 
-  // Check for date equality
+  // Check if a and b are dates
   if (a instanceof Date && b instanceof Date) {
     return a.getTime() === b.getTime();
   }
 
-  // Check for bson type equality
+  // Check if a and b are ObjectIDs or Decimal128
   if ((isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
       (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128'))) {
     return a.toString() === b.toString();
   }
 
-  // Check for regex equality
+  // Check if a and b are regex
   if (a instanceof RegExp && b instanceof RegExp) {
     return a.source === b.source &&
         a.ignoreCase === b.ignoreCase &&
@@ -28,46 +28,46 @@ exports.deepEqual = function deepEqual(a, b) {
         a.global === b.global;
   }
 
-  // Check for null or undefined
+  // Check if a or b is null
   if (a == null || b == null) {
     return false;
   }
 
-  // Check for prototype equality
+  // Check if a and b have the same prototype
   if (a.prototype !== b.prototype) {
     return false;
   }
 
-  // Check for map equality
+  // Check if a and b are maps
   if (a instanceof Map && b instanceof Map) {
     return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
       deepEqual(Array.from(a.values()), Array.from(b.values()));
   }
 
-  // Check for mongoose number equality
+  // Check if a and b are numbers
   if (a instanceof Number && b instanceof Number) {
     return a.valueOf() === b.valueOf();
   }
 
-  // Check for buffer equality
+  // Check if a and b are buffers
   if (Buffer.isBuffer(a)) {
     return exports.buffer.areEqual(a, b);
   }
 
-  // Check for array equality
+  // Check if a and b are arrays
   if (Array.isArray(a) && Array.isArray(b)) {
     return deepEqualArray(a, b);
   }
 
-  // Convert mongoose objects to plain objects
+  // Convert a and b to plain objects
   a = toPlainObject(a);
   b = toPlainObject(b);
 
-  // Check for object key equality
+  // Check if a and b have the same keys
   return deepEqualObject(a, b);
 };
 
-// Helper function to check array equality
+// Helper function to check if two arrays are equal
 function deepEqualArray(a, b) {
   if (a.length !== b.length) {
     return false;
@@ -80,17 +80,17 @@ function deepEqualArray(a, b) {
   return true;
 }
 
-// Helper function to convert mongoose objects to plain objects
+// Helper function to convert an object to a plain object
 function toPlainObject(obj) {
   if (obj.$__ != null) {
-    return obj._doc;
+    obj = obj._doc;
   } else if (isMongooseObject(obj)) {
-    return obj.toObject();
+    obj = obj.toObject();
   }
   return obj;
 }
 
-// Helper function to check object equality
+// Helper function to check if two objects are equal
 function deepEqualObject(a, b) {
   const ka = Object.keys(a);
   const kb = Object.keys(b);

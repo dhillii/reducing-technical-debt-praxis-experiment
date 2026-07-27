@@ -199,16 +199,14 @@ connection.onmessage = function (e) {
     'still-ok': handleSuccess,
     ok: handleSuccess,
     'content-changed': function () {
-      // Triggered when a file from `contentBase` changed.
       window.location.reload();
     },
     warnings: handleWarnings,
     errors: handleErrors,
   };
 
-  const handler = handlers[message.type];
-  if (handler) {
-    handler(message.data);
+  if (handlers[message.type]) {
+    handlers[message.type](message.data);
   }
 };
 

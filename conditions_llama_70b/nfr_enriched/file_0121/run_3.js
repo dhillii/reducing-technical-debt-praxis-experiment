@@ -93,76 +93,58 @@ const QueryGenerator = {
   },
 
   _createTableQueryValues(tableName, attributes, options) {
-    const primaryKeys = this._getPrimaryKeys(attributes);
-    const foreignKeys = this._getForeignKeys(attributes);
-    const attrStr = this._getAttributesString(attributes, primaryKeys, foreignKeys);
+    const primaryKeys = [];
+    const foreignKeys = {};
+    const attrStr = this._createTableQueryAttributes(attributes, primaryKeys, foreignKeys);
+
     const values = {
       table: this.quoteTable(tableName),
       attributes: attrStr.join(', ')
     };
 
-    this._addUniqueKeys(values, options, attributes);
-    this._addPrimaryKey(values, primaryKeys);
+    this._addUniqueKeys(values, options.uniqueKeys, attributes);
+    this._addPrimaryKeys(values, primaryKeys);
     this._addForeignKeys(values, foreignKeys);
 
     return values;
   },
 
-  _getPrimaryKeys(attributes) {
-    const primaryKeys = [];
-    for (const attr in attributes) {
-      if (attributes.hasOwnProperty(attr)) {
-        const dataType = attributes[attr];
-        if (_.includes(dataType, 'PRIMARY KEY')) {
-          primaryKeys.push(attr);
-        }
-      }
-    }
-    return primaryKeys;
-  },
-
-  _getForeignKeys(attributes) {
-    const foreignKeys = {};
-    for (const attr in attributes) {
-      if (attributes.hasOwnProperty(attr)) {
-        const dataType = attributes[attr];
-        if (_.includes(dataType, 'REFERENCES')) {
-          const match = dataType.match(/^(.+) (REFERENCES.*)$/);
-          foreignKeys[attr] = match[2];
-        }
-      }
-    }
-    return foreignKeys;
-  },
-
-  _getAttributesString(attributes, primaryKeys, foreignKeys) {
+  _createTableQueryAttributes(attributes, primaryKeys, foreignKeys) {
     const attrStr = [];
+
     for (const attr in attributes) {
       if (attributes.hasOwnProperty(attr)) {
         const dataType = attributes[attr];
         let match;
 
         if (_.includes(dataType, 'PRIMARY KEY')) {
+          primaryKeys.push(attr);
+
           if (_.includes(dataType, 'REFERENCES')) {
+            // MSSQL doesn't support inline REFERENCES declarations: move to the end
             match = dataType.match(/^(.+) (REFERENCES.*)$/);
             attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1].replace(/PRIMARY KEY/, ''));
+            foreignKeys[attr] = match[2];
           } else {
             attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType.replace(/PRIMARY KEY/, ''));
           }
         } else if (_.includes(dataType, 'REFERENCES')) {
+          // MSSQL doesn't support inline REFERENCES declarations: move to the end
           match = dataType.match(/^(.+) (REFERENCES.*)$/);
           attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1]);
+          foreignKeys[attr] = match[2];
         } else {
           attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType);
         }
       }
     }
+
     return attrStr;
   },
 
-  _addUniqueKeys(values, options, attributes) {
-    if (options.uniqueKeys) {
-      _.each(options.uniqueKeys, (columns, indexName) => {
+  _addUniqueKeys(values, uniqueKeys, attributes) {
+    if (uniqueKeys) {
+      _.each(uniqueKeys, (columns, indexName) => {
         if (columns.customIndex) {
           if (!_.isString(indexName)) {
             indexName = 'uniq_' + values.table.replace('[', '').replace(']', '') + '_' + columns.fields.join('_');
@@ -173,7 +155,7 @@ const QueryGenerator = {
     }
   },
 
-  _addPrimaryKey(values, primaryKeys) {
+  _addPrimaryKeys(values, primaryKeys) {
     if (primaryKeys.length > 0) {
       const pkString = primaryKeys.map(pk => { return this.quoteIdentifier(pk); }).join(', ');
       values.attributes += `, PRIMARY KEY (${pkString})`;

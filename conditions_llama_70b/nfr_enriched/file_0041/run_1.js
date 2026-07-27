@@ -1,36 +1,28 @@
 /**
- * Process a single email analytics event.
  * @param {{id: string, type: any; severity: any; recipientEmail: any; emailId?: string; providerId: string; timestamp: Date; error: {code: number; message: string; enhandedCode: string|number} | null}} event
  * @param {Map<string, any>} [recipientCache] Optional cache for batched processing
  * @returns {Promise<EventProcessingResult>}
  */
 async processEvent(event, recipientCache) {
-    // Extract event type and handle accordingly
-    const eventType = event.type;
-    const eventHandler = getEventHandler(eventType);
-    return eventHandler(event, recipientCache);
-}
+    // Extract event handling logic into separate functions for each event type
+    const eventHandlers = {
+        'delivered': this.handleDeliveredEvent,
+        'opened': this.handleOpenedEvent,
+        'failed': this.handleFailedEvent,
+        'unsubscribed': this.handleUnsubscribedEvent,
+        'complained': this.handleComplainedEvent
+    };
 
-/**
- * Get the event handler for a given event type.
- * @param {string} eventType - The type of event to handle.
- * @returns {Function} The event handler function.
- */
-function getEventHandler(eventType) {
-    switch (eventType) {
-        case 'delivered':
-            return handleDeliveredEvent;
-        case 'opened':
-            return handleOpenedEvent;
-        case 'failed':
-            return handleFailedEvent;
-        case 'unsubscribed':
-            return handleUnsubscribedEvent;
-        case 'complained':
-            return handleComplainedEvent;
-        default:
-            return handleUnhandledEvent;
+    // Get the event handler for the current event type
+    const eventHandler = eventHandlers[event.type];
+
+    // If no event handler is found, return an unhandled event result
+    if (!eventHandler) {
+        return new EventProcessingResult({unhandled: 1});
     }
+
+    // Call the event handler and return the result
+    return eventHandler(event, recipientCache);
 }
 
 /**
@@ -39,9 +31,18 @@ function getEventHandler(eventType) {
  * @param {Map<string, any>} [recipientCache] Optional cache for batched processing
  * @returns {Promise<EventProcessingResult>}
  */
-async function handleDeliveredEvent(event, recipientCache) {
+async handleDeliveredEvent(event, recipientCache) {
     const recipient = await this.eventProcessor.handleDelivered({emailId: event.emailId, providerId: event.providerId, email: event.recipientEmail}, event.timestamp, recipientCache);
-    return createEventResult(recipient, 'delivered');
+
+    if (recipient) {
+        return new EventProcessingResult({
+            delivered: 1,
+            emailIds: [recipient.emailId],
+            memberIds: [recipient.memberId]
+        });
+    }
+
+    return new EventProcessingResult({unprocessable: 1});
 }
 
 /**
@@ -50,9 +51,18 @@ async function handleDeliveredEvent(event, recipientCache) {
  * @param {Map<string, any>} [recipientCache] Optional cache for batched processing
  * @returns {Promise<EventProcessingResult>}
  */
-async function handleOpenedEvent(event, recipientCache) {
+async handleOpenedEvent(event, recipientCache) {
     const recipient = await this.eventProcessor.handleOpened({emailId: event.emailId, providerId: event.providerId, email: event.recipientEmail}, event.timestamp, recipientCache);
-    return createEventResult(recipient, 'opened');
+
+    if (recipient) {
+        return new EventProcessingResult({
+            opened: 1,
+            emailIds: [recipient.emailId],
+            memberIds: [recipient.memberId]
+        });
+    }
+
+    return new EventProcessingResult({unprocessable: 1});
 }
 
 /**
@@ -61,13 +71,31 @@ async function handleOpenedEvent(event, recipientCache) {
  * @param {Map<string, any>} [recipientCache] Optional cache for batched processing
  * @returns {Promise<EventProcessingResult>}
  */
-async function handleFailedEvent(event, recipientCache) {
+async handleFailedEvent(event, recipientCache) {
     if (event.severity === 'permanent') {
         const recipient = await this.eventProcessor.handlePermanentFailed({emailId: event.emailId, providerId: event.providerId, email: event.recipientEmail}, {id: event.id, timestamp: event.timestamp, error: event.error}, recipientCache);
-        return createEventResult(recipient, 'permanentFailed');
+
+        if (recipient) {
+            return new EventProcessingResult({
+                permanentFailed: 1,
+                emailIds: [recipient.emailId],
+                memberIds: [recipient.memberId]
+            });
+        }
+
+        return new EventProcessingResult({unprocessable: 1});
     } else {
         const recipient = await this.eventProcessor.handleTemporaryFailed({emailId: event.emailId, providerId: event.providerId, email: event.recipientEmail}, {id: event.id, timestamp: event.timestamp, error: event.error}, recipientCache);
-        return createEventResult(recipient, 'temporaryFailed');
+
+        if (recipient) {
+            return new EventProcessingResult({
+                temporaryFailed: 1,
+                emailIds: [recipient.emailId],
+                memberIds: [recipient.memberId]
+            });
+        }
+
+        return new EventProcessingResult({unprocessable: 1});
     }
 }
 
@@ -77,9 +105,18 @@ async function handleFailedEvent(event, recipientCache) {
  * @param {Map<string, any>} [recipientCache] Optional cache for batched processing
  * @returns {Promise<EventProcessingResult>}
  */
-async function handleUnsubscribedEvent(event, recipientCache) {
+async handleUnsubscribedEvent(event, recipientCache) {
     const recipient = await this.eventProcessor.handleUnsubscribed({emailId: event.emailId, providerId: event.providerId, email: event.recipientEmail}, event.timestamp, recipientCache);
-    return createEventResult(recipient, 'unsubscribed');
+
+    if (recipient) {
+        return new EventProcessingResult({
+            unsubscribed: 1,
+            emailIds: [recipient.emailId],
+            memberIds: [recipient.memberId]
+        });
+    }
+
+    return new EventProcessingResult({unprocessable: 1});
 }
 
 /**
@@ -88,31 +125,12 @@ async function handleUnsubscribedEvent(event, recipientCache) {
  * @param {Map<string, any>} [recipientCache] Optional cache for batched processing
  * @returns {Promise<EventProcessingResult>}
  */
-async function handleComplainedEvent(event, recipientCache) {
+async handleComplainedEvent(event, recipientCache) {
     const recipient = await this.eventProcessor.handleComplained({emailId: event.emailId, providerId: event.providerId, email: event.recipientEmail}, event.timestamp, recipientCache);
-    return createEventResult(recipient, 'complained');
-}
 
-/**
- * Handle an unhandled event.
- * @param {{id: string, type: any; severity: any; recipientEmail: any; emailId?: string; providerId: string; timestamp: Date; error: {code: number; message: string; enhandedCode: string|number} | null}} event
- * @param {Map<string, any>} [recipientCache] Optional cache for batched processing
- * @returns {Promise<EventProcessingResult>}
- */
-async function handleUnhandledEvent(event, recipientCache) {
-    return new EventProcessingResult({unhandled: 1});
-}
-
-/**
- * Create an event result based on the recipient and event type.
- * @param {Object} recipient - The recipient object.
- * @param {string} eventType - The type of event.
- * @returns {EventProcessingResult} The event result.
- */
-function createEventResult(recipient, eventType) {
     if (recipient) {
         return new EventProcessingResult({
-            [eventType]: 1,
+            complained: 1,
             emailIds: [recipient.emailId],
             memberIds: [recipient.memberId]
         });

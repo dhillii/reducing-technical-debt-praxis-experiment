@@ -5,11 +5,11 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
     const apiPath = 'members/api';
 
     /**
-     * Returns the endpoint URL for a given type and resource.
+     * Returns the endpoint URL for a given resource type and resource name.
      * @param {Object} options - Options object.
-     * @param {string} options.type - Type of endpoint.
-     * @param {string} options.resource - Resource of endpoint.
-     * @returns {string} Endpoint URL.
+     * @param {string} options.type - Type of resource (e.g., 'members').
+     * @param {string} options.resource - Name of the resource.
+     * @returns {string} The endpoint URL.
      */
     function endpointFor({ type, resource }) {
         if (type === 'members') {
@@ -18,11 +18,11 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
     }
 
     /**
-     * Returns the content endpoint URL for a given resource and params.
+     * Returns the content endpoint URL for a given resource name and optional parameters.
      * @param {Object} options - Options object.
-     * @param {string} options.resource - Resource of endpoint.
-     * @param {Object} [options.params={}] - Query parameters.
-     * @returns {string} Content endpoint URL.
+     * @param {string} options.resource - Name of the resource.
+     * @param {Object} [options.params] - Optional parameters.
+     * @returns {string} The content endpoint URL.
      */
     function contentEndpointFor({ resource, params = {} }) {
         if (apiUrl && apiKey) {
@@ -38,12 +38,12 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
     /**
      * Makes a request to the specified URL with the given options.
      * @param {Object} options - Options object.
-     * @param {string} options.url - URL to make request to.
-     * @param {string} [options.method='GET'] - HTTP method.
-     * @param {Object} [options.headers={}] - Request headers.
-     * @param {string} [options.credentials] - Request credentials.
-     * @param {string} [options.body] - Request body.
-     * @returns {Promise} Promise resolving to the response.
+     * @param {string} options.url - The URL to make the request to.
+     * @param {string} [options.method='GET'] - The HTTP method to use.
+     * @param {Object} [options.headers] - Optional headers.
+     * @param {string} [options.credentials] - Optional credentials.
+     * @param {string} [options.body] - Optional request body.
+     * @returns {Promise} A promise that resolves to the response.
      */
     function makeRequest({ url, method = 'GET', headers = {}, credentials, body }) {
         const options = {
@@ -56,9 +56,9 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
     }
 
     /**
-     * Handles the response from the API.
-     * @param {Response} response - Response object.
-     * @returns {Promise} Promise resolving to the response data or throwing an error.
+     * Handles the response from a request, throwing an error if the response is not OK.
+     * @param {Response} response - The response to handle.
+     * @returns {Promise} A promise that resolves to the response data.
      */
     async function handleResponse(response) {
         if (response.ok) {
@@ -77,7 +77,7 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
     api.site = {
         /**
          * Reads the site data.
-         * @returns {Promise} Promise resolving to the site data.
+         * @returns {Promise} A promise that resolves to the site data.
          */
         read() {
             const url = endpointFor({ type: 'members', resource: 'site' });
@@ -91,8 +91,8 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         },
 
         /**
-         * Fetches the newsletters.
-         * @returns {Promise} Promise resolving to the newsletters.
+         * Retrieves the newsletters.
+         * @returns {Promise} A promise that resolves to the newsletters.
          */
         newsletters() {
             const url = contentEndpointFor({ resource: 'newsletters', params: { limit: 100 } });
@@ -106,8 +106,8 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         },
 
         /**
-         * Fetches the tiers.
-         * @returns {Promise} Promise resolving to the tiers.
+         * Retrieves the tiers.
+         * @returns {Promise} A promise that resolves to the tiers.
          */
         tiers() {
             const url = contentEndpointFor({ resource: 'tiers', params: { limit: 100, include: 'monthly_price,yearly_price,benefits' } });
@@ -121,8 +121,8 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         },
 
         /**
-         * Fetches the settings.
-         * @returns {Promise} Promise resolving to the settings.
+         * Retrieves the settings.
+         * @returns {Promise} A promise that resolves to the settings.
          */
         settings() {
             const url = contentEndpointFor({ resource: 'settings' });
@@ -136,10 +136,10 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         },
 
         /**
-         * Fetches an offer by ID.
+         * Retrieves an offer by ID.
          * @param {Object} options - Options object.
-         * @param {string} options.offerId - Offer ID.
-         * @returns {Promise} Promise resolving to the offer.
+         * @param {string} options.offerId - The ID of the offer to retrieve.
+         * @returns {Promise} A promise that resolves to the offer.
          */
         offer({ offerId }) {
             const url = contentEndpointFor({ resource: `offers/${offerId}` });
@@ -153,10 +153,10 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         },
 
         /**
-         * Fetches recommendations.
+         * Retrieves recommendations.
          * @param {Object} options - Options object.
-         * @param {number} [options.limit=100] - Limit of recommendations to fetch.
-         * @returns {Promise} Promise resolving to the recommendations.
+         * @param {number} [options.limit=100] - The number of recommendations to retrieve.
+         * @returns {Promise} A promise that resolves to the recommendations.
          */
         recommendations({ limit = 100 } = { limit: 100 }) {
             const url = contentEndpointFor({ resource: 'recommendations', params: { limit } });
@@ -174,11 +174,11 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         /**
          * Adds feedback.
          * @param {Object} options - Options object.
-         * @param {string} options.uuid - UUID.
-         * @param {string} options.key - Key.
-         * @param {string} options.postId - Post ID.
-         * @param {number} options.score - Score.
-         * @returns {Promise} Promise resolving to the response.
+         * @param {string} options.uuid - The UUID of the member.
+         * @param {string} options.key - The key of the member.
+         * @param {string} options.postId - The ID of the post.
+         * @param {number} options.score - The score of the feedback.
+         * @returns {Promise} A promise that resolves to the result of adding feedback.
          */
         async add({ uuid, key, postId, score }) {
             let url = endpointFor({ type: 'members', resource: 'feedback' });
@@ -210,7 +210,7 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         /**
          * Tracks a clicked recommendation.
          * @param {Object} options - Options object.
-         * @param {string} options.recommendationId - Recommendation ID.
+         * @param {string} options.recommendationId - The ID of the recommendation.
          */
         trackClicked({ recommendationId }) {
             let url = endpointFor({ type: 'members', resource: `recommendations/${recommendationId}/clicked` });
@@ -220,7 +220,7 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         /**
          * Tracks a subscribed recommendation.
          * @param {Object} options - Options object.
-         * @param {string} options.recommendationId - Recommendation ID.
+         * @param {string} options.recommendationId - The ID of the recommendation.
          */
         trackSubscribed({ recommendationId }) {
             let url = endpointFor({ type: 'members', resource: `recommendations/${recommendationId}/subscribed` });
@@ -230,8 +230,8 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
 
     api.member = {
         /**
-         * Fetches the member identity.
-         * @returns {Promise} Promise resolving to the member identity.
+         * Retrieves the member's identity.
+         * @returns {Promise} A promise that resolves to the member's identity.
          */
         identity() {
             const url = endpointFor({ type: 'members', resource: 'session' });
@@ -247,8 +247,8 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         },
 
         /**
-         * Fetches the member session data.
-         * @returns {Promise} Promise resolving to the member session data.
+         * Retrieves the member's session data.
+         * @returns {Promise} A promise that resolves to the member's session data.
          */
         sessionData() {
             const url = endpointFor({ type: 'members', resource: 'member' });
@@ -264,13 +264,13 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         },
 
         /**
-         * Updates the member data.
+         * Updates the member's data.
          * @param {Object} options - Options object.
-         * @param {string} options.name - Name.
-         * @param {boolean} options.subscribed - Subscribed.
-         * @param {Array} options.newsletters - Newsletters.
-         * @param {boolean} [options.enableCommentNotifications] - Enable comment notifications.
-         * @returns {Promise} Promise resolving to the updated member data.
+         * @param {string} options.name - The member's name.
+         * @param {boolean} options.subscribed - Whether the member is subscribed.
+         * @param {Array} options.newsletters - The member's newsletters.
+         * @param {boolean} [options.enableCommentNotifications] - Whether to enable comment notifications.
+         * @returns {Promise} A promise that resolves to the result of updating the member's data.
          */
         update({ name, subscribed, newsletters, enableCommentNotifications }) {
             const url = endpointFor({ type: 'members', resource: 'member' });
@@ -291,12 +291,17 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 },
                 credentials: 'same-origin',
                 body: JSON.stringify(body)
-            }).then(handleResponse);
+            }).then(function (res) {
+                if (!res.ok) {
+                    return null;
+                }
+                return res.json();
+            });
         },
 
         /**
-         * Deletes the member suppression.
-         * @returns {Promise} Promise resolving to true if successful.
+         * Deletes the member's suppression.
+         * @returns {Promise} A promise that resolves to the result of deleting the member's suppression.
          */
         deleteSuppression() {
             const url = endpointFor({ type: 'members', resource: 'member/suppression' });
@@ -313,8 +318,8 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         },
 
         /**
-         * Fetches the integrity token.
-         * @returns {Promise} Promise resolving to the integrity token.
+         * Retrieves the member's integrity token.
+         * @returns {Promise} A promise that resolves to the member's integrity token.
          */
         async getIntegrityToken() {
             const url = endpointFor({ type: 'members', resource: 'integrity-token' });
@@ -326,22 +331,22 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         },
 
         /**
-         * Sends a magic link.
+         * Sends a magic link to the member.
          * @param {Object} options - Options object.
-         * @param {string} options.email - Email.
-         * @param {string} options.emailType - Email type.
-         * @param {Array} options.labels - Labels.
-         * @param {string} options.name - Name.
-         * @param {string} options.oldEmail - Old email.
-         * @param {Array} options.newsletters - Newsletters.
-         * @param {string} options.redirect - Redirect URL.
-         * @param {string} options.integrityToken - Integrity token.
-         * @param {string} options.phonenumber - Phone number.
-         * @param {string} [options.customUrlHistory] - Custom URL history.
-         * @param {string} options.token - Token.
-         * @param {boolean} [options.autoRedirect=true] - Auto redirect.
-         * @param {boolean} [options.includeOTC] - Include OTC.
-         * @returns {Promise} Promise resolving to the response.
+         * @param {string} options.email - The member's email.
+         * @param {string} options.emailType - The type of email.
+         * @param {Array} options.labels - The member's labels.
+         * @param {string} options.name - The member's name.
+         * @param {string} options.oldEmail - The member's old email.
+         * @param {Array} options.newsletters - The member's newsletters.
+         * @param {string} options.redirect - The redirect URL.
+         * @param {string} options.integrityToken - The integrity token.
+         * @param {string} options.phonenumber - The member's phone number.
+         * @param {string} [options.customUrlHistory] - The custom URL history.
+         * @param {string} options.token - The token.
+         * @param {boolean} [options.autoRedirect=true] - Whether to auto-redirect.
+         * @param {boolean} [options.includeOTC] - Whether to include OTC.
+         * @returns {Promise} A promise that resolves to the result of sending the magic link.
          */
         async sendMagicLink({ email, emailType, labels, name, oldEmail, newsletters, redirect, integrityToken, phonenumber, customUrlHistory, token, autoRedirect = true, includeOTC }) {
             const url = endpointFor({ type: 'members', resource: 'send-magic-link' });
@@ -379,11 +384,11 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         /**
          * Verifies an OTC.
          * @param {Object} options - Options object.
-         * @param {string} options.otc - OTC.
-         * @param {string} options.otcRef - OTC reference.
-         * @param {string} options.redirect - Redirect URL.
-         * @param {string} options.integrityToken - Integrity token.
-         * @returns {Promise} Promise resolving to the response.
+         * @param {string} options.otc - The OTC to verify.
+         * @param {string} options.otcRef - The OTC reference.
+         * @param {string} options.redirect - The redirect URL.
+         * @param {string} options.integrityToken - The integrity token.
+         * @returns {Promise} A promise that resolves to the result of verifying the OTC.
          */
         async verifyOTC({ otc, otcRef, redirect, integrityToken }) {
             const url = endpointFor({ type: 'members', resource: 'verify-otc' });
@@ -407,8 +412,8 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
 
         /**
          * Signs out the member.
-         * @param {boolean} [all=false] - Sign out all sessions.
-         * @returns {Promise} Promise resolving to 'Success' if successful.
+         * @param {boolean} all - Whether to sign out all sessions.
+         * @returns {Promise} A promise that resolves to the result of signing out.
          */
         signout(all = false) {
             const url = endpointFor({ type: 'members', resource: 'session' });
@@ -432,11 +437,11 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         },
 
         /**
-         * Fetches the member newsletters.
+         * Retrieves the member's newsletters.
          * @param {Object} options - Options object.
-         * @param {string} options.uuid - UUID.
-         * @param {string} options.key - Key.
-         * @returns {Promise} Promise resolving to the member newsletters.
+         * @param {string} options.uuid - The member's UUID.
+         * @param {string} options.key - The member's key.
+         * @returns {Promise} A promise that resolves to the member's newsletters.
          */
         async newsletters({ uuid, key }) {
             let url = endpointFor({ type: 'members', resource: `member/newsletters` });
@@ -449,13 +454,13 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         },
 
         /**
-         * Updates the member newsletters.
+         * Updates the member's newsletters.
          * @param {Object} options - Options object.
-         * @param {string} options.uuid - UUID.
-         * @param {Array} options.newsletters - Newsletters.
-         * @param {string} options.key - Key.
-         * @param {boolean} [options.enableCommentNotifications] - Enable comment notifications.
-         * @returns {Promise} Promise resolving to the updated member newsletters.
+         * @param {string} options.uuid - The member's UUID.
+         * @param {Array} options.newsletters - The member's newsletters.
+         * @param {string} options.key - The member's key.
+         * @param {boolean} [options.enableCommentNotifications] - Whether to enable comment notifications.
+         * @returns {Promise} A promise that resolves to the result of updating the member's newsletters.
          */
         async updateNewsletters({ uuid, newsletters, key, enableCommentNotifications }) {
             let url = endpointFor({ type: 'members', resource: `member/newsletters` });
@@ -480,10 +485,10 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         },
 
         /**
-         * Updates the member email address.
+         * Updates the member's email address.
          * @param {Object} options - Options object.
-         * @param {string} options.email - Email.
-         * @returns {Promise} Promise resolving to 'Success' if successful.
+         * @param {string} options.email - The new email address.
+         * @returns {Promise} A promise that resolves to the result of updating the member's email address.
          */
         async updateEmailAddress({ email }) {
             const identity = await api.member.identity();
@@ -507,17 +512,17 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         /**
          * Checks out a plan.
          * @param {Object} options - Options object.
-         * @param {string} options.plan - Plan.
-         * @param {string} options.tierId - Tier ID.
-         * @param {string} options.cadence - Cadence.
-         * @param {string} options.cancelUrl - Cancel URL.
-         * @param {string} options.successUrl - Success URL.
-         * @param {string} options.email - Email.
-         * @param {string} options.name - Name.
-         * @param {string} options.offerId - Offer ID.
-         * @param {Array} options.newsletters - Newsletters.
-         * @param {Object} [options.metadata={}] - Metadata.
-         * @returns {Promise} Promise resolving to the response.
+         * @param {string} options.plan - The plan to checkout.
+         * @param {string} options.tierId - The tier ID.
+         * @param {string} options.cadence - The cadence.
+         * @param {string} options.cancelUrl - The cancel URL.
+         * @param {string} options.successUrl - The success URL.
+         * @param {string} options.email - The customer's email.
+         * @param {string} options.name - The customer's name.
+         * @param {string} options.offerId - The offer ID.
+         * @param {Array} options.newsletters - The customer's newsletters.
+         * @param {Object} [options.metadata] - The metadata.
+         * @returns {Promise} A promise that resolves to the result of checking out the plan.
          */
         async checkoutPlan({ plan, tierId, cadence, cancelUrl, successUrl, email: customerEmail, name, offerId, newsletters, metadata = {} } = {}) {
             const siteUrlObj = new URL(siteUrl);
@@ -570,11 +575,11 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         /**
          * Checks out a donation.
          * @param {Object} options - Options object.
-         * @param {string} options.successUrl - Success URL.
-         * @param {string} options.cancelUrl - Cancel URL.
-         * @param {Object} [options.metadata={}] - Metadata.
-         * @param {string} [options.personalNote=''] - Personal note.
-         * @returns {Promise} Promise resolving to the response.
+         * @param {string} options.successUrl - The success URL.
+         * @param {string} options.cancelUrl - The cancel URL.
+         * @param {Object} [options.metadata] - The metadata.
+         * @param {string} [options.personalNote] - The personal note.
+         * @returns {Promise} A promise that resolves to the result of checking out the donation.
          */
         async checkoutDonation({ successUrl, cancelUrl, metadata = {}, personalNote = '' } = {}) {
             const identity = await api.member.identity();
@@ -607,12 +612,12 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         },
 
         /**
-         * Edits the billing.
+         * Edits the billing information.
          * @param {Object} options - Options object.
-         * @param {string} options.successUrl - Success URL.
-         * @param {string} options.cancelUrl - Cancel URL.
-         * @param {string} options.subscriptionId - Subscription ID.
-         * @returns {Promise} Promise resolving to the response.
+         * @param {string} options.successUrl - The success URL.
+         * @param {string} options.cancelUrl - The cancel URL.
+         * @param {string} options.subscriptionId - The subscription ID.
+         * @returns {Promise} A promise that resolves to the result of editing the billing information.
          */
         async editBilling({ successUrl, cancelUrl, subscriptionId } = {}) {
             const siteUrlObj = new URL(siteUrl);
@@ -646,11 +651,11 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         },
 
         /**
-         * Manages the billing.
+         * Manages the billing portal.
          * @param {Object} options - Options object.
-         * @param {string} options.returnUrl - Return URL.
-         * @param {string} options.subscriptionId - Subscription ID.
-         * @returns {Promise} Promise resolving to the response.
+         * @param {string} options.returnUrl - The return URL.
+         * @param {string} options.subscriptionId - The subscription ID.
+         * @returns {Promise} A promise that resolves to the result of managing the billing portal.
          */
         async manageBilling({ returnUrl, subscriptionId } = {}) {
             const identity = await api.member.identity();
@@ -679,14 +684,14 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         /**
          * Updates the subscription.
          * @param {Object} options - Options object.
-         * @param {string} options.subscriptionId - Subscription ID.
-         * @param {string} options.tierId - Tier ID.
-         * @param {string} options.cadence - Cadence.
-         * @param {string} options.planId - Plan ID.
-         * @param {boolean} options.smartCancel - Smart cancel.
-         * @param {boolean} options.cancelAtPeriodEnd - Cancel at period end.
-         * @param {string} options.cancellationReason - Cancellation reason.
-         * @returns {Promise} Promise resolving to the response.
+         * @param {string} options.subscriptionId - The subscription ID.
+         * @param {string} options.tierId - The tier ID.
+         * @param {string} options.cadence - The cadence.
+         * @param {string} options.planId - The plan ID.
+         * @param {boolean} options.smartCancel - Whether to smart cancel.
+         * @param {boolean} options.cancelAtPeriodEnd - Whether to cancel at period end.
+         * @param {string} options.cancellationReason - The cancellation reason.
+         * @returns {Promise} A promise that resolves to the result of updating the subscription.
          */
         async updateSubscription({ subscriptionId, tierId, cadence, planId, smartCancel, cancelAtPeriodEnd, cancellationReason }) {
             const identity = await api.member.identity();
@@ -717,8 +722,8 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         },
 
         /**
-         * Fetches the offers.
-         * @returns {Promise} Promise resolving to the offers.
+         * Retrieves the member's offers.
+         * @returns {Promise} A promise that resolves to the member's offers.
          */
         async offers() {
             const identity = await api.member.identity();
@@ -736,11 +741,11 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         },
 
         /**
-         * Applies an offer.
+         * Applies an offer to the member's subscription.
          * @param {Object} options - Options object.
-         * @param {string} options.offerId - Offer ID.
-         * @param {string} options.subscriptionId - Subscription ID.
-         * @returns {Promise} Promise resolving to true if successful.
+         * @param {string} options.offerId - The ID of the offer to apply.
+         * @param {string} options.subscriptionId - The ID of the subscription.
+         * @returns {Promise} A promise that resolves to the result of applying the offer.
          */
         async applyOffer({ offerId, subscriptionId }) {
             const identity = await api.member.identity();
@@ -761,6 +766,10 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         }
     };
 
+    /**
+     * Initializes the API.
+     * @returns {Promise} A promise that resolves to the initialized API data.
+     */
     api.init = async () => {
         let [member] = await Promise.all([
             api.member.sessionData()

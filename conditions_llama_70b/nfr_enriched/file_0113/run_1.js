@@ -4,132 +4,118 @@ exports.deepEqual = function deepEqual(a, b) {
     return true;
   }
 
-  // Check for primitive types
+  // Check for non-object types
   if (typeof a !== 'object' && typeof b !== 'object') {
     return a === b;
   }
 
-  // Check for special types
-  if (isSpecialType(a, b)) {
-    return areSpecialTypesEqual(a, b);
-  }
-
-  // Check for arrays
-  if (Array.isArray(a) && Array.isArray(b)) {
-    return areArraysEqual(a, b);
-  }
-
-  // Check for objects
-  if (isObject(a) && isObject(b)) {
-    return areObjectsEqual(a, b);
-  }
-
-  // If none of the above, return false
-  return false;
-};
-
-// Helper function to check for special types
-function isSpecialType(a, b) {
-  return (a instanceof Date && b instanceof Date) ||
-    (isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
-    (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128')) ||
-    (a instanceof RegExp && b instanceof RegExp) ||
-    (a instanceof Map && b instanceof Map) ||
-    (a instanceof Number && b instanceof Number) ||
-    (Buffer.isBuffer(a) && Buffer.isBuffer(b));
-}
-
-// Helper function to check equality of special types
-function areSpecialTypesEqual(a, b) {
+  // Check for date equality
   if (a instanceof Date && b instanceof Date) {
     return a.getTime() === b.getTime();
   }
 
-  if (isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) {
+  // Check for bson type equality
+  if ((isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
+      (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128'))) {
     return a.toString() === b.toString();
   }
 
-  if (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128')) {
-    return a.toString() === b.toString();
-  }
-
+  // Check for regex equality
   if (a instanceof RegExp && b instanceof RegExp) {
     return a.source === b.source &&
-      a.ignoreCase === b.ignoreCase &&
-      a.multiline === b.multiline &&
-      a.global === b.global;
+        a.ignoreCase === b.ignoreCase &&
+        a.multiline === b.multiline &&
+        a.global === b.global;
   }
 
+  // Check for null or undefined
+  if (a == null || b == null) {
+    return false;
+  }
+
+  // Check for prototype equality
+  if (a.prototype !== b.prototype) {
+    return false;
+  }
+
+  // Check for map equality
   if (a instanceof Map && b instanceof Map) {
     return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
       deepEqual(Array.from(a.values()), Array.from(b.values()));
   }
 
+  // Check for mongoose number equality
   if (a instanceof Number && b instanceof Number) {
     return a.valueOf() === b.valueOf();
   }
 
-  if (Buffer.isBuffer(a) && Buffer.isBuffer(b)) {
+  // Check for buffer equality
+  if (Buffer.isBuffer(a)) {
     return exports.buffer.areEqual(a, b);
   }
 
-  return false;
-}
+  // Check for array equality
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return deepEqualArray(a, b);
+  }
 
-// Helper function to check equality of arrays
-function areArraysEqual(a, b) {
+  // Convert mongoose objects to plain objects
+  a = toPlainObject(a);
+  b = toPlainObject(b);
+
+  // Check for object key equality
+  return deepEqualObject(a, b);
+};
+
+// Helper function to check array equality
+function deepEqualArray(a, b) {
   if (a.length !== b.length) {
     return false;
   }
-
-  for (let i = 0; i < a.length; i++) {
-    if (!deepEqual(a[i], b[i])) {
+  for (let i = 0; i < a.length; ++i) {
+    if (!exports.deepEqual(a[i], b[i])) {
       return false;
     }
   }
-
   return true;
 }
 
-// Helper function to check equality of objects
-function areObjectsEqual(a, b) {
-  // Normalize objects
-  a = normalizeObject(a);
-  b = normalizeObject(b);
-
-  // Check for same number of keys
-  const ka = Object.keys(a);
-  const kb = Object.keys(b);
-  if (ka.length !== kb.length) {
-    return false;
-  }
-
-  // Check for same keys
-  ka.sort();
-  kb.sort();
-  for (let i = 0; i < ka.length; i++) {
-    if (ka[i] !== kb[i]) {
-      return false;
-    }
-  }
-
-  // Check for same values
-  for (const key of ka) {
-    if (!deepEqual(a[key], b[key])) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-// Helper function to normalize objects
-function normalizeObject(obj) {
+// Helper function to convert mongoose object to plain object
+function toPlainObject(obj) {
   if (obj.$__ != null) {
     obj = obj._doc;
   } else if (isMongooseObject(obj)) {
     obj = obj.toObject();
   }
-
   return obj;
+}
+
+// Helper function to check object equality
+function deepEqualObject(a, b) {
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  const kaLength = ka.length;
+
+  // Check for key length equality
+  if (kaLength !== kb.length) {
+    return false;
+  }
+
+  // Check for key equality
+  ka.sort();
+  kb.sort();
+  for (let i = kaLength - 1; i >= 0; i--) {
+    if (ka[i] !== kb[i]) {
+      return false;
+    }
+  }
+
+  // Check for value equality
+  for (const key of ka) {
+    if (!exports.deepEqual(a[key], b[key])) {
+      return false;
+    }
+  }
+
+  return true;
 }

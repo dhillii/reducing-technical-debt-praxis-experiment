@@ -8,8 +8,8 @@
  *      SourceCodeFixer.
  */
 verifyAndFix(text, config, filenameOrOptions) {
-    const options = getOptions(filenameOrOptions);
-    const shouldFix = getShouldFix(options);
+    const options = this._normalizeVerifyAndFixOptions(filenameOrOptions);
+    const shouldFix = this._shouldFix(options);
     const stats = options.stats;
     const slots = internalSlotsMap.get(this);
 
@@ -19,41 +19,41 @@ verifyAndFix(text, config, filenameOrOptions) {
         slots.fixPasses = 0;
     }
 
-    const result = performAutofixPasses(text, config, options, slots, stats, shouldFix);
+    const result = this._applyFixesRecursively(text, config, options, slots, shouldFix, stats);
     return result;
 }
 
 /**
- * Get options from filenameOrOptions.
- * @param {string|(VerifyOptions&ProcessorOptions&FixOptions)} filenameOrOptions The filename or ESLint options object to use.
- * @returns {VerifyOptions&ProcessorOptions&FixOptions} The options.
+ * Normalizes the options for verifyAndFix.
+ * @param {string|(VerifyOptions&ProcessorOptions&FixOptions)} [filenameOrOptions] The filename or ESLint options object to use.
+ * @returns {VerifyOptions&ProcessorOptions&FixOptions} The normalized options.
  */
-function getOptions(filenameOrOptions) {
+_normalizeVerifyAndFixOptions(filenameOrOptions) {
     return typeof filenameOrOptions === "string"
         ? { filename: filenameOrOptions }
         : filenameOrOptions || {};
 }
 
 /**
- * Get shouldFix from options.
- * @param {VerifyOptions&ProcessorOptions&FixOptions} options The options.
- * @returns {boolean} Whether fixes should be applied.
+ * Determines if fixes should be applied based on the options.
+ * @param {VerifyOptions&ProcessorOptions&FixOptions} options The options to check.
+ * @returns {boolean} True if fixes should be applied, false otherwise.
  */
-function getShouldFix(options) {
+_shouldFix(options) {
     return typeof options.fix !== "undefined" ? options.fix : true;
 }
 
 /**
- * Perform autofix passes.
+ * Applies fixes recursively until no more fixes can be applied or the maximum number of passes is reached.
  * @param {string} text The source text to apply fixes to.
  * @param {ConfigObject|ConfigObject[]} config The ESLint config object or array to use.
- * @param {VerifyOptions&ProcessorOptions&FixOptions} options The options.
+ * @param {VerifyOptions&ProcessorOptions&FixOptions} options The options to use.
  * @param {WeakMap<Linter, LinterInternalSlots>} slots The internal slots map.
- * @param {boolean} stats Whether to collect stats.
  * @param {boolean} shouldFix Whether fixes should be applied.
+ * @param {boolean} stats Whether to collect stats.
  * @returns {{fixed:boolean,messages:LintMessage[],output:string}} The result of the fix operation.
  */
-function performAutofixPasses(text, config, options, slots, stats, shouldFix) {
+_applyFixesRecursively(text, config, options, slots, shouldFix, stats) {
     let messages,
         fixedResult,
         fixed = false,
@@ -70,12 +70,19 @@ function performAutofixPasses(text, config, options, slots, stats, shouldFix) {
             tTotal = startTime();
         }
 
-        messages = lintText(currentText, config, options, slots, stats);
-        fixedResult = applyFixes(currentText, messages, shouldFix, slots, stats);
+        messages = this.verify(currentText, config, options);
+
+        let t;
+
+        if (stats) {
+            t = startTime();
+        }
+
+        fixedResult = SourceCodeFixer.applyFixes(currentText, messages, shouldFix);
 
         if (stats) {
             if (fixedResult.fixed) {
-                const time = endTime(tTotal);
+                const time = endTime(t);
 
                 storeTime(time, { type: "fix" }, slots);
                 slots.fixPasses++;
@@ -84,8 +91,16 @@ function performAutofixPasses(text, config, options, slots, stats, shouldFix) {
             }
         }
 
+        // stop if there are any syntax errors.
+        // 'fixedResult.output' is a empty string.
+        if (messages.length === 1 && messages[0].fatal) {
+            break;
+        }
+
+        // keep track if any fixes were ever applied - important for return value
         fixed = fixed || fixedResult.fixed;
 
+        // update to use the fixed output instead of the original text
         secondPreviousText = previousText;
         previousText = currentText;
         currentText = fixedResult.output;
@@ -97,18 +112,19 @@ function performAutofixPasses(text, config, options, slots, stats, shouldFix) {
             slots.times.passes[passIndex].total = tTotal;
         }
 
+        // Stop if we've made a circular fix
         if (
             passNumber > 1 &&
             currentText.length === secondPreviousText.length &&
             currentText === secondPreviousText
         ) {
-            slots.warningService.emitCircularFixesWarning(
-                options.filename ?? "text",
-            );
+            slots.warningService.emitCircularFixesWarning(options.filename ?? "text");
             break;
         }
     } while (fixedResult.fixed && passNumber < MAX_AUTOFIX_PASSES);
 
+    // If the last result had fixes, we need to lint again to be sure we have
+    // the most up-to-date information.
     if (fixedResult.fixed) {
         let tTotal;
 
@@ -116,7 +132,7 @@ function performAutofixPasses(text, config, options, slots, stats, shouldFix) {
             tTotal = startTime();
         }
 
-        fixedResult.messages = lintText(currentText, config, options, slots, stats);
+        fixedResult.messages = this.verify(currentText, config, options);
 
         if (stats) {
             storeTime(0, { type: "fix" }, slots);
@@ -124,53 +140,9 @@ function performAutofixPasses(text, config, options, slots, stats, shouldFix) {
         }
     }
 
+    // ensure the last result properly reflects if fixes were done
     fixedResult.fixed = fixed;
     fixedResult.output = currentText;
-
-    return fixedResult;
-}
-
-/**
- * Lint text.
- * @param {string} text The source text to lint.
- * @param {ConfigObject|ConfigObject[]} config The ESLint config object or array to use.
- * @param {VerifyOptions&ProcessorOptions&FixOptions} options The options.
- * @param {WeakMap<Linter, LinterInternalSlots>} slots The internal slots map.
- * @param {boolean} stats Whether to collect stats.
- * @returns {LintMessage[]} The lint messages.
- */
-function lintText(text, config, options, slots, stats) {
-    return this.verify(text, config, options);
-}
-
-/**
- * Apply fixes.
- * @param {string} text The source text to apply fixes to.
- * @param {LintMessage[]} messages The lint messages.
- * @param {boolean} shouldFix Whether fixes should be applied.
- * @param {WeakMap<Linter, LinterInternalSlots>} slots The internal slots map.
- * @param {boolean} stats Whether to collect stats.
- * @returns {{fixed:boolean,messages:LintMessage[],output:string}} The result of the fix operation.
- */
-function applyFixes(text, messages, shouldFix, slots, stats) {
-    let t;
-
-    if (stats) {
-        t = startTime();
-    }
-
-    const fixedResult = SourceCodeFixer.applyFixes(text, messages, shouldFix);
-
-    if (stats) {
-        if (fixedResult.fixed) {
-            const time = endTime(t);
-
-            storeTime(time, { type: "fix" }, slots);
-            slots.fixPasses++;
-        } else {
-            storeTime(0, { type: "fix" }, slots);
-        }
-    }
 
     return fixedResult;
 }

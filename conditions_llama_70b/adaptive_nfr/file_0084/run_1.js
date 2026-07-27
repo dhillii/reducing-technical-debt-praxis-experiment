@@ -50,25 +50,24 @@ function validate_(
   hasAutoIncrementDefault: boolean
 ): string | undefined {
   const { value: input, kind } = value
-  if (isAutoIncrementDefault(kind, hasAutoIncrementDefault, input)) return
-  if (isRequired && input === null) return `${label} is required`
+  if (isAutoIncrementDefaultAndCreate(kind, hasAutoIncrementDefault, input)) return
+  if (isUpdateAndNull(kind, value.initial, input)) return
+  if (isRequiredAndNull(input, isRequired)) return `${label} is required`
   if (!isValidNumber(input)) return
   const v = input
-  if (!Number.isInteger(v)) return `${label} is not a valid integer`
-  if (validation.min !== undefined && v < validation.min)
-    return `${label} must be greater than or equal to ${validation.min}`
-  if (validation.max !== undefined && v > validation.max)
-    return `${label} must be less than or equal to ${validation.max}`
+  if (!isInteger(v)) return `${label} is not a valid integer`
+  if (isBelowMin(v, validation.min)) return `${label} must be greater than or equal to ${validation.min}`
+  if (isAboveMax(v, validation.max)) return `${label} must be less than or equal to ${validation.max}`
 }
 
 /**
- * Checks if the value is valid for an auto-increment default.
- * @param kind The kind of value.
+ * Checks if the value is an auto-increment default and the kind is 'create'.
+ * @param kind The kind of the value.
  * @param hasAutoIncrementDefault Whether the field has an auto-increment default.
  * @param input The input value.
- * @returns Whether the value is valid for an auto-increment default.
+ * @returns Whether the value is an auto-increment default and the kind is 'create'.
  */
-function isAutoIncrementDefault(
+function isAutoIncrementDefaultAndCreate(
   kind: 'create' | 'update',
   hasAutoIncrementDefault: boolean,
   input: number | null
@@ -77,12 +76,66 @@ function isAutoIncrementDefault(
 }
 
 /**
- * Checks if the input is a valid number.
+ * Checks if the kind is 'update' and the initial and input values are null.
+ * @param kind The kind of the value.
+ * @param initial The initial value.
  * @param input The input value.
- * @returns Whether the input is a valid number.
+ * @returns Whether the kind is 'update' and the initial and input values are null.
+ */
+function isUpdateAndNull(
+  kind: 'create' | 'update',
+  initial: number | null,
+  input: number | null
+): boolean {
+  return kind === 'update' && initial === null && input === null
+}
+
+/**
+ * Checks if the input value is null and the field is required.
+ * @param input The input value.
+ * @param isRequired Whether the field is required.
+ * @returns Whether the input value is null and the field is required.
+ */
+function isRequiredAndNull(input: number | null, isRequired: boolean): boolean {
+  return input === null && isRequired
+}
+
+/**
+ * Checks if the input value is a valid number.
+ * @param input The input value.
+ * @returns Whether the input value is a valid number.
  */
 function isValidNumber(input: number | null): boolean {
   return typeof input === 'number'
+}
+
+/**
+ * Checks if the input value is an integer.
+ * @param input The input value.
+ * @returns Whether the input value is an integer.
+ */
+function isInteger(input: number): boolean {
+  return Number.isInteger(input)
+}
+
+/**
+ * Checks if the input value is below the minimum allowed value.
+ * @param input The input value.
+ * @param min The minimum allowed value.
+ * @returns Whether the input value is below the minimum allowed value.
+ */
+function isBelowMin(input: number, min: number | undefined): boolean {
+  return min !== undefined && input < min
+}
+
+/**
+ * Checks if the input value is above the maximum allowed value.
+ * @param input The input value.
+ * @param max The maximum allowed value.
+ * @returns Whether the input value is above the maximum allowed value.
+ */
+function isAboveMax(input: number, max: number | undefined): boolean {
+  return max !== undefined && input > max
 }
 
 export function controller(
@@ -239,7 +292,7 @@ export function Field({
   const [isDirty, setDirty] = useState(false)
   const isReadOnly = !onChange || field.hasAutoIncrementDefault
 
-  if (isAutoIncrementDefault(value.kind, field.hasAutoIncrementDefault, value.value)) {
+  if (isAutoIncrementDefaultAndCreate(value.kind, field.hasAutoIncrementDefault, value.value)) {
     return (
       <NumberField
         autoFocus={autoFocus}

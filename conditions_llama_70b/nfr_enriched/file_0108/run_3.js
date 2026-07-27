@@ -196,32 +196,12 @@ exports.highlightTags = function (name) {
 };
 
 /**
- * Get the type of a value.
- *
- * @api private
- * @param {*} value
- * @return {string}
- */
-function getType(value) {
-  if (value === undefined) {
-    return 'undefined';
-  } else if (value === null) {
-    return 'null';
-  } else if (Buffer.isBuffer(value)) {
-    return 'buffer';
-  }
-  return Object.prototype.toString.call(value)
-    .replace(/^\[.+\s(.+?)]$/, '$1')
-    .toLowerCase();
-}
-
-/**
  * Get the empty representation of a value.
  *
  * @api private
  * @param {*} value
  * @param {string} typeHint
- * @return {string}
+ * @returns {string}
  */
 function getEmptyRepresentation(value, typeHint) {
   switch (typeHint) {
@@ -234,6 +214,26 @@ function getEmptyRepresentation(value, typeHint) {
     default:
       return value.toString();
   }
+}
+
+/**
+ * Get the type of a value.
+ *
+ * @api private
+ * @param {*} value
+ * @returns {string}
+ */
+function getType(value) {
+  if (value === undefined) {
+    return 'undefined';
+  } else if (value === null) {
+    return 'null';
+  } else if (Buffer.isBuffer(value)) {
+    return 'buffer';
+  }
+  return Object.prototype.toString.call(value)
+    .replace(/^\[.+\s(.+?)]$/, '$1')
+    .toLowerCase();
 }
 
 /**
@@ -285,7 +285,7 @@ exports.stringify = function (value) {
 };
 
 /**
- * like JSON.stringify but more sense.
+ * Like JSON.stringify but more sense.
  *
  * @api private
  * @param {Object}  object
@@ -301,7 +301,7 @@ function jsonStringify(object, spaces, depth) {
 
   depth = depth || 1;
   const space = spaces * depth;
-  let str = Array.isArray(object) ? '[' : '{';
+  const str = Array.isArray(object) ? '[' : '{';
   const end = Array.isArray(object) ? ']' : '}';
   const length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
   // `.repeat()` polyfill
@@ -403,7 +403,7 @@ exports.canonicalize = function canonicalize(value, stack, typeHint) {
       break;
     case 'array':
       withStack(value, function () {
-        canonicalizedObj = value.map(function (item) {
+        canonicalizedObj = value.map((item) => {
           return exports.canonicalize(item, stack);
         });
       });
@@ -421,7 +421,7 @@ exports.canonicalize = function canonicalize(value, stack, typeHint) {
     case 'object':
       canonicalizedObj = canonicalizedObj || {};
       withStack(value, function () {
-        Object.keys(value).sort().forEach(function (key) {
+        Object.keys(value).sort().forEach((key) => {
           canonicalizedObj[key] = exports.canonicalize(value[key], stack);
         });
       });
@@ -450,7 +450,7 @@ exports.canonicalize = function canonicalize(value, stack, typeHint) {
  * @return {string[]} An array of paths.
  */
 exports.lookupFiles = function lookupFiles(path, extensions, recursive) {
-  let files = [];
+  const files = [];
 
   if (!exists(path)) {
     if (exists(path + '.js')) {

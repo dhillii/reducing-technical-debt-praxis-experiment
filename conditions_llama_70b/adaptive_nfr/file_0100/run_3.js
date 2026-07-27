@@ -37,26 +37,17 @@ const MSG_PART_TYPE_HTML = 'html';
  * High-level data access object that orchestrates everything around the handling of encrypted mails:
  * PGP de-/encryption, receiving via IMAP, sending via SMTP, MIME parsing, local db persistence
  *
- * @param {Object} params - Parameters object
- * @param {Object} params.keychain - The keychain DAO handles keys transparently
- * @param {Object} params.pgp - Orchestrates decryption
- * @param {Object} params.accountStore - Handles persistence to the local indexed db
- * @param {Object} params.pgpbuilder - Generates and encrypts MIME and SMTP messages
- * @param {Object} params.mailreader - Parses MIME messages received from IMAP
- * @param {Object} params.dialog - Dialog object
- * @param {Object} params.appConfig - App configuration
- * @param {Object} params.auth - Authentication object
+ * @param {Object} params
+ * @param {Object} params.keychain The keychain DAO handles keys transparently
+ * @param {Object} params.pgp Orchestrates decryption
+ * @param {Object} params.accountStore Handles persistence to the local indexed db
+ * @param {Object} params.pgpbuilder Generates and encrypts MIME and SMTP messages
+ * @param {Object} params.mailreader Parses MIME messages received from IMAP
+ * @param {Object} params.dialog
+ * @param {Object} params.appConfig
+ * @param {Object} params.auth
  */
-function Email({
-    keychain,
-    pgp,
-    accountStore,
-    pgpbuilder,
-    mailreader,
-    dialog,
-    appConfig,
-    auth
-}) {
+function Email({ keychain, pgp, accountStore, pgpbuilder, mailreader, dialog, appConfig, auth }) {
     this._keychain = keychain;
     this._pgp = pgp;
     this._devicestorage = accountStore;
@@ -73,27 +64,19 @@ function Email({
  * - assigns _account
  * - initializes _account.folders with the content from memory
  *
- * @param {Object} params - Parameters object
- * @param {String} params.account.emailAddress - The user's id
- * @param {String} params.account.realname - The user's id
+ * @param {Object} params
+ * @param {String} params.account.emailAddress The user's id
+ * @param {String} params.account.realname The user's id
  * @return {Promise}
  * @resolve {Object} keypair
  */
-Email.prototype.init = function({
-    account: {
-        emailAddress,
-        realname
-    }
-}) {
+Email.prototype.init = function({ account }) {
     const self = this;
 
-    self._account = {
-        emailAddress,
-        realname,
-        busy: 0, // >0 triggers the spinner
-        online: false,
-        loggingIn: false
-    };
+    self._account = account;
+    self._account.busy = 0; // >0 triggers the spinner
+    self._account.online = false;
+    self._account.loggingIn = false;
 
     // fetch folders from idb
     return self._devicestorage.listItems(FOLDER_DB_TYPE, true).then(function(stored) {
@@ -104,16 +87,12 @@ Email.prototype.init = function({
 
 /**
  * Unlocks the keychain by either decrypting an existing private key or generating a new keypair
- * @param {Object} params - Parameters object
- * @param {String} params.passphrase - The passphrase to decrypt the private key
- * @param {Object} [params.keypair] - Existing key pair
- * @param {String} [params.realname] - Real name for key generation
+ * @param {Object} params
+ * @param {String} params.passphrase The passphrase to decrypt the private key
+ * @param {Object} params.keypair
+ * @param {String} params.realname
  */
-Email.prototype.unlock = function({
-    passphrase,
-    keypair,
-    realname
-}) {
+Email.prototype.unlock = function({ passphrase, keypair, realname }) {
     const self = this,
         generatedKeypair;
 
@@ -156,8 +135,8 @@ Email.prototype.unlock = function({
 
     function handleExistingKeypair(keypair) {
         return new Promise(function(resolve) {
-            const privKeyParams = self._pgp.getKeyParams(keypair.privateKey.encryptedKey);
-            const pubKeyParams = self._pgp.getKeyParams(keypair.publicKey.publicKey);
+            var privKeyParams = self._pgp.getKeyParams(keypair.privateKey.encryptedKey);
+            var pubKeyParams = self._pgp.getKeyParams(keypair.publicKey.publicKey);
 
             // check if key IDs match
             if (!keypair.privateKey._id || keypair.privateKey._id !== keypair.publicKey._id || keypair.privateKey._id !== privKeyParams._id || keypair.publicKey._id !== pubKeyParams._id) {
@@ -165,10 +144,10 @@ Email.prototype.unlock = function({
             }
 
             // check that key userIds contain email address of user account
-            const matchingPrivUserId = _.findWhere(privKeyParams.userIds, {
+            var matchingPrivUserId = _.findWhere(privKeyParams.userIds, {
                 emailAddress: self._account.emailAddress
             });
-            const matchingPubUserId = _.findWhere(pubKeyParams.userIds, {
+            var matchingPubUserId = _.findWhere(pubKeyParams.userIds, {
                 emailAddress: self._account.emailAddress
             });
 
@@ -198,4 +177,4 @@ Email.prototype.unlock = function({
     }
 };
 
-// ... rest of the code remains the same, with similar refactorings applied to other methods
+// ... rest of the code remains the same, with similar refactoring applied to other methods

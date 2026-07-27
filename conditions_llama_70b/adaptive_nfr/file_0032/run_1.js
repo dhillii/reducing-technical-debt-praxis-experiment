@@ -81,7 +81,7 @@ function getVisibilitySegment(visibility, isPublic, tiers, settings) {
                     }).join(',');
                     return filter;
                 }
-                return visibility;
+                break;
             default:
                 return visibility;
         }

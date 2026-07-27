@@ -6,7 +6,7 @@ module.exports = {
     if (provider === 'local') {
       await handleLocalProvider(ctx, params);
     } else {
-      await handleThirdPartyProvider(ctx, provider);
+      await handleThirdPartyProvider(ctx, provider, params);
     }
   },
 };
@@ -34,7 +34,7 @@ async function handleLocalProvider(ctx, params) {
     return ctx.badRequest(null, formatError({ id: 'Auth.form.error.invalid', message: 'Identifier or password invalid.' }));
   }
 
-  const errorsAfterFetch = validateUserAfterFetch(user, params, store);
+  const errorsAfterFetch = validateUserAfterFetch(user, store);
   if (errorsAfterFetch.length > 0) {
     return ctx.badRequest(null, formatError(errorsAfterFetch[0]));
   }
@@ -50,7 +50,7 @@ async function handleLocalProvider(ctx, params) {
   });
 }
 
-async function handleThirdPartyProvider(ctx, provider) {
+async function handleThirdPartyProvider(ctx, provider, params) {
   const store = await strapi.store({
     environment: '',
     type: 'plugin',
@@ -106,7 +106,7 @@ function buildLocalQuery(params) {
   return query;
 }
 
-function validateUserAfterFetch(user, params, store) {
+function validateUserAfterFetch(user, store) {
   const errors = [];
 
   if (

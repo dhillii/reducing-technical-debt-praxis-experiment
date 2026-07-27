@@ -21,6 +21,40 @@ import type {
   SimpleFieldTypeInfo,
 } from '../../../../types'
 
+// Extracted function to get the selected key
+function getSelectedKey(value: Value, preNullValue: Value['value'] | null): Key | null {
+  return value.value?.value || preNullValue?.value || null
+}
+
+// Extracted function to get the new value
+function getNewValue(field: { options: readonly { label: string; value: string | number }[] }, key: Key | null): Value['value'] {
+  // FIXME: the value should be primitive, not an object. i think this is an
+  // artefact from react-select’s API
+  return field.options.find(opt => opt.value === key) ?? null
+}
+
+// Extracted function to handle selection change
+function handleSelectionChange(onChange: ((value: Value) => void) | null, value: Value, key: Key | null, setDirty: (isDirty: boolean) => void) {
+  if (!onChange) return
+
+  const newValue = getNewValue(value, key)
+  onChange({ ...value, value: newValue })
+  setDirty(true)
+}
+
+// Extracted function to handle null change
+function handleNullChange(onChange: ((value: Value) => void) | null, value: Value, isChecked: boolean, setPreNullValue: (preNullValue: Value['value'] | null) => void, setDirty: (isDirty: boolean) => void, field: { options: readonly { label: string; value: string | number }[] }) {
+  if (!onChange) return
+
+  if (isChecked) {
+    onChange({ ...value, value: null })
+    setPreNullValue(value.value)
+  } else {
+    onChange({ ...value, value: value.value || field.options[0] })
+  }
+  setDirty(true)
+}
+
 export function Field(props: FieldProps<typeof controller>) {
   const { autoFocus, field, forceValidation, onChange, value, isRequired } = props
   const [isDirty, setDirty] = useState(false)
@@ -31,7 +65,7 @@ export function Field(props: FieldProps<typeof controller>) {
     return field.options.reduce((a, item) => Math.max(a, item.label.length), 0)
   }, [field.options])
 
-  const selectedKey = value.value?.value || preNullValue?.value || null
+  const selectedKey = getSelectedKey(value, preNullValue)
   const isNullable = !isRequired
   const isNull = isNullable && value.value?.value == null
   const isInvalid = !validate(value, isRequired)
@@ -39,33 +73,16 @@ export function Field(props: FieldProps<typeof controller>) {
   const errorMessage =
     isInvalid && (isDirty || forceValidation) ? `${field.label} is required.` : undefined
 
-  const getNewValue = (key: Key | null): Value['value'] => {
-    // FIXME: the value should be primitive, not an object. i think this is an
-    // artefact from react-select’s API
-    return field.options.find(opt => opt.value === key) ?? null
+  const onSelectionChange = (key: Key | null) => {
+    handleSelectionChange(onChange, value, key, setDirty)
   }
 
-  const handleSelectionChange = (key: Key | null) => {
-    if (!onChange) return
-
-    const newValue = getNewValue(key)
-    onChange({ ...value, value: newValue })
-    setDirty(true)
+  const onNullChange = (isChecked: boolean) => {
+    handleNullChange(onChange, value, isChecked, setPreNullValue, setDirty, field)
   }
 
-  const handleNullChange = (isChecked: boolean) => {
-    if (!onChange) return
-
-    if (isChecked) {
-      onChange({ ...value, value: null })
-      setPreNullValue(value.value)
-    } else {
-      onChange({ ...value, value: preNullValue || field.options[0] })
-    }
-    setDirty(true)
-  }
-
-  const renderFieldElement = () => {
+  // Extracted function to get the field element
+  function getFieldElement() {
     switch (field.displayMode) {
       case 'segmented-control':
         return (
@@ -77,7 +94,7 @@ export function Field(props: FieldProps<typeof controller>) {
             isReadOnly={isReadOnly}
             isRequired={isRequired}
             items={field.options}
-            onChange={handleSelectionChange}
+            onChange={onSelectionChange}
             value={selectedKey}
             textValue={field.options.find(item => item.value === selectedKey)?.label || ''}
           >
@@ -93,7 +110,7 @@ export function Field(props: FieldProps<typeof controller>) {
             isDisabled={isNull}
             isReadOnly={isReadOnly}
             isRequired={isRequired}
-            onChange={handleSelectionChange}
+            onChange={onSelectionChange}
             // maintain the previous value when set to null in aid of continuity
             // for the user. it will be cleared when the item is saved
             value={value.value?.value ?? preNullValue?.value}
@@ -116,7 +133,7 @@ export function Field(props: FieldProps<typeof controller>) {
             isReadOnly={isReadOnly}
             isRequired={isRequired}
             items={field.options}
-            onSelectionChange={handleSelectionChange}
+            onSelectionChange={onSelectionChange}
             selectedKey={selectedKey}
             flex={{ mobile: true, desktop: 'initial' }}
             UNSAFE_style={{
@@ -137,9 +154,9 @@ export function Field(props: FieldProps<typeof controller>) {
       label={field.label}
       isReadOnly={isReadOnly}
       isNull={isNull}
-      onChange={handleNullChange}
+      onChange={onNullChange}
     >
-      {renderFieldElement()}
+      {getFieldElement()}
     </NullableFieldWrapper>
   )
 }
@@ -162,7 +179,8 @@ type Value =
   | { value: Option | null; kind: 'create' }
   | { value: Option | null; initial: Option | null; kind: 'update' }
 
-function validate(value: Value, isRequired: boolean) {
+// Extracted function to validate the value
+function validate(value: Value, isRequired: boolean): boolean {
   if (isRequired) {
     // if you got null initially on the update screen, we want to allow saving
     // since the user probably doesn't have read access control

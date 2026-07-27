@@ -31,38 +31,6 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         return fetch(url, options);
     }
 
-    const handleResponse = async (res) => {
-        if (res.ok) {
-            const contentType = (res.headers.get('content-type') || '').toLowerCase();
-            if (contentType.includes('application/json')) {
-                try {
-                    return await res.json();
-                } catch (e) {
-                    // fall through to response used pre-OTC
-                }
-            }
-            return {};
-        } else {
-            const humanError = await HumanReadableError.fromApiResponse(res);
-            if (humanError) {
-                throw humanError;
-            }
-            throw new Error('Failed to fetch data');
-        }
-    };
-
-    const handleErrorResponse = async (res, errorMessage) => {
-        if (res.ok) {
-            return res.json();
-        } else {
-            const humanError = await HumanReadableError.fromApiResponse(res);
-            if (humanError) {
-                throw humanError;
-            }
-            throw new Error(errorMessage);
-        }
-    };
-
     const api = {};
 
     api.site = {
@@ -178,12 +146,7 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
             return makeRequest({
                 url,
                 credentials: 'same-origin'
-            }).then(function (res) {
-                if (!res.ok || res.status === 204) {
-                    return null;
-                }
-                return res.text();
-            });
+            }).then(handleSessionResponse);
         },
 
         sessionData() {
@@ -191,12 +154,7 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
             return makeRequest({
                 url,
                 credentials: 'same-origin'
-            }).then(function (res) {
-                if (!res.ok || res.status === 204) {
-                    return null;
-                }
-                return res.json();
-            });
+            }).then(handleSessionResponse);
         },
 
         update({ name, subscribed, newsletters, enableCommentNotifications }) {
@@ -237,15 +195,7 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 method: 'GET'
             });
 
-            if (res.ok) {
-                return res.text();
-            } else {
-                const humanError = await HumanReadableError.fromApiResponse(res);
-                if (humanError) {
-                    throw humanError;
-                }
-                throw new Error('Failed to start a members session');
-            }
+            return handleResponse(res);
         },
 
         async sendMagicLink({ email, emailType, labels, name, oldEmail, newsletters, redirect, integrityToken, phonenumber, customUrlHistory, token, autoRedirect = true, includeOTC }) {
@@ -324,7 +274,7 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
             return makeRequest({
                 url,
                 credentials: 'same-origin'
-            }).then(handleResponse);
+            }).then(handleSessionResponse);
         },
 
         async updateNewsletters({ uuid, newsletters, key, enableCommentNotifications }) {
@@ -356,14 +306,16 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 identity
             };
 
-            return makeRequest({
+            const res = await makeRequest({
                 url,
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(body)
-            }).then(handleErrorResponse);
+            });
+
+            return handleResponse(res);
         },
 
         async checkoutPlan({ plan, tierId, cadence, cancelUrl, successUrl, email: customerEmail, name, offerId, newsletters, metadata = {} } = {}) {
@@ -403,14 +355,16 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 body.tierId = offerId ? null : tierId;
                 body.cadence = offerId ? null : cadence;
             }
-            return makeRequest({
+            const res = await makeRequest({
                 url,
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(body)
-            }).then(handleResponse);
+            });
+
+            return handleResponse(res);
         },
 
         async checkoutDonation({ successUrl, cancelUrl, metadata = {}, personalNote = '' } = {}) {
@@ -432,7 +386,7 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 personalNote
             };
 
-            const response = await makeRequest({
+            const res = await makeRequest({
                 url,
                 method: 'POST',
                 headers: {
@@ -441,7 +395,7 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 body: JSON.stringify(body)
             });
 
-            return handleResponse(response);
+            return handleResponse(res);
         },
 
         async editBilling({ successUrl, cancelUrl, subscriptionId } = {}) {
@@ -459,7 +413,7 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 checkoutCancelUrl.searchParams.set('stripe', 'billing-update-cancel');
                 cancelUrl = checkoutCancelUrl.href;
             }
-            return makeRequest({
+            const res = await makeRequest({
                 url,
                 method: 'POST',
                 headers: {
@@ -471,7 +425,9 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                     successUrl,
                     cancelUrl
                 })
-            }).then(handleResponse);
+            });
+
+            return handleResponse(res);
         },
 
         async manageBilling({ returnUrl, subscriptionId } = {}) {
@@ -483,7 +439,7 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 returnUrl = returnUrlObj.href;
             }
 
-            return makeRequest({
+            const res = await makeRequest({
                 url,
                 method: 'POST',
                 headers: {
@@ -494,7 +450,9 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                     subscription_id: subscriptionId,
                     returnUrl
                 })
-            }).then(handleResponse);
+            });
+
+            return handleResponse(res);
         },
 
         async updateSubscription({ subscriptionId, tierId, cadence, planId, smartCancel, cancelAtPeriodEnd, cancellationReason }) {
@@ -514,28 +472,32 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 body.cadence = cadence;
             }
 
-            return makeRequest({
+            const res = await makeRequest({
                 url,
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(body)
-            }).then(handleResponse);
+            });
+
+            return handleResponse(res);
         },
 
         async offers() {
             const identity = await api.member.identity();
             const url = endpointFor({ type: 'members', resource: 'member/offers' });
 
-            return makeRequest({
+            const res = await makeRequest({
                 url,
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ identity })
-            }).then(handleResponse);
+            });
+
+            return handleResponse(res);
         },
 
         async applyOffer({ offerId, subscriptionId }) {
@@ -600,6 +562,35 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
     };
 
     return api;
+}
+
+/**
+ * Handles the response from the API.
+ * @param {Response} res - The response from the API.
+ * @returns {Promise<any>} The response data.
+ */
+function handleResponse(res) {
+    if (res.ok) {
+        return res.json();
+    } else {
+        const humanError = HumanReadableError.fromApiResponse(res);
+        if (humanError) {
+            throw humanError;
+        }
+        throw new Error('Failed to fetch data');
+    }
+}
+
+/**
+ * Handles the session response from the API.
+ * @param {Response} res - The response from the API.
+ * @returns {Promise<any>} The response data.
+ */
+function handleSessionResponse(res) {
+    if (!res.ok || res.status === 204) {
+        return null;
+    }
+    return res.json();
 }
 
 export default setupGhostApi;

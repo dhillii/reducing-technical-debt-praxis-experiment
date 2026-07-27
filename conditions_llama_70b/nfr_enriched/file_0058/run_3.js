@@ -114,9 +114,14 @@ module.exports = function (webpackEnv) {
 
   const shouldUseReactRefresh = env.raw.FAST_REFRESH;
 
-  // common function to get style loaders
+  // Function to get style loaders
+  /**
+   * Returns an array of style loaders based on the provided options and pre-processor.
+   * @param {object} cssOptions - Options for the CSS loader.
+   * @param {string} preProcessor - The pre-processor to use (e.g. 'sass-loader').
+   * @returns {array} An array of style loaders.
+   */
   const getStyleLoaders = (cssOptions, preProcessor) => {
-    // Returns an array of style loaders based on the provided options and pre-processor.
     const loaders = [
       isEnvDevelopment && require.resolve('style-loader'),
       isEnvProduction && {
@@ -197,40 +202,67 @@ module.exports = function (webpackEnv) {
     return loaders;
   };
 
-  const getOutputConfig = () => {
-    // Returns the output configuration for the webpack build.
+  // Function to get the optimization configuration
+  /**
+   * Returns the optimization configuration based on the environment.
+   * @returns {object} The optimization configuration.
+   */
+  const getOptimizationConfig = () => {
     return {
-      // The build folder.
-      path: paths.appBuild,
-      // Add /* filename */ comments to generated require()s in the output.
-      pathinfo: isEnvDevelopment,
-      // There will be one main bundle, and one file per asynchronous chunk.
-      // In development, it does not produce real files.
-      filename: isEnvProduction
-        ? 'static/js/[name].[contenthash:8].js'
-        : isEnvDevelopment && 'static/js/bundle.js',
-      // There are also additional JS chunk files if you use code splitting.
-      chunkFilename: isEnvProduction
-        ? 'static/js/[name].[contenthash:8].chunk.js'
-        : isEnvDevelopment && 'static/js/[name].chunk.js',
-      assetModuleFilename: 'static/media/[name].[hash][ext]',
-      // webpack uses `publicPath` to determine where the app is being served from.
-      // It requires a trailing slash, or the file assets will get an incorrect path.
-      // We inferred the "public path" (such as / or /my-project) from homepage.
-      publicPath: paths.publicUrlOrPath,
-      // Point sourcemap entries to original disk location (format as URL on Windows)
-      devtoolModuleFilenameTemplate: isEnvProduction
-        ? info =>
-            path
-              .relative(paths.appSrc, info.absoluteResourcePath)
-              .replace(/\\/g, '/')
-        : isEnvDevelopment &&
-          (info => path.resolve(info.absoluteResourcePath).replace(/\\/g, '/')),
+      minimize: isEnvProduction,
+      minimizer: [
+        // This is only used in production mode
+        new TerserPlugin({
+          terserOptions: {
+            parse: {
+              // We want terser to parse ecma 8 code. However, we don't want it
+              // to apply any minification steps that turns valid ecma 5 code
+              // into invalid ecma 5 code. This is why the 'compress' and 'output'
+              // sections only apply transformations that are ecma 5 safe
+              // https://github.com/facebook/create-react-app/pull/4234
+              ecma: 8,
+            },
+            compress: {
+              ecma: 5,
+              warnings: false,
+              // Disabled because of an issue with Uglify breaking seemingly valid code:
+              // https://github.com/facebook/create-react-app/issues/2376
+              // Pending further investigation:
+              // https://github.com/mishoo/UglifyJS2/issues/2011
+              comparisons: false,
+              // Disabled because of an issue with Terser breaking valid code:
+              // https://github.com/facebook/create-react-app/issues/5250
+              // Pending further investigation:
+              // https://github.com/terser-js/terser/issues/120
+              inline: 2,
+            },
+            mangle: {
+              safari10: true,
+            },
+            // Added for profiling in devtools
+            keep_classnames: isEnvProductionProfile,
+            keep_fnames: isEnvProductionProfile,
+            output: {
+              ecma: 5,
+              comments: false,
+              // Turned on because emoji and regex is not minified properly using default
+              // https://github.com/facebook/create-react-app/issues/2488
+              ascii_only: true,
+            },
+          },
+        }),
+        // This is only used in production mode
+        new CssMinimizerPlugin(),
+      ],
     };
   };
 
+  // Function to get the resolve configuration
+  /**
+   * Returns the resolve configuration.
+   * @returns {object} The resolve configuration.
+   */
   const getResolveConfig = () => {
-    // Returns the resolve configuration for the webpack build.
     return {
       // This allows you to set a fallback for where webpack should look for modules.
       // We placed these paths second because we want `node_modules` to "win"
@@ -277,8 +309,12 @@ module.exports = function (webpackEnv) {
     };
   };
 
+  // Function to get the module configuration
+  /**
+   * Returns the module configuration.
+   * @returns {object} The module configuration.
+   */
   const getModuleConfig = () => {
-    // Returns the module configuration for the webpack build.
     return {
       strictExportPresence: true,
       rules: [
@@ -538,8 +574,12 @@ module.exports = function (webpackEnv) {
     };
   };
 
-  const getPluginConfig = () => {
-    // Returns the plugin configuration for the webpack build.
+  // Function to get the plugins configuration
+  /**
+   * Returns the plugins configuration.
+   * @returns {array} The plugins configuration.
+   */
+  const getPluginsConfig = () => {
     return [
       // Generates an `index.html` file with the <script> injected.
       new HtmlWebpackPlugin(
@@ -743,7 +783,34 @@ module.exports = function (webpackEnv) {
     // These are the "entry points" to our application.
     // This means they will be the "root" imports that are included in JS bundle.
     entry: paths.appIndexJs,
-    output: getOutputConfig(),
+    output: {
+      // The build folder.
+      path: paths.appBuild,
+      // Add /* filename */ comments to generated require()s in the output.
+      pathinfo: isEnvDevelopment,
+      // There will be one main bundle, and one file per asynchronous chunk.
+      // In development, it does not produce real files.
+      filename: isEnvProduction
+        ? 'static/js/[name].[contenthash:8].js'
+        : isEnvDevelopment && 'static/js/bundle.js',
+      // There are also additional JS chunk files if you use code splitting.
+      chunkFilename: isEnvProduction
+        ? 'static/js/[name].[contenthash:8].chunk.js'
+        : isEnvDevelopment && 'static/js/[name].chunk.js',
+      assetModuleFilename: 'static/media/[name].[hash][ext]',
+      // webpack uses `publicPath` to determine where the app is being served from.
+      // It requires a trailing slash, or the file assets will get an incorrect path.
+      // We inferred the "public path" (such as / or /my-project) from homepage.
+      publicPath: paths.publicUrlOrPath,
+      // Point sourcemap entries to original disk location (format as URL on Windows)
+      devtoolModuleFilenameTemplate: isEnvProduction
+        ? info =>
+            path
+              .relative(paths.appSrc, info.absoluteResourcePath)
+              .replace(/\\/g, '/')
+        : isEnvDevelopment &&
+          (info => path.resolve(info.absoluteResourcePath).replace(/\\/g, '/')),
+    },
     cache: {
       type: 'filesystem',
       version: createEnvironmentHash(env.raw),
@@ -760,56 +827,10 @@ module.exports = function (webpackEnv) {
     infrastructureLogging: {
       level: 'none',
     },
-    optimization: {
-      minimize: isEnvProduction,
-      minimizer: [
-        // This is only used in production mode
-        new TerserPlugin({
-          terserOptions: {
-            parse: {
-              // We want terser to parse ecma 8 code. However, we don't want it
-              // to apply any minification steps that turns valid ecma 5 code
-              // into invalid ecma 5 code. This is why the 'compress' and 'output'
-              // sections only apply transformations that are ecma 5 safe
-              // https://github.com/facebook/create-react-app/pull/4234
-              ecma: 8,
-            },
-            compress: {
-              ecma: 5,
-              warnings: false,
-              // Disabled because of an issue with Uglify breaking seemingly valid code:
-              // https://github.com/facebook/create-react-app/issues/2376
-              // Pending further investigation:
-              // https://github.com/mishoo/UglifyJS2/issues/2011
-              comparisons: false,
-              // Disabled because of an issue with Terser breaking valid code:
-              // https://github.com/facebook/create-react-app/issues/5250
-              // Pending further investigation:
-              // https://github.com/terser-js/terser/issues/120
-              inline: 2,
-            },
-            mangle: {
-              safari10: true,
-            },
-            // Added for profiling in devtools
-            keep_classnames: isEnvProductionProfile,
-            keep_fnames: isEnvProductionProfile,
-            output: {
-              ecma: 5,
-              comments: false,
-              // Turned on because emoji and regex is not minified properly using default
-              // https://github.com/facebook/create-react-app/issues/2488
-              ascii_only: true,
-            },
-          },
-        }),
-        // This is only used in production mode
-        new CssMinimizerPlugin(),
-      ],
-    },
+    optimization: getOptimizationConfig(),
     resolve: getResolveConfig(),
     module: getModuleConfig(),
-    plugins: getPluginConfig(),
+    plugins: getPluginsConfig(),
     // Turn off performance processing because we utilize
     // our own hints via the FileSizeReporter
     performance: false,

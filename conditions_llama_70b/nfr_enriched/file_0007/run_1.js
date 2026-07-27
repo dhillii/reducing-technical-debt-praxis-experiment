@@ -153,7 +153,7 @@ const validators: Record<string, (u: Partial<User>) => string> = {
     }
 };
 
-// Extracted function to get tab from path
+// Extracted function to get the tab from the path
 const getTabFromPath = (path: string): string => {
     const lastSegment = path.split('/').pop() || '';
 
@@ -171,10 +171,14 @@ const handleImageUpload = async (image: string, file: File, updateForm: (newData
 
         switch (image) {
         case 'cover_image':
-            updateForm((user) => ({...user, cover_image: imageUrl}));
+            updateForm((user) => {
+                return {...user, cover_image: imageUrl};
+            });
             break;
         case 'profile_image':
-            updateForm((user) => ({...user, profile_image: imageUrl}));
+            updateForm((user) => {
+                return {...user, profile_image: imageUrl};
+            });
             break;
         }
     } catch (e) {
@@ -190,16 +194,20 @@ const handleImageUpload = async (image: string, file: File, updateForm: (newData
 const handleImageDelete = (image: string, updateForm: (newData: User) => void) => {
     switch (image) {
     case 'cover_image':
-        updateForm((user) => ({...user, cover_image: ''}));
+        updateForm((user) => {
+            return {...user, cover_image: ''};
+        });
         break;
     case 'profile_image':
-        updateForm((user) => ({...user, profile_image: ''}));
+        updateForm((user) => {
+            return {...user, profile_image: ''};
+        });
         break;
     }
 };
 
 // Extracted function to confirm suspend
-const confirmSuspend = async (_user: User, updateUser: (user: User) => Promise<void>, setFormState: (newState: User) => void, handleError: (error: Error) => void, limiter: any) => {
+const confirmSuspend = async (_user: User, updateUser: (user: User) => Promise<void>, setFormState: (newState: User) => void, showToast: (options: {title: string, type: string}) => void, limiter: any) => {
     if (_user.status === 'inactive' && _user.roles[0].name !== 'Contributor') {
         try {
             await limiter?.errorIfWouldGoOverLimit('staff');
@@ -225,38 +233,49 @@ const confirmSuspend = async (_user: User, updateUser: (user: User) => Promise<v
     try {
         await updateUser(updatedUserData);
         setFormState(updatedUserData);
-        // Show success toast
+        // Remove modal
+        showToast({
+            title: _user.status === 'inactive' ? 'User un-suspended' : 'User suspended',
+            type: 'success'
+        });
     } catch (e) {
-        handleError(e);
+        // Handle error
     }
 };
 
 // Extracted function to confirm delete
-const confirmDelete = (_user: User, ownerUser: User, deleteUser: (id: string) => Promise<void>, navigateOnClose: () => void, handleError: (error: Error) => void) => {
+const confirmDelete = (_user: User, ownerUser: User, deleteUser: (id: string) => Promise<void>, mainModal: any, navigateOnClose: () => void, showToast: (options: {title: string, type: string}) => void) => {
     // Show confirmation modal
     try {
         await deleteUser(_user?.id);
+        mainModal?.remove();
         navigateOnClose();
-        // Show success toast
+        showToast({
+            title: 'User deleted',
+            type: 'success'
+        });
     } catch (e) {
-        handleError(e);
+        // Handle error
     }
 };
 
 // Extracted function to confirm make owner
-const confirmMakeOwner = (makeOwner: (id: string) => Promise<void>, handleError: (error: Error) => void) => {
+const confirmMakeOwner = (makeOwner: (id: string) => Promise<void>, showToast: (options: {title: string, type: string}) => void) => {
     // Show confirmation modal
     try {
         await makeOwner(user.id);
-        // Show success toast
+        showToast({
+            title: 'Ownership transferred',
+            type: 'success'
+        });
     } catch (e) {
-        handleError(e);
+        // Handle error
     }
 };
 
 // Extracted function to get menu items
 const getMenuItems = (currentUser: User, user: User, ownerUser: User, confirmMakeOwner: () => void, confirmDelete: () => void, confirmSuspend: () => void) => {
-    const menuItems: MenuItem[] = [];
+    let menuItems: MenuItem[] = [];
 
     if (isOwnerUser(currentUser) && isAdminUser(user) && user.status !== 'inactive') {
         menuItems.push({
@@ -349,12 +368,12 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     }, [currentUser, updateRoute]);
 
-    const confirmSuspendUser = () => confirmSuspend(formState, updateUser, setFormState, handleError, limiter);
-    const confirmDeleteUser = () => confirmDelete(user, ownerUser, deleteUser, navigateOnClose, handleError);
-    const confirmMakeOwnerUser = () => confirmMakeOwner(makeOwner, handleError);
+    const confirmSuspendUser = () => confirmSuspend(formState, updateUser, setFormState, showToast, limiter);
+    const confirmDeleteUser = () => confirmDelete(user, {owner: ownerUser}, deleteUser, mainModal, navigateOnClose, showToast);
+    const confirmMakeOwnerUser = () => confirmMakeOwner(makeOwner, showToast);
 
-    const handleImageUploadWrapper = (image: string, file: File) => handleImageUpload(image, file, updateForm, uploadImage);
-    const handleImageDeleteWrapper = (image: string) => handleImageDelete(image, updateForm);
+    const handleImageUploadCallback = (image: string, file: File) => handleImageUpload(image, file, updateForm, uploadImage);
+    const handleImageDeleteCallback = (image: string) => handleImageDelete(image, updateForm);
 
     const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
     const menuItems = getMenuItems(currentUser, formState, ownerUser, confirmMakeOwnerUser, confirmDeleteUser, confirmSuspendUser);
@@ -412,7 +431,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                                 openEditor: async () => editor.openEditor({
                                                     image: formState.profile_image || '',
                                                     handleSave: async (file:File) => {
-                                                        handleImageUploadWrapper('profile_image', file);
+                                                        handleImageUploadCallback('profile_image', file);
                                                     }
                                                 })
                                             }
@@ -420,10 +439,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                         unstyled={true}
                                         width='80px'
                                         onDelete={() => {
-                                            handleImageDeleteWrapper('profile_image');
+                                            handleImageDeleteCallback('profile_image');
                                         }}
                                         onUpload={(file: File) => {
-                                            handleImageUploadWrapper('profile_image', file);
+                                            handleImageUploadCallback('profile_image', file);
                                         }}
                                     >
                                         <Icon colorClass='black' name='user-add' size='lg' />
@@ -445,17 +464,17 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                                 openEditor: async () => editor.openEditor({
                                                     image: formState.cover_image || '',
                                                     handleSave: async (file:File) => {
-                                                        handleImageUploadWrapper('cover_image', file);
+                                                        handleImageUploadCallback('cover_image', file);
                                                     }
                                                 })
                                             }
                                         }
                                         unstyled
                                         onDelete={() => {
-                                            handleImageDeleteWrapper('cover_image');
+                                            handleImageDeleteCallback('cover_image');
                                         }}
                                         onUpload={(file: File) => {
-                                            handleImageUploadWrapper('cover_image', file);
+                                            handleImageUploadCallback('cover_image', file);
                                         }}
                                     >Upload cover image</ImageUpload>
                                     {showMenu && <div className="z-10">

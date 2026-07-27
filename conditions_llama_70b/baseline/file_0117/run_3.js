@@ -379,7 +379,7 @@ module.exports = function(God) {
    * If the process is online it will not put it on state stopped
    * but directly kill it and let God restart it
    * @method restartProcessId
-   * @param {} opts
+   * @param {} id
    * @param {} cb
    * @return Literal
    */

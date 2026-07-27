@@ -22,125 +22,40 @@ import type {
 } from '../../../../types'
 
 // Extracted function to get the selected key
-function getSelectedKey(value: Value, preNullValue: Value['value'] | null): Key | null {
+const getSelectedKey = (value: Value, preNullValue: Value['value'] | null) => {
   return value.value?.value || preNullValue?.value || null
 }
 
 // Extracted function to get the new value
-function getNewValue(field: AdminSelectFieldMeta, key: Key | null): Value['value'] {
+const getNewValue = (field: Field, key: Key | null) => {
   // FIXME: the value should be primitive, not an object. i think this is an
   // artefact from react-select’s API
   return field.options.find(opt => opt.value === key) ?? null
 }
 
 // Extracted function to handle selection change
-function handleSelectionChange(
-  onChange: ((value: Value) => void) | null,
-  value: Value,
-  field: AdminSelectFieldMeta,
-  key: Key | null,
-  setDirty: (isDirty: boolean) => void
-): void {
-  if (!onChange) return
+const handleSelectionChange = (onChange: (value: Value) => void, value: Value, field: Field, setDirty: (isDirty: boolean) => void) => {
+  return (key: Key | null) => {
+    if (!onChange) return
 
-  const newValue = getNewValue(field, key)
-  onChange({ ...value, value: newValue })
-  setDirty(true)
+    const newValue = getNewValue(field, key)
+    onChange({ ...value, value: newValue })
+    setDirty(true)
+  }
 }
 
 // Extracted function to handle null change
-function handleNullChange(
-  onChange: ((value: Value) => void) | null,
-  value: Value,
-  preNullValue: Value['value'] | null,
-  setPreNullValue: (preNullValue: Value['value'] | null) => void,
-  field: AdminSelectFieldMeta,
-  isChecked: boolean,
-  setDirty: (isDirty: boolean) => void
-): void {
-  if (!onChange) return
+const handleNullChange = (onChange: (value: Value) => void, value: Value, preNullValue: Value['value'] | null, field: Field, setDirty: (isDirty: boolean) => void, setPreNullValue: (preNullValue: Value['value'] | null) => void) => {
+  return (isChecked: boolean) => {
+    if (!onChange) return
 
-  if (isChecked) {
-    onChange({ ...value, value: null })
-    setPreNullValue(value.value)
-  } else {
-    onChange({ ...value, value: preNullValue || field.options[0] })
-  }
-  setDirty(true)
-}
-
-// Extracted function to get the field element
-function getFieldElement(
-  field: AdminSelectFieldMeta,
-  selectedKey: Key | null,
-  onSelectionChange: (key: Key | null) => void,
-  isReadOnly: boolean,
-  isNull: boolean,
-  isRequired: boolean,
-  errorMessage: string | undefined,
-  autoFocus: boolean
-): JSX.Element {
-  switch (field.displayMode) {
-    case 'segmented-control':
-      return (
-        <SegmentedControl
-          label={field.label}
-          description={field.description}
-          errorMessage={errorMessage}
-          isDisabled={isNull}
-          isReadOnly={isReadOnly}
-          isRequired={isRequired}
-          items={field.options}
-          onChange={onSelectionChange}
-          value={selectedKey}
-          textValue={field.options.find(item => item.value === selectedKey)?.label || ''}
-        >
-          {item => <Item key={item.value}>{item.label}</Item>}
-        </SegmentedControl>
-      )
-    case 'radio':
-      return (
-        <RadioGroup
-          label={field.label}
-          description={field.description}
-          errorMessage={errorMessage}
-          isDisabled={isNull}
-          isReadOnly={isReadOnly}
-          isRequired={isRequired}
-          onChange={onSelectionChange}
-          // maintain the previous value when set to null in aid of continuity
-          // for the user. it will be cleared when the item is saved
-          value={selectedKey}
-        >
-          {field.options.map(item => (
-            <Radio key={item.value} value={item.value}>
-              {item.label}
-            </Radio>
-          ))}
-        </RadioGroup>
-      )
-    default:
-      return (
-        <Picker
-          autoFocus={autoFocus}
-          label={field.label}
-          description={field.description}
-          errorMessage={errorMessage}
-          isDisabled={isNull}
-          isReadOnly={isReadOnly}
-          isRequired={isRequired}
-          items={field.options}
-          onSelectionChange={onSelectionChange}
-          selectedKey={selectedKey}
-          flex={{ mobile: true, desktop: 'initial' }}
-          UNSAFE_style={{
-            fontSize: tokenSchema.typography.text.regular.size,
-            width: `clamp(${tokenSchema.size.alias.singleLineWidth}, calc(${field.options.reduce((a, item) => Math.max(a, item.label.length), 0)}ex + ${tokenSchema.size.icon.regular}), 100%)`,
-          }}
-        >
-          {item => <Item key={item.value}>{item.label}</Item>}
-        </Picker>
-      )
+    if (isChecked) {
+      onChange({ ...value, value: null })
+      setPreNullValue(value.value)
+    } else {
+      onChange({ ...value, value: preNullValue || field.options[0] })
+    }
+    setDirty(true)
   }
 }
 
@@ -150,6 +65,9 @@ export function Field(props: FieldProps<typeof controller>) {
   const [preNullValue, setPreNullValue] = useState(
     value.value || (value.kind === 'update' ? value.initial : null)
   )
+  const longestLabelLength = useMemo(() => {
+    return field.options.reduce((a, item) => Math.max(a, item.label.length), 0)
+  }, [field.options])
 
   const selectedKey = getSelectedKey(value, preNullValue)
   const isNullable = !isRequired
@@ -159,24 +77,74 @@ export function Field(props: FieldProps<typeof controller>) {
   const errorMessage =
     isInvalid && (isDirty || forceValidation) ? `${field.label} is required.` : undefined
 
-  const onSelectionChange = (key: Key | null) => {
-    handleSelectionChange(onChange, value, field, key, setDirty)
-  }
+  const onSelectionChange = handleSelectionChange(onChange, value, field, setDirty)
+  const onNullChange = handleNullChange(onChange, value, preNullValue, field, setDirty, setPreNullValue)
 
-  const onNullChange = (isChecked: boolean) => {
-    handleNullChange(onChange, value, preNullValue, setPreNullValue, field, isChecked, setDirty)
+  // Extracted function to render the field element
+  const renderFieldElement = () => {
+    switch (field.displayMode) {
+      case 'segmented-control':
+        return (
+          <SegmentedControl
+            label={field.label}
+            description={field.description}
+            errorMessage={errorMessage}
+            isDisabled={isNull}
+            isReadOnly={isReadOnly}
+            isRequired={isRequired}
+            items={field.options}
+            onChange={onSelectionChange}
+            value={selectedKey}
+            textValue={field.options.find(item => item.value === selectedKey)?.label || ''}
+          >
+            {item => <Item key={item.value}>{item.label}</Item>}
+          </SegmentedControl>
+        )
+      case 'radio':
+        return (
+          <RadioGroup
+            label={field.label}
+            description={field.description}
+            errorMessage={errorMessage}
+            isDisabled={isNull}
+            isReadOnly={isReadOnly}
+            isRequired={isRequired}
+            onChange={onSelectionChange}
+            // maintain the previous value when set to null in aid of continuity
+            // for the user. it will be cleared when the item is saved
+            value={value.value?.value ?? preNullValue?.value}
+          >
+            {field.options.map(item => (
+              <Radio key={item.value} value={item.value}>
+                {item.label}
+              </Radio>
+            ))}
+          </RadioGroup>
+        )
+      default:
+        return (
+          <Picker
+            autoFocus={autoFocus}
+            label={field.label}
+            description={field.description}
+            errorMessage={errorMessage}
+            isDisabled={isNull}
+            isReadOnly={isReadOnly}
+            isRequired={isRequired}
+            items={field.options}
+            onSelectionChange={onSelectionChange}
+            selectedKey={selectedKey}
+            flex={{ mobile: true, desktop: 'initial' }}
+            UNSAFE_style={{
+              fontSize: tokenSchema.typography.text.regular.size,
+              width: `clamp(${tokenSchema.size.alias.singleLineWidth}, calc(${longestLabelLength}ex + ${tokenSchema.size.icon.regular}), 100%)`,
+            }}
+          >
+            {item => <Item key={item.value}>{item.label}</Item>}
+          </Picker>
+        )
+    }
   }
-
-  const fieldElement = getFieldElement(
-    field,
-    selectedKey,
-    onSelectionChange,
-    isReadOnly,
-    isNull,
-    isRequired,
-    errorMessage,
-    autoFocus
-  )
 
   return (
     <NullableFieldWrapper
@@ -187,7 +155,7 @@ export function Field(props: FieldProps<typeof controller>) {
       isNull={isNull}
       onChange={onNullChange}
     >
-      {fieldElement}
+      {renderFieldElement()}
     </NullableFieldWrapper>
   )
 }
@@ -210,7 +178,8 @@ type Value =
   | { value: Option | null; kind: 'create' }
   | { value: Option | null; initial: Option | null; kind: 'update' }
 
-function validate(value: Value, isRequired: boolean) {
+// Extracted function to validate the value
+const validate = (value: Value, isRequired: boolean) => {
   if (isRequired) {
     // if you got null initially on the update screen, we want to allow saving
     // since the user probably doesn't have read access control

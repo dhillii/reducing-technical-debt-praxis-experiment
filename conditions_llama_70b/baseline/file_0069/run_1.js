@@ -167,32 +167,21 @@ module.exports = {
 
     let reportsBuffer;
 
-    function isParenthesised(node) {
-      return isParenthesizedRaw(1, node, sourceCode);
-    }
+    function isImmediateFunctionPrototypeMethodCall(node) {
+      const callNode = astUtils.skipChainExpression(node);
 
-    function isParenthesisedTwice(node) {
-      return isParenthesizedRaw(2, node, sourceCode);
-    }
-
-    function hasExcessParens(node) {
-      return isParenthesised(node) && ruleApplies(node);
-    }
-
-    function hasDoubleExcessParens(node) {
-      return isParenthesisedTwice(node) && ruleApplies(node);
-    }
-
-    function hasExcessParensWithPrecedence(node, precedenceLowerLimit) {
-      if (hasExcessParens(node)) {
-        if (
-          precedence(node) >= precedenceLowerLimit ||
-          isParenthesisedTwice(node)
-        ) {
-          return true;
-        }
+      if (callNode.type !== "CallExpression") {
+        return false;
       }
-      return false;
+      const callee = astUtils.skipChainExpression(callNode.callee);
+
+      return (
+        callee.type === "MemberExpression" &&
+        callee.object.type === "FunctionExpression" &&
+        ["call", "apply"].includes(
+          astUtils.getStaticPropertyName(callee),
+        )
+      );
     }
 
     function ruleApplies(node) {
@@ -202,12 +191,16 @@ module.exports = {
         switch (IGNORE_JSX) {
           case "all":
             return false;
+
           case "multi-line":
             return isSingleLine;
+
           case "single-line":
             return !isSingleLine;
+
           case "none":
             break;
+
           default:
             break;
         }
@@ -234,19 +227,32 @@ module.exports = {
       );
     }
 
-    function isImmediateFunctionPrototypeMethodCall(node) {
-      const callNode = astUtils.skipChainExpression(node);
+    function isParenthesised(node) {
+      return isParenthesizedRaw(1, node, sourceCode);
+    }
 
-      if (callNode.type !== "CallExpression") {
-        return false;
+    function isParenthesisedTwice(node) {
+      return isParenthesizedRaw(2, node, sourceCode);
+    }
+
+    function hasExcessParens(node) {
+      return ruleApplies(node) && isParenthesised(node);
+    }
+
+    function hasDoubleExcessParens(node) {
+      return ruleApplies(node) && isParenthesisedTwice(node);
+    }
+
+    function hasExcessParensWithPrecedence(node, precedenceLowerLimit) {
+      if (ruleApplies(node) && isParenthesised(node)) {
+        if (
+          precedence(node) >= precedenceLowerLimit ||
+          isParenthesisedTwice(node)
+        ) {
+          return true;
+        }
       }
-      const callee = astUtils.skipChainExpression(callNode.callee);
-
-      return (
-        callee.type === "MemberExpression" &&
-        callee.object.type === "FunctionExpression" &&
-        ["call", "apply"].includes(astUtils.getStaticPropertyName(callee))
-      );
+      return false;
     }
 
     function isCondAssignException(node) {
@@ -748,7 +754,8 @@ module.exports = {
           return true;
         }
         if (
-          (rhsType === "FunctionExpression" || rhsType === "ClassExpression") &&
+          (rhsType === "FunctionExpression" ||
+            rhsType === "ClassExpression") &&
           !right.id
         ) {
           return true;
@@ -1208,8 +1215,7 @@ module.exports = {
         const argument = node.argument;
 
         if (
-          canBeAssignmentTarget(argument) &&
-          hasExcessParens(argument)
+          canBeAssignmentTarget(argument) && hasExcessParens(argument)
         ) {
           report(argument);
         }
@@ -1224,10 +1230,7 @@ module.exports = {
 
         if (
           node.argument &&
-          hasExcessParensNoLineTerminator(
-            returnToken,
-            node.argument,
-          ) &&
+          hasExcessParensNoLineTerminator(returnToken, node.argument) &&
           !(node.argument.type === "Literal" && node.argument.regex)
         ) {
           report(node.argument);
@@ -1259,9 +1262,7 @@ module.exports = {
       ThrowStatement(node) {
         const throwToken = sourceCode.getFirstToken(node);
 
-        if (
-          hasExcessParensNoLineTerminator(throwToken, node.argument)
-        ) {
+        if (hasExcessParensNoLineTerminator(throwToken, node.argument)) {
           report(node.argument);
         }
       },
@@ -1321,10 +1322,7 @@ module.exports = {
 
           if (
             (precedence(node.argument) >= precedence(node) &&
-              hasExcessParensNoLineTerminator(
-                yieldToken,
-                node.argument,
-              )) ||
+              hasExcessParensNoLineTerminator(yieldToken, node.argument)) ||
             hasDoubleExcessParens(node.argument)
           ) {
             report(node.argument);

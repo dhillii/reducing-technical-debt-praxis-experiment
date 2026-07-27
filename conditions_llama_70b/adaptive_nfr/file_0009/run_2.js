@@ -32,22 +32,18 @@ export const getOfferDuration = (duration: string): string => {
 };
 
 /**
- * Calculates the discount offer details.
- * @param type The type of offer.
+ * Calculates the discount details for an offer.
+ * @param type The type of offer (percent, fixed, trial).
  * @param amount The amount of the offer.
- * @param cadence The cadence of the offer.
+ * @param cadence The cadence of the offer (month, year).
  * @param currency The currency of the offer.
  * @param tier The tier associated with the offer.
- * @returns The discount offer details.
+ * @returns An object containing the discount color, offer, original price, and updated price.
  */
 export const getOfferDiscount = (type: string, amount: number, cadence: string, currency: string, tier: Tier | undefined): {discountColor: string, discountOffer: string, originalPriceWithCurrency: string, updatedPriceWithCurrency: string} => {
-    if (!tier) {
-        return { discountColor: '', discountOffer: '', originalPriceWithCurrency: '', updatedPriceWithCurrency: '' };
-    }
-
     let discountColor = '';
     let discountOffer = '';
-    const originalPrice = cadence === 'month' ? tier.monthly_price ?? 0 : tier.yearly_price ?? 0;
+    const originalPrice = cadence === 'month' ? tier?.monthly_price ?? 0 : tier?.yearly_price ?? 0;
     let updatedPrice = originalPrice;
 
     const formatToTwoDecimals = (num: number): number => parseFloat(num.toFixed(2));
@@ -55,23 +51,23 @@ export const getOfferDiscount = (type: string, amount: number, cadence: string, 
     let originalPriceWithCurrency = getSymbol(currency) + numberWithCommas(formatToTwoDecimals(currencyToDecimal(originalPrice)));
 
     switch (type) {
-        case 'percent':
-            discountColor = 'text-green';
-            discountOffer = amount + '% off';
-            updatedPrice = originalPrice - ((originalPrice * amount) / 100);
-            break;
-        case 'fixed':
-            discountColor = 'text-blue';
-            discountOffer = numberWithCommas(formatToTwoDecimals(currencyToDecimal(amount))) + ' ' + currency + ' off';
-            updatedPrice = originalPrice - amount;
-            break;
-        case 'trial':
-            discountColor = 'text-pink';
-            discountOffer = amount + ' days free';
-            originalPriceWithCurrency = '';
-            break;
-        default:
-            break;
+    case 'percent':
+        discountColor = 'text-green';
+        discountOffer = amount + '% off';
+        updatedPrice = originalPrice - ((originalPrice * amount) / 100);
+        break;
+    case 'fixed':
+        discountColor = 'text-blue';
+        discountOffer = numberWithCommas(formatToTwoDecimals(currencyToDecimal(amount))) + ' ' + currency + ' off';
+        updatedPrice = originalPrice - amount;
+        break;
+    case 'trial':
+        discountColor = 'text-pink';
+        discountOffer = amount + ' days free';
+        originalPriceWithCurrency = '';
+        break;
+    default:
+        break;
     };
 
     if (updatedPrice < 0) {
@@ -89,9 +85,8 @@ export const getOfferDiscount = (type: string, amount: number, cadence: string, 
 };
 
 /**
- * A button to copy the offer link.
+ * A button to copy a link to the clipboard.
  * @param offerCode The code of the offer.
- * @returns The copy link button.
  */
 export const CopyLinkButton: React.FC<{offerCode: string}> = ({offerCode}) => {
     const [isCopied, setIsCopied] = useState(false);
@@ -109,12 +104,11 @@ export const CopyLinkButton: React.FC<{offerCode: string}> = ({offerCode}) => {
 };
 
 /**
- * The empty state component.
+ * An empty state component.
  * @param title The title of the empty state.
  * @param description The description of the empty state.
  * @param buttonAction The action to perform when the button is clicked.
  * @param buttonLabel The label of the button.
- * @returns The empty state component.
  */
 export const EmptyState: React.FC<{title?: string, description: string, buttonAction: () => void, buttonLabel: string}> = ({title = 'No offers found', description, buttonAction, buttonLabel}) => (
     <div className='flex h-full grow flex-col items-center justify-center text-center'>
@@ -128,61 +122,23 @@ export const EmptyState: React.FC<{title?: string, description: string, buttonAc
 /**
  * Checks if an offer is active.
  * @param offer The offer to check.
- * @param allTiers The list of tiers.
+ * @param allTiers The list of all tiers.
  * @returns True if the offer is active, false otherwise.
  */
-const isOfferActive = (offer: any, allTiers: Tier[]) => {
+const isOfferActive = (offer: any, allTiers: any[]) => {
     const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
-    return offer.status === 'active' && offerTier && offerTier.active === true;
+    return (offer.status === 'active' && offerTier && offerTier.active === true);
 };
 
 /**
  * Checks if an offer is archived.
  * @param offer The offer to check.
- * @param allTiers The list of tiers.
+ * @param allTiers The list of all tiers.
  * @returns True if the offer is archived, false otherwise.
  */
-const isOfferArchived = (offer: any, allTiers: Tier[]) => {
+const isOfferArchived = (offer: any, allTiers: any[]) => {
     const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
-    return offer.status === 'archived' || (offerTier && offerTier.active === false);
-};
-
-/**
- * Filters the offers based on the selected tab.
- * @param offers The list of offers.
- * @param selectedTab The selected tab.
- * @param allTiers The list of tiers.
- * @returns The filtered offers.
- */
-const filterOffers = (offers: any[], selectedTab: string, allTiers: Tier[]) => {
-    if (selectedTab === 'active') {
-        return offers.filter(offer => isOfferActive(offer, allTiers));
-    } else {
-        return offers.filter(offer => isOfferArchived(offer, allTiers));
-    }
-};
-
-/**
- * Sorts the offers based on the sorting state.
- * @param offers The list of offers.
- * @param sortingState The sorting state.
- * @returns The sorted offers.
- */
-const sortOffers = (offers: any[], sortingState: any) => {
-    const sortOption = sortingState?.option || 'date-added';
-    const sortDirection = sortingState?.direction || 'desc';
-
-    return offers.sort((offer1, offer2) => {
-        const multiplier = sortDirection === 'desc' ? -1 : 1;
-        switch (sortOption) {
-            case 'name':
-                return multiplier * offer1.name.localeCompare(offer2.name);
-            case 'redemptions':
-                return multiplier * (offer1.redemption_count - offer2.redemption_count);
-            default:
-                return multiplier * ((offer1.created_at ? new Date(offer1.created_at).getTime() : 0) - (offer2.created_at ? new Date(offer2.created_at).getTime() : 0));
-        }
-    });
+    return (offer.status === 'archived' || (offerTier && offerTier.active === false));
 };
 
 export const OffersIndexModal = () => {
@@ -190,20 +146,43 @@ export const OffersIndexModal = () => {
     const {updateRoute} = useRouting();
     const {data: {offers: allOffers = []} = {}, isFetching: isFetchingOffers} = useBrowseOffers();
     const {data: {tiers: allTiers} = {}} = useBrowseTiers();
-    const {sortingState, setSortingState} = useSortingState();
-    const [selectedTab, setSelectedTab] = useState('active');
+    const signupOffers = allOffers.filter(offer => offer.redemption_type === 'signup');
+    const activeOffers = signupOffers.filter(offer => isOfferActive(offer, allTiers));
+    const archivedOffers = signupOffers.filter(offer => isOfferArchived(offer, allTiers));
 
-    const paidActiveTiers = getPaidActiveTiers(allTiers || []);
-
-    const activeOffers = allOffers.filter(offer => offer.redemption_type === 'signup' && isOfferActive(offer, allTiers));
-    const archivedOffers = allOffers.filter(offer => offer.redemption_type === 'signup' && isOfferArchived(offer, allTiers));
-
-    const offersTabs: Tab[] = [
+    let offersTabs: Tab[] = [
         {id: 'active', title: 'Active'},
         {id: 'archived', title: 'Archived'}
     ];
 
-    const sortedOffers = sortOffers(allOffers.filter(offer => offer.redemption_type === 'signup'), sortingState);
+    const {sortingState, setSortingState} = useSortingState();
+    const offersSorting = sortingState?.find(sorting => sorting.type === 'offers');
+
+    const [selectedTab, setSelectedTab] = useState('active');
+
+    const sortOption = offersSorting?.option || 'date-added';
+    const sortDirection = offersSorting?.direction || 'desc';
+
+    const handleOfferEdit = (id:string) => {
+        // TODO: implement
+        sessionStorage.setItem('editOfferPageSource', 'offersIndex');
+        updateRoute(`offers/edit/${id}`);
+    };
+
+    const sortedOffers = signupOffers
+        .sort((offer1, offer2) => {
+            const multiplier = sortDirection === 'desc' ? -1 : 1;
+            switch (sortOption) {
+            case 'name':
+                return multiplier * offer1.name.localeCompare(offer2.name);
+            case 'redemptions':
+                return multiplier * (offer1.redemption_count - offer2.redemption_count);
+            default:
+                return multiplier * ((offer1.created_at ? new Date(offer1.created_at).getTime() : 0) - (offer2.created_at ? new Date(offer2.created_at).getTime() : 0));
+            }
+        });
+
+    const paidActiveTiers = getPaidActiveTiers(allTiers || []);
 
     const listLayoutOutput = <div className='overflow-x-auto'>
         <table className='m-0 w-full'>
@@ -217,7 +196,13 @@ export const OffersIndexModal = () => {
                 </tr> :
                 null
             }
-            {filterOffers(sortedOffers, selectedTab, allTiers).map((offer) => {
+            {sortedOffers.filter((offer) => {
+                if (selectedTab === 'active') {
+                    return isOfferActive(offer, allTiers);
+                } else {
+                    return isOfferArchived(offer, allTiers);
+                }
+            }).map((offer) => {
                 const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
 
                 if (!offerTier) {
@@ -272,12 +257,6 @@ export const OffersIndexModal = () => {
         }
     ];
 
-    const handleOfferEdit = (id: string) => {
-        // TODO: implement
-        sessionStorage.setItem('editOfferPageSource', 'offersIndex');
-        updateRoute(`offers/edit/${id}`);
-    };
-
     return <Modal
         afterClose={() => {
             updateRoute('offers');
@@ -302,11 +281,11 @@ export const OffersIndexModal = () => {
                         (selectedTab === 'active' && activeOffers.length > 0) || (selectedTab === 'archived' && archivedOffers.length > 0) ?
                             <div className='pt-1'>
                                 <SortMenu
-                                    direction={sortingState?.direction as 'asc' | 'desc'}
+                                    direction={sortDirection as 'asc' | 'desc'}
                                     items={[
-                                        {id: 'date-added', label: 'Date added', selected: sortingState?.option === 'date-added', direction: sortingState?.direction as 'asc' | 'desc'},
-                                        {id: 'name', label: 'Name', selected: sortingState?.option === 'name', direction: sortingState?.direction as 'asc' | 'desc'},
-                                        {id: 'redemptions', label: 'Redemptions', selected: sortingState?.option === 'redemptions', direction: sortingState?.direction as 'asc' | 'desc'}
+                                        {id: 'date-added', label: 'Date added', selected: sortOption === 'date-added', direction: sortDirection as 'asc' | 'desc'},
+                                        {id: 'name', label: 'Name', selected: sortOption === 'name', direction: sortDirection as 'asc' | 'desc'},
+                                        {id: 'redemptions', label: 'Redemptions', selected: sortOption === 'redemptions', direction: sortDirection as 'asc' | 'desc'}
                                     ]}
                                     position='end'
                                     triggerButtonProps={{
@@ -316,7 +295,7 @@ export const OffersIndexModal = () => {
                                         const newDirection = selectedDirection === 'asc' ? 'desc' : 'asc';
                                         setSortingState?.([{
                                             type: 'offers',
-                                            option: sortingState?.option,
+                                            option: sortOption,
                                             direction: newDirection
                                         }]);
                                     }}
@@ -324,7 +303,7 @@ export const OffersIndexModal = () => {
                                         setSortingState?.([{
                                             type: 'offers',
                                             option: selectedOption,
-                                            direction: sortingState?.direction
+                                            direction: sortDirection
                                         }]);
                                     }}
                                 />

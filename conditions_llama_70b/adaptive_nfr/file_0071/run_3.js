@@ -6,13 +6,8 @@
  */
 function runESLint(args, options) {
     const createChildProcessOptions = createOptions(options);
-    const newProcess = childProcess.fork(
-        EXECUTABLE_PATH,
-        args,
-        createChildProcessOptions,
-    );
-
-    forkedProcesses.add(newProcess);
+    const newProcess = childProcess.fork(EXECUTABLE_PATH, args, createChildProcessOptions);
+    addProcessToSet(newProcess);
     return newProcess;
 }
 
@@ -22,6 +17,14 @@ function runESLint(args, options) {
  * @returns {Object} The options for the child process
  */
 function createOptions(options) {
-    // Use object spread instead of Object.assign
+    // Use an object spread instead of Object.assign
     return { silent: true, ...options };
+}
+
+/**
+ * Adds a process to the set of forked processes.
+ * @param {ChildProcess} process The process to add
+ */
+function addProcessToSet(process) {
+    forkedProcesses.add(process);
 }

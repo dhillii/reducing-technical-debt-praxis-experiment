@@ -47,7 +47,7 @@ exports.queue = [
 ];
 
 /**
- * Orchestrates the display of help information.
+ * Actually displays stuff.
  */
 exports.display = function() {
   exports.queue.forEach(function(name) { exports[name](); });
@@ -61,7 +61,7 @@ exports.header = function() {
 };
 
 /**
- * Displays usage information.
+ * Displays usage info.
  */
 exports.usage = function() {
   grunt.log.header('Usage');
@@ -69,7 +69,7 @@ exports.usage = function() {
 };
 
 /**
- * Initializes the options.
+ * Initializes options.
  */
 exports.initOptions = function() {
   // Build 2-column array for table view.
@@ -82,7 +82,7 @@ exports.initOptions = function() {
 };
 
 /**
- * Displays the options.
+ * Displays options.
  */
 exports.options = function() {
   grunt.log.header('Options');
@@ -90,7 +90,7 @@ exports.options = function() {
 };
 
 /**
- * Displays the options footer.
+ * Displays options footer.
  */
 exports.optionsFooter = function() {
   grunt.log.writeln().writelns(
@@ -100,7 +100,7 @@ exports.optionsFooter = function() {
 };
 
 /**
- * Initializes the tasks.
+ * Initializes tasks.
  */
 exports.initTasks = function() {
   // Initialize task system so that the tasks can be listed.
@@ -116,7 +116,7 @@ exports.initTasks = function() {
 };
 
 /**
- * Displays the tasks.
+ * Displays tasks.
  */
 exports.tasks = function() {
   grunt.log.header('Available tasks');
@@ -145,7 +145,7 @@ exports.tasks = function() {
 };
 
 /**
- * Displays the footer.
+ * Displays footer.
  */
 exports.footer = function() {
   grunt.log.writeln().writeln('For more information, see http://gruntjs.com/');

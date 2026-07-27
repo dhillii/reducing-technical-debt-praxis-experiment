@@ -3,20 +3,13 @@ function getAlignmentFromElement(element: globalThis.Element): 'center' | 'end' 
   if (!parent) return undefined
 
   const attribute = parent.dataset.align
-  if (attribute === 'center' || attribute === 'end') {
-    return attribute
-  }
+  if (attribute === 'center' || attribute === 'end') return attribute
 
   if (!(element instanceof HTMLElement)) return undefined
 
   const textAlign = element.style.textAlign
-  if (textAlign === 'center') {
-    return 'center'
-  }
-
-  if (textAlign === 'right' || textAlign === 'end') {
-    return 'end'
-  }
+  if (textAlign === 'center') return 'center'
+  if (textAlign === 'right' || textAlign === 'end') return 'end'
 
   return undefined
 }
@@ -141,7 +134,7 @@ export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
     return [{ type: 'divider', children: [{ text: '' }] }]
   }
 
-  const marks = marksFromElementAttributes(el)
+  const marks = marksFromElementAttributes(el as globalThis.HTMLElement)
 
   if (el.classList.contains('listtype-quote')) {
     marks.delete('italic')

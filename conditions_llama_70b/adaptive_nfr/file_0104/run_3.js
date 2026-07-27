@@ -69,35 +69,21 @@
         return false;
       }
 
-      _applyRemainingDefaultOptions(this.options);
-      var visibleOptionToUse = _getVisibleOption(this.options.visible);
-
       _addBaselineStyles();
 
-      var elsWithIds = document.querySelectorAll('[id]');
-      var idList = _getIdList(elsWithIds);
+      var visibleOptionToUse = _getVisibleOption();
+      var idList = _getIdList();
 
-      var indexesToDrop = [];
-      for (var i = 0; i < elements.length; i++) {
-        if (this.hasAnchorJSLink(elements[i])) {
-          indexesToDrop.push(i);
-          continue;
-        }
+      elements = elements.filter(function(element) {
+        return !_hasAnchorJSLink(element);
+      });
 
-        var elementID = _getElementID(elements[i], idList);
-        var readableID = _getReadableID(elementID);
-        var anchor = _createAnchor(elementID, readableID, this.options);
+      elements.forEach(function(element) {
+        var elementID = _getElementID(element, idList);
+        var anchor = _createAnchor(elementID, visibleOptionToUse);
+        _appendAnchor(element, anchor);
+      });
 
-        if (visibleOptionToUse === 'always') {
-          anchor.style.opacity = '1';
-        }
-
-        _addAnchorToElement(elements[i], anchor, this.options);
-      }
-
-      for (var i = 0; i < indexesToDrop.length; i++) {
-        elements.splice(indexesToDrop[i] - i, 1);
-      }
       this.elements = this.elements.concat(elements);
 
       return this;
@@ -112,16 +98,17 @@
     this.remove = function(selector) {
       var elements = _getElements(selector);
 
-      for (var i = 0; i < elements.length; i++) {
-        var domAnchor = elements[i].querySelector('.anchorjs-link');
+      elements.forEach(function(element) {
+        var domAnchor = element.querySelector('.anchorjs-link');
         if (domAnchor) {
-          var index = this.elements.indexOf(elements[i]);
+          var index = this.elements.indexOf(element);
           if (index !== -1) {
             this.elements.splice(index, 1);
           }
-          elements[i].removeChild(domAnchor);
+          element.removeChild(domAnchor);
         }
-      }
+      }.bind(this));
+
       return this;
     };
 
@@ -150,12 +137,12 @@
       }
 
       urlText = text.trim()
-                    .replace(/\'/gi, '')
-                    .replace(nonsafeChars, '-')
-                    .replace(/-{2,}/g, '-')
-                    .substring(0, this.options.truncate)
-                    .replace(/^-+|-+$/gm, '')
-                    .toLowerCase();
+        .replace(/\'/gi, '')
+        .replace(nonsafeChars, '-')
+        .replace(/-{2,}/g, '-')
+        .substring(0, this.options.truncate)
+        .replace(/^-+|-+$/gm, '')
+        .toLowerCase();
 
       return urlText;
     };
@@ -166,12 +153,12 @@
      * @param    {HTMLElemnt}  el - a DOM node
      * @return   {Boolean}     true/false
      */
-    this.hasAnchorJSLink = function(el) {
+    function _hasAnchorJSLink(el) {
       var hasLeftAnchor = el.firstChild && ((' ' + el.firstChild.className + ' ').indexOf(' anchorjs-link ') > -1);
       var hasRightAnchor = el.lastChild && ((' ' + el.lastChild.className + ' ').indexOf(' anchorjs-link ') > -1);
 
       return hasLeftAnchor || hasRightAnchor || false;
-    };
+    }
 
     /**
      * Turns a selector, nodeList, or array of elements into an array of elements (so we can use array methods).
@@ -225,86 +212,63 @@
       style.sheet.insertRule(anchorjsLinkFontFace, style.sheet.cssRules.length);
     }
 
-    /**
-     * Get visible option
-     * @param {String} visibleOption - visible option
-     * @return {String} - visible option to use
-     */
-    function _getVisibleOption(visibleOption) {
-      if (visibleOption === 'touch') {
-        return this.isTouchDevice() ? 'always' : 'hover';
+    function _getVisibleOption() {
+      var visibleOptionToUse = this.options.visible;
+      if (visibleOptionToUse === 'touch') {
+        visibleOptionToUse = this.isTouchDevice() ? 'always' : 'hover';
       }
-      return visibleOption;
+      return visibleOptionToUse;
     }
 
-    /**
-     * Get id list
-     * @param {NodeList} elsWithIds - elements with ids
-     * @return {Array} - id list
-     */
-    function _getIdList(elsWithIds) {
-      return [].map.call(elsWithIds, function assign(el) {
+    function _getIdList() {
+      var elsWithIds = document.querySelectorAll('[id]');
+      var idList = [].map.call(elsWithIds, function assign(el) {
         return el.id;
       });
+      return idList;
     }
 
-    /**
-     * Get element id
-     * @param {HTMLElement} element - element
-     * @param {Array} idList - id list
-     * @return {String} - element id
-     */
     function _getElementID(element, idList) {
+      var elementID;
       if (element.hasAttribute('id')) {
-        return element.getAttribute('id');
+        elementID = element.getAttribute('id');
+      } else {
+        var tidyText = this.urlify(element.textContent);
+        var newTidyText = tidyText;
+        var count = 0;
+        var index;
+        do {
+          if (index !== undefined) {
+            newTidyText = tidyText + '-' + count;
+          }
+
+          index = idList.indexOf(newTidyText);
+          count += 1;
+        } while (index !== -1);
+        index = undefined;
+        idList.push(newTidyText);
+
+        element.setAttribute('id', newTidyText);
+        elementID = newTidyText;
+      }
+      return elementID;
+    }
+
+    function _createAnchor(elementID, visibleOptionToUse) {
+      var anchor = document.createElement('a');
+      anchor.className = 'anchorjs-link ' + this.options.class;
+      anchor.href = '#' + elementID;
+      anchor.setAttribute('aria-label', 'Anchor link for: ' + elementID.replace(/-/g, ' '));
+      anchor.setAttribute('data-anchorjs-icon', this.options.icon);
+
+      if (visibleOptionToUse === 'always') {
+        anchor.style.opacity = '1';
       }
 
-      var tidyText = this.urlify(element.textContent);
-      var newTidyText = tidyText;
-      var count = 0;
-      var index;
-      do {
-        if (index !== undefined) {
-          newTidyText = tidyText + '-' + count;
-        }
-
-        index = idList.indexOf(newTidyText);
-        count += 1;
-      } while (index !== -1);
-      index = undefined;
-      idList.push(newTidyText);
-
-      element.setAttribute('id', newTidyText);
-      return newTidyText;
-    }
-
-    /**
-     * Get readable id
-     * @param {String} elementID - element id
-     * @return {String} - readable id
-     */
-    function _getReadableID(elementID) {
-      return elementID.replace(/-/g, ' ');
-    }
-
-    /**
-     * Create anchor
-     * @param {String} elementID - element id
-     * @param {String} readableID - readable id
-     * @param {Object} options - options
-     * @return {HTMLElement} - anchor
-     */
-    function _createAnchor(elementID, readableID, options) {
-      var anchor = document.createElement('a');
-      anchor.className = 'anchorjs-link ' + options.class;
-      anchor.href = '#' + elementID;
-      anchor.setAttribute('aria-label', 'Anchor link for: ' + readableID);
-      anchor.setAttribute('data-anchorjs-icon', options.icon);
-
-      if (options.icon === '\ue9cb') {
+      if (this.options.icon === '\ue9cb') {
         anchor.style.font = '1em/1 anchorjs-icons';
 
-        if (options.placement === 'left') {
+        if (this.options.placement === 'left') {
           anchor.style.lineHeight = 'inherit';
         }
       }
@@ -312,24 +276,17 @@
       return anchor;
     }
 
-    /**
-     * Add anchor to element
-     * @param {HTMLElement} element - element
-     * @param {HTMLElement} anchor - anchor
-     * @param {Object} options - options
-     */
-    function _addAnchorToElement(element, anchor, options) {
-      if (options.placement === 'left') {
+    function _appendAnchor(element, anchor) {
+      if (this.options.placement === 'left') {
         anchor.style.position = 'absolute';
         anchor.style.marginLeft = '-1em';
         anchor.style.paddingRight = '0.5em';
         element.insertBefore(anchor, element.firstChild);
-      } else {
+      } else { 
         anchor.style.paddingLeft = '0.375em';
         element.appendChild(anchor);
       }
     }
-  }
 
-  return AnchorJS;
+    return AnchorJS;
 }));

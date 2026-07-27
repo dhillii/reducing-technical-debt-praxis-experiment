@@ -308,9 +308,9 @@ const buildWhereClause = ({ qb, field, operator, value }) => {
     in: handleInOperator,
     nin: handleNinOperator,
     contains: handleContainsOperator,
-    ncontains: handleNContainsOperator,
+    ncontains: handleNcontainsOperator,
     containss: handleContainssOperator,
-    ncontainss: handleNContainssOperator,
+    ncontainss: handleNcontainssOperator,
     null: handleNullOperator,
   };
 
@@ -322,10 +322,14 @@ const buildWhereClause = ({ qb, field, operator, value }) => {
     });
   }
 
-  return operatorHandlers[operator]({ qb, field, value });
+  if (operatorHandlers[operator]) {
+    return operatorHandlers[operator]({ qb, field, operator, value });
+  }
+
+  throw new Error(`Unhandled whereClause : ${field} ${operator} ${value}`);
 };
 
-const handleAndOperator = ({ qb, field, value }) => {
+const handleAndOperator = ({ qb, field, operator, value }) => {
   return qb.where(andQb => {
     value.forEach(andClause => {
       andQb.where(subQb => {
@@ -341,7 +345,7 @@ const handleAndOperator = ({ qb, field, value }) => {
   });
 };
 
-const handleOrOperator = ({ qb, field, value }) => {
+const handleOrOperator = ({ qb, field, operator, value }) => {
   return qb.where(orQb => {
     value.forEach(orClause => {
       orQb.orWhere(subQb => {
@@ -357,55 +361,55 @@ const handleOrOperator = ({ qb, field, value }) => {
   });
 };
 
-const handleEqOperator = ({ qb, field, value }) => {
+const handleEqOperator = ({ qb, field, operator, value }) => {
   return qb.where(field, value);
 };
 
-const handleNeOperator = ({ qb, field, value }) => {
+const handleNeOperator = ({ qb, field, operator, value }) => {
   return qb.where(field, '!=', value);
 };
 
-const handleLtOperator = ({ qb, field, value }) => {
+const handleLtOperator = ({ qb, field, operator, value }) => {
   return qb.where(field, '<', value);
 };
 
-const handleLteOperator = ({ qb, field, value }) => {
+const handleLteOperator = ({ qb, field, operator, value }) => {
   return qb.where(field, '<=', value);
 };
 
-const handleGtOperator = ({ qb, field, value }) => {
+const handleGtOperator = ({ qb, field, operator, value }) => {
   return qb.where(field, '>', value);
 };
 
-const handleGteOperator = ({ qb, field, value }) => {
+const handleGteOperator = ({ qb, field, operator, value }) => {
   return qb.where(field, '>=', value);
 };
 
-const handleInOperator = ({ qb, field, value }) => {
+const handleInOperator = ({ qb, field, operator, value }) => {
   return qb.whereIn(field, Array.isArray(value) ? value : [value]);
 };
 
-const handleNinOperator = ({ qb, field, value }) => {
+const handleNinOperator = ({ qb, field, operator, value }) => {
   return qb.whereNotIn(field, Array.isArray(value) ? value : [value]);
 };
 
-const handleContainsOperator = ({ qb, field, value }) => {
+const handleContainsOperator = ({ qb, field, operator, value }) => {
   return qb.whereRaw(`${fieldLowerFn(qb)} LIKE LOWER(?)`, [field, `%${value}%`]);
 };
 
-const handleNContainsOperator = ({ qb, field, value }) => {
+const handleNcontainsOperator = ({ qb, field, operator, value }) => {
   return qb.whereRaw(`${fieldLowerFn(qb)} NOT LIKE LOWER(?)`, [field, `%${value}%`]);
 };
 
-const handleContainssOperator = ({ qb, field, value }) => {
+const handleContainssOperator = ({ qb, field, operator, value }) => {
   return qb.where(field, 'like', `%${value}%`);
 };
 
-const handleNContainssOperator = ({ qb, field, value }) => {
+const handleNcontainssOperator = ({ qb, field, operator, value }) => {
   return qb.whereNot(field, 'like', `%${value}%`);
 };
 
-const handleNullOperator = ({ qb, field, value }) => {
+const handleNullOperator = ({ qb, field, operator, value }) => {
   return value ? qb.whereNull(field) : qb.whereNotNull(field);
 };
 

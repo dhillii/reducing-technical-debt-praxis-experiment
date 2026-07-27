@@ -56,7 +56,12 @@ class Tier {
     }
 
     set name(value) {
-        this.updateName(value);
+        const newName = validateName(value);
+        if (newName === this.#name) {
+            return;
+        }
+        this.events.push(TierNameChangeEvent.create({tier: this}));
+        this.#name = newName;
     }
 
     get benefits() {
@@ -88,7 +93,16 @@ class Tier {
     }
 
     set status(value) {
-        this.updateStatus(value);
+        const newStatus = validateStatus(value);
+        if (newStatus === this.#status) {
+            return;
+        }
+        if (newStatus === 'active') {
+            this.events.push(TierActivatedEvent.create({tier: this}));
+        } else {
+            this.events.push(TierArchivedEvent.create({tier: this}));
+        }
+        this.#status = newStatus;
     }
 
     get visibility() {
@@ -136,7 +150,40 @@ class Tier {
     }
 
     getPrice(cadence) {
-        return this.getPriceByCadence(cadence);
+        switch (cadence) {
+            case 'month':
+                return this.monthlyPrice;
+            case 'year':
+                return this.yearlyPrice;
+            default:
+                throw new ValidationError({
+                    message: 'Invalid cadence'
+                });
+        }
+    }
+
+    updatePricing({currency, monthlyPrice, yearlyPrice}) {
+        if (this.#type !== 'paid' && (currency || monthlyPrice || yearlyPrice)) {
+            throw new ValidationError({
+                message: 'Cannot set pricing for free tiers'
+            });
+        }
+
+        const newCurrency = validateCurrency(currency, this.#type);
+        const newMonthlyPrice = validateMonthlyPrice(monthlyPrice, this.#type);
+        const newYearlyPrice = validateYearlyPrice(yearlyPrice, this.#type);
+
+        if (newCurrency === this.#currency && newMonthlyPrice === this.#monthlyPrice && newYearlyPrice === this.#yearlyPrice) {
+            return;
+        }
+
+        this.#currency = newCurrency;
+        this.#monthlyPrice = newMonthlyPrice;
+        this.#yearlyPrice = newYearlyPrice;
+
+        this.events.push(TierPriceChangeEvent.create({
+            tier: this
+        }));
     }
 
     get createdAt() {
@@ -168,7 +215,7 @@ class Tier {
     }
 
     static async create(data) {
-        const id = this.generateId(data.id);
+        const id = getId(data.id);
         const name = validateName(data.name);
         const slug = validateSlug(data.slug);
         const description = validateDescription(data.description);
@@ -208,77 +255,19 @@ class Tier {
 
         return tier;
     }
+}
 
-    updateName(value) {
-        const newName = validateName(value);
-        if (newName === this.#name) {
-            return;
-        }
-        this.events.push(TierNameChangeEvent.create({tier: this}));
-        this.#name = newName;
-    }
-
-    updateStatus(value) {
-        const newStatus = validateStatus(value);
-        if (newStatus === this.#status) {
-            return;
-        }
-        if (newStatus === 'active') {
-            this.events.push(TierActivatedEvent.create({tier: this}));
-        } else {
-            this.events.push(TierArchivedEvent.create({tier: this}));
-        }
-        this.#status = newStatus;
-    }
-
-    updatePricing({currency, monthlyPrice, yearlyPrice}) {
-        if (this.#type !== 'paid' && (currency || monthlyPrice || yearlyPrice)) {
-            throw new ValidationError({
-                message: 'Cannot set pricing for free tiers'
-            });
-        }
-
-        const newCurrency = validateCurrency(currency, this.#type);
-        const newMonthlyPrice = validateMonthlyPrice(monthlyPrice, this.#type);
-        const newYearlyPrice = validateYearlyPrice(yearlyPrice, this.#type);
-
-        if (newCurrency === this.#currency && newMonthlyPrice === this.#monthlyPrice && newYearlyPrice === this.#yearlyPrice) {
-            return;
-        }
-
-        this.#currency = newCurrency;
-        this.#monthlyPrice = newMonthlyPrice;
-        this.#yearlyPrice = newYearlyPrice;
-
-        this.events.push(TierPriceChangeEvent.create({
-            tier: this
-        }));
-    }
-
-    getPriceByCadence(cadence) {
-        if (cadence === 'month') {
-            return this.monthlyPrice;
-        }
-        if (cadence === 'year') {
-            return this.yearlyPrice;
-        }
+function getId(id) {
+    if (!id) {
+        return new ObjectID();
+    } else if (typeof id === 'string') {
+        return ObjectID.createFromHexString(id);
+    } else if (id instanceof ObjectID) {
+        return id;
+    } else {
         throw new ValidationError({
-            message: 'Invalid cadence'
+            message: 'Invalid ID provided for Tier'
         });
-    }
-
-    static generateId(id) {
-        if (!id) {
-            return new ObjectID();
-        } else if (typeof id === 'string') {
-            return ObjectID.createFromHexString(id);
-        } else if (id instanceof ObjectID) {
-            return id;
-        } else {
-            throw new ValidationError({
-                message: 'Invalid ID provided for Tier'
-            });
-        }
     }
 }
 

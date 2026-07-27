@@ -37,7 +37,7 @@
 
   /**
    * Throws an exception if the task runner is running or an error handler is not defined.
-   * @param {Object} obj - The object to throw.
+   * @param {Object} obj - The error object to throw.
    * @private
    */
   Task.prototype._throwIfRunning = function(obj) {
@@ -52,7 +52,7 @@
    * Registers a new task.
    * @param {string} name - The task name.
    * @param {string} [info] - The task info.
-   * @param {function} [fn] - The task function.
+   * @param {Function} fn - The task function.
    * @returns {Task} The task instance.
    */
   Task.prototype.registerTask = function(name, info, fn) {
@@ -142,7 +142,8 @@
     let task;
     do {
       task = this._tasks[parts.slice(0, i).join(':')];
-    } while (!task && --i > 0);
+      if (!task && --i > 0) { continue; }
+    } while (!task && i > 0);
     const args = parts.slice(i);
     const flags = {};
     args.forEach(function(arg) { flags[arg] = true; });
@@ -165,7 +166,6 @@
 
   /**
    * Enqueues a task.
-   * @param {...string} args - The task arguments.
    * @returns {Task} The task instance.
    */
   Task.prototype.run = function() {
@@ -191,9 +191,9 @@
   /**
    * Runs a task function, handling this.async / return value.
    * @param {Object} context - The task context.
-   * @param {function} fn - The task function.
-   * @param {function} done - The done callback.
-   * @param {boolean} [asyncDone] - Whether to call done asynchronously.
+   * @param {Function} fn - The task function.
+   * @param {Function} done - The done callback.
+   * @param {boolean} asyncDone - Whether to call done asynchronously.
    * @private
    */
   Task.prototype.runTaskFn = function(context, fn, done, asyncDone) {
@@ -244,7 +244,7 @@
 
   /**
    * Begins task queue processing.
-   * @param {Object} [opts] - The options.
+   * @param {Object} opts - The options.
    * @returns {boolean} Whether the queue was started.
    */
   Task.prototype.start = function(opts) {
@@ -285,7 +285,7 @@
 
   /**
    * Clears remaining tasks from the queue.
-   * @param {Object} [options] - The options.
+   * @param {Object} options - The options.
    * @returns {Task} The task instance.
    */
   Task.prototype.clearQueue = function(options) {
@@ -300,7 +300,6 @@
 
   /**
    * Tests to see if all of the given tasks have succeeded.
-   * @param {...string} args - The task arguments.
    */
   Task.prototype.requires = function() {
     this.parseArgs(arguments).forEach(function(name) {

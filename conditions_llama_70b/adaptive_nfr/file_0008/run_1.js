@@ -245,7 +245,7 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
         };
     };
 
-    const renderOfferItem = (offer: any, allTiers: any) => {
+    const renderOfferRow = (offer: any, allTiers: any) => {
         if (!isOfferTierValid(offer, allTiers)) {
             return null;
         }
@@ -276,7 +276,7 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
                 <col className='w-[220px]' />
                 <col className='w-[80px]' />
             </colgroup>
-            {filteredOffers.map((offer) => renderOfferItem(offer, allTiers))}
+            {filteredOffers.map((offer) => renderOfferRow(offer, allTiers))}
         </table>
     </div>;
 

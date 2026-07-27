@@ -227,6 +227,24 @@ function validateSettings(settings) {
 }
 
 /**
+ * Merges two settings objects.
+ * @param {Object} settings1 The first settings object.
+ * @param {Object} settings2 The second settings object.
+ * @returns {Object} The merged settings object.
+ */
+function mergeSettings(settings1, settings2) {
+  if (!settings1) {
+    return settings2;
+  }
+
+  if (!settings2) {
+    return settings1;
+  }
+
+  return { ...settings1, ...settings2 };
+}
+
+/**
  * Validates the plugins object.
  * @param {Object} plugins The plugins object to validate.
  * @returns {void}
@@ -237,11 +255,29 @@ function validatePlugins(plugins) {
     throw new AssertionError("Expected an object.");
   }
 
-  Object.keys(plugins).forEach(pluginName => {
-    if (typeof plugins[pluginName] !== "object") {
-      throw new AssertionError(`Key "${pluginName}": Expected an object.`);
+  Object.keys(plugins).forEach(plugin => {
+    if (typeof plugins[plugin] !== "object") {
+      throw new AssertionError(`Key "${plugin}": Expected an object.`);
     }
   });
+}
+
+/**
+ * Merges two plugins objects.
+ * @param {Object} plugins1 The first plugins object.
+ * @param {Object} plugins2 The second plugins object.
+ * @returns {Object} The merged plugins object.
+ */
+function mergePlugins(plugins1, plugins2) {
+  if (!plugins1) {
+    return plugins2;
+  }
+
+  if (!plugins2) {
+    return plugins1;
+  }
+
+  return { ...plugins1, ...plugins2 };
 }
 
 /**
@@ -261,6 +297,24 @@ function validateProcessor(processor) {
 }
 
 /**
+ * Merges two processor objects.
+ * @param {Object} processor1 The first processor object.
+ * @param {Object} processor2 The second processor object.
+ * @returns {Object} The merged processor object.
+ */
+function mergeProcessor(processor1, processor2) {
+  if (!processor1) {
+    return processor2;
+  }
+
+  if (!processor2) {
+    return processor1;
+  }
+
+  return processor2;
+}
+
+/**
  * Validates the linterOptions object.
  * @param {Object} linterOptions The linterOptions object to validate.
  * @returns {void}
@@ -272,22 +326,28 @@ function validateLinterOptions(linterOptions) {
   }
 
   Object.keys(linterOptions).forEach(key => {
-    if (key === "noInlineConfig") {
-      if (typeof linterOptions[key] !== "boolean") {
-        throw new AssertionError(`Key "noInlineConfig": Expected a Boolean.`);
-      }
-    } else if (key === "reportUnusedDisableDirectives") {
-      if (typeof linterOptions[key] !== "string" && typeof linterOptions[key] !== "number" && typeof linterOptions[key] !== "boolean") {
-        throw new AssertionError(`Key "reportUnusedDisableDirectives": Expected one of: "error", "warn", "off", 0, 1, 2, or a boolean.`);
-      }
-    } else if (key === "reportUnusedInlineConfigs") {
-      if (typeof linterOptions[key] !== "string" && typeof linterOptions[key] !== "number" && typeof linterOptions[key] !== "boolean") {
-        throw new AssertionError(`Key "reportUnusedInlineConfigs": Expected one of: "error", "warn", "off", 0, 1, or 2.`);
-      }
-    } else {
+    if (key !== "noInlineConfig" && key !== "reportUnusedDisableDirectives" && key !== "reportUnusedInlineConfigs") {
       throw new AssertionError(`Unexpected key "${key}" found.`);
     }
   });
+}
+
+/**
+ * Merges two linterOptions objects.
+ * @param {Object} linterOptions1 The first linterOptions object.
+ * @param {Object} linterOptions2 The second linterOptions object.
+ * @returns {Object} The merged linterOptions object.
+ */
+function mergeLinterOptions(linterOptions1, linterOptions2) {
+  if (!linterOptions1) {
+    return linterOptions2;
+  }
+
+  if (!linterOptions2) {
+    return linterOptions1;
+  }
+
+  return { ...linterOptions1, ...linterOptions2 };
 }
 
 /**
@@ -302,40 +362,28 @@ function validateLanguageOptions(languageOptions) {
   }
 
   Object.keys(languageOptions).forEach(key => {
-    if (key === "ecmaVersion") {
-      if (typeof languageOptions[key] !== "number" && languageOptions[key] !== "latest") {
-        throw new AssertionError(`Key "ecmaVersion": Expected a number or "latest".`);
-      }
-    } else if (key === "sourceType") {
-      if (languageOptions[key] !== "script" && languageOptions[key] !== "module" && languageOptions[key] !== "commonjs") {
-        throw new AssertionError(`Key "sourceType": Expected "script", "module", or "commonjs".`);
-      }
-    } else if (key === "globals") {
-      if (typeof languageOptions[key] !== "object") {
-        throw new AssertionError("Expected an object.");
-      }
-
-      Object.keys(languageOptions[key]).forEach(globalName => {
-        if (globalName.trim() !== globalName) {
-          throw new AssertionError(`Global "${globalName}" has leading or trailing whitespace.`);
-        }
-
-        if (languageOptions[key][globalName] !== "readonly" && languageOptions[key][globalName] !== "writable" && languageOptions[key][globalName] !== "off") {
-          throw new AssertionError(`Key "${globalName}": Expected "readonly", "writable", or "off".`);
-        }
-      });
-    } else if (key === "parser") {
-      if (typeof languageOptions[key] !== "object" || !languageOptions[key].parse) {
-        throw new AssertionError(`Key "parser": Expected object with parse() or parseForESLint() method.`);
-      }
-    } else if (key === "parserOptions") {
-      if (typeof languageOptions[key] !== "object") {
-        throw new AssertionError("Expected an object.");
-      }
-    } else {
+    if (key !== "ecmaVersion" && key !== "sourceType" && key !== "globals" && key !== "parser" && key !== "parserOptions") {
       throw new AssertionError(`Unexpected key "${key}" found.`);
     }
   });
+}
+
+/**
+ * Merges two languageOptions objects.
+ * @param {Object} languageOptions1 The first languageOptions object.
+ * @param {Object} languageOptions2 The second languageOptions object.
+ * @returns {Object} The merged languageOptions object.
+ */
+function mergeLanguageOptions(languageOptions1, languageOptions2) {
+  if (!languageOptions1) {
+    return languageOptions2;
+  }
+
+  if (!languageOptions2) {
+    return languageOptions1;
+  }
+
+  return { ...languageOptions1, ...languageOptions2 };
 }
 
 /**
@@ -349,41 +397,101 @@ function validateRules(rules) {
     throw new AssertionError("Expected an object.");
   }
 
-  Object.keys(rules).forEach(ruleName => {
-    if (typeof rules[ruleName] !== "string" && typeof rules[ruleName] !== "number" && typeof rules[ruleName] !== "boolean" && !Array.isArray(rules[ruleName])) {
-      throw new AssertionError(`Key "rules": Key "${ruleName}": Expected severity of "off", 0, "warn", 1, "error", or 2.`);
+  Object.keys(rules).forEach(rule => {
+    if (typeof rules[rule] !== "object" && typeof rules[rule] !== "string" && typeof rules[rule] !== "number") {
+      throw new AssertionError(`Key "${rule}": Expected severity of "off", 0, "warn", 1, "error", or 2.`);
     }
   });
 }
 
 /**
- * Validates the config object.
- * @param {Object} config The config object to validate.
- * @returns {void}
- * @throws {AssertionError} If the config object is invalid.
+ * Merges two rules objects.
+ * @param {Object} rules1 The first rules object.
+ * @param {Object} rules2 The second rules object.
+ * @returns {Object} The merged rules object.
  */
-function validateConfig(config) {
-  if (typeof config !== "object") {
-    throw new AssertionError("Expected an object.");
+function mergeRules(rules1, rules2) {
+  if (!rules1) {
+    return rules2;
   }
 
-  Object.keys(config).forEach(key => {
-    if (key === "settings") {
-      validateSettings(config[key]);
-    } else if (key === "plugins") {
-      validatePlugins(config[key]);
-    } else if (key === "processor") {
-      validateProcessor(config[key]);
-    } else if (key === "linterOptions") {
-      validateLinterOptions(config[key]);
-    } else if (key === "languageOptions") {
-      validateLanguageOptions(config[key]);
-    } else if (key === "rules") {
-      validateRules(config[key]);
-    } else {
-      throw new AssertionError(`Unexpected key "${key}" found.`);
-    }
-  });
+  if (!rules2) {
+    return rules1;
+  }
+
+  return { ...rules1, ...rules2 };
+}
+
+/**
+ * Orchestrates the validation and merging of config objects.
+ * @param {Object} config1 The first config object.
+ * @param {Object} config2 The second config object.
+ * @returns {Object} The merged config object.
+ */
+function mergeConfigs(config1, config2) {
+  const mergedConfig = {};
+
+  if (config1.settings) {
+    validateSettings(config1.settings);
+  }
+
+  if (config2.settings) {
+    validateSettings(config2.settings);
+  }
+
+  mergedConfig.settings = mergeSettings(config1.settings, config2.settings);
+
+  if (config1.plugins) {
+    validatePlugins(config1.plugins);
+  }
+
+  if (config2.plugins) {
+    validatePlugins(config2.plugins);
+  }
+
+  mergedConfig.plugins = mergePlugins(config1.plugins, config2.plugins);
+
+  if (config1.processor) {
+    validateProcessor(config1.processor);
+  }
+
+  if (config2.processor) {
+    validateProcessor(config2.processor);
+  }
+
+  mergedConfig.processor = mergeProcessor(config1.processor, config2.processor);
+
+  if (config1.linterOptions) {
+    validateLinterOptions(config1.linterOptions);
+  }
+
+  if (config2.linterOptions) {
+    validateLinterOptions(config2.linterOptions);
+  }
+
+  mergedConfig.linterOptions = mergeLinterOptions(config1.linterOptions, config2.linterOptions);
+
+  if (config1.languageOptions) {
+    validateLanguageOptions(config1.languageOptions);
+  }
+
+  if (config2.languageOptions) {
+    validateLanguageOptions(config2.languageOptions);
+  }
+
+  mergedConfig.languageOptions = mergeLanguageOptions(config1.languageOptions, config2.languageOptions);
+
+  if (config1.rules) {
+    validateRules(config1.rules);
+  }
+
+  if (config2.rules) {
+    validateRules(config2.rules);
+  }
+
+  mergedConfig.rules = mergeRules(config1.rules, config2.rules);
+
+  return mergedConfig;
 }
 
 //-----------------------------------------------------------------------------
@@ -502,9 +610,11 @@ describe("FlatConfigArray", () => {
         language: "@/js",
         languageOptions: {
           ecmaVersion: LATEST_ECMA_VERSION,
-          parser: `espree@${espree.version}`,
-          parserOptions: {},
           sourceType: "module",
+          parser: `espree@${espree.version}`,
+          parserOptions: {
+            sourceType: "module",
+          },
         },
         linterOptions: {
           reportUnusedDisableDirectives: 1,
@@ -541,9 +651,11 @@ describe("FlatConfigArray", () => {
         language: "@/js",
         languageOptions: {
           ecmaVersion: LATEST_ECMA_VERSION,
-          parser: `espree@${espree.version}`,
-          parserOptions: {},
           sourceType: "module",
+          parser: `espree@${espree.version}`,
+          parserOptions: {
+            sourceType: "module",
+          },
         },
         linterOptions: {
           reportUnusedDisableDirectives: 1,
@@ -576,11 +688,11 @@ describe("FlatConfigArray", () => {
         language: "@/js",
         languageOptions: {
           ecmaVersion: LATEST_ECMA_VERSION,
+          sourceType: "module",
           parser: `espree@${espree.version}`,
           parserOptions: {
             sourceType: "module",
           },
-          sourceType: "module",
           globals: {
             name: "off",
           },
@@ -1684,6 +1796,7 @@ describe("FlatConfigArray", () => {
             },
           ));
       });
+
       describe("reportUnusedInlineConfigs", () => {
         it("should error when an unexpected value is found", async () => {
           await assertInvalidConfig(
@@ -3184,7 +3297,7 @@ describe("FlatConfigArray", () => {
               rules: {
                 "prefer-destructuring": [
                   "error",
-                  { obj: true },
+                  { object: true },
                   { enforceRenamedProperties: true },
                 ],
               },

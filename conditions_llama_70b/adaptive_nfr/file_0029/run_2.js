@@ -398,13 +398,13 @@ export default class Analytics extends Component {
             return;
         }
 
-        this.animateNewNumber(element);
-        this.animateOldNumber(element);
+        this.animateElement(element);
     }
 
-    animateNewNumber(element) {
+    animateElement(element) {
+        const targets = this.getTargets(element);
         anime({
-            targets: this.getTargets(element),
+            targets: targets,
             translateY: [10,0],
             // translateZ: 0,
             opacity: [0,1],
@@ -413,11 +413,9 @@ export default class Analytics extends Component {
             duration: 1000,
             delay: (el, i) => 100 + 30 * i
         });
-    }
 
-    animateOldNumber(element) {
         anime({
-            targets: this.getTargets(element),
+            targets: targets.replace('.new-number', '.old-number'),
             translateY: [0,-10],
             opacity: [1,0],
             easing: 'easeOutExpo',
@@ -427,7 +425,7 @@ export default class Analytics extends Component {
     }
 
     getTargets(element) {
-        return `${Array.from(element.classList).map(className => `.${className}`).join('')} .new-number span`;
+        return `.${Array.from(element.classList).join('.')}.new-number span`;
     }
 
     get showLinks() {

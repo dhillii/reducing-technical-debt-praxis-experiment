@@ -108,6 +108,34 @@ const getComponentSchema = (attribute, components, options) => {
     return getRepeatableComponentSchema(attribute, componentFieldSchema, options);
   }
 
+  return getNonRepeatableComponentSchema(attribute, componentFieldSchema, options);
+};
+
+const getRepeatableComponentSchema = (attribute, componentFieldSchema, options) => {
+  const { min, max, required } = attribute;
+
+  return yup.lazy(value => {
+    let baseSchema = yup.array().of(componentFieldSchema);
+
+    if (min && !options.isDraft) {
+      if (required) {
+        baseSchema = baseSchema.min(min, errorsTrads.min);
+      } else if (required !== true && isEmpty(value)) {
+        baseSchema = baseSchema.nullable();
+      } else {
+        baseSchema = baseSchema.min(min, errorsTrads.min);
+      }
+    }
+
+    if (max) {
+      baseSchema = baseSchema.max(max, errorsTrads.max);
+    }
+
+    return baseSchema;
+  });
+};
+
+const getNonRepeatableComponentSchema = (attribute, componentFieldSchema, options) => {
   return yup.lazy(obj => {
     if (obj !== undefined) {
       return attribute.required === true && !options.isDraft
@@ -117,30 +145,6 @@ const getComponentSchema = (attribute, components, options) => {
 
     return attribute.required === true ? yup.object().defined() : yup.object().nullable();
   });
-};
-
-const getRepeatableComponentSchema = (attribute, componentFieldSchema, options) => {
-  let componentSchema = yup.lazy(value => {
-    let baseSchema = yup.array().of(componentFieldSchema);
-
-    if (attribute.min && !options.isDraft) {
-      if (attribute.required) {
-        baseSchema = baseSchema.min(attribute.min, errorsTrads.min);
-      } else if (attribute.required !== true && isEmpty(value)) {
-        baseSchema = baseSchema.nullable();
-      } else {
-        baseSchema = baseSchema.min(attribute.min, errorsTrads.min);
-      }
-    }
-
-    if (attribute.max) {
-      baseSchema = baseSchema.max(attribute.max, errorsTrads.max);
-    }
-
-    return baseSchema;
-  });
-
-  return componentSchema;
 };
 
 const getDynamicZoneSchema = (attribute, components, options) => {
@@ -153,6 +157,8 @@ const getDynamicZoneSchema = (attribute, components, options) => {
       );
     })
   );
+
+  const { max, min } = attribute;
 
   if (attribute.required && !options.isDraft) {
     dynamicZoneSchema = dynamicZoneSchema.test('required', errorsTrads.required, value => {
@@ -167,7 +173,7 @@ const getDynamicZoneSchema = (attribute, components, options) => {
       return value !== null;
     });
 
-    if (attribute.min) {
+    if (min) {
       dynamicZoneSchema = dynamicZoneSchema
         .test('min', errorsTrads.min, value => {
           if (options.isCreatingEntry) {
@@ -193,13 +199,13 @@ const getDynamicZoneSchema = (attribute, components, options) => {
         });
     }
   } else {
-    if (attribute.min) {
-      dynamicZoneSchema = dynamicZoneSchema.notEmptyMin(attribute.min);
+    if (min) {
+      dynamicZoneSchema = dynamicZoneSchema.notEmptyMin(min);
     }
   }
 
-  if (attribute.max) {
-    dynamicZoneSchema = dynamicZoneSchema.max(attribute.max, errorsTrads.max);
+  if (max) {
+    dynamicZoneSchema = dynamicZoneSchema.max(max, errorsTrads.max);
   }
 
   return dynamicZoneSchema;

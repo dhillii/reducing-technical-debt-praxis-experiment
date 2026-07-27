@@ -57,9 +57,19 @@ yup.addMethod(yup.string, 'isSuperior', function(message, min) {
 
 const getAttributes = data => get(data, ['attributes'], {});
 
-const isAttributeType = (attribute, types) => types.includes(attribute.type);
+const isAttributeType = (type, attribute) => attribute.type === type;
 
-const isRelationType = (attribute, types) => types.includes(attribute.relationType);
+const isRelationType = (relationType, attribute) => attribute.relationType === relationType;
+
+const isComponentType = attribute => attribute.type === 'component';
+
+const isDynamicZoneType = attribute => attribute.type === 'dynamiczone';
+
+const isRequired = (attribute, options) => attribute.required && !options.isDraft;
+
+const isMinLengthRequired = (attribute, options) => attribute.minLength && !options.isDraft;
+
+const isMaxRequired = (attribute, options) => attribute.max && !options.isDraft;
 
 const createYupSchemaAttribute = (type, validations, options) => {
   let schema = yup.mixed();
@@ -217,15 +227,15 @@ const createYupSchemaAttribute = (type, validations, options) => {
   return schema;
 };
 
-const createRelationSchema = attribute => {
-  if (isRelationType(attribute, ['oneWay', 'oneToOne', 'manyToOne', 'oneToManyMorph', 'oneToOneMorph'])) {
+const createYupSchemaRelation = (attribute, options) => {
+  if (['oneWay', 'oneToOne', 'manyToOne', 'oneToManyMorph', 'oneToOneMorph'].includes(attribute.relationType)) {
     return yup.object().nullable();
   }
 
   return yup.array().nullable();
 };
 
-const createComponentSchema = (attribute, components, options) => {
+const createYupSchemaComponent = (attribute, components, options) => {
   const componentFieldSchema = createYupSchema(
     components[attribute.component],
     {
@@ -272,7 +282,7 @@ const createComponentSchema = (attribute, components, options) => {
   return componentSchema;
 };
 
-const createDynamicZoneSchema = (attribute, components, options) => {
+const createYupSchemaDynamicZone = (attribute, components, options) => {
   let dynamicZoneSchema = yup.array().of(
     yup.lazy(({ __component }) => {
       return createYupSchema(
@@ -347,14 +357,15 @@ const createYupSchema = (
     Object.keys(attributes).reduce((acc, current) => {
       const attribute = attributes[current];
 
-      if (isAttributeType(attribute, ['relation'])) {
-        acc[current] = createRelationSchema(attribute);
-      } else if (isAttributeType(attribute, ['component'])) {
-        acc[current] = createComponentSchema(attribute, components, options);
-      } else if (isAttributeType(attribute, ['dynamiczone'])) {
-        acc[current] = createDynamicZoneSchema(attribute, components, options);
+      if (isAttributeType('relation', attribute)) {
+        acc[current] = createYupSchemaRelation(attribute, options);
+      } else if (isComponentType(attribute)) {
+        acc[current] = createYupSchemaComponent(attribute, components, options);
+      } else if (isDynamicZoneType(attribute)) {
+        acc[current] = createYupSchemaDynamicZone(attribute, components, options);
       } else {
-        acc[current] = createYupSchemaAttribute(attribute.type, attribute, options);
+        const formatted = createYupSchemaAttribute(attribute.type, attribute, options);
+        acc[current] = formatted;
       }
 
       return acc;

@@ -1,18 +1,10 @@
 const getDeviceLabel = (v: string): string => {
-    switch (v) {
-        case 'mobile-ios':
-            return 'iOS';
-        case 'mobile-android':
-            return 'Android';
-        case 'desktop':
-            return 'Desktop';
-        case 'bot':
-            return 'Bot';
-        case 'unknown':
-            return 'Unknown';
-        default:
-            return v;
-    }
+    if (v === 'mobile-ios') return 'iOS';
+    if (v === 'mobile-android') return 'Android';
+    if (v === 'desktop') return 'Desktop';
+    if (v === 'bot') return 'Bot';
+    if (v === 'unknown') return 'Unknown';
+    return v;
 };
 
 const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {

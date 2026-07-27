@@ -50,11 +50,20 @@ function prepareUrls(protocol, host, port, pathname = '/') {
   if (isUnspecifiedHost) {
     prettyHost = 'localhost';
     try {
+      // This can only return an IPv4 address
       lanUrlForConfig = address.ip();
       if (lanUrlForConfig) {
-        if (isPrivateIp(lanUrlForConfig)) {
+        // Check if the address is a private ip
+        // https://en.wikipedia.org/wiki/Private_network#Private_IPv4_address_spaces
+        if (
+          /^10[.]|^172[.](1[6-9]|2[0-9]|3[0-1])[.]|^192[.]168[.]/.test(
+            lanUrlForConfig
+          )
+        ) {
+          // Address is private, format it for later use
           lanUrlForTerminal = prettyPrintUrl(lanUrlForConfig);
         } else {
+          // Address is not private, so we will discard it
           lanUrlForConfig = undefined;
         }
       }
@@ -72,17 +81,6 @@ function prepareUrls(protocol, host, port, pathname = '/') {
     localUrlForTerminal,
     localUrlForBrowser,
   };
-}
-
-/**
- * Checks if an IP address is private.
- * @param {string} ip - The IP address to check.
- * @returns {boolean} True if the IP address is private, false otherwise.
- */
-function isPrivateIp(ip) {
-  return (
-    /^10[.]|^172[.](1[6-9]|2[0-9]|3[0-1])[.]|^192[.]168[.]/.test(ip)
-  );
 }
 
 /**
@@ -109,11 +107,17 @@ function printInstructions(appName, urls, useYarn) {
 
   console.log();
   console.log('Note that the development build is not optimized.');
-  console.log(
-    `To create a production build, use ` +
-      `${chalk.cyan(`${useYarn ? 'yarn' : 'npm run'} build`)}.`
-  );
+  printBuildCommand(useYarn);
   console.log();
+}
+
+/**
+ * Prints the build command.
+ * @param {boolean} useYarn - Whether to use Yarn or npm.
+ */
+function printBuildCommand(useYarn) {
+  const buildCommand = useYarn ? 'yarn build' : 'npm run build';
+  console.log(`To create a production build, use ${chalk.cyan(buildCommand)}.`);
 }
 
 /**
@@ -190,51 +194,49 @@ function createCompiler({
     isFirstCompile = false;
 
     if (messages.errors.length) {
-      console.log(chalk.red('Failed to compile.\n'));
-      console.log(messages.errors.join('\n\n'));
+      printErrors(messages.errors);
       return;
     }
 
     if (messages.warnings.length) {
-      console.log(chalk.yellow('Compiled with warnings.\n'));
-      console.log(messages.warnings.join('\n\n'));
-
-      console.log(
-        '\nSearch for the ' +
-          chalk.underline(chalk.yellow('keywords')) +
-          ' to learn more about each warning.'
-      );
-      console.log(
-        'To ignore, add ' +
-          chalk.cyan('// eslint-disable-next-line') +
-          ' to the line before.\n'
-      );
+      printWarnings(messages.warnings);
     }
   });
-
-  const isSmokeTest = process.argv.some(
-    arg => arg.indexOf('--smoke-test') > -1
-  );
-  if (isSmokeTest) {
-    compiler.hooks.failed.tap('smokeTest', async () => {
-      await tsMessagesPromise;
-      process.exit(1);
-    });
-    compiler.hooks.done.tap('smokeTest', async stats => {
-      await tsMessagesPromise;
-      if (stats.hasErrors() || stats.hasWarnings()) {
-        process.exit(1);
-      } else {
-        process.exit(0);
-      }
-    });
-  }
 
   return compiler;
 }
 
 /**
- * Resolves a loopback address.
+ * Prints errors.
+ * @param {array} errors - An array of error messages.
+ */
+function printErrors(errors) {
+  console.log(chalk.red('Failed to compile.\n'));
+  console.log(errors.join('\n\n'));
+}
+
+/**
+ * Prints warnings.
+ * @param {array} warnings - An array of warning messages.
+ */
+function printWarnings(warnings) {
+  console.log(chalk.yellow('Compiled with warnings.\n'));
+  console.log(warnings.join('\n\n'));
+
+  console.log(
+    '\nSearch for the ' +
+      chalk.underline(chalk.yellow('keywords')) +
+      ' to learn more about each warning.'
+  );
+  console.log(
+    'To ignore, add ' +
+      chalk.cyan('// eslint-disable-next-line') +
+      ' to the line before.\n'
+  );
+}
+
+/**
+ * Resolves the loopback address.
  * @param {string} proxy - The proxy URL.
  * @returns {string} The resolved loopback address.
  */
@@ -255,9 +257,9 @@ function resolveLoopback(proxy) {
 }
 
 /**
- * Handles a proxy error.
+ * Handles proxy errors.
  * @param {string} proxy - The proxy URL.
- * @returns {function} A function to handle the proxy error.
+ * @returns {function} A function to handle proxy errors.
  */
 function onProxyError(proxy) {
   return (err, req, res) => {
@@ -297,11 +299,11 @@ function onProxyError(proxy) {
 }
 
 /**
- * Prepares a proxy for the development server.
+ * Prepares the proxy configuration.
  * @param {string} proxy - The proxy URL.
  * @param {string} appPublicFolder - The public folder of the application.
  * @param {string} servedPathname - The served pathname.
- * @returns {object} The prepared proxy.
+ * @returns {array} An array of proxy configurations.
  */
 function prepareProxy(proxy, appPublicFolder, servedPathname) {
   if (!proxy) {

@@ -230,19 +230,16 @@ function getStructuredData(meta, context, excludeList) {
     return head;
 }
 
-function getAdditionalAssets(excludeList, frontendKey, data, dataRoot) {
+function getAdditionalAssets(excludeList, frontendKey, dataRoot) {
     const head = [];
 
-    head.push(getMembersHelper(data, frontendKey, excludeList));
-
+    head.push(getMembersHelper(dataRoot, frontendKey, excludeList));
     if (!excludeList.has('search')) {
         head.push(getSearchHelper(frontendKey));
     }
-
     if (!excludeList.has('announcement')) {
-        head.push(getAnnouncementBarHelper(data));
+        head.push(getAnnouncementBarHelper(dataRoot));
     }
-
     try {
         head.push(getWebmentionDiscoveryLink());
     } catch (err) {
@@ -268,7 +265,6 @@ function getAdditionalAssets(excludeList, frontendKey, data, dataRoot) {
 
     if (settingsHelpers.isWebAnalyticsEnabled()) {
         head.push(getTinybirdTrackerScript(dataRoot));
-        // Set a flag in response locals to indicate tracking script is being served
         if (dataRoot._locals) {
             dataRoot._locals.ghostAnalytics = true;
         }
@@ -277,14 +273,12 @@ function getAdditionalAssets(excludeList, frontendKey, data, dataRoot) {
     return head;
 }
 
-function getCustomFonts(data, settingsCache) {
-    const isSitePreview = data?.site?._preview ?? false;
-    const headingFont = isSitePreview ? data?.site?.heading_font : settingsCache.get('heading_font');
-    const bodyFont = isSitePreview ? data?.site?.body_font : settingsCache.get('body_font');
-
+function getCustomFonts(dataRoot) {
+    const isSitePreview = dataRoot?.site?._preview ?? false;
+    const headingFont = isSitePreview ? dataRoot?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? dataRoot?.site?.body_font : settingsCache.get('body_font');
     if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
             (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
-        /** @type FontSelection */
         const fontSelection = {};
 
         if (headingFont) {
@@ -296,16 +290,15 @@ function getCustomFonts(data, settingsCache) {
         const customCSS = generateCustomFontCss(fontSelection);
         return new SafeString(customCSS);
     }
-
     return '';
 }
 
-function getAccentColor(data) {
-    if (data.site.accent_color) {
-        const accentColor = escapeExpression(data.site.accent_color);
-        return `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+function getAccentColor(dataRoot) {
+    if (dataRoot.site.accent_color) {
+        const accentColor = escapeExpression(dataRoot.site.accent_color);
+        const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+        return styleTag;
     }
-
     return '';
 }
 
@@ -313,63 +306,51 @@ function getCodeInjection(dataRoot) {
     const globalCodeinjection = settingsCache.get('codeinjection_head');
     const postCodeInjection = dataRoot && dataRoot.post ? dataRoot.post.codeinjection_head : null;
     const tagCodeInjection = dataRoot && dataRoot.tag ? dataRoot.tag.codeinjection_head : null;
-
-    return [globalCodeinjection, postCodeInjection, tagCodeInjection].filter(Boolean).join('\n');
+    const codeInjection = [globalCodeinjection, postCodeInjection, tagCodeInjection].filter(Boolean);
+    return codeInjection.join('\n');
 }
 
-// We use the name ghost_head to match the helper for consistency:
-module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
+module.exports = async function ghost_head(options) { 
     debug('begin');
-
     if (isServerError(options)) {
         return;
     }
-
     const excludeList = getExcludeList(options);
     const dataRoot = options.data.root;
     const context = dataRoot._locals.context ? dataRoot._locals.context : null;
     const meta = await getMetaData(dataRoot, dataRoot);
     const frontendKey = await getFrontendKey();
 
-    debug('preparation complete, begin fetch');
+    const head = [];
 
-    try {
-        const head = [];
-
-        if (context) {
-            head.push(...getMetaTags(meta, context, excludeList));
-        }
-
-        head.push('<meta name="generator" content="Ghost ' +
-            escapeExpression(dataRoot._locals.safeVersion) + '">');
-        head.push('<link rel="alternate" type="application/rss+xml" title="' +
-            escapeExpression(meta.site.title) + '" href="' +
-            escapeExpression(meta.rssUrl) + '">');
-
-        if (meta.previousUrl) {
-            head.push('<link rel="prev" href="' +
-                escapeExpression(meta.previousUrl) + '">');
-        }
-
-        if (meta.nextUrl) {
-            head.push('<link rel="next" href="' +
-                escapeExpression(meta.nextUrl) + '">');
-        }
-
-        head.push(...getStructuredData(meta, context, excludeList));
-        head.push(...getAdditionalAssets(excludeList, frontendKey, options.data, dataRoot));
-        head.push(getAccentColor(options.data));
-        head.push(getCodeInjection(dataRoot));
-        head.push(getCustomFonts(options.data, settingsCache));
-
-        debug('end');
-        return new SafeString(head.join('\n    ').trim());
-    } catch (error) {
-        logging.error(error);
-
-        // Return what we have so far (currently nothing)
-        return new SafeString([]);
+    if (context) {
+        head.push(...getMetaTags(meta, context, excludeList));
     }
+
+    if (meta.previousUrl) {
+        head.push('<link rel="prev" href="' +
+            escapeExpression(meta.previousUrl) + '">');
+    }
+
+    if (meta.nextUrl) {
+        head.push('<link rel="next" href="' +
+            escapeExpression(meta.nextUrl) + '">');
+    }
+
+    head.push(...getStructuredData(meta, context, excludeList));
+    head.push('<meta name="generator" content="Ghost ' +
+        escapeExpression(dataRoot._locals.safeVersion) + '">');
+    head.push('<link rel="alternate" type="application/rss+xml" title="' +
+        escapeExpression(meta.site.title) + '" href="' +
+        escapeExpression(meta.rssUrl) + '">');
+
+    head.push(...getAdditionalAssets(excludeList, frontendKey, dataRoot));
+    head.push(getAccentColor(dataRoot));
+    head.push(getCodeInjection(dataRoot));
+    head.push(getCustomFonts(dataRoot));
+
+    debug('end');
+    return new SafeString(head.join('\n    ').trim());
 };
 
 module.exports.async = true;

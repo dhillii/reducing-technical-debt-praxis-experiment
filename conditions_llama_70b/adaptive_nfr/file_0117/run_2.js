@@ -658,12 +658,10 @@ module.exports = function(God) {
       let sent = 0;
 
       (function ex(arr) {
-        if (arr[0] === null || !arr) {
-          return cb(null, {
-            process_count: sent,
-            success: true
-          });
-        }
+        if (arr[0] === null || !arr) return cb(null, {
+          process_count: sent,
+          success: true
+        });
 
         const id = arr[0];
 
@@ -698,7 +696,6 @@ module.exports = function(God) {
           arr.shift();
           return ex(arr);
         }
-        return false;
       })(arr);
     } else return cb(God.logAndGenerateError('method requires name or id field'), {});
     return false;
@@ -762,14 +759,10 @@ module.exports = function(God) {
  * @return {boolean}
  */
 function filterBadProcess(pro) {
-  if (pro.pm2_env.status !== cst.ONLINE_STATUS) {
-    return false;
-  }
+  if (pro.pm2_env.status !== cst.ONLINE_STATUS) return false;
 
   if (pro.pm2_env.axm_options && pro.pm2_env.axm_options.pid) {
-    if (isNaN(pro.pm2_env.axm_options.pid)) {
-      return false;
-    }
+    if (isNaN(pro.pm2_env.axm_options.pid)) return false;
   }
 
   return true;

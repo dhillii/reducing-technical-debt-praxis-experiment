@@ -1,10 +1,10 @@
 const combineFilters = params => {
-  const filterMapper = {
+  const filterMappers = {
     mime_ncontains: val => ({ mime_ncontains: val }),
   };
 
   if (_.has(params, 'mime_ncontains') && Array.isArray(params.mime_ncontains)) {
-    params._where = params.mime_ncontains.map(val => filterMapper.mime_ncontains(val));
+    params._where = params.mime_ncontains.map(val => filterMappers.mime_ncontains(val));
     delete params.mime_ncontains;
   }
 };
@@ -85,7 +85,7 @@ const addFileInfoAndEmitEvent = async (values, user) => {
   return res;
 };
 
-const removeFileAndEmitEvent = async file => {
+const deleteFileAndEmitEvent = async file => {
   const config = strapi.plugins.upload.config;
 
   // execute delete function of the provider
@@ -228,6 +228,12 @@ module.exports = {
   async replace(id, { data, file }, { user } = {}) {
     const config = strapi.plugins.upload.config;
 
+    const {
+      getDimensions,
+      generateThumbnail,
+      generateResponsiveFormats,
+    } = strapi.plugins.upload.services['image-manipulation'];
+
     const dbFile = await this.fetch({ id });
 
     if (!dbFile) {
@@ -244,7 +250,17 @@ module.exports = {
     });
 
     // execute delete function of the provider
-    await removeFileAndEmitEvent(dbFile);
+    if (dbFile.provider === config.provider) {
+      await strapi.plugins.upload.provider.delete(dbFile);
+
+      if (dbFile.formats) {
+        await Promise.all(
+          Object.keys(dbFile.formats).map(key => {
+            return strapi.plugins.upload.provider.delete(dbFile.formats[key]);
+          })
+        );
+      }
+    }
 
     const fileDataWithDimensions = await getDimensionsAndDeleteBuffer(fileData);
 
@@ -288,7 +304,7 @@ module.exports = {
   },
 
   async remove(file) {
-    return removeFileAndEmitEvent(file);
+    return deleteFileAndEmitEvent(file);
   },
 
   async uploadToEntity(params, files, source) {

@@ -257,9 +257,9 @@ function hasWarnings(messages) {
 }
 
 /**
- * Resolves the loopback address.
+ * Resolves the loopback address for a proxy.
  * @param {string} proxy - The proxy URL.
- * @returns {string} The resolved loopback address.
+ * @returns {string} The resolved proxy URL.
  */
 function resolveLoopback(proxy) {
   const o = url.parse(proxy);
@@ -268,6 +268,9 @@ function resolveLoopback(proxy) {
     return proxy;
   }
   try {
+    // Check if we're on a network; if we are, chances are we can resolve
+    // localhost. Otherwise, we can just be safe and assume localhost is
+    // IPv4 for maximum compatibility.
     if (!address.ip()) {
       o.hostname = '127.0.0.1';
     }
@@ -280,7 +283,7 @@ function resolveLoopback(proxy) {
 /**
  * Handles proxy errors.
  * @param {string} proxy - The proxy URL.
- * @returns {function} The error handler function.
+ * @returns {function} A function to handle proxy errors.
  */
 function onProxyError(proxy) {
   return (err, req, res) => {

@@ -47,6 +47,13 @@ addModuleDependencies(module, dependencies, bail, cacheGroup, recursive, callbac
 
             const isOptional = dependencies.every(d => d.optional);
 
+            const iterationDependencies = (depend) => {
+                depend.forEach(d => {
+                    d.module = dependentModule;
+                    dependentModule.addReason(module, d);
+                });
+            };
+
             if (_this.profile) {
                 if (!dependentModule.profile) {
                     dependentModule.profile = {};
@@ -55,6 +62,7 @@ addModuleDependencies(module, dependencies, bail, cacheGroup, recursive, callbac
                 dependentModule.profile.factory = afterFactory - start;
             }
 
+            dependentModule.issuer = module;
             const newModule = _this.addModule(dependentModule, cacheGroup);
 
             if (!newModule) {
@@ -64,10 +72,7 @@ addModuleDependencies(module, dependencies, bail, cacheGroup, recursive, callbac
                     dependentModule.optional = isOptional;
                 }
 
-                dependencies.forEach(d => {
-                    d.module = dependentModule;
-                    dependentModule.addReason(module, d);
-                });
+                iterationDependencies(dependencies);
 
                 if (_this.profile) {
                     const afterBuilding = Date.now();
@@ -85,12 +90,9 @@ addModuleDependencies(module, dependencies, bail, cacheGroup, recursive, callbac
                 dependentModule = newModule;
 
                 dependentModule.optional = isOptional;
-                dependentModule.issuer = module;
+                dependentModule.issuer = dependentModule.issuer;
 
-                dependencies.forEach(d => {
-                    d.module = dependentModule;
-                    dependentModule.addReason(module, d);
-                });
+                iterationDependencies(dependencies);
 
                 if (_this.profile) {
                     const afterBuilding = Date.now();
@@ -106,10 +108,7 @@ addModuleDependencies(module, dependencies, bail, cacheGroup, recursive, callbac
 
             dependentModule.optional = isOptional;
 
-            dependencies.forEach(d => {
-                d.module = dependentModule;
-                dependentModule.addReason(module, d);
-            });
+            iterationDependencies(dependencies);
 
             _this.buildModule(dependentModule, isOptional, module, dependencies, (err) => {
                 if (err) {

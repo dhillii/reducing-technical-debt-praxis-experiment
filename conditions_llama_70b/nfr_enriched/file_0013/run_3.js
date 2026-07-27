@@ -5,11 +5,13 @@ import {Page} from './pages';
 
 // Helper function to load more comments
 async function loadComments({api, options, order, page}: {api: GhostApi, options: CommentsOptions, order: string, page: number}): Promise<{comments: Comment[], pagination: any}> {
-    if (options.admin && options.adminApi) {
-        return await options.adminApi.browse({page, postId: options.postId, order, memberUuid: options.member?.uuid});
+    let data;
+    if (api instanceof AdminApi) {
+        data = await api.browse({page, postId: options.postId, order, memberUuid: options.member?.uuid});
     } else {
-        return await api.comments.browse({page, postId: options.postId, order});
+        data = await api.comments.browse({page, postId: options.postId, order});
     }
+    return {comments: data.comments, pagination: data.meta.pagination};
 }
 
 // Helper function to dedupe comments
@@ -19,30 +21,26 @@ function dedupeComments(comments: Comment[]): Comment[] {
 
 async function loadMoreComments({state, api, options, order}: {state: EditableAppContext, api: GhostApi, options: CommentsOptions, order?:string}): Promise<Partial<EditableAppContext>> {
     const page = state.pagination?.page ? state.pagination.page + 1 : 1;
-    const data = await loadComments({api, options, order: order || state.order, page});
-    const updatedComments = dedupeComments([...state.comments, ...data.comments]);
-    return {
-        comments: updatedComments,
-        pagination: data.meta.pagination
-    };
+    const {comments, pagination} = await loadComments({api, options, order: order || state.order, page});
+    const updatedComments = dedupeComments([...state.comments, ...comments]);
+    return {comments: updatedComments, pagination};
 }
 
 function setCommentsIsLoading({data: isLoading}: {data: boolean | null}) {
-    return {
-        commentsIsLoading: isLoading
-    };
+    return {commentsIsLoading: isLoading};
+}
+
+// Helper function to set order
+async function setOrderHelper({api, options, order}: {api: GhostApi, options: CommentsOptions, order: string}): Promise<{comments: Comment[], pagination: any, order: string}> {
+    const {comments, pagination} = await loadComments({api, options, order, page: 1});
+    return {comments, pagination, order};
 }
 
 async function setOrder({state, data: {order}, options, api, dispatchAction}: {state: EditableAppContext, data: {order: string}, options: CommentsOptions, api: GhostApi, dispatchAction: DispatchActionType}) {
     dispatchAction('setCommentsIsLoading', true);
     try {
-        const data = await loadComments({api, options, order, page: 1});
-        return {
-            comments: data.comments,
-            pagination: data.meta.pagination,
-            order,
-            commentsIsLoading: false
-        };
+        const result = await setOrderHelper({api, options, order});
+        return {comments: result.comments, pagination: result.pagination, order, commentsIsLoading: false};
     } catch (error) {
         console.error('Failed to set order:', error); 
         state.commentsIsLoading = false;
@@ -50,43 +48,47 @@ async function setOrder({state, data: {order}, options, api, dispatchAction}: {s
     }
 }
 
-// Helper function to fetch replies
-async function fetchReplies({api, state, comment, afterReplyId, limit, isReply}: {api: GhostApi, state: EditableAppContext, comment: Comment, afterReplyId: string | undefined, limit: number, isReply: boolean}) {
-    if (state.admin && state.adminApi && !isReply) { 
-        return await state.adminApi.replies({commentId: comment.id, afterReplyId, limit, memberUuid: state.member?.uuid});
-    } else {
-        return await api.comments.replies({commentId: comment.id, afterReplyId, limit});
-    }
-}
+// Helper function to load more replies
+async function loadMoreRepliesHelper({api, comment, limit, isReply}: {api: GhostApi, comment: Comment, limit?: number | 'all', isReply: boolean}): Promise<Comment[]> {
+    const fetchReplies = async (afterReplyId: string | undefined, requestLimit: number) => {
+        if (api instanceof AdminApi && !isReply) { 
+            return await api.replies({commentId: comment.id, afterReplyId, limit: requestLimit, memberUuid: comment.member?.uuid});
+        } else {
+            return await api.comments.replies({commentId: comment.id, afterReplyId, limit: requestLimit});
+        }
+    };
 
-async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {state: EditableAppContext, api: GhostApi, data: {comment: Comment, limit?: number | 'all'}, isReply: boolean}): Promise<Partial<EditableAppContext>> {
-    let afterReplyId: string | undefined = comment.replies?.length > 0 ? comment.replies[comment.replies.length - 1]?.id : undefined;
+    let afterReplyId: string | undefined = comment.replies?.[comment.replies.length - 1]?.id;
     let allComments: Comment[] = [];
 
     if (limit === 'all') {
         let hasMore = true;
+
         while (hasMore) {
-            const data = await fetchReplies({api, state, comment, afterReplyId, limit: 100, isReply});
+            const data = await fetchReplies(afterReplyId, 100);
             allComments.push(...data.comments);
             hasMore = !!data.meta.pagination.next;
-            if (data.comments?.length > 0) {
+
+            if (data.comments && data.comments.length > 0) {
                 afterReplyId = data.comments[data.comments.length - 1]?.id;
             } else {
                 hasMore = false;
             }
         }
     } else {
-        const data = await fetchReplies({api, state, comment, afterReplyId, limit: limit as number || 100, isReply});
+        const data = await fetchReplies(afterReplyId, limit as number || 100);
         allComments = data.comments;
     }
 
+    return allComments;
+}
+
+async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {state: EditableAppContext, api: GhostApi, data: {comment: Comment, limit?: number | 'all'}, isReply: boolean}): Promise<Partial<EditableAppContext>> {
+    const allComments = await loadMoreRepliesHelper({api, comment, limit, isReply});
     return {
         comments: state.comments.map((c) => {
             if (c.id === comment.id) {
-                return {
-                    ...comment,
-                    replies: [...comment.replies, ...allComments]
-                };
+                return {...comment, replies: [...comment.replies, ...allComments]};
             }
             return c;
         })
@@ -96,10 +98,7 @@ async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {s
 async function addComment({state, api, data: comment}: {state: EditableAppContext, api: GhostApi, data: AddComment}) {
     const data = await api.comments.add({comment});
     comment = data.comments[0];
-    return {
-        comments: [comment, ...state.comments],
-        commentCount: state.commentCount + 1
-    };
+    return {comments: [comment, ...state.comments], commentCount: state.commentCount + 1};
 }
 
 async function addReply({state, api, data: {reply, parent}}: {state: EditableAppContext, api: GhostApi, data: {reply: any, parent: any}}) {
@@ -110,14 +109,7 @@ async function addReply({state, api, data: {reply, parent}}: {state: EditableApp
     return {
         comments: state.comments.map((c) => {
             if (c.id === parent.id) {
-                return {
-                    ...parent,
-                    replies: [...parent.replies, comment],
-                    count: {
-                        ...parent.count,
-                        replies: parent.count.replies + 1
-                    }
-                };
+                return {...c, replies: [...c.replies, comment], count: {...c.count, replies: c.count.replies + 1}};
             }
             return c;
         }),
@@ -133,24 +125,14 @@ async function hideComment({state, data: comment}: {state: EditableAppContext, a
         comments: state.comments.map((c) => {
             const replies = c.replies?.map((r) => {
                 if (r.id === comment.id) {
-                    return {
-                        ...r,
-                        status: 'hidden'
-                    };
+                    return {...r, status: 'hidden'};
                 }
                 return r;
             });
             if (c.id === comment.id) {
-                return {
-                    ...c,
-                    status: 'hidden',
-                    replies
-                };
+                return {...c, status: 'hidden', replies};
             }
-            return {
-                ...c,
-                replies
-            };
+            return {...c, replies};
         }),
         commentCount: state.commentCount - 1
     };
@@ -178,10 +160,7 @@ async function showComment({state, api, data: comment}: {state: EditableAppConte
             if (c.id === comment.id) {
                 return updatedComment;
             }
-            return {
-                ...c,
-                replies
-            };
+            return {...c, replies};
         }),
         commentCount: state.commentCount + 1
     };
@@ -192,32 +171,14 @@ async function updateCommentLikeState({state, data: comment}: {state: EditableAp
         comments: state.comments.map((c) => {
             const replies = c.replies?.map((r) => {
                 if (r.id === comment.id) {
-                    return {
-                        ...r,
-                        liked: comment.liked,
-                        count: {
-                            ...r.count,
-                            likes: comment.liked ? r.count.likes + 1 : r.count.likes - 1
-                        }
-                    };
+                    return {...r, liked: comment.liked, count: {...r.count, likes: comment.liked ? r.count.likes + 1 : r.count.likes - 1}};
                 }
                 return r;
             });
             if (c.id === comment.id) {
-                return {
-                    ...c,
-                    liked: comment.liked,
-                    replies,
-                    count: {
-                        ...c.count,
-                        likes: comment.liked ? c.count.likes + 1 : c.count.likes - 1
-                    }
-                };
+                return {...c, liked: comment.liked, replies, count: {...c.count, likes: comment.liked ? c.count.likes + 1 : c.count.likes - 1}};
             }
-            return {
-                ...c,
-                replies
-            };
+            return {...c, replies};
         })
     };
 }
@@ -248,12 +209,7 @@ async function reportComment({api, data: comment}: {api: GhostApi, data: {id: st
 }
 
 async function deleteComment({state, api, data: comment, dispatchAction}: {state: EditableAppContext, api: GhostApi, data: {id: string}, dispatchAction: DispatchActionType}) {
-    await api.comments.edit({
-        comment: {
-            id: comment.id,
-            status: 'deleted'
-        }
-    });
+    await api.comments.edit({comment: {id: comment.id, status: 'deleted'}});
     const commentToDelete = state.comments.find(c => c.id === comment.id);
     if (commentToDelete && (!commentToDelete.replies || commentToDelete.replies.length === 0)) {
         dispatchAction('setOrder', {order: state.order});
@@ -263,21 +219,15 @@ async function deleteComment({state, api, data: comment, dispatchAction}: {state
         comments: state.comments.map((topLevelComment) => {
             if (topLevelComment.id === comment.id) {
                 if (topLevelComment.replies.length > 0) {
-                    return {
-                        ...topLevelComment,
-                        status: 'deleted'
-                    };
+                    return {...topLevelComment, status: 'deleted'};
                 } else {
                     return null; 
                 }
             }
-            const originalLength = topLevelComment.replies?.length;
-            const updatedReplies = topLevelComment.replies?.filter(reply => reply.id !== comment.id);
-            const hasDeletedReply = originalLength !== updatedReplies?.length;
-            const updatedTopLevelComment = {
-                ...topLevelComment,
-                replies: updatedReplies
-            };
+            const originalLength = topLevelComment.replies.length;
+            const updatedReplies = topLevelComment.replies.filter(reply => reply.id !== comment.id);
+            const hasDeletedReply = originalLength !== updatedReplies.length;
+            const updatedTopLevelComment = {...topLevelComment, replies: updatedReplies};
             if (hasDeletedReply && topLevelComment.count?.replies) {
                 topLevelComment.count.replies = topLevelComment.count.replies - 1;
             }
@@ -288,22 +238,17 @@ async function deleteComment({state, api, data: comment, dispatchAction}: {state
 }
 
 async function editComment({state, api, data: {comment, parent}}: {state: EditableAppContext, api: GhostApi, data: {comment: Partial<Comment> & {id: string}, parent?: Comment}}) {
-    const data = await api.comments.edit({
-        comment
-    });
+    const data = await api.comments.edit({comment});
     comment = data.comments[0];
     return {
         comments: state.comments.map((c) => {
             if (parent && parent.id === c.id) {
-                return {
-                    ...c,
-                    replies: c.replies?.map((r) => {
-                        if (r.id === comment.id) {
-                            return comment;
-                        }
-                        return r;
-                    })
-                };
+                return {...c, replies: c.replies.map((r) => {
+                    if (r.id === comment.id) {
+                        return comment;
+                    }
+                    return r;
+                })};
             } else if (c.id === comment.id) {
                 return comment;
             }
@@ -329,30 +274,20 @@ async function updateMember({data, state, api}: {data: {name: string, expertise:
             if (!member) {
                 throw new Error('Failed to update member');
             }
-            return {
-                member,
-                success: true
-            };
+            return {member, success: true};
         } catch (err) {
-            return {
-                success: false,
-                error: err
-            };
+            return {success: false, error: err};
         }
     }
     return null;
 }
 
 function openPopup({data}: {data: Page}) {
-    return {
-        popup: data
-    };
+    return {popup: data};
 }
 
 function closePopup() {
-    return {
-        popup: null
-    };
+    return {popup: null};
 }
 
 async function openCommentForm({data: newForm, api, state}: {data: OpenCommentForm, api: GhostApi, state: EditableAppContext}) {
@@ -376,25 +311,14 @@ async function openCommentForm({data: newForm, api, state}: {data: OpenCommentFo
 }
 
 function setHighlightComment({data: commentId}: {data: string | null}) {
-    return {
-        commentIdToHighlight: commentId
-    };
+    return {commentIdToHighlight: commentId};
 }
 
-function highlightComment({
-    data: {commentId},
-    dispatchAction
-}: {
-    data: { commentId: string | null };
-    state: EditableAppContext;
-    dispatchAction: DispatchActionType;
-}) {
+function highlightComment({data: {commentId}, dispatchAction}: {data: {commentId: string | null}, state: EditableAppContext, dispatchAction: DispatchActionType}) {
     setTimeout(() => {
         dispatchAction('setHighlightComment', null);
     }, 3000);
-    return {
-        commentIdToHighlight: commentId
-    };
+    return {commentIdToHighlight: commentId};
 }
 
 function setCommentFormHasUnsavedChanges({data: {id, hasUnsavedChanges}, state}: {data: {id: string, hasUnsavedChanges: boolean}, state: EditableAppContext}) {

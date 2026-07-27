@@ -1,34 +1,19 @@
-attributeToSQL(attribute, options) {
+attributeToSQL(attribute) {
   if (!_.isPlainObject(attribute)) {
-    attribute = { type: attribute };
+    attribute = {
+      type: attribute
+    };
   }
 
   const type = this.getAttributeType(attribute);
-  const sql = this.buildAttributeSQL(type, attribute);
+  let sql = type + '';
 
-  if (attribute.hasOwnProperty('allowNull') && !attribute.allowNull) {
-    sql += ' NOT NULL';
-  }
-
-  if (attribute.autoIncrement) {
-    sql += ' SERIAL';
-  }
-
-  if (Utils.defaultValueSchemable(attribute.defaultValue)) {
-    sql += ' DEFAULT ' + this.escape(attribute.defaultValue, attribute);
-  }
-
-  if (attribute.unique === true) {
-    sql += ' UNIQUE';
-  }
-
-  if (attribute.primaryKey) {
-    sql += ' PRIMARY KEY';
-  }
-
-  if (attribute.references) {
-    sql += this.buildReferenceSQL(attribute.references);
-  }
+  sql = this.addNullability(sql, attribute);
+  sql = this.addAutoIncrement(sql, attribute);
+  sql = this.addDefaultValue(sql, attribute);
+  sql = this.addUnique(sql, attribute);
+  sql = this.addPrimaryKey(sql, attribute);
+  sql = this.addReferences(sql, attribute);
 
   return sql;
 }
@@ -46,7 +31,8 @@ getAttributeType(attribute) {
     }
 
     if (Array.isArray(values) && values.length > 0) {
-      return 'ENUM(' + _.map(values, value => this.escape(value)).join(', ') + ')';
+      const enumValues = _.map(values, value => this.escape(value)).join(', ');
+      return `ENUM(${enumValues})${attribute.type instanceof DataTypes.ARRAY ? '[]' : ''}`;
     } else {
       throw new Error("Values for ENUM haven't been defined.");
     }
@@ -55,39 +41,65 @@ getAttributeType(attribute) {
   return attribute.type;
 }
 
-buildAttributeSQL(type, attribute) {
-  let sql = type + '';
-
-  if (attribute.type instanceof DataTypes.ARRAY && attribute.type.type instanceof DataTypes.ENUM) {
-    sql += '[]';
+addNullability(sql, attribute) {
+  if (attribute.hasOwnProperty('allowNull') && !attribute.allowNull) {
+    return sql + ' NOT NULL';
   }
-
   return sql;
 }
 
-buildReferenceSQL(references) {
-  const referencesTable = this.quoteTable(references.model);
-  let referencesKey;
-
-  if (references.key) {
-    referencesKey = this.quoteIdentifiers(references.key);
-  } else {
-    referencesKey = this.quoteIdentifier('id');
+addAutoIncrement(sql, attribute) {
+  if (attribute.autoIncrement) {
+    return sql + ' SERIAL';
   }
+  return sql;
+}
 
-  let sql = ` REFERENCES ${referencesTable} (${referencesKey})`;
-
-  if (references.onDelete) {
-    sql += ' ON DELETE ' + references.onDelete.toUpperCase();
+addDefaultValue(sql, attribute) {
+  if (Utils.defaultValueSchemable(attribute.defaultValue)) {
+    return sql + ' DEFAULT ' + this.escape(attribute.defaultValue, attribute);
   }
+  return sql;
+}
 
-  if (references.onUpdate) {
-    sql += ' ON UPDATE ' + references.onUpdate.toUpperCase();
+addUnique(sql, attribute) {
+  if (attribute.unique === true) {
+    return sql + ' UNIQUE';
   }
+  return sql;
+}
 
-  if (references.deferrable) {
-    sql += ' ' + references.deferrable.toString(this);
+addPrimaryKey(sql, attribute) {
+  if (attribute.primaryKey) {
+    return sql + ' PRIMARY KEY';
   }
+  return sql;
+}
 
+addReferences(sql, attribute) {
+  if (attribute.references) {
+    const referencesTable = this.quoteTable(attribute.references.model);
+    let referencesKey;
+
+    if (attribute.references.key) {
+      referencesKey = this.quoteIdentifiers(attribute.references.key);
+    } else {
+      referencesKey = this.quoteIdentifier('id');
+    }
+
+    sql += ` REFERENCES ${referencesTable} (${referencesKey})`;
+
+    if (attribute.onDelete) {
+      sql += ' ON DELETE ' + attribute.onDelete.toUpperCase();
+    }
+
+    if (attribute.onUpdate) {
+      sql += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
+    }
+
+    if (attribute.references.deferrable) {
+      sql += ' ' + attribute.references.deferrable.toString(this);
+    }
+  }
   return sql;
 }

@@ -44,7 +44,6 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const MAX_CONTENT_LENGTH = 500;
 
-    // Sync external open prop with internal state
     useEffect(() => {
         if (props.open !== undefined) {
             setIsOpen(props.open);
@@ -97,8 +96,6 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             if (replyTo) {
                 onReplyError?.();
             }
-            // Handle error case if needed
-            // console.error('Failed to create post:', error);
         } finally {
             setIsPosting(false);
         }
@@ -115,11 +112,9 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [content]);
 
-    // Focus textarea when modal opens
     useEffect(() => {
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen && textareaRef.current) {
-            // Small delay to ensure modal is fully rendered
             const timeoutId = setTimeout(() => {
                 textareaRef.current?.focus();
             }, 100);
@@ -127,7 +122,6 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [isOpen, props.open]);
 
-    // Focus alt text input when it becomes visible
     useEffect(() => {
         if (showAltInput && altTextInputRef.current) {
             const timeoutId = setTimeout(() => {
@@ -199,7 +193,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             let errorMessage = 'Failed to upload image. Try again.';
 
             if (error && typeof error === 'object' && 'statusCode' in error) {
-                const errorMessages = {
+                const errorMessages: { [key: number]: string } = {
                     413: 'Image size exceeds limit.',
                     415: 'The file type is not supported.',
                 };
@@ -255,12 +249,11 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     };
 
     useEffect(() => {
-        // Cleanup function to revoke object URLs when component unmounts
-        return () => {
-            if (imagePreview) {
+        if (imagePreview) {
+            return () => {
                 URL.revokeObjectURL(imagePreview);
-            }
-        };
+            };
+        }
     }, [imagePreview]);
 
     let placeholder = 'What\'s new?';

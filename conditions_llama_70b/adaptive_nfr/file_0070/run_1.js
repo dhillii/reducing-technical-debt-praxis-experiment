@@ -6,20 +6,23 @@
  * @private
  */
 function collectUnusedVariables(scope, unusedVars) {
-  if (shouldSkipScope(scope)) return unusedVars;
+  if (shouldSkipScope(scope)) {
+    return unusedVars;
+  }
 
   const variables = scope.variables;
-  const childScopes = scope.childScopes;
 
   for (const variable of variables) {
-    if (shouldSkipVariable(variable)) continue;
+    if (shouldSkipVariable(variable)) {
+      continue;
+    }
 
     if (!isUsedVariable(variable) && !isExported(variable)) {
       unusedVars.push(variable);
     }
   }
 
-  for (const childScope of childScopes) {
+  for (const childScope of scope.childScopes) {
     collectUnusedVariables(childScope, unusedVars);
   }
 
@@ -33,10 +36,7 @@ function collectUnusedVariables(scope, unusedVars) {
  * @private
  */
 function shouldSkipScope(scope) {
-  return (
-    scope.type === "global" && config.vars !== "all" ||
-    scope.functionExpressionScope
-  );
+  return scope.type === "global" && config.vars !== "all";
 }
 
 /**
@@ -46,139 +46,61 @@ function shouldSkipScope(scope) {
  * @private
  */
 function shouldSkipVariable(variable) {
-  const def = variable.defs[0];
-
-  if (!def) return true;
-
-  const type = def.type;
-  const refUsedInArrayPatterns = variable.references.some(
-    ref => ref.identifier.parent.type === "ArrayPattern",
-  );
-
-  if (
-    (def.name.parent.type === "ArrayPattern" || refUsedInArrayPatterns) &&
-    config.destructuredArrayIgnorePattern &&
-    config.destructuredArrayIgnorePattern.test(def.name.name)
-  ) {
-    if (
-      config.reportUsedIgnorePattern &&
-      isUsedVariable(variable)
-    ) {
-      context.report({
-        node: def.name,
-        messageId: "usedIgnoredVar",
-        data: getUsedIgnoredMessageData(variable, "array-destructure"),
-      });
-    }
-
+  if (variable.eslintUsed && !config.reportUsedIgnorePattern) {
     return true;
   }
 
-  if (type === "ClassName") {
+  if (variable.name === "arguments" && variable.identifiers.length === 0) {
+    return true;
+  }
+
+  const def = variable.defs[0];
+
+  if (!def) {
+    return true;
+  }
+
+  const type = def.type;
+
+  if (type === "ClassName" && config.ignoreClassWithStaticInitBlock) {
     const hasStaticBlock = def.node.body.body.some(
       node => node.type === "StaticBlock",
     );
 
-    if (
-      config.ignoreClassWithStaticInitBlock &&
-      hasStaticBlock
-    ) {
+    if (hasStaticBlock) {
       return true;
     }
   }
 
-  if (type === "CatchClause") {
-    if (config.caughtErrors === "none") {
-      return true;
-    }
+  if (type === "CatchClause" && config.caughtErrors === "none") {
+    return true;
+  }
 
-    if (
-      config.caughtErrorsIgnorePattern &&
-      config.caughtErrorsIgnorePattern.test(def.name.name)
-    ) {
-      if (
-        config.reportUsedIgnorePattern &&
-        isUsedVariable(variable)
-      ) {
-        context.report({
-          node: def.name,
-          messageId: "usedIgnoredVar",
-          data: getUsedIgnoredMessageData(variable, "catch-clause"),
-        });
-      }
+  if (type === "Parameter" && config.args === "none") {
+    return true;
+  }
 
-      return true;
-    }
-  } else if (type === "Parameter") {
-    if (
-      def.node.parent.type === "Property" ||
-      def.node.parent.type === "MethodDefinition"
-    ) {
-      if (def.node.parent.kind === "set") {
-        return true;
-      }
-    }
-
-    if (config.args === "none") {
-      return true;
-    }
-
-    if (
-      config.argsIgnorePattern &&
-      config.argsIgnorePattern.test(def.name.name)
-    ) {
-      if (
-        config.reportUsedIgnorePattern &&
-        isUsedVariable(variable)
-      ) {
-        context.report({
-          node: def.name,
-          messageId: "usedIgnoredVar",
-          data: getUsedIgnoredMessageData(variable, "parameter"),
-        });
-      }
-
-      return true;
-    }
-
-    if (
-      config.args === "after-used" &&
-      astUtils.isFunction(def.name.parent) &&
-      !isAfterLastUsedArg(variable)
-    ) {
-      return true;
-    }
-  } else {
-    if (
-      config.varsIgnorePattern &&
-      config.varsIgnorePattern.test(def.name.name)
-    ) {
-      if (
-        config.reportUsedIgnorePattern &&
-        isUsedVariable(variable)
-      ) {
-        context.report({
-          node: def.name,
-          messageId: "usedIgnoredVar",
-          data: getUsedIgnoredMessageData(variable, "variable"),
-        });
-      }
-
+  if (config.destructuredArrayIgnorePattern && def.name.parent.type === "ArrayPattern") {
+    if (config.destructuredArrayIgnorePattern.test(def.name.name)) {
       return true;
     }
   }
 
-  if (
-    !isUsedVariable(variable) &&
-    !isExported(variable) &&
-    !(
-      config.ignoreUsingDeclarations &&
-      usesExplicitResourceManagement(variable)
-    ) &&
-    !hasRestSpreadSibling(variable)
-  ) {
-    return false;
+  if (config.varsIgnorePattern && config.varsIgnorePattern.test(def.name.name)) {
+    return true;
   }
 
-  return true;
+  if (config.caughtErrorsIgnorePattern && type === "CatchClause") {
+    if (config.caughtErrorsIgnorePattern.test(def.name.name)) {
+      return true;
+    }
+  }
+
+  if (config.argsIgnorePattern && type === "Parameter") {
+    if (config.argsIgnorePattern.test(def.name.name)) {
+      return true;
+    }
+  }
+
+  return false;
 }

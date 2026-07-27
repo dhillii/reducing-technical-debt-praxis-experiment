@@ -14,7 +14,7 @@ const { getManyRelations } = require('./utils/associations');
 /**
  * Adds created_at and updated_at fields to the definition if timestamps are enabled.
  * @param {Object} loadedModel - The loaded model.
- * @param {Object} definition - The definition to update.
+ * @param {Object} definition - The definition of the model.
  */
 const addTimestamps = (loadedModel, definition) => {
   if (loadedModel.hasTimestamps) {
@@ -26,7 +26,7 @@ const addTimestamps = (loadedModel, definition) => {
 /**
  * Equilizes tables by creating or updating them.
  * @param {Object} options - The options for creating or updating the table.
- * @param {Object} context - The context for the operation.
+ * @param {Object} context - The context of the migration.
  */
 const equilizeTables = async (options, context) => {
   const { table, attributes, definition, ORM, model } = options;
@@ -35,9 +35,9 @@ const equilizeTables = async (options, context) => {
 
 /**
  * Equilizes polymorphic relations by creating or updating the morph tables.
- * @param {Object} definition - The definition to equilize.
+ * @param {Object} definition - The definition of the model.
  * @param {Object} loadedModel - The loaded model.
- * @param {Object} context - The context for the operation.
+ * @param {Object} context - The context of the migration.
  */
 const equilizePolymorphicRelations = async (definition, loadedModel, context) => {
   const morphRelations = definition.associations.filter(association => {
@@ -68,8 +68,8 @@ const equilizePolymorphicRelations = async (definition, loadedModel, context) =>
 
 /**
  * Equilizes many to many relations by creating or updating the join tables.
- * @param {Object} definition - The definition to equilize.
- * @param {Object} context - The context for the operation.
+ * @param {Object} definition - The definition of the model.
+ * @param {Object} context - The context of the migration.
  */
 const equilizeManyToManyRelations = async (definition, context) => {
   const manyRelations = getManyRelations(definition);
@@ -119,7 +119,7 @@ const equilizeManyToManyRelations = async (definition, context) => {
 /**
  * Removes timestamps from the definition.
  * @param {Object} loadedModel - The loaded model.
- * @param {Object} definition - The definition to update.
+ * @param {Object} definition - The definition of the model.
  */
 const removeTimestamps = (loadedModel, definition) => {
   if (loadedModel.hasTimestamps) {
@@ -129,9 +129,9 @@ const removeTimestamps = (loadedModel, definition) => {
 };
 
 /**
- * Migrates the schema by equilizing tables, polymorphic relations, and many to many relations.
+ * Migrates the schema of the model.
  * @param {Object} options - The options for the migration.
- * @param {Object} context - The context for the migration.
+ * @param {Object} context - The context of the migration.
  */
 const migrateSchemas = async (options, context) => {
   const { ORM, loadedModel, definition, connection, model } = options;
@@ -173,10 +173,10 @@ const getColumnInfo = async (columnName, tableName, ORM) => {
 };
 
 /**
- * Checks if a given attribute is a column.
- * @param {Object} definition - The definition to check.
- * @param {Object} attribute - The attribute to check.
- * @param {string} name - The name of the attribute.
+ * Checks if a column is a valid column.
+ * @param {Object} definition - The definition of the model.
+ * @param {Object} attribute - The attribute of the column.
+ * @param {string} name - The name of the column.
  */
 const isColumn = ({ definition, attribute, name }) => {
   if (!_.has(attribute, 'type')) {
@@ -201,14 +201,14 @@ const isColumn = ({ definition, attribute, name }) => {
 };
 
 /**
- * Generates a unique column name for a given table and key.
+ * Generates a unique column name.
  * @param {string} table - The name of the table.
- * @param {string} key - The key to generate the unique column name for.
+ * @param {string} key - The key of the column.
  */
 const uniqueColName = (table, key) => `${table}_${key}_unique`;
 
 /**
- * Builds the column type for a given attribute and table.
+ * Builds the column type for a given attribute.
  * @param {Object} options - The options for building the column type.
  */
 const buildColType = ({ name, attribute, table, tableExists = false, definition, ORM }) => {
@@ -286,7 +286,7 @@ const buildColType = ({ name, attribute, table, tableExists = false, definition,
 /**
  * Creates or updates a table.
  * @param {Object} options - The options for creating or updating the table.
- * @param {Object} context - The context for the operation.
+ * @param {Object} context - The context of the migration.
  */
 const createOrUpdateTable = async (options, context) => {
   const { table, attributes, definition, ORM, model } = options;

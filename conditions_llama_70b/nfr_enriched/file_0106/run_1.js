@@ -71,7 +71,7 @@ utils.inherits(Runnable, EventEmitter);
  * @param {number|string} ms
  * @return {Runnable|number} ms or Runnable instance.
  */
-Runnable.prototype.timeout = function(ms) {
+Runnable.prototype.timeout = function (ms) {
   if (!arguments.length) {
     return this._timeout;
   }
@@ -97,7 +97,7 @@ Runnable.prototype.timeout = function(ms) {
  * @param {number|string} ms
  * @return {Runnable|number} ms or Runnable instance.
  */
-Runnable.prototype.slow = function(ms) {
+Runnable.prototype.slow = function (ms) {
   if (!arguments.length || typeof ms === 'undefined') {
     return this._slow;
   }
@@ -116,7 +116,7 @@ Runnable.prototype.slow = function(ms) {
  * @param {boolean} enabled
  * @return {Runnable|boolean} enabled or Runnable instance.
  */
-Runnable.prototype.enableTimeouts = function(enabled) {
+Runnable.prototype.enableTimeouts = function (enabled) {
   if (!arguments.length) {
     return this._enableTimeouts;
   }
@@ -130,7 +130,7 @@ Runnable.prototype.enableTimeouts = function(enabled) {
  *
  * @api public
  */
-Runnable.prototype.skip = function() {
+Runnable.prototype.skip = function () {
   throw new Pending('sync skip');
 };
 
@@ -139,7 +139,7 @@ Runnable.prototype.skip = function() {
  *
  * @api private
  */
-Runnable.prototype.isPending = function() {
+Runnable.prototype.isPending = function () {
   return this.pending || (this.parent && this.parent.isPending());
 };
 
@@ -148,7 +148,7 @@ Runnable.prototype.isPending = function() {
  *
  * @api private
  */
-Runnable.prototype.retries = function(n) {
+Runnable.prototype.retries = function (n) {
   if (!arguments.length) {
     return this._retries;
   }
@@ -160,7 +160,7 @@ Runnable.prototype.retries = function(n) {
  *
  * @api private
  */
-Runnable.prototype.currentRetry = function(n) {
+Runnable.prototype.currentRetry = function (n) {
   if (!arguments.length) {
     return this._currentRetry;
   }
@@ -174,7 +174,7 @@ Runnable.prototype.currentRetry = function(n) {
  * @api public
  * @return {string}
  */
-Runnable.prototype.fullTitle = function() {
+Runnable.prototype.fullTitle = function () {
   return this.titlePath().join(' ');
 };
 
@@ -184,7 +184,7 @@ Runnable.prototype.fullTitle = function() {
  * @api public
  * @return {string}
  */
-Runnable.prototype.titlePath = function() {
+Runnable.prototype.titlePath = function () {
   return this.parent.titlePath().concat([this.title]);
 };
 
@@ -193,7 +193,7 @@ Runnable.prototype.titlePath = function() {
  *
  * @api private
  */
-Runnable.prototype.clearTimeout = function() {
+Runnable.prototype.clearTimeout = function () {
   clearTimeout(this.timer);
 };
 
@@ -203,8 +203,8 @@ Runnable.prototype.clearTimeout = function() {
  * @api private
  * @return {string}
  */
-Runnable.prototype.inspect = function() {
-  return JSON.stringify(this, function(key, val) {
+Runnable.prototype.inspect = function () {
+  return JSON.stringify(this, function (key, val) {
     if (key[0] === '_') {
       return;
     }
@@ -223,7 +223,7 @@ Runnable.prototype.inspect = function() {
  *
  * @api private
  */
-Runnable.prototype.resetTimeout = function() {
+Runnable.prototype.resetTimeout = function () {
   const self = this;
   const ms = this.timeout() || 1e9;
 
@@ -231,7 +231,7 @@ Runnable.prototype.resetTimeout = function() {
     return;
   }
   this.clearTimeout();
-  this.timer = setTimeout(function() {
+  this.timer = setTimeout(function () {
     if (!self._enableTimeouts) {
       return;
     }
@@ -247,7 +247,7 @@ Runnable.prototype.resetTimeout = function() {
  * @api private
  * @param {string[]} globals
  */
-Runnable.prototype.globals = function(globals) {
+Runnable.prototype.globals = function (globals) {
   if (!arguments.length) {
     return this._allowedGlobals;
   }
@@ -260,7 +260,7 @@ Runnable.prototype.globals = function(globals) {
  * @param {Function} fn
  * @api private
  */
-Runnable.prototype.run = function(fn) {
+Runnable.prototype.run = function (fn) {
   const self = this;
   const start = new Date();
   const ctx = this.ctx;
@@ -359,13 +359,13 @@ Runnable.prototype.run = function(fn) {
     if (result && typeof result.then === 'function') {
       self.resetTimeout();
       result
-        .then(function() {
+        .then(function () {
           done();
           // Return null so libraries like bluebird do not warn about
           // subsequently constructed Promises.
           return null;
         },
-        function(reason) {
+        function (reason) {
           done(reason || new Error('Promise rejected with no or falsy reason'));
         });
     } else {
@@ -382,7 +382,7 @@ Runnable.prototype.run = function(fn) {
    * @param {Function} fn
    */
   function callFnAsync(fn) {
-    const result = fn.call(ctx, function(err) {
+    const result = fn.call(ctx, function (err) {
       if (err instanceof Error || toString.call(err) === '[object Error]') {
         return done(err);
       }

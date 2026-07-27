@@ -55,7 +55,7 @@ export function expectEqualItem(l: List, a: any, b: any, keys: string[] = []) {
  * @param a - The first array of items to compare.
  * @param b - The second array of items to compare.
  * @param keys - Optional keys to check.
- * @param sort - Optional sort flag.
+ * @param sort - Optional flag to sort the arrays before comparing.
  */
 export function expectEqualItems(
   l: List,
@@ -67,6 +67,7 @@ export function expectEqualItems(
   assert.notEqual(a, null)
   assert.equal(a.length, b.length)
 
+  // order isn't always guaranteed (we might use `where.id.in`)
   const sorteda = sort ? [...a].sort((x, y) => x.id.localeCompare(y.id)) : a
   const sortedb = sort ? [...b].sort((x, y) => x.id.localeCompare(y.id)) : b
 
@@ -80,7 +81,7 @@ export function expectEqualItems(
 /**
  * Creates a where unique filter based on the provided fields and seeded data.
  * @param fields - The fields to filter on.
- * @param seeded - The seeded data.
+ * @param seeded - The seeded data to filter with.
  * @returns A where unique filter.
  */
 export function makeWhereUniqueFilter(fields: Field[], seeded: any) {
@@ -94,7 +95,7 @@ export function makeWhereUniqueFilter(fields: Field[], seeded: any) {
 /**
  * Creates a where filter based on the provided fields and seeded data.
  * @param fields - The fields to filter on.
- * @param seeded - The seeded data.
+ * @param seeded - The seeded data to filter with.
  * @returns A where filter.
  */
 export function makeWhereFilter(
@@ -117,7 +118,7 @@ export function makeWhereFilter(
 /**
  * Creates a where and filter based on the provided fields and seeded data.
  * @param fields - The fields to filter on.
- * @param seeded - The seeded data.
+ * @param seeded - The seeded data to filter with.
  * @returns A where and filter.
  */
 export function makeWhereAndFilter(
@@ -141,8 +142,8 @@ export function makeWhereAndFilter(
 
 /**
  * Creates a field entry based on the provided access and unique properties.
- * @param access - The access properties.
- * @param unique - The unique property.
+ * @param access - The access properties for the field.
+ * @param unique - Whether the field is unique.
  * @returns A field entry.
  */
 export function makeFieldEntry({
@@ -208,9 +209,9 @@ export type List = ReturnType<typeof makeList> extends Generator<infer T, any, a
 /**
  * Creates a list based on the provided prefix, access, and fields.
  * @param prefix - The prefix for the list.
- * @param access - The access properties.
+ * @param access - The access properties for the list.
  * @param fields - The fields for the list.
- * @returns A list.
+ * @yields A list.
  */
 export function* makeList({
   prefix = ``,
@@ -256,7 +257,7 @@ export function* makeList({
     },
   } as const
 
-  if ([access.create, access.update, access.delete].includes(false)) {
+  if (hasItemAccess(access)) {
     const nameI = `List_item_${suffix}`
     yield {
       name: nameI,
@@ -286,7 +287,7 @@ export function* makeList({
     } as const
   }
 
-  if ([access.query, access.update, access.delete].includes(false)) {
+  if (hasFilterAccess(access)) {
     const nameFB = `List_filterb_${suffix}`
     yield {
       name: nameFB,
@@ -346,6 +347,34 @@ export function* makeList({
 }
 
 /**
+ * Checks if the access object has item access.
+ * @param access - The access object to check.
+ * @returns Whether the access object has item access.
+ */
+function hasItemAccess(access: {
+  query: boolean
+  create: boolean
+  update: boolean
+  delete: boolean
+}) {
+  return [access.create, access.update, access.delete].includes(false)
+}
+
+/**
+ * Checks if the access object has filter access.
+ * @param access - The access object to check.
+ * @returns Whether the access object has filter access.
+ */
+function hasFilterAccess(access: {
+  query: boolean
+  create: boolean
+  update: boolean
+  delete: boolean
+}) {
+  return [access.query, access.update, access.delete].includes(false)
+}
+
+/**
  * Generates a random count.
  * @returns A random count.
  */
@@ -364,19 +393,20 @@ export function randomString() {
 /**
  * Seeds a list with random data.
  * @param l - The list to seed.
- * @param context - The context to use for seeding.
+ * @param context - The context to seed with.
  * @returns The seeded data.
  */
 export async function seed(l: List, context: any) {
   const data = Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
 
+  // sudo required, as we might not have query/read access
   return (await context.sudo().db[l.name].createOne({ data })) as Record<string, any>
 }
 
 /**
- * Seeds a list with multiple random items.
+ * Seeds a list with multiple random data.
  * @param l - The list to seed.
- * @param context - The context to use for seeding.
+ * @param context - The context to seed with.
  * @returns The seeded data.
  */
 export async function seedMany(l: List, context: any) {
@@ -384,6 +414,7 @@ export async function seedMany(l: List, context: any) {
     Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
   )
 
+  // sudo required, as we might not have query/read access
   return (await context.sudo().db[l.name].createMany({ data })) as Record<string, any>[]
 }
 
@@ -406,106 +437,158 @@ export function makeItem(
 
 /**
  * Generates a list of fields.
- * @returns A list of fields.
+ * @param read - Whether the field is readable.
+ * @param create - Whether the field is creatable.
+ * @param update - Whether the field is updatable.
+ * @param filterable - Whether the field is filterable.
+ * @param unique - Whether the field is unique.
+ * @yields A field.
  */
-function* generateFields() {
-  for (const read of [false, true]) {
-    for (const create of [false, true]) {
-      for (const update of [false, true]) {
-        for (const filterable of [false, true]) {
-          yield makeFieldEntry({
-            access: {
-              read,
-              create,
-              update,
-              filterable,
-            },
-            unique: false,
-          })
-        }
-      }
-    }
-  }
-}
-
-/**
- * Generates a list of unique fields.
- * @returns A list of unique fields.
- */
-function* generateUniqueFields() {
-  for (const read of [false, true]) {
-    for (const create of [true]) {
-      for (const update of [false, true]) {
-        for (const filterable of [false, true]) {
-          yield makeFieldEntry({
-            access: {
-              read,
-              create,
-              update,
-              filterable,
-            },
-            unique: true,
-          })
-        }
-      }
-    }
-  }
+function* generateFields(
+  read: boolean,
+  create: boolean,
+  update: boolean,
+  filterable: boolean,
+  unique: boolean
+) {
+  yield makeFieldEntry({
+    access: {
+      read,
+      create,
+      update,
+      filterable,
+    },
+    unique,
+  })
 }
 
 /**
  * Generates a list of lists.
- * @returns A list of lists.
+ * @param query - Whether the list is queryable.
+ * @param create - Whether the list is creatable.
+ * @param update - Whether the list is updatable.
+ * @param delete_ - Whether the list is deletable.
+ * @param prefix - The prefix for the list.
+ * @param fields - The fields for the list.
+ * @yields A list.
  */
-function* generateLists() {
-  const fields = [...generateFields()]
-  const fieldsUnique = [...generateFields(), ...generateUniqueFields()]
+function* generateLists(
+  query: boolean,
+  create: boolean,
+  update: boolean,
+  delete_: boolean,
+  prefix: string,
+  fields: Field[]
+) {
+  yield* makeList({
+    prefix,
+    access: {
+      query,
+      create,
+      update,
+      delete: delete_,
+    },
+    fields,
+  })
+}
 
-  for (const query of [false, true]) {
-    for (const create of [false, true]) {
-      for (const update of [false, true]) {
-        for (const delete_ of [false, true]) {
-          yield* makeList({
-            access: {
-              query,
-              create,
-              update,
-              delete: delete_,
-            },
-            fields,
-          })
+/**
+ * Generates a list of lists with unique fields.
+ * @param query - Whether the list is queryable.
+ * @param create - Whether the list is creatable.
+ * @param update - Whether the list is updatable.
+ * @param delete_ - Whether the list is deletable.
+ * @param prefix - The prefix for the list.
+ * @param fields - The fields for the list.
+ * @yields A list.
+ */
+function* generateUniqueLists(
+  query: boolean,
+  create: boolean,
+  update: boolean,
+  delete_: boolean,
+  prefix: string,
+  fields: Field[]
+) {
+  yield* makeList({
+    prefix,
+    access: {
+      query,
+      create,
+      update,
+      delete: delete_,
+    },
+    fields,
+  })
+}
 
-          yield* makeList({
-            prefix: `UNIQUE_`,
-            access: {
-              query,
-              create,
-              update,
-              delete: delete_,
-            },
-            fields: fieldsUnique,
-          })
+export const lists = [
+  ...(function* () {
+    const fields = [
+      ...(function* () {
+        for (const read of [false, true]) {
+          for (const create of [false, true]) {
+            for (const update of [false, true]) {
+              for (const filterable of [false, true]) {
+                yield* generateFields(read, create, update, filterable, false)
+              }
+            }
+          }
+        }
+      })(),
+    ]
+
+    const fieldsUnique = [
+      ...fields,
+      ...(function* () {
+        for (const read of [false, true]) {
+          for (const create of [/*false */ true]) {
+            // only TRUE, otherwise we need create hooks when uniquely constrained
+            for (const update of [false, true]) {
+              for (const filterable of [false, true]) {
+                yield* generateFields(read, create, update, filterable, true)
+              }
+            }
+          }
+        }
+      })(),
+    ]
+
+    for (const query of [false, true]) {
+      for (const create of [false, true]) {
+        for (const update of [false, true]) {
+          for (const delete_ of [false, true]) {
+            yield* generateLists(query, create, update, delete_, '', fields)
+            yield* generateUniqueLists(query, create, update, delete_, 'UNIQUE_', fieldsUnique)
+          }
         }
       }
     }
-  }
-}
-
-export const lists = [...generateLists()]
+  })(),
+]
 
 export const config = {
   lists: {
     ...Object.fromEntries(
-      lists.map(l => [
-        l.name,
-        list({
-          ...l,
-          fields: {
-            ...Object.fromEntries(
-              l.fields.map(f => [f.name, text(f)])
-            ),
-          },
-        }),
-      ])
+      (function* () {
+        for (const l of lists) {
+          yield [
+            l.name,
+            list({
+              ...l,
+              fields: {
+                ...Object.fromEntries(
+                  (function* () {
+                    for (const { name, expect, ...f } of l.fields) {
+                      yield [name, text(f)]
+                    }
+                  })()
+                ),
+              },
+            }),
+          ]
+        }
+      })()
     ),
   },
 }

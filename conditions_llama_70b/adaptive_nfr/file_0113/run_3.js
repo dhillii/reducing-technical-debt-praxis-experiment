@@ -55,8 +55,8 @@ exports.toCollectionName = function(options) {
 /**
  * Deep equality options
  * @typedef {Object} DeepEqualityOptions
- * @property {any} a - a value to compare to `b`
- * @property {any} b - a value to compare to `a`
+ * @property {any} a - value to compare to `b`
+ * @property {any} b - value to compare to `a`
  */
 /**
  * Determines if `a` and `b` are deep equal.
@@ -177,7 +177,7 @@ exports.deepEqual = function deepEqual(options) {
 /**
  * Last element options
  * @typedef {Object} LastElementOptions
- * @property {Array} arr - array
+ * @property {Array} arr - array to get the last element from
  */
 /**
  * Get the last element of an array
@@ -196,461 +196,43 @@ exports.last = function(options) {
 exports.clone = clone;
 
 /**
- * Promise or callback options
- * @typedef {Object} PromiseOrCallbackOptions
- * @property {Function} callback - callback function
- */
-/**
- * ignore
- *
- * @param {PromiseOrCallbackOptions} options
- * @api private
- */
-exports.promiseOrCallback = function(options) {
-  return promiseOrCallback(options.callback);
-};
-
-/**
- * Omit options
- * @typedef {Object} OmitOptions
- * @property {Object} obj - object
- * @property {Array|String} [keys] - keys to omit
- */
-/**
- * ignore
- *
- * @param {OmitOptions} options
- * @return {Object}
- * @api private
- */
-exports.omit = function omit(options) {
-  if (options.keys == null) {
-    return Object.assign({}, options.obj);
-  }
-  if (!Array.isArray(options.keys)) {
-    options.keys = [options.keys];
-  }
-
-  const ret = Object.assign({}, options.obj);
-  for (const key of options.keys) {
-    delete ret[key];
-  }
-  return ret;
-};
-
-/**
- * Options merge options
- * @typedef {Object} OptionsMergeOptions
- * @property {Object} defaults - default options
- * @property {Object} options - options to merge
- */
-/**
- * Shallow copies defaults into options.
- *
- * @param {OptionsMergeOptions} options
- * @return {Object} the merged object
- * @api private
- */
-exports.options = function(options) {
-  const keys = Object.keys(options.defaults);
-  let i = keys.length;
-  let k;
-
-  options.options = options.options || {};
-
-  while (i--) {
-    k = keys[i];
-    if (!(k in options.options)) {
-      options.options[k] = options.defaults[k];
-    }
-  }
-
-  return options.options;
-};
-
-/**
- * Random string options
- * @typedef {Object} RandomStringOptions
- */
-/**
- * Generates a random string
- *
- * @param {RandomStringOptions} options
- * @return {String}
- * @api private
- */
-exports.random = function() {
-  return Math.random().toString().substr(3);
-};
-
-/**
- * Merge options
- * @typedef {Object} MergeOptions
- * @property {Object} to - object to merge into
- * @property {Object} from - object to merge from
- * @property {Object} [options] - merge options
- * @property {String} [path] - path
- */
-/**
- * Merges `from` into `to` without overwriting existing properties.
- *
- * @param {MergeOptions} options
- * @api private
- */
-exports.merge = function merge(options) {
-  options.options = options.options || {};
-
-  const keys = Object.keys(options.from);
-  let i = 0;
-  const len = keys.length;
-  let key;
-
-  options.path = options.path || '';
-  const omitNested = options.options.omitNested || {};
-
-  while (i < len) {
-    key = keys[i++];
-    if (options.options.omit && options.options.omit[key]) {
-      continue;
-    }
-    if (omitNested[options.path]) {
-      continue;
-    }
-    if (specialProperties.has(key)) {
-      continue;
-    }
-    if (options.to[key] == null) {
-      options.to[key] = options.from[key];
-    } else if (exports.isObject(options.from[key])) {
-      if (!exports.isObject(options.to[key])) {
-        options.to[key] = {};
-      }
-      if (options.from[key] != null) {
-        // Skip merging schemas if we're creating a discriminator schema and
-        // base schema has a given path as a single nested but discriminator schema
-        // has the path as a document array, or vice versa (gh-9534)
-        if (options.options.isDiscriminatorSchemaMerge &&
-            (options.from[key].$isSingleNested && options.to[key].$isMongooseDocumentArray) ||
-            (options.from[key].$isMongooseDocumentArray && options.to[key].$isSingleNested)) {
-          continue;
-        } else if (options.from[key].instanceOfSchema) {
-          if (options.to[key].instanceOfSchema) {
-            schemaMerge(options.to[key], options.from[key].clone(), options.options.isDiscriminatorSchemaMerge);
-          } else {
-            options.to[key] = options.from[key].clone();
-          }
-          continue;
-        } else if (options.from[key] instanceof ObjectId) {
-          options.to[key] = new ObjectId(options.from[key]);
-          continue;
-        }
-      }
-      merge({ to: options.to[key], from: options.from[key], options: options.options, path: options.path ? options.path + '.' + key : key });
-    } else if (options.options.overwrite) {
-      options.to[key] = options.from[key];
-    }
-  }
-};
-
-/**
- * To object options
- * @typedef {Object} ToObjectOptions
- * @property {Document|Array|Object} obj - object to convert
- */
-/**
- * Applies toObject recursively.
- *
- * @param {ToObjectOptions} options
- * @return {Object}
- * @api private
- */
-exports.toObject = function toObject(options) {
-  Document || (Document = require('./document'));
-  let ret;
-
-  if (options.obj == null) {
-    return options.obj;
-  }
-
-  if (options.obj instanceof Document) {
-    return options.obj.toObject();
-  }
-
-  if (Array.isArray(options.obj)) {
-    ret = [];
-
-    for (const doc of options.obj) {
-      ret.push(toObject({ obj: doc }));
-    }
-
-    return ret;
-  }
-
-  if (exports.isPOJO(options.obj)) {
-    ret = {};
-
-    for (const k of Object.keys(options.obj)) {
-      if (specialProperties.has(k)) {
-        continue;
-      }
-      ret[k] = toObject({ obj: options.obj[k] });
-    }
-
-    return ret;
-  }
-
-  return options.obj;
-};
-
-exports.isObject = isObject;
-
-/**
- * Is POJO options
- * @typedef {Object} IsPOJOOptions
- * @property {Object|Array|String|Function|RegExp|any} arg - argument to check
- */
-/**
- * Determines if `arg` is a plain old JavaScript object (POJO). Specifically,
- * `arg` must be an object but not an instance of any special class, like String,
- * ObjectId, etc.
- *
- * `Object.getPrototypeOf()` is part of ES5: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/getPrototypeOf
- *
- * @param {IsPOJOOptions} options
- * @api private
- * @return {Boolean}
- */
-exports.isPOJO = function isPOJO(options) {
-  if (options.arg == null || typeof options.arg !== 'object') {
-    return false;
-  }
-  const proto = Object.getPrototypeOf(options.arg);
-  // Prototype may be null if you used `Object.create(null)`
-  // Checking `proto`'s constructor is safe because `getPrototypeOf()`
-  // explicitly crosses the boundary from object data to object metadata
-  return !proto || proto.constructor.name === 'Object';
-};
-
-/**
- * Is native object options
- * @typedef {Object} IsNativeObjectOptions
- * @property {any} arg - argument to check
- */
-/**
- * Determines if `obj` is a built-in object like an array, date, boolean,
- * etc.
- *
- * @param {IsNativeObjectOptions} options
- * @return {Boolean}
- */
-exports.isNativeObject = function(arg) {
-  return Array.isArray(arg) ||
-    arg instanceof Date ||
-    arg instanceof Boolean ||
-    arg instanceof Number ||
-    arg instanceof String;
-};
-
-/**
- * Is empty object options
- * @typedef {Object} IsEmptyObjectOptions
- * @property {any} val - value to check
- */
-/**
- * Determines if `val` is an object that has no own keys
- *
- * @param {IsEmptyObjectOptions} options
- * @return {Boolean}
- */
-exports.isEmptyObject = function(val) {
-  return val != null &&
-    typeof val === 'object' &&
-    Object.keys(val).length === 0;
-};
-
-/**
- * Has key options
- * @typedef {Object} HasKeyOptions
- * @property {Object} obj - object to check
- * @property {String} key - key to check
- */
-/**
- * Search if `obj` or any POJOs nested underneath `obj` has a property named
- * `key`
- *
- * @param {HasKeyOptions} options
- * @return {Boolean}
- */
-exports.hasKey = function hasKey(options) {
-  const props = Object.keys(options.obj);
-  for (const prop of props) {
-    if (prop === options.key) {
-      return true;
-    }
-    if (exports.isPOJO(options.obj[prop]) && exports.hasKey({ obj: options.obj[prop], key: options.key })) {
-      return true;
-    }
-  }
-  return false;
-};
-
-/**
- * Args options
- * @typedef {Object} ArgsOptions
- * @property {Array} arr - array
- */
-/**
- * A faster Array.prototype.slice.call(arguments) alternative
- * @api private
- *
- * @param {ArgsOptions} options
- * @return {Array}
- */
-exports.args = function(options) {
-  return sliced(options.arr);
-};
-
-/**
- * Tick options
- * @typedef {Object} TickOptions
- * @property {Function} callback - callback function
- */
-/**
- * process.nextTick helper.
- *
- * Wraps `callback` in a try/catch + nextTick.
- *
- * node-mongodb-native has a habit of state corruption when an error is immediately thrown from within a collection callback.
- *
- * @param {TickOptions} options
- * @api private
- */
-exports.tick = function tick(options) {
-  if (typeof options.callback !== 'function') {
-    return;
-  }
-  return function() {
-    try {
-      options.callback.apply(this, arguments);
-    } catch (err) {
-      // only nextTick on err to get out of
-      // the event loop and avoid state corruption.
-      immediate(function() {
-        throw err;
-      });
-    }
-  };
-};
-
-/**
- * Is mongoose type options
- * @typedef {Object} IsMongooseTypeOptions
- * @property {any} v - value to check
- */
-/**
- * Returns true if `v` is an object that can be serialized as a primitive in
- * MongoDB
- *
- * @param {IsMongooseTypeOptions} options
- * @return {Boolean}
- */
-exports.isMongooseType = function(v) {
-  return v instanceof ObjectId || v instanceof Decimal || v instanceof Buffer;
-};
-
-exports.isMongooseObject = isMongooseObject;
-
-/**
- * Expires options
- * @typedef {Object} ExpiresOptions
- * @property {Object} object - object to convert
- */
-/**
- * Converts `expires` options of index objects to `expiresAfterSeconds` options for MongoDB.
- *
- * @param {ExpiresOptions} options
- * @api private
- */
-exports.expires = function expires(options) {
-  if (!(options.object && options.object.constructor.name === 'Object')) {
-    return;
-  }
-  if (!('expires' in options.object)) {
-    return;
-  }
-
-  let when;
-  if (typeof options.object.expires !== 'string') {
-    when = options.object.expires;
-  } else {
-    when = Math.round(ms(options.object.expires) / 1000);
-  }
-  options.object.expireAfterSeconds = when;
-  delete options.object.expires;
-};
-
-/**
  * Populate options
  * @typedef {Object} PopulateOptions
- * @property {String} path - path
- * @property {String|Array|Object} [select] - select
- * @property {Object} [model] - model
- * @property {Object} [match] - match
- * @property {Object} [options] - options
- * @property {Object} [populate] - populate
- * @property {Boolean} [justOne] - just one
- * @property {Boolean} [count] - count
+ * @property {String} path - path to populate
+ * @property {String|Object} [select] - fields to select
+ * @property {Object} [match] - query to match
+ * @property {Object} [options] - options for population
+ * @property {Object} [populate] - sub-population options
+ * @property {Boolean} [justOne] - whether to return a single document or an array
+ * @property {Boolean} [count] - whether to return a count of documents
  */
 /**
- * populate helper
+ * Populate helper
  *
  * @param {PopulateOptions} options
  * @return {Array}
  * @api private
  */
-exports.populate = function populate(options) {
-  // might have passed an object specifying all arguments
-  let obj = null;
-  if (arguments.length === 1) {
-    if (options.path instanceof PopulateOptions) {
-      return [options.path];
-    }
+exports.populate = function(options) {
+  if (Array.isArray(options.path)) {
+    const singles = makeSingles(options.path);
+    return singles.map(o => exports.populate(o)[0]);
+  }
 
-    if (Array.isArray(options.path)) {
-      const singles = makeSingles(options.path);
-      return singles.map(o => exports.populate(o)[0]);
-    }
-
-    if (exports.isObject(options.path)) {
-      obj = Object.assign({}, options.path);
-    } else {
-      obj = { path: options.path };
-    }
-  } else if (typeof options.model === 'object') {
-    obj = {
+  if (typeof options.model === 'object') {
+    options = {
       path: options.path,
       select: options.select,
       match: options.model,
       options: options.match
     };
-  } else {
-    obj = {
-      path: options.path,
-      select: options.select,
-      model: options.model,
-      match: options.match,
-      options: options.options,
-      populate: options.populate,
-      justOne: options.justOne,
-      count: options.count
-    };
   }
 
-  if (typeof obj.path !== 'string') {
-    throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof obj.path + '`');
+  if (typeof options.path !== 'string') {
+    throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof options.path + '`');
   }
 
-  return _populateObj(obj);
+  return _populateObj(options);
 
   // The order of select/conditions args is opposite Model.find but
   // necessary to keep backward compatibility (select could be
@@ -674,10 +256,10 @@ exports.populate = function populate(options) {
   }
 };
 
-function _populateObj(obj) {
-  if (Array.isArray(obj.populate)) {
+function _populateObj(options) {
+  if (Array.isArray(options.populate)) {
     const ret = [];
-    obj.populate.forEach(function(obj) {
+    options.populate.forEach(function(obj) {
       if (/[\s]/.test(obj.path)) {
         const copy = Object.assign({}, obj);
         const paths = copy.path.split(' ');
@@ -689,19 +271,19 @@ function _populateObj(obj) {
         ret.push(exports.populate(obj)[0]);
       }
     });
-    obj.populate = exports.populate(ret);
-  } else if (obj.populate != null && typeof obj.populate === 'object') {
-    obj.populate = exports.populate(obj.populate);
+    options.populate = exports.populate(ret);
+  } else if (options.populate != null && typeof options.populate === 'object') {
+    options.populate = exports.populate(options.populate);
   }
 
   const ret = [];
-  const paths = obj.path.split(' ');
-  if (obj.options != null) {
-    obj.options = exports.clone(obj.options);
+  const paths = options.path.split(' ');
+  if (options.options != null) {
+    options.options = exports.clone(options.options);
   }
 
   for (const path of paths) {
-    ret.push(new PopulateOptions(Object.assign({}, obj, { path: path })));
+    ret.push(new PopulateOptions(Object.assign({}, options, { path: path })));
   }
 
   return ret;
@@ -710,28 +292,29 @@ function _populateObj(obj) {
 /**
  * Get value options
  * @typedef {Object} GetValueOptions
- * @property {String} path - path
- * @property {Object} obj - object
- * @property {Object} [map] - map
+ * @property {String} path - path to get the value from
+ * @property {Object} obj - object to get the value from
+ * @property {Object} [map] - map to use for getting the value
  */
 /**
- * Return the value of `obj` at the given `path`.
+ * Returns the value of `obj` at the given `path`.
  *
  * @param {GetValueOptions} options
  * @return {any}
+ * @api private
  */
-exports.getValue = function(path, obj, map) {
-  return mpath.get(path, obj, '_doc', map);
+exports.getValue = function(options) {
+  return mpath.get(options.path, options.obj, '_doc', options.map);
 };
 
 /**
  * Set value options
  * @typedef {Object} SetValueOptions
- * @property {String} path - path
- * @property {any} val - value
- * @property {Object} obj - object
- * @property {Object} [map] - map
- * @property {Boolean} [_copying] - copying
+ * @property {String} path - path to set the value at
+ * @property {any} val - value to set
+ * @property {Object} obj - object to set the value on
+ * @property {Object} [map] - map to use for setting the value
+ * @property {Boolean} [_copying] - whether we are copying the value
  */
 /**
  * Sets the value of `obj` at the given `path`.
@@ -739,14 +322,14 @@ exports.getValue = function(path, obj, map) {
  * @param {SetValueOptions} options
  * @api private
  */
-exports.setValue = function(path, val, obj, map, _copying) {
-  mpath.set(path, val, obj, '_doc', map, _copying);
+exports.setValue = function(options) {
+  mpath.set(options.path, options.val, options.obj, '_doc', options.map, options._copying);
 };
 
 /**
  * Object values options
  * @typedef {Object} ObjectValuesOptions
- * @property {Object} o - object
+ * @property {Object} o - object to get the values from
  */
 /**
  * Returns an array of values from object `o`.
@@ -771,32 +354,48 @@ exports.object.vals = function vals(options) {
 /**
  * Shallow copy options
  * @typedef {Object} ShallowCopyOptions
- * @property {Object} defaults - default options
- * @property {Object} options - options to merge
+ * @property {Object} defaults - default values
+ * @property {Object} options - options to merge with defaults
  */
 /**
- * @see exports.options
+ * Shallow copies defaults into options.
  *
  * @param {ShallowCopyOptions} options
- * @return {Object}
+ * @return {Object} the merged object
+ * @api private
  */
-exports.object.shallowCopy = exports.options;
+exports.object.shallowCopy = function(options) {
+  const keys = Object.keys(options.defaults);
+  let i = keys.length;
+  let k;
+
+  options.options = options.options || {};
+
+  while (i--) {
+    k = keys[i];
+    if (!(k in options.options)) {
+      options.options[k] = options.defaults[k];
+    }
+  }
+
+  return options.options;
+};
 
 /**
  * Has own property options
  * @typedef {Object} HasOwnPropertyOptions
- * @property {Object} obj - object
- * @property {String} prop - property
+ * @property {Object} obj - object to check
+ * @property {String} prop - property to check for
  */
 /**
  * Safer helper for hasOwnProperty checks
  *
  * @param {HasOwnPropertyOptions} options
  * @return {Boolean}
+ * @api private
  */
-const hop = Object.prototype.hasOwnProperty;
-exports.object.hasOwnProperty = function(obj, prop) {
-  return hop.call(obj, prop);
+exports.object.hasOwnProperty = function(options) {
+  return Object.prototype.hasOwnProperty.call(options.obj, options.prop);
 };
 
 /**
@@ -809,33 +408,29 @@ exports.object.hasOwnProperty = function(obj, prop) {
  *
  * @param {IsNullOrUndefinedOptions} options
  * @return {Boolean}
+ * @api private
  */
-exports.isNullOrUndefined = function(val) {
-  return val === null || val === undefined;
+exports.isNullOrUndefined = function(options) {
+  return options.val === null || options.val === undefined;
 };
 
 /**
- * Array options
- * @typedef {Object} ArrayOptions
- */
-exports.array = {};
-
-/**
- * Flatten options
- * @typedef {Object} FlattenOptions
- * @property {Array} arr - array
- * @property {Function} [filter] - filter function
- * @property {Array} [ret] - return array
+ * Array flatten options
+ * @typedef {Object} ArrayFlattenOptions
+ * @property {Array} arr - array to flatten
+ * @property {Function} [filter] - filter function to apply
+ * @property {Array} [ret] - result array to append to
  */
 /**
  * Flattens an array.
  *
  * [ 1, [ 2, 3, [4] ]] -> [1,2,3,4]
  *
- * @param {FlattenOptions} options
+ * @param {ArrayFlattenOptions} options
  * @return {Array}
  * @private
  */
+exports.array = {};
 exports.array.flatten = function flatten(options) {
   options.ret || (options.ret = []);
 
@@ -853,72 +448,9 @@ exports.array.flatten = function flatten(options) {
 };
 
 /**
- * Has user defined property options
- * @typedef {Object} HasUserDefinedPropertyOptions
- * @property {Object} obj - object
- * @property {String|Array} key - key
- */
-/**
- * @param {HasUserDefinedPropertyOptions} options
- * @return {Boolean}
- */
-const _hasOwnProperty = Object.prototype.hasOwnProperty;
-
-exports.hasUserDefinedProperty = function(obj, key) {
-  if (obj == null) {
-    return false;
-  }
-
-  if (Array.isArray(key)) {
-    for (const k of key) {
-      if (exports.hasUserDefinedProperty(obj, k)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  if (_hasOwnProperty.call(obj, key)) {
-    return true;
-  }
-  if (typeof obj === 'object' && key in obj) {
-    const v = obj[key];
-    return v !== Object.prototype[key] && v !== Array.prototype[key];
-  }
-
-  return false;
-};
-
-/**
- * Is array index options
- * @typedef {Object} IsArrayIndexOptions
- * @property {any} val - value to check
- */
-/**
- * @param {IsArrayIndexOptions} options
- * @return {Boolean}
- */
-const MAX_ARRAY_INDEX = Math.pow(2, 32) - 1;
-
-exports.isArrayIndex = function(val) {
-  if (typeof val === 'number') {
-    return val >= 0 && val <= MAX_ARRAY_INDEX;
-  }
-  if (typeof val === 'string') {
-    if (!/^\d+$/.test(val)) {
-      return false;
-    }
-    val = +val;
-    return val >= 0 && val <= MAX_ARRAY_INDEX;
-  }
-
-  return false;
-};
-
-/**
- * Unique options
- * @typedef {Object} UniqueOptions
- * @property {Array} arr - array
+ * Array unique options
+ * @typedef {Object} ArrayUniqueOptions
+ * @property {Array} arr - array to get unique values from
  */
 /**
  * Removes duplicate values from an array
@@ -927,16 +459,16 @@ exports.isArrayIndex = function(val) {
  * [ ObjectId("550988ba0c19d57f697dc45e"), ObjectId("550988ba0c19d57f697dc45e") ]
  *    => [ObjectId("550988ba0c19d57f697dc45e")]
  *
- * @param {UniqueOptions} options
+ * @param {ArrayUniqueOptions} options
  * @return {Array}
  * @private
  */
-exports.array.unique = function(arr) {
+exports.array.unique = function(options) {
   const primitives = new Set();
   const ids = new Set();
   const ret = [];
 
-  for (const item of arr) {
+  for (const item of options.arr) {
     if (typeof item === 'number' || typeof item === 'string' || item == null) {
       if (primitives.has(item)) {
         continue;
@@ -958,35 +490,31 @@ exports.array.unique = function(arr) {
 };
 
 /**
- * Buffer options
- * @typedef {Object} BufferOptions
- */
-exports.buffer = {};
-
-/**
- * Are equal options
- * @typedef {Object} AreEqualOptions
- * @property {Buffer} a - buffer a
- * @property {Buffer} b - buffer b
+ * Buffer are equal options
+ * @typedef {Object} BufferAreEqualOptions
+ * @property {Buffer} a - first buffer to compare
+ * @property {Buffer} b - second buffer to compare
  */
 /**
  * Determines if two buffers are equal.
  *
- * @param {AreEqualOptions} options
+ * @param {BufferAreEqualOptions} options
  * @return {Boolean}
+ * @api private
  */
-exports.buffer.areEqual = function(a, b) {
-  if (!Buffer.isBuffer(a)) {
+exports.buffer = {};
+exports.buffer.areEqual = function(options) {
+  if (!Buffer.isBuffer(options.a)) {
     return false;
   }
-  if (!Buffer.isBuffer(b)) {
+  if (!Buffer.isBuffer(options.b)) {
     return false;
   }
-  if (a.length !== b.length) {
+  if (options.a.length !== options.b.length) {
     return false;
   }
-  for (let i = 0, len = a.length; i < len; ++i) {
-    if (a[i] !== b[i]) {
+  for (let i = 0, len = options.a.length; i < len; ++i) {
+    if (options.a[i] !== options.b[i]) {
       return false;
     }
   }
@@ -996,30 +524,10 @@ exports.buffer.areEqual = function(a, b) {
 exports.getFunctionName = getFunctionName;
 
 /**
- * Decorate options
- * @typedef {Object} DecorateOptions
- * @property {Object} destination - destination object
- * @property {Object} source - source object
- */
-/**
- * Decorate buffers
- *
- * @param {DecorateOptions} options
- */
-exports.decorate = function(destination, source) {
-  for (const key in source) {
-    if (specialProperties.has(key)) {
-      continue;
-    }
-    destination[key] = source[key];
-  }
-};
-
-/**
  * Merge clone options
  * @typedef {Object} MergeCloneOptions
  * @property {Object} to - object to merge into
- * @property {Object} from - object to merge from
+ * @property {Object} fromObj - object to merge from
  */
 /**
  * merges to with a copy of from
@@ -1027,9 +535,9 @@ exports.decorate = function(destination, source) {
  * @param {MergeCloneOptions} options
  * @api private
  */
-exports.mergeClone = function(to, from) {
-  if (isMongooseObject(from)) {
-    from = from.toObject({
+exports.mergeClone = function(options) {
+  if (isMongooseObject(options.fromObj)) {
+    options.fromObj = options.fromObj.toObject({
       transform: false,
       virtuals: false,
       depopulate: true,
@@ -1037,7 +545,7 @@ exports.mergeClone = function(to, from) {
       flattenDecimals: false
     });
   }
-  const keys = Object.keys(from);
+  const keys = Object.keys(options.fromObj);
   const len = keys.length;
   let i = 0;
   let key;
@@ -1047,8 +555,8 @@ exports.mergeClone = function(to, from) {
     if (specialProperties.has(key)) {
       continue;
     }
-    if (typeof to[key] === 'undefined') {
-      to[key] = exports.clone(from[key], {
+    if (typeof options.to[key] === 'undefined') {
+      options.to[key] = exports.clone(options.fromObj[key], {
         transform: false,
         virtuals: false,
         depopulate: true,
@@ -1056,7 +564,7 @@ exports.mergeClone = function(to, from) {
         flattenDecimals: false
       });
     } else {
-      let val = from[key];
+      let val = options.fromObj[key];
       if (val != null && val.valueOf && !(val instanceof Date)) {
         val = val.valueOf();
       }
@@ -1074,9 +582,9 @@ exports.mergeClone = function(to, from) {
         if (val.isMongooseBuffer) {
           obj = Buffer.from(obj);
         }
-        exports.mergeClone(to[key], obj);
+        exports.mergeClone({ to: options.to[key], fromObj: obj });
       } else {
-        to[key] = exports.clone(val, {
+        options.to[key] = exports.clone(val, {
           flattenDecimals: false
         });
       }
@@ -1087,8 +595,8 @@ exports.mergeClone = function(to, from) {
 /**
  * Each options
  * @typedef {Object} EachOptions
- * @property {Array} arr - array
- * @property {Function} fn - function
+ * @property {Array} arr - array to iterate over
+ * @property {Function} fn - function to call for each item
  */
 /**
  * Executes a function on each element of an array (like _.each)
@@ -1096,26 +604,29 @@ exports.mergeClone = function(to, from) {
  * @param {EachOptions} options
  * @api private
  */
-exports.each = function(arr, fn) {
-  for (const item of arr) {
-    fn(item);
+exports.each = function(options) {
+  for (const item of options.arr) {
+    options.fn(item);
   }
 };
 
 /**
  * Get option options
  * @typedef {Object} GetOptionOptions
- * @property {String} name - name
- * @property {Array} sources - sources
+ * @property {String} name - name of the option to get
+ * @property {Object} sources - sources to get the option from
  */
 /**
+ * Gets an option from the given sources
+ *
  * @param {GetOptionOptions} options
  * @return {any}
+ * @api private
  */
-exports.getOption = function(name, sources) {
-  for (const source of sources) {
-    if (source[name] != null) {
-      return source[name];
+exports.getOption = function(options) {
+  for (const source of options.sources) {
+    if (source[options.name] != null) {
+      return source[options.name];
     }
   }
 
@@ -1123,32 +634,26 @@ exports.getOption = function(name, sources) {
 };
 
 /**
- * Noop options
- * @typedef {Object} NoopOptions
- */
-/**
- * @param {NoopOptions} options
- */
-exports.noop = function() {};
-
-/**
  * Error to POJO options
  * @typedef {Object} ErrorToPOJOOptions
- * @property {Error} error - error
+ * @property {Error} error - error to convert to a POJO
  */
 /**
+ * Converts an error to a POJO
+ *
  * @param {ErrorToPOJOOptions} options
  * @return {Object}
+ * @api private
  */
-exports.errorToPOJO = function errorToPOJO(error) {
-  const isError = error instanceof Error;
+exports.errorToPOJO = function(options) {
+  const isError = options.error instanceof Error;
   if (!isError) {
     throw new Error('`error` must be `instanceof Error`.');
   }
 
   const ret = {};
-  for (const properyName of Object.getOwnPropertyNames(error)) {
-    ret[properyName] = error[properyName];
+  for (const properyName of Object.getOwnPropertyNames(options.error)) {
+    ret[properyName] = options.error[properyName];
   }
   return ret;
 };
@@ -1158,9 +663,12 @@ exports.errorToPOJO = function errorToPOJO(error) {
  * @typedef {Object} NodeMajorVersionOptions
  */
 /**
+ * Gets the major version of the current Node.js version
+ *
  * @param {NodeMajorVersionOptions} options
  * @return {Number}
+ * @api private
  */
-exports.nodeMajorVersion = function nodeMajorVersion() {
+exports.nodeMajorVersion = function() {
   return parseInt(process.versions.node.split('.')[0], 10);
 };

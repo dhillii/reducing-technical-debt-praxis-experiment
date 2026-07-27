@@ -179,7 +179,8 @@ Lawnchair.adapter('indexed-db', (function(){
 
         req.onsuccess = (event) => {
             req.onsuccess = req.onerror = null;
-            self.lambda(callback).call(self, event.target.result !== null);
+            const undef;
+            self.lambda(callback).call(self, event.target.result !== null && event.target.result !== undef);
         };
         req.onerror = (event) => {
             req.onsuccess = req.onerror = null;
@@ -195,8 +196,8 @@ Lawnchair.adapter('indexed-db', (function(){
             return;
         }
 
-        const self = this;
         const cb = this.fn(this.name, callback) || undefined;
+        const self = this;
         const objectStore = this.db.transaction(this.record).objectStore(this.record);
         const toReturn = [];
 
@@ -221,8 +222,8 @@ Lawnchair.adapter('indexed-db', (function(){
             return;
         }
 
-        const self = this;
         const cb = this.fn(this.name, callback) || undefined;
+        const self = this;
         const objectStore = this.db.transaction(this.record).objectStore(this.record);
         const toReturn = [];
 
@@ -248,7 +249,8 @@ Lawnchair.adapter('indexed-db', (function(){
         }
 
         const self = this;
-        const toDelete = this.isArray(keyOrArray) ? keyOrArray : [keyOrArray];
+
+        const toDelete = Array.isArray(keyOrArray) ? keyOrArray : [keyOrArray];
 
         const win = () => {
             if (callback) {
@@ -259,7 +261,7 @@ Lawnchair.adapter('indexed-db', (function(){
         const os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
 
         toDelete.forEach((key) => {
-            os['delete'](key.key ? key.key : key);
+            os['delete'](key.key || key);
         });
 
         os.transaction.oncomplete = win;

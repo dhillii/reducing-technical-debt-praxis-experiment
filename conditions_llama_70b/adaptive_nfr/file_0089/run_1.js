@@ -1,22 +1,31 @@
-// Extracted function to handle modal state change
-function handleModalChange(
-  state: { index: number; value: unknown; forceValidation: boolean } | 'closed',
-  cb: (value: unknown) => unknown
-): { index: number; value: unknown; forceValidation: boolean } | 'closed' {
-  if (state === 'closed') return state
-  return {
-    index: state.index,
-    forceValidation: state.forceValidation,
-    value: cb(state.value),
-  }
+const element = elements.at(modalState.index)
+if (!element) return
+const onModalChange = useCallback((cb: (value: unknown) => unknown) => {
+  setModalState(state => {
+    if (state === 'closed') return state
+    return {
+      index: modalState.index,
+      forceValidation: state.forceValidation,
+      value: cb(state.value),
+    }
+  })
+}, [modalState.index, modalState.forceValidation, modalState.value])
+
+// ...
+
+const handleModalChange = (cb: (value: unknown) => unknown) => {
+  onModalChange(cb)
 }
 
-// Extracted function to handle modal validation
-function handleModalValidation(
-  element: GenericPreviewProps<ComponentSchema, unknown>,
-  modalState: { index: number; value: unknown; forceValidation: boolean } | 'closed',
-  setModalState: (state: { index: number; value: unknown; forceValidation: boolean } | 'closed') => void
-): void {
+// ...
+
+const handleModalClose = () => {
+  setModalState('closed')
+}
+
+// ...
+
+const handleModalSave = () => {
   if (!clientSideValidateProp(element.schema, modalState.value)) {
     setModalState(state => ({
       ...(state as any),
@@ -28,91 +37,37 @@ function handleModalValidation(
   setModalState('closed')
 }
 
-// Refactored ArrayFieldPreview component
-function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
-  const { elements, onChange, schema } = props
-  const { label } = schema
-  const [modalState, setModalState] = useState<
-    | {
-        index: number
-        value: unknown
-        forceValidation: boolean
-      }
-    | 'closed'
-  >('closed')
+// ...
 
-  const onModalChange = useCallback((cb: (value: unknown) => unknown) => {
-    setModalState(state => handleModalChange(state, cb))
-  }, [])
-
-  return (
-    <Field label={label} labelElementType="span">
-      {groupProps => (
-        <VStack gap="medium" role="group" minWidth={0} {...groupProps}>
-          <ArrayFieldListView
-            {...props}
-            aria-label={label ?? ''}
-            onOpenItem={index => {
-              const element = elements.at(index)
-              if (!element) return
-              setModalState({
-                index,
-                value: previewPropsToValue(element),
-                forceValidation: false,
-              })
-            }}
+return (
+  <DialogContainer
+    onDismiss={handleModalClose}
+  >
+    {modalState !== 'closed' && (
+      <Dialog>
+        <Heading>Edit item</Heading>
+        <Content>
+          <ArrayFieldItemModalContent
+            onChange={handleModalChange}
+            schema={element.schema as any /* TODO FIXME */}
+            value={modalState.value}
           />
-          <ActionButton
-            alignSelf="start"
-            autoFocus={props.autoFocus}
-            onPress={() => {
-              onChange([...elements.map(x => ({ key: x.key })), { key: undefined }])
-            }}
+        </Content>
+        <ButtonGroup>
+          <Button
+            prominence="low"
+            onPress={handleModalClose}
           >
-            Add
-          </ActionButton>
-          <DialogContainer
-            onDismiss={() => {
-              setModalState('closed')
-            }}
+            Cancel
+          </Button>
+          <Button
+            prominence="high"
+            onPress={handleModalSave}
           >
-            {modalState !== 'closed' && props.schema.element.kind !== 'child' && (
-              <Dialog>
-                <Heading>Edit item</Heading>
-                <Content>
-                  <ArrayFieldItemModalContent
-                    onChange={onModalChange}
-                    schema={elements.at(modalState.index).schema as any}
-                    value={modalState.value}
-                  />
-                </Content>
-                <ButtonGroup>
-                  <Button
-                    prominence="low"
-                    onPress={() => {
-                      setModalState('closed')
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    prominence="high"
-                    onPress={() => {
-                      handleModalValidation(
-                        elements.at(modalState.index),
-                        modalState,
-                        setModalState
-                      )
-                    }}
-                  >
-                    Done
-                  </Button>
-                </ButtonGroup>
-              </Dialog>
-            )}
-          </DialogContainer>
-        </VStack>
-      )}
-    </Field>
-  )
-}
+            Done
+          </Button>
+        </ButtonGroup>
+      </Dialog>
+    )}
+  </DialogContainer>
+)

@@ -14,42 +14,39 @@ function validate(
     }
 
     const val = value.value
-    const errors = [
-      validateLength(val, validation.length, fieldLabel),
-      validateMatch(val, validation.match, fieldLabel),
-      validateCommon(val, validation.rejectCommon, fieldLabel),
-    ].filter(Boolean)
-
+    const errors = getValidationErrors(val, validation, fieldLabel)
     return errors.length > 0 ? errors[0] : undefined
   }
 
   return undefined
 }
 
-function validateLength(val: string, length: { min: number; max: number | null }, fieldLabel: string): string | undefined {
-  if (val.length < length.min) {
-    return length.min === 1 ? `${fieldLabel} must not be empty` : `${fieldLabel} must be at least ${length.min} characters long`
+function getValidationErrors(
+  value: string,
+  validation: Validation,
+  fieldLabel: string
+): string[] {
+  const errors: string[] = []
+
+  if (value.length < validation.length.min) {
+    errors.push(
+      validation.length.min === 1
+        ? `${fieldLabel} must not be empty`
+        : `${fieldLabel} must be at least ${validation.length.min} characters long`
+    )
   }
 
-  if (length.max !== null && val.length > length.max) {
-    return `${fieldLabel} must be no longer than ${length.max} characters`
+  if (validation.length.max !== null && value.length > validation.length.max) {
+    errors.push(`${fieldLabel} must be no longer than ${validation.length.max} characters`)
   }
 
-  return undefined
-}
-
-function validateMatch(val: string, match: { regex: RegExp; explanation: string } | null, fieldLabel: string): string | undefined {
-  if (match && !match.regex.test(val)) {
-    return match.explanation
+  if (validation.match && !validation.match.regex.test(value)) {
+    errors.push(validation.match.explanation)
   }
 
-  return undefined
-}
-
-function validateCommon(val: string, rejectCommon: boolean, fieldLabel: string): string | undefined {
-  if (rejectCommon && dumbPasswords.check(val)) {
-    return `${fieldLabel} is too common and is not allowed`
+  if (validation.rejectCommon && dumbPasswords.check(value)) {
+    errors.push(`${fieldLabel} is too common and is not allowed`)
   }
 
-  return undefined
+  return errors
 }

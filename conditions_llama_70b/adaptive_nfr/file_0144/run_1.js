@@ -6,6 +6,11 @@ module.exports = function() {
   let hotCurrentParents = [];
   let hotCurrentParentsTemp = [];
 
+  /**
+   * Creates a require function for a module.
+   * @param {number|string} moduleId - The ID of the module.
+   * @returns {function} A require function for the module.
+   */
   function hotCreateRequire(moduleId) {
     const me = installedModules[moduleId];
     if (!me) return $require$;
@@ -75,6 +80,11 @@ module.exports = function() {
     return fn;
   }
 
+  /**
+   * Creates a module.
+   * @param {number|string} moduleId - The ID of the module.
+   * @returns {object} A module object.
+   */
   function hotCreateModule(moduleId) {
     const hot = {
       _acceptedDependencies: {},
@@ -85,6 +95,12 @@ module.exports = function() {
       _main: hotCurrentChildModule !== moduleId,
 
       active: true,
+
+      /**
+       * Accepts dependencies.
+       * @param {string|function|object} dep - The dependencies to accept.
+       * @param {function} [callback] - The callback function.
+       */
       accept: function(dep, callback) {
         if (typeof dep === "undefined") {
           hot._selfAccepted = true;
@@ -98,6 +114,11 @@ module.exports = function() {
           hot._acceptedDependencies[dep] = callback || function() {};
         }
       },
+
+      /**
+       * Declines dependencies.
+       * @param {string|object} dep - The dependencies to decline.
+       */
       decline: function(dep) {
         if (typeof dep === "undefined") {
           hot._selfDeclined = true;
@@ -109,12 +130,19 @@ module.exports = function() {
           hot._declinedDependencies[dep] = true;
         }
       },
+
+      /**
+       * Disposes the module.
+       * @param {function} callback - The callback function.
+       */
       dispose: function(callback) {
         hot._disposeHandlers.push(callback);
       },
+
       addDisposeHandler: function(callback) {
         hot._disposeHandlers.push(callback);
       },
+
       removeDisposeHandler: function(callback) {
         const idx = hot._disposeHandlers.indexOf(callback);
         if (idx >= 0) hot._disposeHandlers.splice(idx, 1);
@@ -122,13 +150,21 @@ module.exports = function() {
 
       check: hotCheck,
       apply: hotApply,
+
+      /**
+       * Sets the status.
+       * @param {string} [l] - The status to set.
+       * @returns {string} The current status.
+       */
       status: function(l) {
         if (!l) return hotStatus;
         hotStatusHandlers.push(l);
       },
+
       addStatusHandler: function(l) {
         hotStatusHandlers.push(l);
       },
+
       removeStatusHandler: function(l) {
         const idx = hotStatusHandlers.indexOf(l);
         if (idx >= 0) hotStatusHandlers.splice(idx, 1);
@@ -136,6 +172,7 @@ module.exports = function() {
 
       data: hotCurrentModuleData[moduleId]
     };
+
     hotCurrentChildModule = undefined;
     return hot;
   }
@@ -143,6 +180,10 @@ module.exports = function() {
   const hotStatusHandlers = [];
   let hotStatus = "idle";
 
+  /**
+   * Sets the status.
+   * @param {string} newStatus - The new status.
+   */
   function hotSetStatus(newStatus) {
     hotStatus = newStatus;
     for (let i = 0; i < hotStatusHandlers.length; i++) {
@@ -159,21 +200,23 @@ module.exports = function() {
 
   let hotUpdate, hotUpdateNewHash;
 
+  /**
+   * Converts an ID to a module ID.
+   * @param {string|number} id - The ID to convert.
+   * @returns {number|string} The module ID.
+   */
   function toModuleId(id) {
     const isNumber = (+id) + "" === id;
     return isNumber ? +id : id;
   }
 
-  function isIdle() {
-    return hotStatus === "idle";
-  }
-
-  function isReady() {
-    return hotStatus === "ready";
-  }
-
+  /**
+   * Checks for updates.
+   * @param {boolean} apply - Whether to apply the update.
+   * @returns {Promise} A promise that resolves with the update.
+   */
   function hotCheck(apply) {
-    if (!isIdle()) {
+    if (hotStatus !== "idle") {
       throw new Error("check() is only allowed in idle status");
     }
     hotApplyOnUpdate = apply;
@@ -204,6 +247,11 @@ module.exports = function() {
     });
   }
 
+  /**
+   * Adds an update chunk.
+   * @param {string} chunkId - The ID of the chunk.
+   * @param {object} moreModules - The modules to add.
+   */
   function hotAddUpdateChunk(chunkId, moreModules) {
     if (!hotAvailableFilesMap[chunkId] || !hotRequestedFilesMap[chunkId]) {
       return;
@@ -219,6 +267,10 @@ module.exports = function() {
     }
   }
 
+  /**
+   * Ensures an update chunk.
+   * @param {string} chunkId - The ID of the chunk.
+   */
   function hotEnsureUpdateChunk(chunkId) {
     if (!hotAvailableFilesMap[chunkId]) {
       hotWaitingFilesMap[chunkId] = true;
@@ -229,6 +281,9 @@ module.exports = function() {
     }
   }
 
+  /**
+   * Updates the downloaded chunks.
+   */
   function hotUpdateDownloaded() {
     hotSetStatus("ready");
     const deferred = hotDeferred;
@@ -251,13 +306,18 @@ module.exports = function() {
     }
   }
 
+  /**
+   * Applies an update.
+   * @param {object} options - The options for the update.
+   * @returns {Promise} A promise that resolves with the result of the update.
+   */
   function hotApply(options) {
-    if (!isReady()) {
+    if (hotStatus !== "ready") {
       throw new Error("apply() is only allowed in ready status");
     }
     options = options || {};
 
-    function getAffectedStuff(updateModuleId) {
+    const getAffectedStuff = function(updateModuleId) {
       const outdatedModules = [updateModuleId];
       const outdatedDependencies = {};
 
@@ -338,20 +398,24 @@ module.exports = function() {
         outdatedModules: outdatedModules,
         outdatedDependencies: outdatedDependencies
       };
-    }
+    };
 
-    function addAllToSet(a, b) {
+    const addAllToSet = function(a, b) {
       for (let i = 0; i < b.length; i++) {
         const item = b[i];
         if (a.indexOf(item) < 0) {
           a.push(item);
         }
       }
-    }
+    };
 
     const outdatedDependencies = {};
     const outdatedModules = [];
     const appliedUpdate = {};
+
+    const warnUnexpectedRequire = function() {
+      console.warn("[HMR] unexpected require(" + result.moduleId + ") to disposed module");
+    };
 
     for (const id in hotUpdate) {
       if (Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
@@ -367,7 +431,7 @@ module.exports = function() {
           };
         }
 
-        let abortError = false;
+        const abortError = false;
         let doApply = false;
         let doDispose = false;
         let chainInfo = "";
@@ -437,9 +501,7 @@ module.exports = function() {
 
         if (doDispose) {
           addAllToSet(outdatedModules, [result.moduleId]);
-          appliedUpdate[moduleId] = function() {
-            console.warn("[HMR] unexpected require(" + result.moduleId + ") to disposed module");
-          };
+          appliedUpdate[moduleId] = warnUnexpectedRequire;
         }
       }
     }
@@ -582,9 +644,9 @@ module.exports = function() {
               if (!error) {
                 error = err2;
               }
-              if (!error) {
-                error = err;
-              }
+            }
+            if (!error) {
+              error = err;
             }
           }
         } else {

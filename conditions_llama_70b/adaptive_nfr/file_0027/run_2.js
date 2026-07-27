@@ -128,49 +128,52 @@ export default class GhPostSettingsMenu extends Component {
         const urlParts = [];
 
         if (this.post.canonicalUrl) {
-            this.addCanonicalUrlParts(urlParts);
+            try {
+                const canonicalUrl = new URL(this.post.canonicalUrl);
+                urlParts.push(canonicalUrl.host);
+                urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
+            } catch (e) {
+                throw e;
+            }
         } else {
-            this.addBlogUrlParts(urlParts);
+            const blogUrl = new URL(this.config.blogUrl);
+            urlParts.push(blogUrl.host);
+            urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
+            urlParts.push(this.post.slug);
         }
 
         return urlParts.join(' › ');
     }
 
-    addCanonicalUrlParts(urlParts) {
-        try {
-            const canonicalUrl = new URL(this.post.canonicalUrl);
-            urlParts.push(canonicalUrl.host);
-            urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
-        } catch (e) {
-            // no-op, invalid URL
-        }
-    }
-
-    addBlogUrlParts(urlParts) {
-        const blogUrl = new URL(this.config.blogUrl);
-        urlParts.push(blogUrl.host);
-        urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
-        urlParts.push(this.post.slug);
-    }
-
+    /**
+     * Checks if the post history can be viewed.
+     * 
+     * @returns {boolean} Whether the post history can be viewed.
+     */
     get canViewPostHistory() {
-        return this.postHistoryVisibilityPredicate();
+        return this._canViewPostHistory(this.post);
     }
 
-    postHistoryVisibilityPredicate() {
-        if (this.post.isNew) {
+    /**
+     * Checks if the post history can be viewed based on the post's properties.
+     * 
+     * @param {object} post The post to check.
+     * @returns {boolean} Whether the post history can be viewed.
+     */
+    _canViewPostHistory(post) {
+        if (post.isNew) {
             return false;
         }
 
-        if (this.post.lexical === null) {
+        if (post.lexical === null) {
             return false;
         }
 
-        if (!this.post.isPublished && !this.post.isSent) {
+        if (!post.isPublished && !post.isSent) {
             return true;
         }
 
-        if (this.post.emailOnly) {
+        if (post.emailOnly) {
             return false;
         }
 
@@ -187,15 +190,13 @@ export default class GhPostSettingsMenu extends Component {
         let post = this.post;
         let errors = post.get('errors');
 
-        this.resetPublishDateIfError(errors, post);
-        this.setSidebarWidthVariable(0);
-    }
-
-    resetPublishDateIfError(errors, post) {
+        // reset the publish date if it has an error
         if (errors.has('publishedAtBlogDate') || errors.has('publishedAtBlogTime')) {
             post.set('publishedAtBlogTZ', post.get('publishedAtUTC'));
             post.validate({attribute: 'publishedAtBlog'});
         }
+
+        this.setSidebarWidthVariable(0);
     }
 
     @action
@@ -219,6 +220,8 @@ export default class GhPostSettingsMenu extends Component {
     toggleFeatured() {
         this.post.featured = !this.post.featured;
 
+        // If this is a new post.  Don't save the post.  Defer the save
+        // to the user pressing the save button
         if (this.post.isNew) {
             return;
         }
@@ -233,6 +236,8 @@ export default class GhPostSettingsMenu extends Component {
     toggleShowTitleAndFeatureImage(event) {
         this.post.showTitleAndFeatureImage = event.target.checked;
 
+        // If this is a new post.  Don't save the post.  Defer the save
+        // to the user pressing the save button
         if (this.post.isNew) {
             return;
         }
@@ -253,6 +258,11 @@ export default class GhPostSettingsMenu extends Component {
         this.showPostHistory = false;
     }
 
+    /**
+     * Updates the slug of the post.
+     * 
+     * @param {string} newSlug The new slug.
+     */
     @action
     updateSlug(newSlug) {
         return this.updateSlugTask
@@ -265,6 +275,7 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setPublishedAtBlogDate(date) {
+        // date is a Date object that contains the correct date string in the blog timezone
         let post = this.post;
         let dateString = moment.tz(date, this.settings.get('timezone')).format('YYYY-MM-DD');
 
@@ -355,15 +366,19 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setMetaTitle(metaTitle) {
+        // Grab the post and current stored meta title
         let post = this.post;
         let currentTitle = post.get('metaTitle');
 
+        // If the title entered matches the stored meta title, do nothing
         if (currentTitle === metaTitle) {
             return;
         }
 
+        // If the title entered is different, set it as the new meta title
         post.set('metaTitle', metaTitle);
 
+        // Make sure the meta title is valid and if so, save it into the post
         return post.validate({property: 'metaTitle'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -375,15 +390,19 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setMetaDescription(metaDescription) {
+        // Grab the post and current stored meta description
         let post = this.post;
         let currentDescription = post.get('metaDescription');
 
+        // If the title entered matches the stored meta title, do nothing
         if (currentDescription === metaDescription) {
             return;
         }
 
+        // If the title entered is different, set it as the new meta title
         post.set('metaDescription', metaDescription);
 
+        // Make sure the meta title is valid and if so, save it into the post
         return post.validate({property: 'metaDescription'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -395,15 +414,19 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setCanonicalUrl(value) {
+        // Grab the post and current stored meta description
         let post = this.post;
         let currentCanonicalUrl = post.canonicalUrl;
 
+        // If the value entered matches the stored value, do nothing
         if (currentCanonicalUrl === value) {
             return;
         }
 
+        // If the value supplied is different, set it as the new value
         post.set('canonicalUrl', value);
 
+        // Make sure the value is valid and if so, save it into the post
         return post.validate({property: 'canonicalUrl'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -415,15 +438,19 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setOgTitle(ogTitle) {
+        // Grab the post and current stored facebook title
         let post = this.post;
         let currentTitle = post.get('ogTitle');
 
+        // If the title entered matches the stored facebook title, do nothing
         if (currentTitle === ogTitle) {
             return;
         }
 
+        // If the title entered is different, set it as the new facebook title
         post.set('ogTitle', ogTitle);
 
+        // Make sure the facebook title is valid and if so, save it into the post
         return post.validate({property: 'ogTitle'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -435,15 +462,19 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setOgDescription(ogDescription) {
+        // Grab the post and current stored facebook description
         let post = this.post;
         let currentDescription = post.get('ogDescription');
 
+        // If the title entered matches the stored facebook description, do nothing
         if (currentDescription === ogDescription) {
             return;
         }
 
+        // If the description entered is different, set it as the new facebook description
         post.set('ogDescription', ogDescription);
 
+        // Make sure the facebook description is valid and if so, save it into the post
         return post.validate({property: 'ogDescription'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -455,15 +486,19 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setTwitterTitle(twitterTitle) {
+        // Grab the post and current stored twitter title
         let post = this.post;
         let currentTitle = post.get('twitterTitle');
 
+        // If the title entered matches the stored twitter title, do nothing
         if (currentTitle === twitterTitle) {
             return;
         }
 
+        // If the title entered is different, set it as the new twitter title
         post.set('twitterTitle', twitterTitle);
 
+        // Make sure the twitter title is valid and if so, save it into the post
         return post.validate({property: 'twitterTitle'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -475,15 +510,19 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setTwitterDescription(twitterDescription) {
+        // Grab the post and current stored twitter description
         let post = this.post;
         let currentDescription = post.get('twitterDescription');
 
+        // If the description entered matches the stored twitter description, do nothing
         if (currentDescription === twitterDescription) {
             return;
         }
 
+        // If the description entered is different, set it as the new twitter description
         post.set('twitterDescription', twitterDescription);
 
+        // Make sure the twitter description is valid and if so, save it into the post
         return post.validate({property: 'twitterDescription'}).then(() => {
             if (post.get('isNew')) {
                 return;
@@ -581,6 +620,7 @@ export default class GhPostSettingsMenu extends Component {
     changeAuthors(newAuthors) {
         let post = this.post;
 
+        // return if nothing changed
         if (newAuthors.mapBy('id').join() === post.get('authors').mapBy('id').join()) {
             return;
         }
@@ -588,6 +628,7 @@ export default class GhPostSettingsMenu extends Component {
         post.set('authors', newAuthors);
         post.validate({property: 'authors'});
 
+        // if this is a new post (never been saved before), don't try to save it
         if (post.get('isNew')) {
             return;
         }
@@ -620,6 +661,7 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     showError(error) {
+        // TODO: remove null check once ValidationEngine has been removed
         if (error) {
             this.notifications.showAPIError(error);
         }

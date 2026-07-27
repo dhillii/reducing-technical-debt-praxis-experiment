@@ -882,18 +882,20 @@ module.exports = {
       let indent;
       let nodesToCheck;
 
+      const statementsWithProperties = [
+        "IfStatement",
+        "WhileStatement",
+        "ForStatement",
+        "ForInStatement",
+        "ForOfStatement",
+        "DoWhileStatement",
+        "ClassDeclaration",
+        "TryStatement",
+      ];
+
       if (
         node.parent &&
-        [
-          "IfStatement",
-          "WhileStatement",
-          "ForStatement",
-          "ForInStatement",
-          "ForOfStatement",
-          "DoWhileStatement",
-          "ClassDeclaration",
-          "TryStatement",
-        ].includes(node.parent.type) &&
+        statementsWithProperties.includes(node.parent.type) &&
         isNodeBodyBlock(node)
       ) {
         indent = getNodeIndent(node.parent).goodChar;
@@ -903,7 +905,10 @@ module.exports = {
         indent = getNodeIndent(node).goodChar;
       }
 
-      if (node.type === "IfStatement" && node.consequent.type !== "BlockStatement") {
+      if (
+        node.type === "IfStatement" &&
+        node.consequent.type !== "BlockStatement"
+      ) {
         nodesToCheck = [node.consequent];
       } else if (Array.isArray(node.body)) {
         nodesToCheck = node.body;
@@ -955,7 +960,8 @@ module.exports = {
       checkNodesIndent(elements, elementsIndent);
 
       if (
-        sourceCode.getLastToken(node).loc.end.line <= lastElement.loc.end.line
+        sourceCode.getLastToken(node).loc.end.line <=
+        lastElement.loc.end.line
       ) {
         return;
       }
@@ -1067,13 +1073,9 @@ module.exports = {
         }
       },
 
-      ObjectExpression(node) {
-        checkIndentInArrayOrObjectBlock(node);
-      },
+      ObjectExpression: checkIndentInArrayOrObjectBlock,
 
-      ArrayExpression(node) {
-        checkIndentInArrayOrObjectBlock(node);
-      },
+      ArrayExpression: checkIndentInArrayOrObjectBlock,
 
       MemberExpression(node) {
         if (typeof options.MemberExpression === "undefined") {

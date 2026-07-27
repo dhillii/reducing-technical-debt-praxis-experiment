@@ -60,16 +60,19 @@ if (module.hot && typeof module.hot.dispose === 'function') {
 }
 
 /**
- * Establish a WebSocket connection to the WebpackDevServer.
+ * Establish a connection to the WebpackDevServer via a socket.
  * @returns {WebSocket} The established connection.
  */
 function establishConnection() {
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const hostname = process.env.WDS_SOCKET_HOST || window.location.hostname;
+  const port = process.env.WDS_SOCKET_PORT || window.location.port;
+  const pathname = process.env.WDS_SOCKET_PATH || '/ws';
   const connectionUrl = url.format({
-    protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
-    hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
-    port: process.env.WDS_SOCKET_PORT || window.location.port,
-    // Hardcoded in WebpackDevServer
-    pathname: process.env.WDS_SOCKET_PATH || '/ws',
+    protocol,
+    hostname,
+    port,
+    pathname,
     slashes: true,
   });
   return new WebSocket(connectionUrl);
@@ -94,7 +97,7 @@ let mostRecentCompilationHash = null;
 let hasCompileErrors = false;
 
 /**
- * Clear outdated compile errors from the console.
+ * Clear outdated compile errors, if any.
  */
 function clearOutdatedErrors() {
   // Clean up outdated compile errors, if any.
@@ -126,7 +129,7 @@ function handleSuccess() {
 }
 
 /**
- * Handle compilation warnings.
+ * Handle compilation with warnings (e.g. ESLint).
  * @param {Array} warnings - The compilation warnings.
  */
 function handleWarnings(warnings) {
@@ -173,7 +176,7 @@ function handleWarnings(warnings) {
 }
 
 /**
- * Handle compilation errors.
+ * Handle compilation with errors (e.g. syntax error or missing modules).
  * @param {Array} errors - The compilation errors.
  */
 function handleErrors(errors) {
@@ -203,7 +206,7 @@ function handleErrors(errors) {
 }
 
 /**
- * Attempt to dismiss the error overlay.
+ * Try to dismiss the error overlay.
  */
 function tryDismissErrorOverlay() {
   if (!hasCompileErrors) {
@@ -285,8 +288,8 @@ function canAcceptErrors() {
 }
 
 /**
- * Attempt to apply updates.
- * @param {function} onHotUpdateSuccess - The callback to invoke on successful hot update.
+ * Attempt to update code on the fly, fall back to a hard reload.
+ * @param {function} onHotUpdateSuccess - The callback to call on successful hot update.
  */
 function tryApplyUpdates(onHotUpdateSuccess) {
   if (!module.hot) {

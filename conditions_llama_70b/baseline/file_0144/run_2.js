@@ -396,7 +396,7 @@ module.exports = function() {
 				if(doApply) {
 					appliedUpdate[moduleId] = hotUpdate[moduleId];
 					addAllToSet(outdatedModules, result.outdatedModules);
-					for(let moduleId in result.outdatedDependencies) {
+					for(moduleId in result.outdatedDependencies) {
 						if(Object.prototype.hasOwnProperty.call(result.outdatedDependencies, moduleId)) {
 							if(!outdatedDependencies[moduleId])
 								outdatedDependencies[moduleId] = [];
@@ -414,7 +414,7 @@ module.exports = function() {
 		// Store self accepted outdated modules to require them later by the module system
 		let outdatedSelfAcceptedModules = [];
 		for(let i = 0; i < outdatedModules.length; i++) {
-			let moduleId = outdatedModules[i];
+			moduleId = outdatedModules[i];
 			if(installedModules[moduleId] && installedModules[moduleId].hot._selfAccepted)
 				outdatedSelfAcceptedModules.push({
 					module: moduleId,
@@ -433,8 +433,8 @@ module.exports = function() {
 		let idx;
 		let queue = outdatedModules.slice();
 		while(queue.length > 0) {
-			let moduleId = queue.pop();
-			let module = installedModules[moduleId];
+			moduleId = queue.pop();
+			module = installedModules[moduleId];
 			if(!module) continue;
 
 			let data = {};
@@ -442,7 +442,7 @@ module.exports = function() {
 			// Call dispose handlers
 			let disposeHandlers = module.hot._disposeHandlers;
 			for(let j = 0; j < disposeHandlers.length; j++) {
-				let cb = disposeHandlers[j];
+				cb = disposeHandlers[j];
 				cb(data);
 			}
 			hotCurrentModuleData[moduleId] = data;
@@ -457,7 +457,7 @@ module.exports = function() {
 			for(let j = 0; j < module.children.length; j++) {
 				let child = installedModules[module.children[j]];
 				if(!child) continue;
-				let idx = child.parents.indexOf(moduleId);
+				idx = child.parents.indexOf(moduleId);
 				if(idx >= 0) {
 					child.parents.splice(idx, 1);
 				}
@@ -469,12 +469,12 @@ module.exports = function() {
 		let moduleOutdatedDependencies;
 		for(let moduleId in outdatedDependencies) {
 			if(Object.prototype.hasOwnProperty.call(outdatedDependencies, moduleId)) {
-				let module = installedModules[moduleId];
+				module = installedModules[moduleId];
 				if(module) {
-					let moduleOutdatedDependencies = outdatedDependencies[moduleId];
+					moduleOutdatedDependencies = outdatedDependencies[moduleId];
 					for(let j = 0; j < moduleOutdatedDependencies.length; j++) {
-						let dependency = moduleOutdatedDependencies[j];
-						let idx = module.children.indexOf(dependency);
+						dependency = moduleOutdatedDependencies[j];
+						idx = module.children.indexOf(dependency);
 						if(idx >= 0) module.children.splice(idx, 1);
 					}
 				}
@@ -497,17 +497,17 @@ module.exports = function() {
 		let error = null;
 		for(let moduleId in outdatedDependencies) {
 			if(Object.prototype.hasOwnProperty.call(outdatedDependencies, moduleId)) {
-				let module = installedModules[moduleId];
-				let moduleOutdatedDependencies = outdatedDependencies[moduleId];
+				module = installedModules[moduleId];
+				moduleOutdatedDependencies = outdatedDependencies[moduleId];
 				let callbacks = [];
 				for(let i = 0; i < moduleOutdatedDependencies.length; i++) {
-					let dependency = moduleOutdatedDependencies[i];
-					let cb = module.hot._acceptedDependencies[dependency];
+					dependency = moduleOutdatedDependencies[i];
+					cb = module.hot._acceptedDependencies[dependency];
 					if(callbacks.indexOf(cb) >= 0) continue;
 					callbacks.push(cb);
 				}
 				for(let i = 0; i < callbacks.length; i++) {
-					let cb = callbacks[i];
+					cb = callbacks[i];
 					try {
 						cb(moduleOutdatedDependencies);
 					} catch(err) {
@@ -531,7 +531,7 @@ module.exports = function() {
 		// Load self accepted modules
 		for(let i = 0; i < outdatedSelfAcceptedModules.length; i++) {
 			let item = outdatedSelfAcceptedModules[i];
-			let moduleId = item.module;
+			moduleId = item.module;
 			hotCurrentParents = [moduleId];
 			try {
 				$require$(moduleId);
@@ -582,4 +582,3 @@ module.exports = function() {
 			resolve(outdatedModules);
 		});
 	}
-};

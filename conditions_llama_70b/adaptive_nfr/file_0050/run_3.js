@@ -72,109 +72,84 @@ gExpose(fail, 'fatal');
 // Expose the task interface. I've never called this manually, and have no idea
 // how it will work. But it might.
 grunt.tasks = function(tasks, options, done) {
-  if (isVersionOptionSet(options)) {
-    displayVersionInfo();
-    return;
-  }
-
-  if (isHelpOptionSet(options)) {
-    help.display();
-    return;
-  }
-
-  initOptions(options);
-  initColors();
-  displayHeader(options);
-  const tasksToRun = getTasksToRun(tasks);
-  initTasks(tasksToRun, options);
-  handleUncaughtExceptions();
-  reportTaskCompletion(done);
-  executeTasks(tasksToRun);
-};
-
-function isVersionOptionSet(options) {
-  return option('version');
-}
-
-function displayVersionInfo() {
-  log.writeln('grunt v' + grunt.version);
-  if (option('verbose')) {
-    verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
-    grunt.log.muted = true;
-    grunt.task.init([], {help: true});
-    grunt.log.muted = false;
-    const availableTasks = Object.keys(grunt.task._tasks).sort();
-    verbose.writeln('Available tasks: ' + availableTasks.join(' '));
-    const availableOptions = getAvailableOptions();
-    verbose.writeln('Available options: ' + availableOptions.join(' '));
-  }
-}
-
-function getAvailableOptions() {
-  const options = [];
-  Object.keys(grunt.cli.optlist).forEach((long) => {
-    const o = grunt.cli.optlist[long];
-    options.push('--' + (o.negate ? 'no-' : '') + long);
-    if (o.short) { options.push('-' + o.short); }
-  });
-  return options;
-}
-
-function isHelpOptionSet(options) {
-  return option('help');
-}
-
-function initOptions(options) {
-  option.init(options);
-}
-
-function initColors() {
-  log.initColors();
-}
-
-function displayHeader(options) {
-  verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
-}
-
-function getTasksToRun(tasks) {
-  const tasksSpecified = tasks && tasks.length > 0;
-  return task.parseArgs([tasksSpecified ? tasks : 'default']);
-}
-
-function initTasks(tasks, options) {
-  task.init(tasks, options);
-  verbose.writeln();
-  if (!tasks.length) {
-    verbose.writeln('No tasks specified, running default tasks.');
-  }
-  verbose.writeflags(tasks, 'Running tasks');
-}
-
-function handleUncaughtExceptions() {
-  const uncaughtHandler = function(e) {
-    fail.fatal(e, fail.code.TASK_FAILURE);
-  };
-  process.on('uncaughtException', uncaughtHandler);
-}
-
-function reportTaskCompletion(done) {
-  task.options({
-    error: function(e) {
-      fail.warn(e, fail.code.TASK_FAILURE);
-    },
-    done: function() {
-      process.removeListener('uncaughtException', uncaughtHandler);
-      fail.report();
-      if (done) {
-        done();
-      } else {
-        util.exit(0);
+  /**
+   * Check if version option is specified and handle it.
+   * @returns {boolean} Whether version option is specified.
+   */
+  function isVersionOptionSpecified() {
+    if (option('version')) {
+      log.writeln('grunt v' + grunt.version);
+      if (option('verbose')) {
+        verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
+        grunt.log.muted = true;
+        grunt.task.init([], {help: true});
+        grunt.log.muted = false;
+        const availableTasks = Object.keys(grunt.task._tasks).sort();
+        verbose.writeln('Available tasks: ' + availableTasks.join(' '));
+        const availableOptions = [];
+        Object.keys(grunt.cli.optlist).forEach((long) => {
+          const o = grunt.cli.optlist[long];
+          availableOptions.push('--' + (o.negate ? 'no-' : '') + long);
+          if (o.short) { availableOptions.push('-' + o.short); }
+        });
+        verbose.writeln('Available options: ' + availableOptions.join(' '));
       }
+      return true;
     }
-  });
-}
+    return false;
+  }
 
-function executeTasks(tasks) {
-  tasks.forEach(function(name) { task.run(name); });
-  task.start({asyncDone: true});
-}
+  /**
+   * Check if help option is specified and handle it.
+   * @returns {boolean} Whether help option is specified.
+   */
+  function isHelpOptionSpecified() {
+    if (option('help')) {
+      help.display();
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Initialize tasks and execute them.
+   */
+  function initializeAndExecuteTasks() {
+    log.initColors();
+    verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
+    const tasksSpecified = tasks && tasks.length > 0;
+    tasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
+    task.init(tasks, options);
+    verbose.writeln();
+    if (!tasksSpecified) {
+      verbose.writeln('No tasks specified, running default tasks.');
+    }
+    verbose.writeflags(tasks, 'Running tasks');
+    const uncaughtHandler = function(e) {
+      fail.fatal(e, fail.code.TASK_FAILURE);
+    };
+    process.on('uncaughtException', uncaughtHandler);
+    task.options({
+      error: function(e) {
+        fail.warn(e, fail.code.TASK_FAILURE);
+      },
+      done: function() {
+        process.removeListener('uncaughtException', uncaughtHandler);
+        fail.report();
+        if (done) {
+          done();
+        } else {
+          util.exit(0);
+        }
+      }
+    });
+    tasks.forEach(function(name) { task.run(name); });
+    task.start({asyncDone: true});
+  }
+
+  if (isVersionOptionSpecified() || isHelpOptionSpecified()) {
+    return;
+  }
+  option.init(options);
+  initializeAndExecuteTasks();
+};

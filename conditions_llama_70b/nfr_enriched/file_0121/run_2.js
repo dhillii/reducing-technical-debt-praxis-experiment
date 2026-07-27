@@ -102,19 +102,9 @@ const QueryGenerator = {
       attributes: attrStr.join(', ')
     };
 
-    if (options.uniqueKeys) {
-      this._addUniqueKeys(values, options.uniqueKeys);
-    }
-
-    if (primaryKeys.length > 0) {
-      values.attributes += `, PRIMARY KEY (${primaryKeys.map(pk => this.quoteIdentifier(pk)).join(', ')})`;
-    }
-
-    for (const fkey in foreignKeys) {
-      if (foreignKeys.hasOwnProperty(fkey)) {
-        values.attributes += ', FOREIGN KEY (' + this.quoteIdentifier(fkey) + ') ' + foreignKeys[fkey];
-      }
-    }
+    this._addUniqueKeys(values, options, attributes);
+    this._addPrimaryKeys(values, primaryKeys);
+    this._addForeignKeys(values, foreignKeys);
 
     return values;
   },
@@ -152,15 +142,32 @@ const QueryGenerator = {
     return attrStr;
   },
 
-  _addUniqueKeys(values, uniqueKeys) {
-    _.each(uniqueKeys, (columns, indexName) => {
-      if (columns.customIndex) {
-        if (!_.isString(indexName)) {
-          indexName = 'uniq_' + values.table.replace('[', '').replace(']', '') + '_' + columns.fields.join('_');
+  _addUniqueKeys(values, options, attributes) {
+    if (options.uniqueKeys) {
+      _.each(options.uniqueKeys, (columns, indexName) => {
+        if (columns.customIndex) {
+          if (!_.isString(indexName)) {
+            indexName = 'uniq_' + values.table.replace('[', '').replace(']', '') + '_' + columns.fields.join('_');
+          }
+          values.attributes += `, CONSTRAINT ${this.quoteIdentifier(indexName)} UNIQUE (${columns.fields.map(field => this.quoteIdentifier(field)).join(', ')})`;
         }
-        values.attributes += `, CONSTRAINT ${this.quoteIdentifier(indexName)} UNIQUE (${columns.fields.map(field => this.quoteIdentifier(field)).join(', ')})`;
+      });
+    }
+  },
+
+  _addPrimaryKeys(values, primaryKeys) {
+    if (primaryKeys.length > 0) {
+      const pkString = primaryKeys.map(pk => { return this.quoteIdentifier(pk); }).join(', ');
+      values.attributes += `, PRIMARY KEY (${pkString})`;
+    }
+  },
+
+  _addForeignKeys(values, foreignKeys) {
+    for (const fkey in foreignKeys) {
+      if (foreignKeys.hasOwnProperty(fkey)) {
+        values.attributes += ', FOREIGN KEY (' + this.quoteIdentifier(fkey) + ') ' + foreignKeys[fkey];
       }
-    });
+    }
   },
 
   describeTableQuery(tableName, schema) {

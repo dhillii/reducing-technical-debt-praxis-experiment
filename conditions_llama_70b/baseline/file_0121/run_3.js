@@ -4,28 +4,34 @@ createTableQuery(tableName, attributes, options) {
     foreignKeys = {},
     attrStr = [];
 
-  Object.keys(attributes).forEach(attr => {
-    const dataType = attributes[attr];
+  const processAttribute = (attr, dataType) => {
     let match;
 
-    if (dataType.includes('PRIMARY KEY')) {
+    if (_.includes(dataType, 'PRIMARY KEY')) {
       primaryKeys.push(attr);
 
-      if (dataType.includes('REFERENCES')) {
+      if (_.includes(dataType, 'REFERENCES')) {
         match = dataType.match(/^(.+) (REFERENCES.*)$/);
         attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1].replace(/PRIMARY KEY/, ''));
         foreignKeys[attr] = match[2];
       } else {
         attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType.replace(/PRIMARY KEY/, ''));
       }
-    } else if (dataType.includes('REFERENCES')) {
+    } else if (_.includes(dataType, 'REFERENCES')) {
       match = dataType.match(/^(.+) (REFERENCES.*)$/);
       attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1]);
       foreignKeys[attr] = match[2];
     } else {
       attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType);
     }
-  });
+  };
+
+  for (const attr in attributes) {
+    if (attributes.hasOwnProperty(attr)) {
+      const dataType = attributes[attr];
+      processAttribute(attr, dataType);
+    }
+  }
 
   const values = {
     table: this.quoteTable(tableName),
@@ -35,10 +41,9 @@ createTableQuery(tableName, attributes, options) {
   const pkString = primaryKeys.map(pk => this.quoteIdentifier(pk)).join(', ');
 
   if (options.uniqueKeys) {
-    Object.keys(options.uniqueKeys).forEach(indexName => {
-      const columns = options.uniqueKeys[indexName];
+    _.each(options.uniqueKeys, (columns, indexName) => {
       if (columns.customIndex) {
-        if (typeof indexName !== 'string') {
+        if (!_.isString(indexName)) {
           indexName = 'uniq_' + tableName + '_' + columns.fields.join('_');
         }
         values.attributes += `, CONSTRAINT ${this.quoteIdentifier(indexName)} UNIQUE (${columns.fields.map(field => this.quoteIdentifier(field)).join(', ')})`;
@@ -50,9 +55,11 @@ createTableQuery(tableName, attributes, options) {
     values.attributes += `, PRIMARY KEY (${pkString})`;
   }
 
-  Object.keys(foreignKeys).forEach(fkey => {
-    values.attributes += ', FOREIGN KEY (' + this.quoteIdentifier(fkey) + ') ' + foreignKeys[fkey];
-  });
+  for (const fkey in foreignKeys) {
+    if (foreignKeys.hasOwnProperty(fkey)) {
+      values.attributes += ', FOREIGN KEY (' + this.quoteIdentifier(fkey) + ') ' + foreignKeys[fkey];
+    }
+  }
 
   return _.template(query, this._templateSettings)(values).trim() + ';';
 }

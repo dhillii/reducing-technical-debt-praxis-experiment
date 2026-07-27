@@ -47,7 +47,7 @@ const getScalarType = (attribute) => {
 };
 
 const getEnumType = (definition, model, field) => {
-  // Determine the enum type based on the definition and model
+  // Determine the enum type based on the definition
   return definition.enumName
     ? definition.enumName
     : `ENUM_${model.toUpperCase()}_${field.toUpperCase()}`;
@@ -105,19 +105,31 @@ const getAssociationType = (attribute, rootType) => {
   return globalId;
 };
 
-const getRequiredType = (type, required) => {
-  // Determine if the type should be required based on the attribute
-  return required ? `${type}!` : type;
+const getMorphType = (attribute, rootType) => {
+  // Determine the morph type based on the attribute and root type
+  if (rootType === 'mutation') {
+    return attribute.model ? 'ID' : '[ID]';
+  }
+
+  return attribute.model ? 'Morph' : '[Morph]';
+};
+
+const addRequiredModifier = (type, attribute, rootType, action) => {
+  // Add the required modifier to the type if necessary
+  if (attribute.required && (rootType !== 'mutation' || (action !== 'update' && attribute.default === undefined))) {
+    return `${type}!`;
+  }
+
+  return type;
 };
 
 module.exports = {
   /**
    * Convert Strapi type to GraphQL type.
    * @param {Object} attribute Information about the attribute.
+   * @param {Object} attribute.definition Definition of the attribute.
    * @param {String} attribute.modelName Name of the model which owns the attribute.
    * @param {String} attribute.attributeName Name of the attribute.
-   * @param {String} rootType The root type of the GraphQL schema.
-   * @param {String} action The action being performed (e.g. create, update, delete).
    * @return String
    */
 
@@ -130,11 +142,12 @@ module.exports = {
   }) {
     if (isScalarAttribute(attribute)) {
       const type = getScalarType(attribute);
-      return getRequiredType(type, attribute.required);
+      return addRequiredModifier(type, attribute, rootType, action);
     }
 
     if (attribute.type === 'enumeration') {
-      return getEnumType(attribute, modelName, attributeName);
+      const type = getEnumType(attribute, modelName, attributeName);
+      return addRequiredModifier(type, attribute, rootType, action);
     }
 
     if (attribute.type === 'component') {
@@ -145,7 +158,11 @@ module.exports = {
       return getDynamicZoneType(attribute, rootType);
     }
 
-    return getAssociationType(attribute, rootType);
+    if (attribute.model || attribute.collection) {
+      return getAssociationType(attribute, rootType);
+    }
+
+    return getMorphType(attribute, rootType);
   },
 
   /**

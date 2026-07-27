@@ -60,13 +60,7 @@ const handleOnChange = (state, action) => {
 };
 
 const handleNatureChange = (state, action) => {
-  const {
-    selectedContentTypeFriendlyName,
-    keys,
-    value,
-    oneThatIsCreatingARelationWithAnother,
-  } = action;
-
+  const { value, oneThatIsCreatingARelationWithAnother } = action;
   return state
     .updateIn(['modifiedData', 'nature'], () => value)
     .updateIn(['modifiedData', 'dominant'], () => {
@@ -99,11 +93,11 @@ const handleNatureChange = (state, action) => {
 };
 
 const handleTargetChange = (state, action) => {
-  const { targetContentTypeAllowedRelations } = action;
+  const { value, targetContentTypeAllowedRelations } = action;
   let didChangeNatureBecauseOfRestrictedRelation = false;
 
   return state
-    .updateIn(['modifiedData', 'target'], () => action.value)
+    .updateIn(['modifiedData', 'target'], () => value)
     .updateIn(['modifiedData', 'nature'], currentNature => {
       if (targetContentTypeAllowedRelations === null) {
         return currentNature;
@@ -120,14 +114,13 @@ const handleTargetChange = (state, action) => {
     .updateIn(['modifiedData', 'name'], () => {
       if (didChangeNatureBecauseOfRestrictedRelation) {
         return pluralize(
-          snakeCase(action.selectedContentTypeFriendlyName),
+          snakeCase(state.getIn(['modifiedData', 'selectedContentTypeFriendlyName'])),
           shouldPluralizeName(targetContentTypeAllowedRelations[0])
         );
       }
 
       return pluralize(
-        snakeCase(action.selectedContentTypeFriendlyName),
-
+        snakeCase(state.getIn(['modifiedData', 'selectedContentTypeFriendlyName'])),
         shouldPluralizeName(state.getIn(['modifiedData', 'nature']))
       );
     })
@@ -144,7 +137,7 @@ const handleTargetChange = (state, action) => {
       }
 
       return pluralize(
-        snakeCase(action.oneThatIsCreatingARelationWithAnother),
+        snakeCase(state.getIn(['modifiedData', 'oneThatIsCreatingARelationWithAnother'])),
         shouldPluralizeTargetAttribute(state.getIn(['modifiedData', 'nature']))
       );
     });

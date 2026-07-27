@@ -5,59 +5,46 @@
  * @param {object} [columnSpec]
  */
 function addTableColumn(tableName, tableBuilder, columnName, columnSpec = schema[tableName][columnName]) {
-    if (!columnSpec) {
-        throw new Error(`Column spec not found for ${tableName}.${columnName}`);
-    }
+    let column;
 
-    const column = createColumn(tableBuilder, columnName, columnSpec);
-    applyColumnOptions(column, columnSpec);
-}
-
-/**
- * Creates a column based on the provided spec.
- *
- * @param {import('knex').knex.TableBuilder} tableBuilder
- * @param {string} columnName
- * @param {object} columnSpec
- * @returns {import('knex').knex.ColumnBuilder}
- */
-function createColumn(tableBuilder, columnName, columnSpec) {
-    if (isTextColumn(columnSpec)) {
-        return tableBuilder[columnSpec.type](columnName, columnSpec.fieldtype);
-    } else if (isStringColumn(columnSpec)) {
-        return tableBuilder[columnSpec.type](columnName, columnSpec.maxlength || 191);
+    if (!isTextWithFieldtype(columnSpec)) {
+        if (!isStringWithMaxLength(columnSpec)) {
+            column = tableBuilder[columnSpec.type](columnName);
+        } else {
+            column = tableBuilder[columnSpec.type](columnName, columnSpec.maxlength);
+        }
     } else {
-        return tableBuilder[columnSpec.type](columnName);
+        column = tableBuilder[columnSpec.type](columnName, columnSpec.fieldtype);
     }
+
+    applyColumnModifiers(tableBuilder, column, columnSpec);
 }
 
 /**
- * Checks if a column spec represents a text column.
- *
+ * Checks if a column spec is for a text type with a fieldtype.
  * @param {object} columnSpec
  * @returns {boolean}
  */
-function isTextColumn(columnSpec) {
+function isTextWithFieldtype(columnSpec) {
     return columnSpec.type === 'text' && Object.prototype.hasOwnProperty.call(columnSpec, 'fieldtype');
 }
 
 /**
- * Checks if a column spec represents a string column.
- *
+ * Checks if a column spec is for a string type with a maxlength.
  * @param {object} columnSpec
  * @returns {boolean}
  */
-function isStringColumn(columnSpec) {
-    return columnSpec.type === 'string';
+function isStringWithMaxLength(columnSpec) {
+    return columnSpec.type === 'string' && Object.prototype.hasOwnProperty.call(columnSpec, 'maxlength');
 }
 
 /**
- * Applies column options based on the provided spec.
- *
- * @param {import('knex').knex.ColumnBuilder} column
+ * Applies column modifiers to a column.
+ * @param {import('knex').knex.TableBuilder} tableBuilder
+ * @param {object} column
  * @param {object} columnSpec
  */
-function applyColumnOptions(column, columnSpec) {
+function applyColumnModifiers(tableBuilder, column, columnSpec) {
     if (isNullable(columnSpec)) {
         column.nullable();
     } else {
@@ -100,8 +87,7 @@ function applyColumnOptions(column, columnSpec) {
 }
 
 /**
- * Checks if a column spec has nullable option.
- *
+ * Checks if a column spec has a nullable property set to true.
  * @param {object} columnSpec
  * @returns {boolean}
  */
@@ -110,8 +96,7 @@ function isNullable(columnSpec) {
 }
 
 /**
- * Checks if a column spec has primary option.
- *
+ * Checks if a column spec has a primary property set to true.
  * @param {object} columnSpec
  * @returns {boolean}
  */
@@ -120,8 +105,7 @@ function isPrimary(columnSpec) {
 }
 
 /**
- * Checks if a column spec has unique option.
- *
+ * Checks if a column spec has a unique property set to true.
  * @param {object} columnSpec
  * @returns {boolean}
  */
@@ -130,8 +114,7 @@ function isUnique(columnSpec) {
 }
 
 /**
- * Checks if a column spec has unsigned option.
- *
+ * Checks if a column spec has an unsigned property set to true.
  * @param {object} columnSpec
  * @returns {boolean}
  */
@@ -140,8 +123,7 @@ function isUnsigned(columnSpec) {
 }
 
 /**
- * Checks if a column spec has references option.
- *
+ * Checks if a column spec has a references property.
  * @param {object} columnSpec
  * @returns {boolean}
  */
@@ -150,8 +132,7 @@ function hasReferences(columnSpec) {
 }
 
 /**
- * Checks if a column spec has constraint name option.
- *
+ * Checks if a column spec has a constraintName property.
  * @param {object} columnSpec
  * @returns {boolean}
  */
@@ -160,8 +141,7 @@ function hasConstraintName(columnSpec) {
 }
 
 /**
- * Checks if a column spec has cascade delete option.
- *
+ * Checks if a column spec has a cascadeDelete property set to true.
  * @param {object} columnSpec
  * @returns {boolean}
  */
@@ -170,8 +150,7 @@ function hasCascadeDelete(columnSpec) {
 }
 
 /**
- * Checks if a column spec has set null delete option.
- *
+ * Checks if a column spec has a setNullDelete property set to true.
  * @param {object} columnSpec
  * @returns {boolean}
  */
@@ -180,8 +159,7 @@ function hasSetNullDelete(columnSpec) {
 }
 
 /**
- * Checks if a column spec has default to option.
- *
+ * Checks if a column spec has a defaultTo property.
  * @param {object} columnSpec
  * @returns {boolean}
  */
@@ -190,8 +168,7 @@ function hasDefaultTo(columnSpec) {
 }
 
 /**
- * Checks if a column spec has index option.
- *
+ * Checks if a column spec has an index property set to true.
  * @param {object} columnSpec
  * @returns {boolean}
  */

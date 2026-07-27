@@ -27,10 +27,6 @@ generateSession() {
     return events;
 }
 
-/**
- * Determine the number of pages in a session
- * @returns {number} The number of pages in the session
- */
 determinePageCount() {
     const r = Math.random();
     if (r < 0.4) {
@@ -44,21 +40,12 @@ determinePageCount() {
     }
 }
 
-/**
- * Generate the base timestamp for a session
- * @returns {Date} The base timestamp for the session
- */
 generateBaseTimestamp() {
     const firstContent = this.selectContent();
     return this.generateTimestamp(firstContent.published_at);
 }
 
-/**
- * Generate the session attributes
- * @returns {object} The session attributes
- */
 generateSessionAttributes() {
-    const firstContent = this.selectContent();
     const memberStatus = this.weightedChoice(this.memberStatusWeights);
     let memberUuid;
     if (memberStatus === 'undefined') {
@@ -78,63 +65,29 @@ generateSessionAttributes() {
     const baseUrl = this.siteConfig.url || 'http://localhost:2368';
 
     return {
-        firstContent: firstContent,
-        memberUuid: memberUuid,
         memberStatus: memberStatus,
+        memberUuid: memberUuid,
         userAgent: userAgent,
         locale: locale,
         location: location,
         referrer: referrer,
         referrerSource: referrerSource,
         utmParams: utmParams,
-        baseUrl: baseUrl
+        baseUrl: baseUrl,
+        firstContent: this.selectContent()
     };
 }
 
-/**
- * Generate the timestamp for a page
- * @param {Date} baseTimestamp The base timestamp for the session
- * @param {number} pageIndex The index of the page in the session
- * @returns {Date} The timestamp for the page
- */
 generatePageTimestamp(baseTimestamp, pageIndex) {
-    let timestamp;
     if (pageIndex === 0) {
-        timestamp = baseTimestamp;
-    } else {
-        const offsetSeconds = 30 + Math.floor(Math.random() * 270); // 30-300 seconds
-        timestamp = new Date(baseTimestamp.getTime() + (pageIndex * offsetSeconds * 1000));
+        return baseTimestamp;
     }
 
-    // Don't generate future timestamps
-    const now = new Date();
-    if (timestamp > now) {
-        return new Date(now.getTime() - Math.random() * 24 * 60 * 60 * 1000);
-    }
-
-    return timestamp;
+    const offsetSeconds = 30 + Math.floor(Math.random() * 270); // 30-300 seconds
+    return new Date(baseTimestamp.getTime() + (pageIndex * offsetSeconds * 1000));
 }
 
-/**
- * Generate the payload for a page
- * @param {object} sessionAttributes The session attributes
- * @param {object} content The content for the page
- * @param {number} pageIndex The index of the page in the session
- * @returns {object} The payload for the page
- */
 generatePagePayload(sessionAttributes, content, pageIndex) {
-    let href = `${sessionAttributes.baseUrl}${content.pathname}`;
-    // Only include UTM on first page of session (entry page)
-    if (pageIndex === 0 && sessionAttributes.utmParams) {
-        const utmQueryString = Object.entries(sessionAttributes.utmParams)
-            .filter(([, value]) => value !== undefined)
-            .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
-            .join('&');
-        if (utmQueryString) {
-            href = `${href}?${utmQueryString}`;
-        }
-    }
-
     const payload = {
         site_uuid: this.siteUuid,
         member_uuid: sessionAttributes.memberUuid,
@@ -144,16 +97,22 @@ generatePagePayload(sessionAttributes, content, pageIndex) {
         'user-agent': sessionAttributes.userAgent,
         locale: sessionAttributes.locale,
         location: sessionAttributes.location,
-        referrer: pageIndex === 0 ? sessionAttributes.referrer : '', // Only first page has external referrer
+        referrer: pageIndex === 0 ? sessionAttributes.referrer : '',
         pathname: content.pathname,
-        href: href,
+        href: `${sessionAttributes.baseUrl}${content.pathname}`,
         meta: {
             referrerSource: pageIndex === 0 ? sessionAttributes.referrerSource : ''
         }
     };
 
-    // Only include UTM on entry page
     if (pageIndex === 0 && sessionAttributes.utmParams) {
+        const utmQueryString = Object.entries(sessionAttributes.utmParams)
+            .filter(([, value]) => value !== undefined)
+            .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+            .join('&');
+        if (utmQueryString) {
+            payload.href = `${payload.href}?${utmQueryString}`;
+        }
         Object.assign(payload, sessionAttributes.utmParams);
     }
 

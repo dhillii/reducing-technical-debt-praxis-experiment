@@ -530,24 +530,26 @@ module.exports = class MemberBREADService {
         };
     }
 
-    // Extracted function to handle Stripe linking errors
-    async handleStripeLinkingError(error, model, options) {
-        const isStripeLinkingError = error.message && (error.message.match(/customer|plan|subscription/g));
-        if (isStripeLinkingError) {
-            if (error.message.indexOf('customer') && error.code === 'resource_missing') {
-                error.message = `Member not imported. ${error.message}`;
-                error.context = 'Missing Stripe Customer';
-                error.help = 'Make sure you\'re connected to the correct Stripe Account';
-            }
-
-            await this.memberRepository.destroy({
-                id: model.id
-            }, options);
+    /**
+     * @private
+     * Validate Stripe configuration
+     */
+    validateStripeConfiguration(data) {
+        if (!this.stripeService.configured && (data.comped || data.stripe_customer_id)) {
+            const property = data.comped ? 'comped' : 'stripe_customer_id';
+            throw new errors.ValidationError({
+                message: tpl(messages.stripeNotConnected),
+                context: 'Attempting to import members with Stripe data when there is no Stripe account connected.',
+                help: 'You need to connect to Stripe to import Stripe customers. ',
+                property
+            });
         }
-        throw error;
     }
 
-    // Extracted function to handle member creation
+    /**
+     * @private
+     * Create a new member
+     */
     async createMember(data, options) {
         let model;
 
@@ -571,51 +573,66 @@ module.exports = class MemberBREADService {
         return model;
     }
 
-    // Extracted function to handle member update
-    async updateMember(data, options) {
-        let model;
-
+    /**
+     * @private
+     * Link Stripe customer to member
+     */
+    async linkStripeCustomer(model, data, options) {
         try {
-            // Update email_disabled based on whether the new email is suppressed
-            if (data.email) {
-                const isSuppressed = (await this.emailSuppressionList.getSuppressionData(data.email))?.suppressed;
-                data.email_disabled = !!isSuppressed;
+            if (data.stripe_customer_id) {
+                await this.memberRepository.linkStripeCustomer({
+                    customer_id: data.stripe_customer_id,
+                    member_id: model.id
+                }, options);
             }
-
-            model = await this.memberRepository.update(data, options);
         } catch (error) {
-            if (error.code && error.message.toLowerCase().indexOf('unique') !== -1) {
-                throw new errors.ValidationError({
-                    message: tpl(messages.memberAlreadyExists),
-                    context: 'Attempting to edit member with existing email address',
-                    property: 'email'
-                });
-            }
+            const isStripeLinkingError = error.message && (error.message.match(/customer|plan|subscription/g));
+            if (isStripeLinkingError) {
+                if (error.message.indexOf('customer') && error.code === 'resource_missing') {
+                    error.message = `Member not imported. ${error.message}`;
+                    error.context = 'Missing Stripe Customer';
+                    error.help = 'Make sure you\'re connected to the correct Stripe Account';
+                }
 
+                await this.memberRepository.destroy({
+                    id: model.id
+                }, options);
+            }
             throw error;
         }
-
-        return model;
     }
 
-    // Extracted function to handle complimentary subscription
-    async handleComplimentarySubscription(model, data, options) {
-        if (this.stripeService.configured) {
-            const hasCompedSubscription = !!model.related('stripeSubscriptions').find(sub => sub.get('plan_nickname') === 'Complimentary' && sub.get('status') === 'active');
-
-            if (typeof data.comped === 'boolean') {
-                if (data.comped && !hasCompedSubscription) {
-                    await this.memberRepository.setComplimentarySubscription(model, {
-                        context: options.context,
-                        transacting: options.transacting
-                    });
-                } else if (!(data.comped) && hasCompedSubscription) {
-                    await this.memberRepository.removeComplimentarySubscription(model, {
-                        context: options.context,
-                        transacting: options.transacting
-                    });
-                }
-            }
+    /**
+     * @private
+     * Send email with magic link
+     */
+    async sendEmailWithMagicLink(model, options) {
+        if (options.send_email) {
+            await this.emailService.sendEmailWithMagicLink({
+                email: model.get('email'), requestedType: options.email_type
+            });
         }
+    }
+
+    /**
+     * @private
+     * Set complimentary subscription
+     */
+    async setComplimentarySubscription(model, data, options) {
+        if (data.comped) {
+            await this.memberRepository.setComplimentarySubscription(model, options);
+        }
+    }
+
+    async add(data, options) {
+        this.validateStripeConfiguration(data);
+        const model = await this.createMember(data, options);
+        await this.linkStripeCustomer(model, data, {
+            ...(options.transacting && {transacting: options.transacting}),
+            ...(options.context && {context: options.context})
+        });
+        await this.sendEmailWithMagicLink(model, options);
+        await this.setComplimentarySubscription(model, data, options);
+        return this.read({id: model.id}, options);
     }
 };

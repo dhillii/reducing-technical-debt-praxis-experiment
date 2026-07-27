@@ -912,10 +912,10 @@ module.exports = {
         }
       },
 
-      "ExportDefaultDeclaration"(node) {
+      ExportDefaultDeclaration(node) {
         checkExpressionOrExportStatement(node.declaration);
       },
-      "ExpressionStatement"(node) {
+      ExpressionStatement(node) {
         checkExpressionOrExportStatement(node.expression);
       },
 

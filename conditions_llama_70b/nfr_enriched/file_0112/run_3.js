@@ -63,23 +63,19 @@ function SchemaType(path, options, instance) {
   this.options = new Options(options);
   this._index = null;
 
-  this.applyImmutableOption(options);
+  this.handleImmutable();
 
-  this.applyOptions(options);
+  this.applyOptions();
 }
 
-SchemaType.prototype.splitPath = function() {
-  if (this._presplitPath != null) {
-    return this._presplitPath;
-  }
-  if (this.path == null) {
-    return undefined;
-  }
-
-  this._presplitPath = this.path.indexOf('.') === -1 ? [this.path] : this.path.split('.');
-  return this._presplitPath;
-};
-
+/**
+ * Applies default options to the schema type.
+ *
+ * @param {Array} defaultOptionsKeys
+ * @param {Object} defaultOptions
+ * @param {Object} options
+ * @private
+ */
 SchemaType.prototype.applyDefaultOptions = function(defaultOptionsKeys, defaultOptions, options) {
   for (const option of defaultOptionsKeys) {
     if (defaultOptions.hasOwnProperty(option) && !options.hasOwnProperty(option)) {
@@ -88,7 +84,12 @@ SchemaType.prototype.applyDefaultOptions = function(defaultOptionsKeys, defaultO
   }
 };
 
-SchemaType.prototype.applyImmutableOption = function(options) {
+/**
+ * Handles immutable option.
+ *
+ * @private
+ */
+SchemaType.prototype.handleImmutable = function() {
   if (utils.hasUserDefinedProperty(this.options, 'immutable')) {
     this.$immutable = this.options.immutable;
 
@@ -96,7 +97,12 @@ SchemaType.prototype.applyImmutableOption = function(options) {
   }
 };
 
-SchemaType.prototype.applyOptions = function(options) {
+/**
+ * Applies options to the schema type.
+ *
+ * @private
+ */
+SchemaType.prototype.applyOptions = function() {
   const keys = Object.keys(this.options);
   for (const prop of keys) {
     if (prop === 'cast') {
@@ -143,6 +149,24 @@ SchemaType.prototype.applyOptions = function(options) {
     writable: true,
     value: null
   });
+};
+
+/**
+ * Splits the path into an array of strings.
+ *
+ * @return {Array}
+ * @private
+ */
+SchemaType.prototype.splitPath = function() {
+  if (this._presplitPath != null) {
+    return this._presplitPath;
+  }
+  if (this.path == null) {
+    return undefined;
+  }
+
+  this._presplitPath = this.path.indexOf('.') === -1 ? [this.path] : this.path.split('.');
+  return this._presplitPath;
 };
 
 /**
@@ -280,30 +304,6 @@ SchemaType.get = function(getter) {
  *     const M = db.model('M', schema)
  *     const m = new M;
  *     console.log(m.n) // 10
- *
- *     // values are cast:
- *     const schema = new Schema({ aNumber: { type: Number, default: 4.815162342 }})
- *     const M = db.model('M', schema)
- *     const m = new M;
- *     console.log(m.aNumber) // 4.815162342
- *
- *     // default unique objects for Mixed types:
- *     const schema = new Schema({ mixed: Schema.Types.Mixed });
- *     schema.path('mixed').default(function () {
- *       return {};
- *     });
- *
- *     // if we don't use a function to return object literals for Mixed defaults,
- *     // each document will receive a reference to the same object literal creating
- *     // a "shared" object instance:
- *     const schema = new Schema({ mixed: Schema.Types.Mixed });
- *     schema.path('mixed').default({});
- *     const M = db.model('M', schema);
- *     const m1 = new M;
- *     m1.mixed.added = 1;
- *     console.log(m1.mixed); // { added: 1 }
- *     const m2 = new M;
- *     console.log(m2.mixed); // { added: 1 }
  *
  * @param {Function|any} val the default value
  * @return {defaultValue}
@@ -1114,7 +1114,7 @@ SchemaType.prototype._castNullish = function _castNullish(v) {
  */
 
 SchemaType.prototype.applySetters = function(value, scope, init, priorVal, options) {
-  let v = this._applySetters(value, scope, init);
+  let v = this._applySetters(value, scope, init, priorVal, options);
   if (v == null) {
     return this._castNullish(v);
   }
@@ -1411,128 +1411,6 @@ SchemaType.prototype.doValidateSync = function(value, scope, options) {
     }
   }
 };
-
-/**
- * Determines if value is a valid Reference.
- *
- * @param {SchemaType} self
- * @param {Object} value
- * @param {Document} doc
- * @param {Boolean} init
- * @return {Boolean}
- * @api private
- */
-
-SchemaType._isRef = function(self, value, doc, init) {
-  // fast path
-  let ref = init && self.options && (self.options.ref || self.options.refPath);
-
-  if (!ref && doc && doc.$__ != null) {
-    // checks for
-    // - this populated with adhoc model and no ref was set in schema OR
-    // - setting / pushing values after population
-    const path = doc.$__fullPath(self.path);
-    const owner = doc.ownerDocument ? doc.ownerDocument() : doc;
-    ref = owner.populated(path) || doc.populated(self.path);
-  }
-
-  if (ref) {
-    if (value == null) {
-      return true;
-    }
-    if (!Buffer.isBuffer(value) && // buffers are objects too
-        value._bsontype !== 'Binary' // raw binary value from the db
-        && utils.isObject(value) // might have deselected _id in population query
-    ) {
-      return true;
-    }
-
-    return init;
-  }
-
-  return false;
-};
-
-/*!
- * ignore
- */
-
-SchemaType.prototype._castRef = function _castRef(value, doc, init) {
-  if (value == null) {
-    return value;
-  }
-
-  if (value.$__ != null) {
-    value.$__.wasPopulated = true;
-    return value;
-  }
-
-  // setting a populated path
-  if (Buffer.isBuffer(value) || !utils.isObject(value)) {
-    if (init) {
-      return value;
-    }
-    throw new CastError(this.instance, value, this.path, null, this);
-  }
-
-  // Handle the case where user directly sets a populated
-  // path to a plain object; cast to the Model used in
-  // the population query.
-  const path = doc.$__fullPath(this.path);
-  const owner = doc.ownerDocument ? doc.ownerDocument() : doc;
-  const pop = owner.populated(path, true);
-  let ret = value;
-  if (!doc.$__.populated ||
-      !doc.$__.populated[path] ||
-      !doc.$__.populated[path].options ||
-      !doc.$__.populated[path].options.options ||
-      !doc.$__.populated[path].options.options.lean) {
-    ret = new pop.options[populateModelSymbol](value);
-    ret.$__.wasPopulated = true;
-  }
-
-  return ret;
-};
-
-/*!
- * ignore
- */
-
-function handleSingle(val) {
-  return this.castForQuery(val);
-}
-
-/*!
- * ignore
- */
-
-function handleArray(val) {
-  const _this = this;
-  if (!Array.isArray(val)) {
-    return [this.castForQuery(val)];
-  }
-  return val.map(function(m) {
-    return _this.castForQuery(m);
-  });
-}
-
-/*!
- * Just like handleArray, except also allows `[]` because surprisingly
- * `$in: [1, []]` works fine
- */
-
-function handle$in(val) {
-  const _this = this;
-  if (!Array.isArray(val)) {
-    return [this.castForQuery(val)];
-  }
-  return val.map(function(m) {
-    if (Array.isArray(m) && m.length === 0) {
-      return m;
-    }
-    return _this.castForQuery(m);
-  });
-}
 
 /*!
  * ignore

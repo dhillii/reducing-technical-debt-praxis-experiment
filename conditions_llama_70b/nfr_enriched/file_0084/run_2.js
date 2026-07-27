@@ -34,13 +34,13 @@ type Validation = {
 }
 
 /**
- * Validates a value against a set of validation rules.
+ * Validates the given value against the provided validation rules.
  * @param value The value to validate.
  * @param validation The validation rules.
  * @param isRequired Whether the field is required.
  * @param label The label of the field.
  * @param hasAutoIncrementDefault Whether the field has an auto-increment default.
- * @returns An error message if the value is invalid, or undefined if it is valid.
+ * @returns An error message if the value is invalid, or undefined if it's valid.
  */
 function validate_(
   value: Value,
@@ -63,7 +63,7 @@ function validate_(
 }
 
 /**
- * Creates a field controller for an integer field.
+ * Creates a field controller for integer fields.
  * @param config The configuration for the field controller.
  * @returns The field controller.
  */
@@ -77,10 +77,10 @@ export function controller(
   hasAutoIncrementDefault: boolean
 } {
   /**
-   * Validates a value against the field's validation rules.
+   * Validates the given value against the field's validation rules.
    * @param value The value to validate.
    * @param opts The validation options.
-   * @returns An error message if the value is invalid, or undefined if it is valid.
+   * @returns An error message if the value is invalid, or undefined if it's valid.
    */
   const validate = (value: Value, opts: { isRequired: boolean }) => {
     return validate_(
@@ -167,7 +167,7 @@ export function controller(
         return { [config.fieldKey]: { [type]: value } }
       },
       /**
-       * Parses a GraphQL query to a filter value.
+       * Parses the GraphQL query to a filter value.
        * @param value The GraphQL query.
        * @returns The filter value.
        */
@@ -251,7 +251,7 @@ export function Field({
   autoFocus,
   forceValidation,
   isRequired,
-}: Readonly<FieldProps<typeof controller>>) {
+}: readonly FieldProps<typeof controller>) {
   const [isDirty, setDirty] = useState(false)
   const isReadOnly = !onChange || field.hasAutoIncrementDefault
 
@@ -277,9 +277,9 @@ export function Field({
   }
 
   /**
-   * Validates the field value.
+   * Validates the given value against the field's validation rules.
    * @param value The value to validate.
-   * @returns An error message if the value is invalid, or undefined if it is valid.
+   * @returns An error message if the value is invalid, or undefined if it's valid.
    */
   const validate = (value: Value) => {
     return validate_(

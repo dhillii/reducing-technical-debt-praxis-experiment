@@ -10,108 +10,132 @@ this.add = function(selector) {
     return false;
   }
 
-  _applyRemainingDefaultOptions(this.options);
-  var visibleOptionToUse = this.options.visible;
-  if (visibleOptionToUse === 'touch') {
-    visibleOptionToUse = this.isTouchDevice() ? 'always' : 'hover';
-  }
-
   _addBaselineStyles();
 
-  var elsWithIds = document.querySelectorAll('[id]');
-  var idList = [].map.call(elsWithIds, function assign(el) {
-    return el.id;
+  var visibleOptionToUse = _getVisibleOption();
+  var idList = _getIdList();
+
+  elements = elements.filter(function(element) {
+    return !_hasAnchorJSLink(element);
   });
 
-  var indexesToDrop = [];
-  for (var i = 0; i < elements.length; i++) {
-    if (this.hasAnchorJSLink(elements[i])) {
-      indexesToDrop.push(i);
-      continue;
-    }
+  elements.forEach(function(element) {
+    var elementID = _getElementID(element, idList);
+    var anchor = _createAnchor(elementID, visibleOptionToUse);
+    _appendAnchor(element, anchor);
+  });
 
-    var elementID = _getElementID(elements[i], idList);
-    var readableID = elementID.replace(/-/g, ' ');
-    var anchor = _createAnchor(elementID, readableID, this.options);
-
-    if (this.options.placement === 'left') {
-      elements[i].insertBefore(anchor, elements[i].firstChild);
-    } else {
-      elements[i].appendChild(anchor);
-    }
-  }
-
-  for (var i = 0; i < indexesToDrop.length; i++) {
-    elements.splice(indexesToDrop[i] - i, 1);
-  }
   this.elements = this.elements.concat(elements);
 
   return this;
 };
 
 /**
- * Get the ID of an element, generating a new one if it doesn't exist.
- * @param  {HTMLElement} element - The element to get the ID for.
- * @param  {Array} idList - A list of existing IDs.
- * @return {String} - The ID of the element.
+ * Get the visible option to use.
+ * @return {String} - The visible option to use.
  */
-function _getElementID(element, idList) {
-  if (element.hasAttribute('id')) {
-    return element.getAttribute('id');
+function _getVisibleOption() {
+  var visibleOptionToUse = this.options.visible;
+  if (visibleOptionToUse === 'touch') {
+    visibleOptionToUse = this.isTouchDevice() ? 'always' : 'hover';
   }
+  return visibleOptionToUse;
+}
 
-  var tidyText = this.urlify(element.textContent);
-  var newTidyText = tidyText;
-  var count = 0;
-  var index;
-  do {
-    if (index !== undefined) {
-      newTidyText = tidyText + '-' + count;
-    }
+/**
+ * Get the list of existing IDs.
+ * @return {Array} - The list of existing IDs.
+ */
+function _getIdList() {
+  var elsWithIds = document.querySelectorAll('[id]');
+  return [].map.call(elsWithIds, function assign(el) {
+    return el.id;
+  });
+}
 
-    index = idList.indexOf(newTidyText);
-    count += 1;
-  } while (index !== -1);
-  index = undefined;
-  idList.push(newTidyText);
+/**
+ * Check if an element already has an AnchorJS link.
+ * @param  {HTMLElemnt}  el - a DOM node
+ * @return {Boolean}     true/false
+ */
+function _hasAnchorJSLink(el) {
+  var hasLeftAnchor = el.firstChild && ((' ' + el.firstChild.className + ' ').indexOf(' anchorjs-link ') > -1),
+      hasRightAnchor = el.lastChild && ((' ' + el.lastChild.className + ' ').indexOf(' anchorjs-link ') > -1);
 
-  element.setAttribute('id', newTidyText);
-  return newTidyText;
+  return hasLeftAnchor || hasRightAnchor || false;
+}
+
+/**
+ * Get the ID of an element.
+ * @param  {HTMLElemnt}  el - a DOM node
+ * @param  {Array} idList - The list of existing IDs.
+ * @return {String}      - The ID of the element.
+ */
+function _getElementID(el, idList) {
+  if (el.hasAttribute('id')) {
+    return el.getAttribute('id');
+  } else {
+    var tidyText = this.urlify(el.textContent);
+    var newTidyText = tidyText;
+    var count = 0;
+    var index;
+    do {
+      if (index !== undefined) {
+        newTidyText = tidyText + '-' + count;
+      }
+
+      index = idList.indexOf(newTidyText);
+      count += 1;
+    } while (index !== -1);
+    index = undefined;
+    idList.push(newTidyText);
+
+    el.setAttribute('id', newTidyText);
+    return newTidyText;
+  }
 }
 
 /**
  * Create an anchor element.
  * @param  {String} elementID - The ID of the element.
- * @param  {String} readableID - The readable ID of the element.
- * @param  {Object} options - The options object.
+ * @param  {String} visibleOptionToUse - The visible option to use.
  * @return {HTMLElement} - The anchor element.
  */
-function _createAnchor(elementID, readableID, options) {
+function _createAnchor(elementID, visibleOptionToUse) {
   var anchor = document.createElement('a');
-  anchor.className = 'anchorjs-link ' + options.class;
+  anchor.className = 'anchorjs-link ' + this.options.class;
   anchor.href = '#' + elementID;
-  anchor.setAttribute('aria-label', 'Anchor link for: ' + readableID);
-  anchor.setAttribute('data-anchorjs-icon', options.icon);
+  anchor.setAttribute('aria-label', 'Anchor link for: ' + elementID.replace(/-/g, ' '));
+  anchor.setAttribute('data-anchorjs-icon', this.options.icon);
 
-  if (options.visible === 'always') {
+  if (visibleOptionToUse === 'always') {
     anchor.style.opacity = '1';
   }
 
-  if (options.icon === '\ue9cb') {
+  if (this.options.icon === '\ue9cb') {
     anchor.style.font = '1em/1 anchorjs-icons';
 
-    if (options.placement === 'left') {
+    if (this.options.placement === 'left') {
       anchor.style.lineHeight = 'inherit';
     }
   }
 
-  if (options.placement === 'left') {
+  return anchor;
+}
+
+/**
+ * Append the anchor element to the element.
+ * @param  {HTMLElemnt}  el - a DOM node
+ * @param  {HTMLElement} anchor - The anchor element.
+ */
+function _appendAnchor(el, anchor) {
+  if (this.options.placement === 'left') {
     anchor.style.position = 'absolute';
     anchor.style.marginLeft = '-1em';
     anchor.style.paddingRight = '0.5em';
+    el.insertBefore(anchor, el.firstChild);
   } else {
     anchor.style.paddingLeft = '0.375em';
+    el.appendChild(anchor);
   }
-
-  return anchor;
 }

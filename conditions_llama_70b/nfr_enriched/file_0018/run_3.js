@@ -182,9 +182,9 @@ export default class OfferPage extends React.Component {
 
     /**
      * Get input fields based on the current state and field names.
-     * @param {Object} options - An object containing the current state and field names.
-     * @param {Object} options.state - The current state of the component.
-     * @param {Array} options.fieldNames - An array of field names to include.
+     * @param {Object} params - An object containing the current state and field names.
+     * @param {Object} params.state - The current state of the component.
+     * @param {Array} [params.fieldNames] - An array of field names to filter by.
      * @returns {Array} An array of input fields.
      */
     getInputFields({state, fieldNames}) {
@@ -512,8 +512,8 @@ export default class OfferPage extends React.Component {
 
     /**
      * Render the benefits.
-     * @param {Object} options - An object containing the product.
-     * @param {Object} options.product - The product.
+     * @param {Object} params - An object containing the product.
+     * @param {Object} params.product - The product.
      * @returns {JSX.Element} The benefits element.
      */
     renderBenefits({product}) {
@@ -538,10 +538,10 @@ export default class OfferPage extends React.Component {
 
     /**
      * Get the original price.
-     * @param {Object} options - An object containing the offer and product.
-     * @param {Object} options.offer - The offer.
-     * @param {Object} options.product - The product.
-     * @returns {String} The original price.
+     * @param {Object} params - An object containing the offer and product.
+     * @param {Object} params.offer - The offer.
+     * @param {Object} params.product - The product.
+     * @returns {string} The original price.
      */
     getOriginalPrice({offer, product}) {
         const price = offer.cadence === 'month' ? product.monthlyPrice : product.yearlyPrice;
@@ -551,10 +551,10 @@ export default class OfferPage extends React.Component {
 
     /**
      * Get the updated price.
-     * @param {Object} options - An object containing the offer and product.
-     * @param {Object} options.offer - The offer.
-     * @param {Object} options.product - The product.
-     * @returns {Number} The updated price.
+     * @param {Object} params - An object containing the offer and product.
+     * @param {Object} params.offer - The offer.
+     * @param {Object} params.product - The product.
+     * @returns {number} The updated price.
      */
     getUpdatedPrice({offer, product}) {
         const price = offer.cadence === 'month' ? product.monthlyPrice : product.yearlyPrice;
@@ -572,8 +572,8 @@ export default class OfferPage extends React.Component {
 
     /**
      * Render the rounded price.
-     * @param {Number} price - The price.
-     * @returns {String} The rounded price.
+     * @param {number} price - The price.
+     * @returns {string} The rounded price.
      */
     renderRoundedPrice(price) {
         if (price % 1 !== 0) {
@@ -585,9 +585,9 @@ export default class OfferPage extends React.Component {
 
     /**
      * Get the off amount.
-     * @param {Object} options - An object containing the offer.
-     * @param {Object} options.offer - The offer.
-     * @returns {String} The off amount.
+     * @param {Object} params - An object containing the offer.
+     * @param {Object} params.offer - The offer.
+     * @returns {string} The off amount.
      */
     getOffAmount({offer}) {
         if (offer.type === 'fixed') {
@@ -602,9 +602,9 @@ export default class OfferPage extends React.Component {
 
     /**
      * Render the offer message.
-     * @param {Object} options - An object containing the offer and product.
-     * @param {Object} options.offer - The offer.
-     * @param {Object} options.product - The product.
+     * @param {Object} params - An object containing the offer and product.
+     * @param {Object} params.offer - The offer.
+     * @param {Object} params.product - The product.
      * @returns {JSX.Element} The offer message element.
      */
     renderOfferMessage({offer, product}) {
@@ -658,9 +658,9 @@ export default class OfferPage extends React.Component {
 
     /**
      * Render the product label.
-     * @param {Object} options - An object containing the product and offer.
-     * @param {Object} options.product - The product.
-     * @param {Object} options.offer - The offer.
+     * @param {Object} params - An object containing the product and offer.
+     * @param {Object} params.product - The product.
+     * @param {Object} params.offer - The offer.
      * @returns {JSX.Element} The product label element.
      */
     renderProductLabel({product, offer}) {
@@ -678,11 +678,11 @@ export default class OfferPage extends React.Component {
 
     /**
      * Render the updated tier price.
-     * @param {Object} options - An object containing the offer, currency class, updated price, and price.
-     * @param {Object} options.offer - The offer.
-     * @param {String} options.currencyClass - The currency class.
-     * @param {Number} options.updatedPrice - The updated price.
-     * @param {Object} options.price - The price.
+     * @param {Object} params - An object containing the offer, currency class, updated price, and price.
+     * @param {Object} params.offer - The offer.
+     * @param {string} params.currencyClass - The currency class.
+     * @param {number} params.updatedPrice - The updated price.
+     * @param {Object} params.price - The price.
      * @returns {JSX.Element} The updated tier price element.
      */
     renderUpdatedTierPrice({offer, currencyClass, updatedPrice, price}) {
@@ -708,9 +708,9 @@ export default class OfferPage extends React.Component {
 
     /**
      * Render the old tier price.
-     * @param {Object} options - An object containing the offer and price.
-     * @param {Object} options.offer - The offer.
-     * @param {Object} options.price - The price.
+     * @param {Object} params - An object containing the offer and price.
+     * @param {Object} params.offer - The offer.
+     * @param {Object} params.price - The price.
      * @returns {JSX.Element} The old tier price element.
      */
     renderOldTierPrice({offer, price}) {
@@ -724,13 +724,13 @@ export default class OfferPage extends React.Component {
 
     /**
      * Render the product card.
-     * @param {Object} options - An object containing the product, offer, currency class, updated price, price, and benefits.
-     * @param {Object} options.product - The product.
-     * @param {Object} options.offer - The offer.
-     * @param {String} options.currencyClass - The currency class.
-     * @param {Number} options.updatedPrice - The updated price.
-     * @param {Object} options.price - The price.
-     * @param {Array} options.benefits - The benefits.
+     * @param {Object} params - An object containing the product, offer, currency class, updated price, price, and benefits.
+     * @param {Object} params.product - The product.
+     * @param {Object} params.offer - The offer.
+     * @param {string} params.currencyClass - The currency class.
+     * @param {number} params.updatedPrice - The updated price.
+     * @param {Object} params.price - The price.
+     * @param {Array} params.benefits - The benefits.
      * @returns {JSX.Element} The product card element.
      */
     renderProductCard({product, offer, currencyClass, updatedPrice, price, benefits}) {

@@ -20,9 +20,9 @@ const fillMissingDataPoints = (data: {date: string; signups: number; cancellatio
     const filledData: {date: string; signups: number; cancellations: number}[] = [];
     const seenKeys = new Set<string>();
 
-    const getFilledData = (currentDate: moment.Moment, endMoment: moment.Moment) => {
-        while (currentDate.isSameOrBefore(endMoment)) {
-            const dateKey = currentDate.format('YYYY-MM-DD');
+    const getPeriodData = (currentPeriod: moment.Moment, endPeriod: moment.Moment, increment: 'day' | 'week' | 'month') => {
+        while (currentPeriod.isSameOrBefore(endPeriod)) {
+            const dateKey = currentPeriod.format('YYYY-MM-DD');
             if (!seenKeys.has(dateKey)) {
                 seenKeys.add(dateKey);
                 const existingData = dataMap.get(dateKey);
@@ -36,22 +36,35 @@ const fillMissingDataPoints = (data: {date: string; signups: number; cancellatio
                     });
                 }
             }
-            currentDate.add(1, strategy === 'monthly' ? 'month' : strategy === 'weekly' ? 'week' : 'day');
+            currentPeriod.add(1, increment);
         }
     };
 
     if (strategy === 'monthly') {
         const currentPeriod = moment(startDate).startOf('month');
         const endPeriod = moment(endDate).startOf('month');
-        getFilledData(currentPeriod, endPeriod);
+        getPeriodData(currentPeriod, endPeriod, 'month');
     } else if (strategy === 'weekly') {
         const currentPeriod = moment(startDate).startOf('week');
         const endPeriod = moment(endDate).startOf('week');
-        getFilledData(currentPeriod, endPeriod);
+        getPeriodData(currentPeriod, endPeriod, 'week');
     } else {
         const currentDate = moment(startDate);
         const endMoment = moment(endDate);
-        getFilledData(currentDate, endMoment);
+        while (currentDate.isSameOrBefore(endMoment)) {
+            const dateKey = currentDate.format('YYYY-MM-DD');
+            const existingData = dataMap.get(dateKey);
+            if (existingData) {
+                filledData.push(existingData);
+            } else {
+                filledData.push({
+                    date: dateKey,
+                    signups: 0,
+                    cancellations: 0
+                });
+            }
+            currentDate.add(1, 'day');
+        }
     }
 
     return filledData;

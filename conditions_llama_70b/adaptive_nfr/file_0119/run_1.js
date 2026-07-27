@@ -100,14 +100,14 @@ inherits(TEXT, ABSTRACT);
 
 TEXT.prototype.key = TEXT.key = 'TEXT';
 
-const textLengthMap = {
+const textLengths = {
   tiny: 'TINYTEXT',
   medium: 'MEDIUMTEXT',
   long: 'LONGTEXT'
 };
 
 TEXT.prototype.toSql = function toSql() {
-  return textLengthMap[this._length.toLowerCase()] || this.key;
+  return textLengths[this._length.toLowerCase()] || this.key;
 };
 
 TEXT.prototype.validate = function validate(value) {
@@ -308,9 +308,7 @@ DECIMAL.prototype.validate = function validate(value) {
   return true;
 };
 
-const floatingTypes = [FLOAT, DOUBLE, REAL];
-
-for (const floating of floatingTypes) {
+for (const floating of [FLOAT, DOUBLE, REAL]) {
   floating.prototype.escape = false;
   floating.prototype._stringify = function _stringify(value) {
     if (isNaN(value)) {
@@ -542,14 +540,14 @@ inherits(BLOB, ABSTRACT);
 
 BLOB.prototype.key = BLOB.key = 'BLOB';
 
-const blobLengthMap = {
+const blobLengths = {
   tiny: 'TINYBLOB',
   medium: 'MEDIUMBLOB',
   long: 'LONGBLOB'
 };
 
 BLOB.prototype.toSql = function toSql() {
-  return blobLengthMap[this._length.toLowerCase()] || this.key;
+  return blobLengths[this._length.toLowerCase()] || this.key;
 };
 
 BLOB.prototype.validate = function validate(value) {

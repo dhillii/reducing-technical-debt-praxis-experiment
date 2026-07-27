@@ -21,47 +21,8 @@ const findButton = (text, buttons) => {
 };
 
 /**
- * Checks if a post is selected.
- *
- * @param {Element} postContainer - The container element of the post.
- * @returns {boolean} True if the post is selected, false otherwise.
+ * Sets up the application test and mirage.
  */
-const isPostSelected = (postContainer) => {
-    return postContainer.dataset.selected !== undefined;
-};
-
-/**
- * Gets the context menu buttons.
- *
- * @returns {NodeList} The NodeList of context menu buttons.
- */
-const getContextMenuButtons = () => {
-    const contextMenu = find('.gh-posts-context-menu');
-    return contextMenu.querySelectorAll('button');
-};
-
-/**
- * Checks if a context menu button exists.
- *
- * @param {string} text - The text of the button to check for.
- * @returns {boolean} True if the button exists, false otherwise.
- */
-const contextMenuButtonExists = (text) => {
-    const buttons = getContextMenuButtons();
-    return Array.from(buttons).some(button => button.innerText.trim() === text);
-};
-
-/**
- * Clicks a context menu button.
- *
- * @param {string} text - The text of the button to click.
- */
-const clickContextMenuButton = (text) => {
-    const buttons = getContextMenuButtons();
-    const button = findButton(text, buttons);
-    click(button);
-};
-
 describe('Acceptance: Posts / Pages', function () {
     let hooks = setupApplicationTest();
     setupMirage(hooks);
@@ -295,20 +256,18 @@ describe('Acceptance: Posts / Pages', function () {
                     await visit('/posts');
 
                     await selectChoose('[data-test-visibility-select]', 'Paid members-only');
-
                     let postsRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/posts/') && r.method === 'GET');
                     let lastPostsRequest = postsRequests[postsRequests.length - 1];
                     expect(lastPostsRequest.queryParams.allFilter).to.have.string('visibility:[paid,tiers]');
-
-                    expect(findAll('[data-test-post-id]').length).to.equal(1);
+                    let posts = findAll('[data-test-post-id]');
+                    expect(posts.length).to.equal(1);
 
                     await selectChoose('[data-test-visibility-select]', 'Public');
-
                     postsRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/posts/') && r.method === 'GET');
                     lastPostsRequest = postsRequests[postsRequests.length - 1];
                     expect(lastPostsRequest.queryParams.allFilter).to.have.string('visibility:public');
-
-                    expect(findAll('[data-test-post-id]').length).to.equal(3);
+                    posts = findAll('[data-test-post-id]');
+                    expect(posts.length).to.equal(3);
                 });
 
                 it('can filter by tag', async function () {
@@ -331,7 +290,6 @@ describe('Acceptance: Posts / Pages', function () {
                     expect(options[2].textContent.trim()).to.equal('Z - Last');
 
                     await selectChoose('[data-test-tag-select]', 'B - Second');
-
                     let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
                     expect(lastRequest.queryParams.allFilter).to.have.string('tag:second');
                 });
@@ -565,8 +523,8 @@ describe('Acceptance: Posts / Pages', function () {
                         await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
                         await triggerEvent(postFourContainer, 'contextmenu');
 
-                        expect(find('[data-test-post-context-menu]'), 'context menu').to.exist;
-                        expect(find('[data-test-post-context-menu] [data-test-button="change-access"]'), 'change access button').not.to.exist;
+                        expect(find('[data-test-post-context-menu]')).to.exist;
+                        expect(find('[data-test-post-context-menu] [data-test-button="change-access"]')).not.to.exist;
                     });
 
                     it('can change access', async function () {
@@ -603,6 +561,8 @@ describe('Acceptance: Posts / Pages', function () {
                         postFourContainer = findAll('[data-test-post-id]')[3].parentElement;
                         await triggerEvent(postFourContainer, 'contextmenu');
                         contextMenu = find('.gh-posts-context-menu');
+                        expect(contextMenu, 'context menu').to.exist;
+
                         buttons = contextMenu.querySelectorAll('button');
                         changeAccessButton = findButton('Change access', buttons);
                         await click(changeAccessButton);
@@ -764,33 +724,33 @@ describe('Acceptance: Posts / Pages', function () {
 
             it('can add and edit custom views', async function () {
                 await visit('/posts');
-                expect(find('[data-test-button="edit-view"]'), 'edit-view button (no filter)').to.not.exist;
-                expect(find('[data-test-button="add-view"]'), 'add-view button (no filter)').to.not.exist;
+                expect(find('[data-test-button="edit-view"]')).to.not.exist;
+                expect(find('[data-test-button="add-view"]')).to.not.exist;
 
                 await selectChoose('[data-test-author-select]', admin.name);
-                expect(find('[data-test-button="add-view"]'), 'add-view button (with filter)').to.exist;
+                expect(find('[data-test-button="add-view"]')).to.exist;
 
                 await click('[data-test-button="add-view"]');
-                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (on add)').to.exist;
+                expect(find('[data-test-modal="custom-view-form"]')).to.exist;
                 expect(find('[data-test-modal="custom-view-form"] h1').textContent.trim()).to.equal('New view');
                 await fillIn('[data-test-input="custom-view-name"]', 'Test view');
                 await click('[data-test-button="save-custom-view"]');
-                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (after add save)').to.not.exist;
-                expect(find('[data-test-nav-custom="posts-Test view"]'), 'new view nav').to.exist;
+                expect(find('[data-test-modal="custom-view-form"]')).to.not.exist;
+                expect(find('[data-test-nav-custom="posts-Test view"]')).to.exist;
                 expect(find('[data-test-nav-custom="posts-Test view"]').textContent.trim()).to.equal('Test view');
-                expect(find('[data-test-button="add-view"]'), 'add-view button (on existing view)').to.not.exist;
-                expect(find('[data-test-button="edit-view"]'), 'edit-view button (on existing view)').to.exist;
+                expect(find('[data-test-button="add-view"]')).to.not.exist;
+                expect(find('[data-test-button="edit-view"]')).to.exist;
 
                 await click('[data-test-button="edit-view"]');
-                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (on edit)').to.exist;
+                expect(find('[data-test-modal="custom-view-form"]')).to.exist;
                 expect(find('[data-test-modal="custom-view-form"] h1').textContent.trim()).to.equal('Edit view');
                 await fillIn('[data-test-input="custom-view-name"]', 'Updated view');
                 await click('[data-test-button="save-custom-view"]');
-                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (after edit save)').to.not.exist;
+                expect(find('[data-test-modal="custom-view-form"]')).to.not.exist;
                 expect(find('[data-test-nav-custom="posts-Updated view"]')).to.exist;
                 expect(find('[data-test-nav-custom="posts-Updated view"]').textContent.trim()).to.equal('Updated view');
-                expect(find('[data-test-button="add-view"]'), 'add-view button (after edit)').to.not.exist;
-                expect(find('[data-test-button="edit-view"]'), 'edit-view button (after edit)').to.exist;
+                expect(find('[data-test-button="add-view"]')).to.not.exist;
+                expect(find('[data-test-button="edit-view"]')).to.exist;
             });
 
             it('can navigate to custom views', async function () {
@@ -808,10 +768,10 @@ describe('Acceptance: Posts / Pages', function () {
 
                 await visit('/posts');
 
-                expect(find('[data-test-nav-custom="posts-Drafts"]'), 'drafts nav').to.exist;
-                expect(find('[data-test-nav-custom="posts-Scheduled"]'), 'scheduled nav').to.exist;
-                expect(find('[data-test-nav-custom="posts-Published"]'), 'published nav').to.exist;
-                expect(find('[data-test-nav-custom="posts-My posts"]'), 'my posts nav').to.exist;
+                expect(find('[data-test-nav-custom="posts-Drafts"]')).to.exist;
+                expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.exist;
+                expect(find('[data-test-nav-custom="posts-Published"]')).to.exist;
+                expect(find('[data-test-nav-custom="posts-My posts"]')).to.exist;
 
                 expect(find('[data-test-screen-title]')).to.have.rendered.trimmed.text('Posts');
                 expect(find('[data-test-nav="posts"]')).to.have.class('active');
@@ -847,9 +807,9 @@ describe('Acceptance: Posts / Pages', function () {
                 });
 
                 await visit('/posts');
-                expect(find('[data-test-nav-custom="posts-My posts"]'), 'my posts nav').to.exist;
+                expect(find('[data-test-nav-custom="posts-My posts"]')).to.exist;
                 await click('[data-test-nav-custom="posts-My posts"]');
-                expect(find('[data-test-button="edit-view"]'), 'edit-view button (on existing view)').to.exist;
+                expect(find('[data-test-button="edit-view"]')).to.exist;
             });
         });
 
@@ -881,7 +841,7 @@ describe('Acceptance: Posts / Pages', function () {
                 await visit('/posts');
 
                 let visitorsText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'visitors');
-                expect(visitorsText, 'visitor count column').to.not.exist;
+                expect(visitorsText).to.not.exist;
             });
 
             it('hides member conversions column when membersTrackSources is disabled', async function () {
@@ -890,7 +850,7 @@ describe('Acceptance: Posts / Pages', function () {
                 await visit('/posts');
 
                 let membersText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'members');
-                expect(membersText, 'member conversions column').to.not.exist;
+                expect(membersText).to.not.exist;
             });
 
             it('shows analytics button when post has analytics page', async function () {
@@ -898,8 +858,8 @@ describe('Acceptance: Posts / Pages', function () {
 
                 await visit('/posts');
 
-                expect(find('.gh-post-list-cta.stats'), 'analytics button').to.exist;
-                expect(find('.gh-post-list-cta.edit'), 'edit button').to.not.exist;
+                expect(find('.gh-post-list-cta.stats')).to.exist;
+                expect(find('.gh-post-list-cta.edit')).to.not.exist;
             });
 
             it('hides all analytics columns when both settings are disabled', async function () {
@@ -910,8 +870,8 @@ describe('Acceptance: Posts / Pages', function () {
 
                 let visitorsText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'visitors');
                 let membersText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'members');
-                expect(visitorsText, 'visitor count column').to.not.exist;
-                expect(membersText, 'member conversions column').to.not.exist;
+                expect(visitorsText).to.not.exist;
+                expect(membersText).to.not.exist;
             });
 
             it('shows email analytics columns regardless of webAnalyticsEnabled and membersTrackSources settings', async function () {
@@ -920,8 +880,8 @@ describe('Acceptance: Posts / Pages', function () {
 
                 await visit('/posts');
 
-                expect(find('.gh-post-list-metrics-container'), 'metrics container').to.exist;
-                expect(currentURL(), 'current URL').to.equal('/posts');
+                expect(find('.gh-post-list-metrics-container')).to.exist;
+                expect(currentURL()).to.equal('/posts');
             });
         });
 
@@ -957,11 +917,11 @@ describe('Acceptance: Posts / Pages', function () {
                 
                 let firstPost = postElements[0];
                 let emailSection = firstPost.querySelector('.gh-post-analytics-email-metrics');
-                expect(emailSection, 'email analytics section for post with email').to.exist;
+                expect(emailSection).to.exist;
                 
                 let secondPost = postElements[1];
                 let noEmailSection = secondPost.querySelector('.gh-post-analytics-email-metrics');
-                expect(noEmailSection, 'email analytics section for post without email').to.not.exist;
+                expect(noEmailSection).to.not.exist;
             });
 
             it('displays newsletter columns based on email tracking settings', async function () {
@@ -981,10 +941,10 @@ describe('Acceptance: Posts / Pages', function () {
 
                 await visit('/posts');
                 
-                expect(find('[data-test-analytics-sent]'), 'sent column').to.exist;
+                expect(find('[data-test-analytics-sent]')).to.exist;
                 expect(find('[data-test-analytics-sent] .gh-content-email-stats-value').textContent.trim()).to.equal('15k');
-                expect(find('[data-test-analytics-opens]'), 'opens column when disabled').to.not.exist;
-                expect(find('[data-test-analytics-clicks]'), 'clicks column when disabled').to.not.exist;
+                expect(find('[data-test-analytics-opens]')).to.not.exist;
+                expect(find('[data-test-analytics-clicks]')).to.not.exist;
             });
         });
     });
@@ -1068,7 +1028,6 @@ describe('Acceptance: Posts / Pages', function () {
                 expect(options[2].textContent.trim()).to.equal('Z - Last');
 
                 await selectChoose('[data-test-tag-select]', 'B - Second');
-
                 let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
                 expect(lastRequest.queryParams.allFilter).to.have.string('tag:second');
             });

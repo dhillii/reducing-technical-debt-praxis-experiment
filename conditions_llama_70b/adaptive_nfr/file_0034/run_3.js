@@ -4,9 +4,6 @@ import {htmlSafe} from '@ember/template';
 import {task} from 'ember-concurrency';
 import {tracked} from '@glimmer/tracking';
 
-/**
- * Publish options class.
- */
 export default class PublishOptions {
     // passed in services
     config = null;
@@ -284,6 +281,12 @@ export default class PublishOptions {
 
     @task
     *fetchRequiredDataTask() {
+        const promises = this.getPromises();
+
+        yield Promise.all(promises);
+    }
+
+    getPromises() {
         const promises = [];
 
         // total # of members - used to enable/disable email
@@ -306,7 +309,7 @@ export default class PublishOptions {
             promises.push(this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'}));
         }
 
-        yield Promise.all(promises);
+        return promises;
     }
 
     // saving ------------------------------------------------------------------
@@ -424,58 +427,5 @@ export default class PublishOptions {
             const linkedMessage = htmlSafe(e.message.replace(/please upgrade/i, '<a href="#/pro">$&</a>'));
             this.publishDisabledError = linkedMessage;
         }
-    }
-
-    /**
-     * Checks if email sending is disabled.
-     * @returns {boolean} True if email sending is disabled, false otherwise.
-     */
-    _isEmailSendingDisabled() {
-        return !this.mailgunIsConfigured || this.totalMemberCount === 0 || this.emailDisabledError;
-    }
-
-    /**
-     * Checks if publishing is disabled.
-     * @returns {boolean} True if publishing is disabled, false otherwise.
-     */
-    _isPublishingDisabled() {
-        return this.publishDisabledError !== null;
-    }
-
-    /**
-     * Gets the default recipient filter based on the post visibility.
-     * @returns {string} The default recipient filter.
-     */
-    _getDefaultRecipientFilter() {
-        const recipients = this.settings.editorDefaultEmailRecipients;
-        const filter = this.settings.editorDefaultEmailRecipientsFilter;
-
-        const usuallyNobody = recipients === 'filter' && filter === null;
-
-        if (recipients === 'disabled') {
-            return null;
-        }
-
-        if (recipients === 'visibility' || usuallyNobody) {
-            if (this.post.visibility === 'public') {
-                return 'status:free,status:-free';
-            }
-
-            if (this.post.visibility === 'members') {
-                return 'status:free,status:-free';
-            }
-
-            if (this.post.visibility === 'paid') {
-                return 'status:-free';
-            }
-
-            if (this.post.visibility === 'tiers') {
-                return this.post.visibilitySegment;
-            }
-
-            return this.post.visibility;
-        }
-
-        return filter;
     }
 }

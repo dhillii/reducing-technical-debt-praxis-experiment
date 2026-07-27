@@ -47,19 +47,19 @@ function meetsLengthRequirements(val: string, length: { min: number; max: number
   if (length.max !== null && val.length > length.max) {
     return `${fieldLabel} must be no longer than ${length.max} characters`
   }
-  return true
+  return undefined
 }
 
 function meetsRegexRequirements(val: string, match: { regex: RegExp; explanation: string } | null, fieldLabel: string): boolean {
   if (match && !match.regex.test(val)) {
     return match.explanation
   }
-  return true
+  return undefined
 }
 
 function meetsCommonPasswordRequirements(val: string, rejectCommon: boolean, fieldLabel: string): boolean {
   if (rejectCommon && dumbPasswords.check(val)) {
     return `${fieldLabel} is too common and is not allowed`
   }
-  return true
+  return undefined
 }

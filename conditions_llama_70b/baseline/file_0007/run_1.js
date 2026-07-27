@@ -509,7 +509,9 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                         imageURL={formState.profile_image ?? undefined}
                                         pintura={{
                                             isEnabled: true,
-                                            openEditor: async () => {}
+                                            openEditor: async () => {
+                                                // implement pintura editor
+                                            }
                                         }}
                                         unstyled={true}
                                         width='80px'
@@ -535,7 +537,9 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                         imageURL={formState.cover_image || ''}
                                         pintura={{
                                             isEnabled: true,
-                                            openEditor: async () => {}
+                                            openEditor: async () => {
+                                                // implement pintura editor
+                                            }
                                         }}
                                         unstyled
                                         onDelete={() => {

@@ -32,11 +32,12 @@ const handleSelectionChange = (key: Key | null, props: FieldProps<typeof control
 
   const newValue = props.field.options.find(opt => opt.value === key) ?? null
   props.onChange({ ...props.value, value: newValue })
+  props.setDirty(true)
 }
 
 // Extracted function to handle null change
 /**
- * Handles null change by setting the value to null or the previous value.
+ * Handles null change by updating the value and calling the onChange callback.
  * @param {boolean} isChecked - Whether the null checkbox is checked.
  * @param {FieldProps<typeof controller>} props - The field props.
  */
@@ -59,94 +60,103 @@ const handleNullChange = (isChecked: boolean, props: FieldProps<typeof controlle
  * @returns {JSX.Element} The field element.
  */
 const getFieldElement = (props: FieldProps<typeof controller>) => {
-  const displayModes: { [key: string]: JSX.Element } = {
-    'segmented-control': (
-      <SegmentedControl
-        label={props.field.label}
-        description={props.field.description}
-        errorMessage={props.errorMessage}
-        isDisabled={props.isNull}
-        isReadOnly={props.isReadOnly}
-        isRequired={props.isRequired}
-        items={props.field.options}
-        onChange={key => handleSelectionChange(key, props)}
-        value={props.selectedKey}
-        textValue={props.field.options.find(item => item.value === props.selectedKey)?.label || ''}
-      >
-        {item => <Item key={item.value}>{item.label}</Item>}
-      </SegmentedControl>
-    ),
-    radio: (
-      <RadioGroup
-        label={props.field.label}
-        description={props.field.description}
-        errorMessage={props.errorMessage}
-        isDisabled={props.isNull}
-        isReadOnly={props.isReadOnly}
-        isRequired={props.isRequired}
-        onChange={key => handleSelectionChange(key, props)}
-        value={props.value.value?.value ?? props.preNullValue?.value}
-      >
-        {props.field.options.map(item => (
-          <Radio key={item.value} value={item.value}>
-            {item.label}
-          </Radio>
-        ))}
-      </RadioGroup>
-    ),
-    default: (
-      <Picker
-        autoFocus={props.autoFocus}
-        label={props.field.label}
-        description={props.field.description}
-        errorMessage={props.errorMessage}
-        isDisabled={props.isNull}
-        isReadOnly={props.isReadOnly}
-        isRequired={props.isRequired}
-        items={props.field.options}
-        onSelectionChange={key => handleSelectionChange(key, props)}
-        selectedKey={props.selectedKey}
-        flex={{ mobile: true, desktop: 'initial' }}
-        UNSAFE_style={{
-          fontSize: tokenSchema.typography.text.regular.size,
-          width: `clamp(${tokenSchema.size.alias.singleLineWidth}, calc(${props.longestLabelLength}ex + ${tokenSchema.size.icon.regular}), 100%)`,
-        }}
-      >
-        {item => <Item key={item.value}>{item.label}</Item>}
-      </Picker>
-    ),
-  }
+  const { field, selectedKey, isReadOnly, isNull, errorMessage, onSelectionChange } = props
 
-  return displayModes[props.field.displayMode] || displayModes.default
+  switch (field.displayMode) {
+    case 'segmented-control':
+      return (
+        <SegmentedControl
+          label={field.label}
+          description={field.description}
+          errorMessage={errorMessage}
+          isDisabled={isNull}
+          isReadOnly={isReadOnly}
+          isRequired={props.isRequired}
+          items={field.options}
+          onChange={onSelectionChange}
+          value={selectedKey}
+          textValue={field.options.find(item => item.value === selectedKey)?.label || ''}
+        >
+          {item => <Item key={item.value}>{item.label}</Item>}
+        </SegmentedControl>
+      )
+    case 'radio':
+      return (
+        <RadioGroup
+          label={field.label}
+          description={field.description}
+          errorMessage={errorMessage}
+          isDisabled={isNull}
+          isReadOnly={isReadOnly}
+          isRequired={props.isRequired}
+          onChange={onSelectionChange}
+          value={props.value.value?.value ?? props.preNullValue?.value}
+        >
+          {field.options.map(item => (
+            <Radio key={item.value} value={item.value}>
+              {item.label}
+            </Radio>
+          ))}
+        </RadioGroup>
+      )
+    default:
+      return (
+        <Picker
+          autoFocus={props.autoFocus}
+          label={field.label}
+          description={field.description}
+          errorMessage={errorMessage}
+          isDisabled={isNull}
+          isReadOnly={isReadOnly}
+          isRequired={props.isRequired}
+          items={field.options}
+          onSelectionChange={onSelectionChange}
+          selectedKey={selectedKey}
+          flex={{ mobile: true, desktop: 'initial' }}
+          UNSAFE_style={{
+            fontSize: tokenSchema.typography.text.regular.size,
+            width: `clamp(${tokenSchema.size.alias.singleLineWidth}, calc(${props.longestLabelLength}ex + ${tokenSchema.size.icon.regular}), 100%)`,
+          }}
+        >
+          {item => <Item key={item.value}>{item.label}</Item>}
+        </Picker>
+      )
+  }
 }
 
 export function Field(props: FieldProps<typeof controller>) {
+  const { autoFocus, field, forceValidation, onChange, value, isRequired } = props
   const [isDirty, setDirty] = useState(false)
   const [preNullValue, setPreNullValue] = useState(
-    props.value.value || (props.value.kind === 'update' ? props.value.initial : null)
+    value.value || (value.kind === 'update' ? value.initial : null)
   )
   const longestLabelLength = useMemo(() => {
-    return props.field.options.reduce((a, item) => Math.max(a, item.label.length), 0)
-  }, [props.field.options])
+    return field.options.reduce((a, item) => Math.max(a, item.label.length), 0)
+  }, [field.options])
 
-  const selectedKey = props.value.value?.value || preNullValue?.value || null
-  const isNullable = !props.isRequired
-  const isNull = isNullable && props.value.value?.value == null
-  const isInvalid = !validate(props.value, props.isRequired)
-  const isReadOnly = props.onChange == null
+  const selectedKey = value.value?.value || preNullValue?.value || null
+  const isNullable = !isRequired
+  const isNull = isNullable && value.value?.value == null
+  const isInvalid = !validate(value, isRequired)
+  const isReadOnly = onChange == null
   const errorMessage =
-    isInvalid && (isDirty || props.forceValidation) ? `${props.field.label} is required.` : undefined
+    isInvalid && (isDirty || forceValidation) ? `${field.label} is required.` : undefined
+
+  const onSelectionChange = (key: Key | null) => handleSelectionChange(key, props)
+  const onNullChange = (isChecked: boolean) => handleNullChange(isChecked, props)
+
+  const fieldElement = getFieldElement({ ...props, onSelectionChange, longestLabelLength })
 
   return (
     <NullableFieldWrapper
-      isAllowed={!props.isRequired}
-      autoFocus={isNull && props.autoFocus}
-      label={props.field.label}
+      isAllowed={!isRequired}
+      autoFocus={isNull && autoFocus}
+      label={field.label}
       isReadOnly={isReadOnly}
       isNull={isNull}
-      onChange={isChecked => handleNullChange(isChecked, props)}
+      onChange={onNullChange}
     >
-      {getFieldElement(props)}
+      {fieldElement}
     </NullableFieldWrapper>
   )
 }

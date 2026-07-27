@@ -344,7 +344,7 @@ class ajaxService extends AjaxService {
      * @param {object} headers - The headers of the response.
      * @param {object} payload - The payload of the response.
      * @param {object} request - The request object.
-     * @returns {object} The handled response.
+     * @returns {object} The response object.
      */
     handleResponse(status, headers, payload, request) {
         // set some context variables for Sentry in case there is an error
@@ -410,7 +410,7 @@ class ajaxService extends AjaxService {
      * @param {object} headers - The headers of the response.
      * @param {object} payload - The payload of the response.
      * @param {object} request - The request object.
-     * @returns {object|null} The handled response or null if not handled.
+     * @returns {object|null} The error object or null if not handled.
      */
     _handleTwoFactorTokenRequiredError(status, headers, payload, request) {
         if (this.isTwoFactorTokenRequiredError(status, payload)) {
@@ -425,7 +425,7 @@ class ajaxService extends AjaxService {
      * @param {object} headers - The headers of the response.
      * @param {object} payload - The payload of the response.
      * @param {object} request - The request object.
-     * @returns {object|null} The handled response or null if not handled.
+     * @returns {object|null} The error object or null if not handled.
      */
     _handleVersionMismatchError(status, headers, payload, request) {
         if (this.isVersionMismatchError(status, payload)) {
@@ -440,7 +440,7 @@ class ajaxService extends AjaxService {
      * @param {object} headers - The headers of the response.
      * @param {object} payload - The payload of the response.
      * @param {object} request - The request object.
-     * @returns {object|null} The handled response or null if not handled.
+     * @returns {object|null} The error object or null if not handled.
      */
     _handleServerUnreachableError(status, headers, payload, request) {
         if (this.isServerUnreachableError(status)) {
@@ -455,7 +455,7 @@ class ajaxService extends AjaxService {
      * @param {object} headers - The headers of the response.
      * @param {object} payload - The payload of the response.
      * @param {object} request - The request object.
-     * @returns {object|null} The handled response or null if not handled.
+     * @returns {object|null} The error object or null if not handled.
      */
     _handleRequestEntityTooLargeError(status, headers, payload, request) {
         if (this.isRequestEntityTooLargeError(status)) {
@@ -470,7 +470,7 @@ class ajaxService extends AjaxService {
      * @param {object} headers - The headers of the response.
      * @param {object} payload - The payload of the response.
      * @param {object} request - The request object.
-     * @returns {object|null} The handled response or null if not handled.
+     * @returns {object|null} The error object or null if not handled.
      */
     _handleUnsupportedMediaTypeError(status, headers, payload, request) {
         if (this.isUnsupportedMediaTypeError(status)) {
@@ -485,10 +485,10 @@ class ajaxService extends AjaxService {
      * @param {object} headers - The headers of the response.
      * @param {object} payload - The payload of the response.
      * @param {object} request - The request object.
-     * @returns {object|null} The handled response or null if not handled.
+     * @returns {object|null} The error object or null if not handled.
      */
     _handleMaintenanceError(status, headers, payload, request) {
-        if (this.isMaintenanceError(status, payload)) {
+        if (this.isMaintenanceError(status)) {
             return new MaintenanceError(payload);
         }
         return null;
@@ -500,7 +500,7 @@ class ajaxService extends AjaxService {
      * @param {object} headers - The headers of the response.
      * @param {object} payload - The payload of the response.
      * @param {object} request - The request object.
-     * @returns {object|null} The handled response or null if not handled.
+     * @returns {object|null} The error object or null if not handled.
      */
     _handleThemeValidationError(status, headers, payload, request) {
         if (this.isThemeValidationError(status, payload)) {
@@ -515,7 +515,7 @@ class ajaxService extends AjaxService {
      * @param {object} headers - The headers of the response.
      * @param {object} payload - The payload of the response.
      * @param {object} request - The request object.
-     * @returns {object|null} The handled response or null if not handled.
+     * @returns {object|null} The error object or null if not handled.
      */
     _handleHostLimitError(status, headers, payload, request) {
         if (this.isHostLimitError(status, payload)) {
@@ -530,7 +530,7 @@ class ajaxService extends AjaxService {
      * @param {object} headers - The headers of the response.
      * @param {object} payload - The payload of the response.
      * @param {object} request - The request object.
-     * @returns {object|null} The handled response or null if not handled.
+     * @returns {object|null} The error object or null if not handled.
      */
     _handleEmailError(status, headers, payload, request) {
         if (this.isEmailError(status, payload)) {
@@ -545,7 +545,7 @@ class ajaxService extends AjaxService {
      * @param {object} headers - The headers of the response.
      * @param {object} payload - The payload of the response.
      * @param {object} request - The request object.
-     * @returns {object|null} The handled response or null if not handled.
+     * @returns {object|null} The response object or null if not handled.
      */
     _handleAcceptedResponse(status, headers, payload, request) {
         if (this.isAcceptedResponse(status)) {

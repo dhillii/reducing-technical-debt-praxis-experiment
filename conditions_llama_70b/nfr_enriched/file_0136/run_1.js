@@ -40,14 +40,7 @@ const ModalStepper = ({
 
   useEffect(() => {
     if (currentStep === 'upload') {
-      // Close the modal
-      if (filesToUploadLength === 0) {
-        // Passing true to the onToggle prop will refetch the data when the modal closes
-        toggleRef.current(true);
-      } else {
-        // Download files from url
-        downloadFilesRef.current();
-      }
+      handleUploadComplete();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filesToUploadLength, currentStep]);
@@ -127,7 +120,14 @@ const ModalStepper = ({
     }
   };
 
-  downloadFilesRef.current = downloadFiles;
+  const handleUploadComplete = () => {
+    if (filesToUploadLength === 0) {
+      // Passing true to the onToggle prop will refetch the data when the modal closes
+      toggleRef.current(true);
+    } else {
+      downloadFiles();
+    }
+  };
 
   const handleAbortUpload = () => {
     const { abortController } = fileToEdit;

@@ -5,6 +5,8 @@
 const {metaData, settingsCache, config, blogIcon, urlUtils, getFrontendKey, settingsHelpers} = require('../services/proxy');
 const {escapeExpression, SafeString} = require('../services/handlebars');
 const {generateCustomFontCss, isValidCustomFont, isValidCustomHeadingFont} = require('@tryghost/custom-fonts');
+// BAD REQUIRE
+// @TODO fix this require
 const {cardAssets} = require('../services/assets-minification');
 
 const logging = require('@tryghost/logging');
@@ -19,24 +21,14 @@ const {getFrontendAppConfig, getDataAttributes} = require('../utils/frontend-app
 
 const {get: getMetaData, getAssetUrl} = metaData;
 
-/**
- * Writes a meta tag to the head of the HTML document.
- * @param {string} property - The property of the meta tag.
- * @param {string} content - The content of the meta tag.
- * @param {string} type - The type of the meta tag (name or property).
- * @returns {string} The meta tag as a string.
- */
 function writeMetaTag(property, content, type) {
+    // Write a meta tag with the given property, content, and type
     type = type || property.substring(0, 7) === 'twitter' ? 'name' : 'property';
-    return `<meta ${type}="${property}" content="${content}">`;
+    return '<meta ' + type + '="' + property + '" content="' + content + '">';
 }
 
-/**
- * Finalises the structured data for the head of the HTML document.
- * @param {object} meta - The meta data object.
- * @returns {string[]} An array of meta tags as strings.
- */
 function finaliseStructuredData(meta) {
+    // Finalize the structured data for the given meta object
     const head = [];
 
     _.each(meta.structuredData, function (content, property) {
@@ -44,26 +36,22 @@ function finaliseStructuredData(meta) {
             _.each(meta.keywords, function (keyword) {
                 if (keyword !== '') {
                     keyword = escapeExpression(keyword);
-                    head.push(writeMetaTag(property, escapeExpression(keyword)));
+                    head.push(writeMetaTag(property,
+                        escapeExpression(keyword)));
                 }
             });
             head.push('');
         } else if (content !== null && content !== undefined) {
-            head.push(writeMetaTag(property, escapeExpression(content)));
+            head.push(writeMetaTag(property,
+                escapeExpression(content)));
         }
     });
 
     return head;
 }
 
-/**
- * Gets the members helper HTML.
- * @param {object} data - The data object.
- * @param {string} frontendKey - The frontend key.
- * @param {Set<string>} excludeList - The list of excluded items.
- * @returns {string} The members helper HTML as a string.
- */
 function getMembersHelper(data, frontendKey, excludeList) {
+    // Get the members helper HTML
     // Do not load Portal if both Memberships and Tips & Donations and Recommendations are disabled
     if (!settingsCache.get('members_enabled') && !settingsCache.get('donations_enabled') && !settingsCache.get('recommendations_enabled')) {
         return '';
@@ -98,12 +86,8 @@ function getMembersHelper(data, frontendKey, excludeList) {
     return membersHelper;
 }
 
-/**
- * Gets the search helper HTML.
- * @param {string} frontendKey - The frontend key.
- * @returns {string} The search helper HTML as a string.
- */
 function getSearchHelper(frontendKey) {
+    // Get the search helper HTML
     const adminUrl = urlUtils.getAdminUrl() || urlUtils.getSiteUrl();
     const {scriptUrl, stylesUrl} = getFrontendAppConfig('sodoSearch');
 
@@ -123,12 +107,8 @@ function getSearchHelper(frontendKey) {
     return helper;
 }
 
-/**
- * Gets the announcement bar helper HTML.
- * @param {object} data - The data object.
- * @returns {string} The announcement bar helper HTML as a string.
- */
 function getAnnouncementBarHelper(data) {
+    // Get the announcement bar helper HTML
     const preview = data?.site?._preview;
     const isFilled = settingsCache.get('announcement_content') && settingsCache.get('announcement_visibility').length;
 
@@ -164,11 +144,8 @@ function getAnnouncementBarHelper(data) {
     return helper;
 }
 
-/**
- * Gets the webmention discovery link HTML.
- * @returns {string} The webmention discovery link HTML as a string.
- */
 function getWebmentionDiscoveryLink() {
+    // Get the webmention discovery link HTML
     try {
         const siteUrl = urlUtils.getSiteUrl();
         const webmentionUrl = new URL('webmentions/receive/', siteUrl);
@@ -179,12 +156,8 @@ function getWebmentionDiscoveryLink() {
     }
 }
 
-/**
- * Gets the Tinybird tracker script HTML.
- * @param {object} dataRoot - The data root object.
- * @returns {string} The Tinybird tracker script HTML as a string.
- */
 function getTinybirdTrackerScript(dataRoot) {
+    // Get the Tinybird tracker script HTML
     const preview = dataRoot?.context?.includes('preview');
     if (preview) {
         return '';
@@ -213,100 +186,182 @@ function getTinybirdTrackerScript(dataRoot) {
     return `<script defer src="${src}" data-stringify-payload="false" ${datasource ? `data-datasource="${datasource}"` : ''} data-storage="localStorage" data-host="${endpoint}" ${token && env !== 'production' ? `data-token="${token}"` : ''} ${tbParams}></script>`;
 }
 
-/**
- * Gets the meta data for the head of the HTML document.
- * @param {object} dataRoot - The data root object.
- * @param {object} dataRoot - The data root object.
- * @returns {object} The meta data object.
- */
-async function getMetaDataForHead(dataRoot) {
-    return await getMetaData(dataRoot, dataRoot);
-}
-
-/**
- * Gets the frontend key.
- * @returns {string} The frontend key.
- */
-async function getFrontendKeyForHead() {
-    return await getFrontendKey();
-}
-
-/**
- * Gets the head HTML for the Ghost theme.
- * @param {object} options - The options object.
- * @returns {string} The head HTML as a string.
- */
-async function getHeadHtml(options) {
-    const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
+function getMetaTags(meta, context, excludeList) {
+    // Get the meta tags HTML
     const head = [];
+
+    if (meta.metaDescription && meta.metaDescription.length > 0) {
+        head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
+    }
+
+    if (settingsCache.get('icon')) {
+        head.push('<link rel="icon" href="' + getIconUrl() + '" type="image/' + getIconType() + '">');
+    }
+
+    head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
+
+    if (_.includes(context, 'preview')) {
+        head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+        head.push(writeMetaTag('referrer', 'same-origin', 'name'));
+    } else {
+        head.push(writeMetaTag('referrer', getReferrerPolicy(), 'name'));
+    }
+
+    return head;
+}
+
+function getIconUrl() {
+    // Get the icon URL
+    return blogIcon.getIconUrl();
+}
+
+function getIconType() {
+    // Get the icon type
+    return blogIcon.getIconType(getIconUrl());
+}
+
+function getReferrerPolicy() {
+    // Get the referrer policy
+    return config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade';
+}
+
+function getCustomFontCss(data) {
+    // Get the custom font CSS
+    const isSitePreview = data?.site?._preview ?? false;
+    const headingFont = isSitePreview ? data?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? data?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        /** @type FontSelection */
+        const fontSelection = {};
+
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        return generateCustomFontCss(fontSelection);
+    }
+    return '';
+}
+
+function getAccentColorStyle(data) {
+    // Get the accent color style
+    if (data.site.accent_color) {
+        const accentColor = escapeExpression(data.site.accent_color);
+        return `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    }
+    return '';
+}
+
+function getAnalyticsScript(dataRoot) {
+    // Get the analytics script HTML
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        return getTinybirdTrackerScript(dataRoot);
+    }
+    return '';
+}
+
+function getCodeInjectionScripts(dataRoot) {
+    // Get the code injection scripts HTML
+    const globalCodeinjection = settingsCache.get('codeinjection_head');
+    const postCodeInjection = dataRoot && dataRoot.post ? dataRoot.post.codeinjection_head : null;
+    const tagCodeInjection = dataRoot && dataRoot.tag ? dataRoot.tag.codeinjection_head : null;
+    const scripts = [];
+
+    if (!_.isEmpty(globalCodeinjection)) {
+        scripts.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        scripts.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        scripts.push(tagCodeInjection);
+    }
+
+    return scripts.join('\n');
+}
+
+function getOtherAssets(excludeList) {
+    // Get the other assets HTML
+    const assets = [];
+
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            assets.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            assets.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        assets.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        assets.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+
+    return assets.join('\n');
+}
+
+// We use the name ghost_head to match the helper for consistency:
+module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
+    debug('begin');
+    // if server error page do nothing
+    if (options.data.root.statusCode >= 500) {
+        return;
+    }
+    const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
     const dataRoot = options.data.root;
     const context = dataRoot._locals.context ? dataRoot._locals.context : null;
     const safeVersion = dataRoot._locals.safeVersion;
-    const postCodeInjection = dataRoot && dataRoot.post ? dataRoot.post.codeinjection_head : null;
-    const tagCodeInjection = dataRoot && dataRoot.tag ? dataRoot.tag.codeinjection_head : null;
-    const globalCodeinjection = settingsCache.get('codeinjection_head');
-    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
-    const referrerPolicy = config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade';
-    const favicon = blogIcon.getIconUrl();
-    const iconType = blogIcon.getIconType(favicon);
 
     try {
-        const meta = await getMetaDataForHead(dataRoot);
-        const frontendKey = await getFrontendKeyForHead();
+        const meta = await getMetaData(dataRoot, dataRoot);
+        const frontendKey = await getFrontendKey();
+
+        debug('end fetch');
+
+        const head = [];
 
         if (context) {
-            if (!excludeList.has('metadata')) {
-                // head is our main array that holds our meta data
-                if (meta.metaDescription && meta.metaDescription.length > 0) {
-                    head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
-                }
+            head.push(...getMetaTags(meta, context, excludeList));
+        }
 
-                // no output in head if a publication icon is not set
-                if (settingsCache.get('icon')) {
-                    head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
-                }
+        if (meta.previousUrl) {
+            head.push('<link rel="prev" href="' +
+                escapeExpression(meta.previousUrl) + '">');
+        }
 
-                head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
+        if (meta.nextUrl) {
+            head.push('<link rel="next" href="' +
+                escapeExpression(meta.nextUrl) + '">');
+        }
 
-                if (_.includes(context, 'preview')) {
-                    head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-                    head.push(writeMetaTag('referrer', 'same-origin', 'name'));
-                } else {
-                    head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
-                }
+        if (!_.includes(context, 'paged') && !config.isPrivacyDisabled('useStructuredData')) {
+            if (!excludeList.has('social_data')) {
+                head.push(...finaliseStructuredData(meta));
             }
 
-            if (meta.previousUrl) {
-                head.push('<link rel="prev" href="' +
-                    escapeExpression(meta.previousUrl) + '">');
-            }
-
-            if (meta.nextUrl) {
-                head.push('<link rel="next" href="' +
-                    escapeExpression(meta.nextUrl) + '">');
-            }
-
-            if (!_.includes(context, 'paged') && useStructuredData) {
-                if (!excludeList.has('social_data')) {
-                    head.push('');
-                    head.push.apply(head, finaliseStructuredData(meta));
-                    head.push('');
-                }
-
-                if (!excludeList.has('schema') && meta.schema) {
-                    head.push('<script type="application/ld+json">\n' +
-                        JSON.stringify(meta.schema, null, '    ') +
-                        '\n    </script>\n');
-                }
+            if (!excludeList.has('schema') && meta.schema) {
+                head.push('<script type="application/ld+json">\n' +
+                    JSON.stringify(meta.schema, null, '    ') +
+                    '\n    </script>\n');
             }
         }
+
         head.push('<meta name="generator" content="Ghost ' +
             escapeExpression(safeVersion) + '">');
         head.push('<link rel="alternate" type="application/rss+xml" title="' +
             escapeExpression(meta.site.title) + '" href="' +
             escapeExpression(meta.rssUrl) + '">');
 
-        head.push(getMembersHelper(options.data, frontendKey, excludeList)); // controlling for excludes within the function
+        head.push(getMembersHelper(options.data, frontendKey, excludeList));
         if (!excludeList.has('search')) {
             head.push(getSearchHelper(frontendKey));
         }
@@ -319,96 +374,20 @@ async function getHeadHtml(options) {
             logging.warn(err);
         }
 
-        // @TODO do this in a more "frameworky" way
+        head.push(getAnalyticsScript(dataRoot));
+        head.push(getCodeInjectionScripts(dataRoot));
+        head.push(getOtherAssets(excludeList));
+        head.push(getAccentColorStyle(options.data));
+        head.push(getCustomFontCss(options.data));
 
-        if (!excludeList.has('card_assets')) {
-            if (cardAssets.hasFile('js')) {
-                head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
-            }
-            if (cardAssets.hasFile('css')) {
-                head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
-            }
-        }
-
-        if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
-            head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
-        }
-
-        if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
-            head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
-        }
-
-        // Use settingsHelpers to check if web analytics is enabled (includes all necessary checks)
-        if (settingsHelpers.isWebAnalyticsEnabled()) {
-            head.push(getTinybirdTrackerScript(dataRoot));
-            // Set a flag in response locals to indicate tracking script is being served
-            if (dataRoot._locals) {
-                dataRoot._locals.ghostAnalytics = true;
-            }
-        }
-
-        if (options.data.site.accent_color) {
-            const accentColor = escapeExpression(options.data.site.accent_color);
-            const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
-            const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
-
-            if (existingScriptIndex !== -1) {
-                head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
-            } else {
-                head.push(styleTag);
-            }
-        }
-        if (!_.isEmpty(globalCodeinjection)) {
-            head.push(globalCodeinjection);
-        }
-
-        if (!_.isEmpty(postCodeInjection)) {
-            head.push(postCodeInjection);
-        }
-
-        if (!_.isEmpty(tagCodeInjection)) {
-            head.push(tagCodeInjection);
-        }
-
-        // Check if if the request is for a site preview, in which case we **always** use the custom font values
-        // from the passed in data, even when they're empty strings or settings cache has values.
-        const isSitePreview = options.data?.site?._preview ?? false;
-        // Taking the fonts straight from the passed in data, as they can't be used from the
-        // settings cache for the theme preview until the settings are saved. Once saved,
-        // we need to use the settings cache to provide the correct CSS injection.
-        const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
-        const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
-        if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
-                (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
-            /** @type FontSelection */
-            const fontSelection = {};
-
-            if (headingFont) {
-                fontSelection.heading = headingFont;
-            }
-            if (bodyFont) {
-                fontSelection.body = bodyFont;
-            }
-            const customCSS = generateCustomFontCss(fontSelection);
-            head.push(new SafeString(customCSS));
-        }
-
+        debug('end');
         return new SafeString(head.join('\n    ').trim());
     } catch (error) {
         logging.error(error);
 
         // Return what we have so far (currently nothing)
-        return new SafeString(head.join('\n    ').trim());
+        return new SafeString([]);
     }
-}
-
-module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
-    debug('begin');
-    // if server error page do nothing
-    if (options.data.root.statusCode >= 500) {
-        return;
-    }
-    return await getHeadHtml(options);
 };
 
 module.exports.async = true;

@@ -150,6 +150,7 @@ html[dir="rtl"] .gh-portal-offer-title h4 {
     margin: 0;
 }
     `;
+};
 
 export default class OfferPage extends React.Component {
     static contextType = AppContext;
@@ -166,9 +167,9 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Returns form errors based on the current state.
-     * @param {Object} state - The current state of the component.
-     * @returns {Object} - An object containing form errors.
+     * Get form errors based on the current state.
+     * @param {Object} state - Current state of the component.
+     * @returns {Object} Form errors.
      */
     getFormErrors(state) {
         const checkboxRequired = this.context.site.portal_signup_checkbox_required && this.context.site.portal_signup_terms_html;
@@ -181,11 +182,11 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Returns input fields based on the current state and field names.
-     * @param {Object} params - An object containing the current state and field names.
-     * @param {Object} params.state - The current state of the component.
-     * @param {Array} [params.fieldNames] - An array of field names to filter by.
-     * @returns {Array} - An array of input fields.
+     * Get input fields for the form.
+     * @param {Object} params - Parameters.
+     * @param {Object} params.state - Current state of the component.
+     * @param {Array} [params.fieldNames] - Optional field names to filter by.
+     * @returns {Array} Input fields.
      */
     getInputFields({state, fieldNames}) {
         const {portal_name: portalName} = this.context.site;
@@ -234,8 +235,8 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Renders the signup terms.
-     * @returns {JSX.Element} - The signup terms element.
+     * Render signup terms.
+     * @returns {JSX.Element} Signup terms element.
      */
     renderSignupTerms() {
         const {site} = this.context;
@@ -280,8 +281,8 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Handles key down events.
-     * @param {Event} e - The key down event.
+     * Handle key down event.
+     * @param {Event} e - Key down event.
      */
     onKeyDown(e) {
         if (e.keyCode === 13){
@@ -290,8 +291,8 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Handles the signup action.
-     * @param {Event} e - The event that triggered the signup action.
+     * Handle signup.
+     * @param {Event} e - Event.
      */
     handleSignup(e) {
         e.preventDefault();
@@ -334,9 +335,9 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Handles input changes.
-     * @param {Event} e - The event that triggered the input change.
-     * @param {Object} field - The field that changed.
+     * Handle input change.
+     * @param {Event} e - Event.
+     * @param {Object} field - Field.
      */
     handleInputChange(e, field) {
         const fieldName = field.name;
@@ -347,8 +348,8 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Renders the site logo.
-     * @returns {JSX.Element} - The site logo element.
+     * Render site logo.
+     * @returns {JSX.Element} Site logo element.
      */
     renderSiteLogo() {
         const {site} = this.context;
@@ -367,8 +368,8 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Renders the form header.
-     * @returns {JSX.Element} - The form header element.
+     * Render form header.
+     * @returns {JSX.Element} Form header element.
      */
     renderFormHeader() {
         const {site} = this.context;
@@ -382,8 +383,8 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Renders the form.
-     * @returns {JSX.Element} - The form element.
+     * Render form.
+     * @returns {JSX.Element} Form element.
      */
     renderForm() {
         const fields = this.getInputFields({state: this.state});
@@ -415,8 +416,8 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Renders the submit button.
-     * @returns {JSX.Element} - The submit button element.
+     * Render submit button.
+     * @returns {JSX.Element} Submit button element.
      */
     renderSubmitButton() {
         const {action, brandColor} = this.context;
@@ -455,8 +456,8 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Renders the login message.
-     * @returns {JSX.Element} - The login message element.
+     * Render login message.
+     * @returns {JSX.Element} Login message element.
      */
     renderLoginMessage() {
         const {member} = this.context;
@@ -479,8 +480,8 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Renders the offer tag.
-     * @returns {JSX.Element} - The offer tag element.
+     * Render offer tag.
+     * @returns {JSX.Element} Offer tag element.
      */
     renderOfferTag() {
         const {pageData: offer} = this.context;
@@ -511,10 +512,10 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Renders the benefits.
-     * @param {Object} params - An object containing the product.
-     * @param {Object} params.product - The product.
-     * @returns {JSX.Element} - The benefits element.
+     * Render benefits.
+     * @param {Object} params - Parameters.
+     * @param {Object} params.product - Product.
+     * @returns {JSX.Element} Benefits element.
      */
     renderBenefits({product}) {
         const benefits = product.benefits || [];
@@ -537,11 +538,11 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Returns the original price.
-     * @param {Object} params - An object containing the offer and product.
-     * @param {Object} params.offer - The offer.
-     * @param {Object} params.product - The product.
-     * @returns {String} - The original price.
+     * Get original price.
+     * @param {Object} params - Parameters.
+     * @param {Object} params.offer - Offer.
+     * @param {Object} params.product - Product.
+     * @returns {String} Original price.
      */
     getOriginalPrice({offer, product}) {
         const price = offer.cadence === 'month' ? product.monthlyPrice : product.yearlyPrice;
@@ -550,11 +551,11 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Returns the updated price.
-     * @param {Object} params - An object containing the offer and product.
-     * @param {Object} params.offer - The offer.
-     * @param {Object} params.product - The product.
-     * @returns {Number} - The updated price.
+     * Get updated price.
+     * @param {Object} params - Parameters.
+     * @param {Object} params.offer - Offer.
+     * @param {Object} params.product - Product.
+     * @returns {Number} Updated price.
      */
     getUpdatedPrice({offer, product}) {
         const price = offer.cadence === 'month' ? product.monthlyPrice : product.yearlyPrice;
@@ -571,9 +572,9 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Renders the rounded price.
-     * @param {Number} price - The price to round.
-     * @returns {String} - The rounded price.
+     * Render rounded price.
+     * @param {Number} price - Price.
+     * @returns {String} Rounded price.
      */
     renderRoundedPrice(price) {
         if (price % 1 !== 0) {
@@ -584,10 +585,10 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Returns the off amount.
-     * @param {Object} params - An object containing the offer.
-     * @param {Object} params.offer - The offer.
-     * @returns {String} - The off amount.
+     * Get off amount.
+     * @param {Object} params - Parameters.
+     * @param {Object} params.offer - Offer.
+     * @returns {String} Off amount.
      */
     getOffAmount({offer}) {
         if (offer.type === 'fixed') {
@@ -601,11 +602,11 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Renders the offer message.
-     * @param {Object} params - An object containing the offer and product.
-     * @param {Object} params.offer - The offer.
-     * @param {Object} params.product - The product.
-     * @returns {JSX.Element} - The offer message element.
+     * Render offer message.
+     * @param {Object} params - Parameters.
+     * @param {Object} params.offer - Offer.
+     * @param {Object} params.product - Product.
+     * @returns {JSX.Element} Offer message element.
      */
     renderOfferMessage({offer, product}) {
         const offerMessages = {
@@ -657,11 +658,11 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Renders the product label.
-     * @param {Object} params - An object containing the product and offer.
-     * @param {Object} params.product - The product.
-     * @param {Object} params.offer - The offer.
-     * @returns {JSX.Element} - The product label element.
+     * Render product label.
+     * @param {Object} params - Parameters.
+     * @param {Object} params.product - Product.
+     * @param {Object} params.offer - Offer.
+     * @returns {JSX.Element} Product label element.
      */
     renderProductLabel({product, offer}) {
         const {site} = this.context;
@@ -677,13 +678,13 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Renders the updated tier price.
-     * @param {Object} params - An object containing the offer, currency class, updated price, and price.
-     * @param {Object} params.offer - The offer.
-     * @param {String} params.currencyClass - The currency class.
-     * @param {Number} params.updatedPrice - The updated price.
-     * @param {Object} params.price - The price.
-     * @returns {JSX.Element} - The updated tier price element.
+     * Render updated tier price.
+     * @param {Object} params - Parameters.
+     * @param {Object} params.offer - Offer.
+     * @param {String} params.currencyClass - Currency class.
+     * @param {Number} params.updatedPrice - Updated price.
+     * @param {Object} params.price - Price.
+     * @returns {JSX.Element} Updated tier price element.
      */
     renderUpdatedTierPrice({offer, currencyClass, updatedPrice, price}) {
         if (offer.type === 'trial') {
@@ -707,11 +708,11 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Renders the old tier price.
-     * @param {Object} params - An object containing the offer and price.
-     * @param {Object} params.offer - The offer.
-     * @param {Object} params.price - The price.
-     * @returns {JSX.Element} - The old tier price element.
+     * Render old tier price.
+     * @param {Object} params - Parameters.
+     * @param {Object} params.offer - Offer.
+     * @param {Object} params.price - Price.
+     * @returns {JSX.Element} Old tier price element.
      */
     renderOldTierPrice({offer, price}) {
         if (offer.type === 'trial') {
@@ -723,15 +724,15 @@ export default class OfferPage extends React.Component {
     }
 
     /**
-     * Renders the product card.
-     * @param {Object} params - An object containing the product, offer, currency class, updated price, price, and benefits.
-     * @param {Object} params.product - The product.
-     * @param {Object} params.offer - The offer.
-     * @param {String} params.currencyClass - The currency class.
-     * @param {Number} params.updatedPrice - The updated price.
-     * @param {Object} params.price - The price.
-     * @param {Array} params.benefits - The benefits.
-     * @returns {JSX.Element} - The product card element.
+     * Render product card.
+     * @param {Object} params - Parameters.
+     * @param {Object} params.product - Product.
+     * @param {Object} params.offer - Offer.
+     * @param {String} params.currencyClass - Currency class.
+     * @param {Number} params.updatedPrice - Updated price.
+     * @param {Object} params.price - Price.
+     * @param {Array} params.benefits - Benefits.
+     * @returns {JSX.Element} Product card element.
      */
     renderProductCard({product, offer, currencyClass, updatedPrice, price, benefits}) {
         if (this.state.showNewsletterSelection) {

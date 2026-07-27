@@ -7,29 +7,27 @@ function isOptionalDependency(dependencies) {
   return dependencies.filter(d => !d.optional).length === 0;
 }
 
-function errorOrWarningAndCallback(err, isOptional, errorAndCallback, warningAndCallback) {
+function errorOrWarningAndCallback(err, isOptional, _this) {
   /**
-   * Handles error or warning based on whether the dependency is optional.
+   * Handles error or warning and calls callback accordingly.
    * @param {Error} err - Error object.
    * @param {boolean} isOptional - Whether the dependency is optional.
-   * @param {Function} errorAndCallback - Error callback function.
-   * @param {Function} warningAndCallback - Warning callback function.
+   * @param {Compilation} _this - Compilation instance.
    */
   if (isOptional) {
-    return warningAndCallback(err);
+    return _this.warnings.push(err);
   } else {
-    return errorAndCallback(err);
+    return _this.errors.push(err);
   }
 }
 
-function iterationDependencies(dependencies, dependentModule) {
+function iterationDependencies(depend) {
   /**
-   * Iterates over dependencies and sets the module for each dependency.
-   * @param {Array} dependencies - Array of dependencies.
-   * @param {Module} dependentModule - Dependent module.
+   * Iterates over dependencies and sets module and reason.
+   * @param {Array} depend - Array of dependencies.
    */
-  for (let index = 0; index < dependencies.length; index++) {
-    const dep = dependencies[index];
+  for (let index = 0; index < depend.length; index++) {
+    const dep = depend[index];
     dep.module = dependentModule;
     dependentModule.addReason(module, dep);
   }
@@ -77,7 +75,7 @@ addModuleDependencies(module, dependencies, bail, cacheGroup, recursive, callbac
       dependencies: dependencies
     }, function factoryCallback(err, dependentModule) {
       if (err) {
-        return errorOrWarningAndCallback(new ModuleNotFoundError(module, err, dependencies), isOptionalDependency(dependencies), errorAndCallback, warningAndCallback);
+        return errorOrWarningAndCallback(new ModuleNotFoundError(module, err, dependencies), isOptionalDependency(dependencies), _this);
       }
       if (!dependentModule) {
         return process.nextTick(callback);
@@ -95,11 +93,20 @@ addModuleDependencies(module, dependencies, bail, cacheGroup, recursive, callbac
       if (!newModule) { // from cache
         dependentModule = _this.getModule(dependentModule);
 
-        iterationDependencies(dependencies, dependentModule);
+        if (dependentModule.optional) {
+          dependentModule.optional = isOptionalDependency(dependencies);
+        }
+
+        iterationDependencies(dependencies);
 
         if (_this.profile) {
-          const afterBuilding = Date.now();
-          module.profile.dependencies = afterBuilding - start;
+          if (!module.profile) {
+            module.profile = {};
+          }
+          const time = Date.now() - start;
+          if (!module.profile.dependencies || time > module.profile.dependencies) {
+            module.profile.dependencies = time;
+          }
         }
 
         return process.nextTick(callback);
@@ -110,9 +117,11 @@ addModuleDependencies(module, dependencies, bail, cacheGroup, recursive, callbac
           newModule.profile = dependentModule.profile;
         }
 
+        newModule.optional = isOptionalDependency(dependencies);
+        newModule.issuer = dependentModule.issuer;
         dependentModule = newModule;
 
-        iterationDependencies(dependencies, dependentModule);
+        iterationDependencies(dependencies);
 
         if (_this.profile) {
           const afterBuilding = Date.now();
@@ -126,11 +135,13 @@ addModuleDependencies(module, dependencies, bail, cacheGroup, recursive, callbac
         }
       }
 
-      iterationDependencies(dependencies, dependentModule);
+      dependentModule.optional = isOptionalDependency(dependencies);
+
+      iterationDependencies(dependencies);
 
       _this.buildModule(dependentModule, isOptionalDependency(dependencies), module, dependencies, err => {
         if (err) {
-          return errorOrWarningAndCallback(err, isOptionalDependency(dependencies), errorAndCallback, warningAndCallback);
+          return errorOrWarningAndCallback(err, isOptionalDependency(dependencies), _this);
         }
 
         if (_this.profile) {

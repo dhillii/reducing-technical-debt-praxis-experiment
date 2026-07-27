@@ -171,7 +171,7 @@ const getUserMenuItems = (currentUser: User, user: User, ownerUser: User) => {
             id: 'make-owner',
             label: 'Make owner',
             onClick: () => {
-                // implement make owner logic
+                confirmMakeOwner(user);
             }
         });
     }
@@ -186,13 +186,13 @@ const getUserMenuItems = (currentUser: User, user: User, ownerUser: User) => {
             id: 'delete-user',
             label: 'Delete user',
             onClick: () => {
-                // implement delete user logic
+                confirmDelete(user, {owner: ownerUser});
             }
         }, {
             id: 'suspend-user',
             label: suspendUserLabel,
             onClick: () => {
-                // implement suspend user logic
+                confirmSuspend(user);
             }
         });
     }
@@ -201,11 +201,152 @@ const getUserMenuItems = (currentUser: User, user: User, ownerUser: User) => {
         id: 'view-user-activity',
         label: 'View user activity',
         onClick: () => {
-            // implement view user activity logic
+            updateRoute(`history/view/${user.id}`);
         }
     });
 
     return menuItems;
+};
+
+const confirmSuspend = async (user: User) => {
+    if (user.status === 'inactive' && user.roles[0].name !== 'Contributor') {
+        try {
+            await limiter?.errorIfWouldGoOverLimit('staff');
+        } catch (error) {
+            if (error instanceof HostLimitError) {
+                NiceModal.show(LimitModal, {
+                    formSheet: true,
+                    prompt: error.message || `Your current plan doesn't support more users.`,
+                    onOk: () => updateRoute({route: '/pro', isExternal: true})
+                });
+                return;
+            } else {
+                throw error;
+            }
+        }
+    }
+
+    let warningText = 'This user will no longer be able to log in but their posts will be kept.';
+    if (user.status === 'inactive') {
+        warningText = 'This user will be able to log in again and will have the same permissions they had previously.';
+    }
+    NiceModal.show(ConfirmationModal, {
+        title: 'Are you sure you want to suspend this user?',
+        prompt: (
+            <>
+                <strong>WARNING:</strong> {warningText}
+            </>
+        ),
+        okLabel: user.status === 'inactive' ? 'Un-suspend' : 'Suspend',
+        okRunningLabel: user.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
+        okColor: 'red',
+        onOk: async (modal) => {
+            const updatedUserData = {
+                ...user,
+                status: user.status === 'inactive' ? 'active' : 'inactive'
+            };
+            try {
+                await updateUser(updatedUserData);
+                setFormState(() => updatedUserData);
+                modal?.remove();
+                showToast({
+                    title: user.status === 'inactive' ? 'User un-suspended' : 'User suspended',
+                    type: 'success'
+                });
+            } catch (e) {
+                handleError(e);
+            }
+        }
+    });
+};
+
+const confirmDelete = (user: User, {owner}: {owner: User}) => {
+    NiceModal.show(ConfirmationModal, {
+        title: 'Are you sure you want to delete this user?',
+        prompt: (
+            <>
+                <p className='mb-3'><span className='font-bold'>{user.name || user.email}</span> will be permanently deleted and all their posts will be automatically assigned to the <span className='font-bold'>{owner.name}</span>.</p>
+                <p>To make these easy to find in the future, each post will be given an internal tag of <span className='font-bold'>#{user.slug}</span></p>
+            </>
+        ),
+        okLabel: 'Delete user',
+        okColor: 'red',
+        onOk: async (modal) => {
+            try {
+                await deleteUser(user?.id);
+                modal?.remove();
+                mainModal?.remove();
+                navigateOnClose();
+                showToast({
+                    title: 'User deleted',
+                    type: 'success'
+                });
+            } catch (e) {
+                handleError(e);
+            }
+        }
+    });
+};
+
+const confirmMakeOwner = (user: User) => {
+    NiceModal.show(ConfirmationModal, {
+        title: 'Transfer Ownership',
+        prompt: 'Are you sure you want to transfer the ownership of this blog? You will not be able to undo this action.',
+        okLabel: 'Yep — I\'m sure',
+        okColor: 'red',
+        onOk: async (modal) => {
+            try {
+                await makeOwner(user.id);
+                modal?.remove();
+                showToast({
+                    title: 'Ownership transferred',
+                    type: 'success'
+                });
+            } catch (e) {
+                handleError(e);
+            }
+        }
+    });
+};
+
+const handleImageUpload = async (image: string, file: File) => {
+    try {
+        const imageUrl = getImageUrl(await uploadImage({file}));
+
+        switch (image) {
+        case 'cover_image':
+            updateForm((_user) => {
+                return {..._user, cover_image: imageUrl};
+            });
+            break;
+        case 'profile_image':
+            updateForm((_user) => {
+                return {..._user, profile_image: imageUrl};
+            });
+            break;
+        }
+    } catch (e) {
+        const error = e as APIError;
+        if (error.response!.status === 415) {
+            error.message = 'Unsupported file type';
+        }
+        handleError(error);
+    }
+};
+
+const handleImageDelete = (image: string) => {
+    switch (image) {
+    case 'cover_image':
+        updateForm((_user) => {
+            return {..._user, cover_image: ''};
+        });
+        break;
+    case 'profile_image':
+        updateForm((_user) => {
+            return {..._user, profile_image: ''};
+        });
+        break;
+    }
 };
 
 const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
@@ -228,7 +369,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             }, {});
         },
         onSave: async (values) => {
-            // implement save logic
+            await updateUser?.(values);
         },
         onSaveError: handleError
     });
@@ -263,149 +404,8 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     }, [currentUser, updateRoute]);
 
-    const confirmSuspend = async (_user: User) => {
-        if (_user.status === 'inactive' && _user.roles[0].name !== 'Contributor') {
-            try {
-                await limiter?.errorIfWouldGoOverLimit('staff');
-            } catch (error) {
-                if (error instanceof HostLimitError) {
-                    NiceModal.show(LimitModal, {
-                        formSheet: true,
-                        prompt: error.message || `Your current plan doesn't support more users.`,
-                        onOk: () => updateRoute({route: '/pro', isExternal: true})
-                    });
-                    return;
-                } else {
-                    throw error;
-                }
-            }
-        }
-
-        let warningText = 'This user will no longer be able to log in but their posts will be kept.';
-        if (_user.status === 'inactive') {
-            warningText = 'This user will be able to log in again and will have the same permissions they had previously.';
-        }
-        NiceModal.show(ConfirmationModal, {
-            title: 'Are you sure you want to suspend this user?',
-            prompt: (
-                <>
-                    <strong>WARNING:</strong> {warningText}
-                </>
-            ),
-            okLabel: _user.status === 'inactive' ? 'Un-suspend' : 'Suspend',
-            okRunningLabel: _user.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
-            okColor: 'red',
-            onOk: async (modal) => {
-                const updatedUserData = {
-                    ..._user,
-                    status: _user.status === 'inactive' ? 'active' : 'inactive'
-                };
-                try {
-                    await updateUser(updatedUserData);
-                    setFormState(() => updatedUserData);
-                    modal?.remove();
-                    showToast({
-                        title: _user.status === 'inactive' ? 'User un-suspended' : 'User suspended',
-                        type: 'success'
-                    });
-                } catch (e) {
-                    handleError(e);
-                }
-            }
-        });
-    };
-
-    const confirmDelete = (_user: User, {owner}: {owner: User}) => {
-        NiceModal.show(ConfirmationModal, {
-            title: 'Are you sure you want to delete this user?',
-            prompt: (
-                <>
-                    <p className='mb-3'><span className='font-bold'>{_user.name || _user.email}</span> will be permanently deleted and all their posts will be automatically assigned to the <span className='font-bold'>{owner.name}</span>.</p>
-                    <p>To make these easy to find in the future, each post will be given an internal tag of <span className='font-bold'>#{user.slug}</span></p>
-                </>
-            ),
-            okLabel: 'Delete user',
-            okColor: 'red',
-            onOk: async (modal) => {
-                try {
-                    await deleteUser(_user?.id);
-                    modal?.remove();
-                    mainModal?.remove();
-                    navigateOnClose();
-                    showToast({
-                        title: 'User deleted',
-                        type: 'success'
-                    });
-                } catch (e) {
-                    handleError(e);
-                }
-            }
-        });
-    };
-
-    const confirmMakeOwner = () => {
-        NiceModal.show(ConfirmationModal, {
-            title: 'Transfer Ownership',
-            prompt: 'Are you sure you want to transfer the ownership of this blog? You will not be able to undo this action.',
-            okLabel: 'Yep — I\'m sure',
-            okColor: 'red',
-            onOk: async (modal) => {
-                try {
-                    await makeOwner(user.id);
-                    modal?.remove();
-                    showToast({
-                        title: 'Ownership transferred',
-                        type: 'success'
-                    });
-                } catch (e) {
-                    handleError(e);
-                }
-            }
-        });
-    };
-
-    const handleImageUpload = async (image: string, file: File) => {
-        try {
-            const imageUrl = getImageUrl(await uploadImage({file}));
-
-            switch (image) {
-            case 'cover_image':
-                updateForm((_user) => {
-                    return {..._user, cover_image: imageUrl};
-                });
-                break;
-            case 'profile_image':
-                updateForm((_user) => {
-                    return {..._user, profile_image: imageUrl};
-                });
-                break;
-            }
-        } catch (e) {
-            const error = e as APIError;
-            if (error.response!.status === 415) {
-                error.message = 'Unsupported file type';
-            }
-            handleError(error);
-        }
-    };
-
-    const handleImageDelete = (image: string) => {
-        switch (image) {
-        case 'cover_image':
-            updateForm((_user) => {
-                return {..._user, cover_image: ''};
-            });
-            break;
-        case 'profile_image':
-            updateForm((_user) => {
-                return {..._user, profile_image: ''};
-            });
-            break;
-        }
-    };
-
     const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
-    const menuItems = getUserMenuItems(currentUser, user, ownerUser);
+    const menuItems = getUserMenuItems(currentUser, formState, ownerUser);
 
     const initialTab = getTabFromPath(route);
     const [selectedTab, setSelectedTab] = useState<string>(initialTab);
@@ -416,6 +416,12 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         updateRoute(`staff/${user.slug}${urlSegment}`);
         setSelectedTab(newTabId);
     };
+
+    const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
+
+    const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
+
+    const suspendedText = formState.status === 'inactive' ? ' (Suspended)' : '';
 
     return (
         <Modal
@@ -480,10 +486,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                 <div className='flex flex-nowrap items-start gap-3'>
                                     <ImageUpload
                                         buttonContainerClassName='flex items-end gap-4 justify-end flex-nowrap'
-                                        deleteButtonClassName='flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap'
+                                        deleteButtonClassName={coverButtonClasses}
                                         deleteButtonContent='Delete cover image'
-                                        editButtonClassName='flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap'
-                                        fileUploadClassName='rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white'
+                                        editButtonClassName={coverButtonClasses}
+                                        fileUploadClassName={noCoverButtonClasses}
                                         id='cover-image'
                                         imageClassName='hidden'
                                         imageURL={formState.cover_image || ''}
@@ -533,7 +539,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                 </div>
                             </div>
                             <div>
-                                <Heading level={3} styles={clsx('break-words md:break-normal', formState.cover_image ? 'text-white' : 'text-black dark:text-white')}>{user.name}{formState.status === 'inactive' ? ' (Suspended)' : ''}</Heading>
+                                <Heading level={3} styles={clsx('break-words md:break-normal', formState.cover_image ? 'text-white' : 'text-black dark:text-white')}>{user.name}{suspendedText}</Heading>
                                 <span className={clsx('text-md font-medium capitalize', formState.cover_image ? 'text-white' : 'text-black dark:text-white')}>{user.roles[0].name.toLowerCase()}</span>
                             </div>
                         </div>

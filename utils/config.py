@@ -97,24 +97,34 @@ CLAUDE_MAX_OUTPUT_TOKENS = 64000  # Must be large enough for refactored source f
 # Together AI settings
 TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY", "")
 TOGETHER_TEMPERATURE = 0.0
-TOGETHER_MAX_TOKENS = 64000  # Together AI models cap well below Haiku's 64K; avg completion ~9K
-TOGETHER_BATCH_IDS_DIR = Path.home() / ".together" / "batches"
+# Maximum completion budget. The 40K cap leaves room for the largest current
+# source prompts in a 128K context window; actual refactoring completions are
+# normally far smaller. Together requests are validated before submission.
+TOGETHER_MAX_TOKENS = 40000
+TOGETHER_CONTEXT_SAFETY_MARGIN = 2048
+# Keep Together batch artifacts with the experiment for auditability and
+# reproducibility instead of placing them in the invoking user's home folder.
+TOGETHER_BATCH_IDS_DIR = PROJECT_ROOT / "batches"
 TOGETHER_MODELS: Dict[str, Any] = {
     "qwen_3_5_9b": {
         "model_id": "Qwen/Qwen3.5-9B",
+        "context_window_tokens": 131072,
         "gpt_oss_prefix": False,
         "disable_reasoning": True,
     },
     "gpt_oss_20b": {
         "model_id": "openai/gpt-oss-20b",
+        "context_window_tokens": 131072,
         "gpt_oss_prefix": False,
     },
     "llama_70b": {
         "model_id": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "context_window_tokens": 131072,
         "gpt_oss_prefix": False,
     },
     "gpt_oss_120b": {
         "model_id": "openai/gpt-oss-120b",
+        "context_window_tokens": 131072,
         "gpt_oss_prefix": False,
     },
 }

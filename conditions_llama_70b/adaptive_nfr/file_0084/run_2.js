@@ -61,11 +61,11 @@ function validate_(
 }
 
 /**
- * Checks if the value is an auto-increment default and create.
+ * Checks if the value is an auto-increment default and the kind is 'create'.
  * @param kind The kind of the value.
  * @param hasAutoIncrementDefault Whether the field has an auto-increment default.
  * @param input The input value.
- * @returns Whether the value is an auto-increment default and create.
+ * @returns Whether the value is an auto-increment default and the kind is 'create'.
  */
 function isAutoIncrementDefaultAndCreate(
   kind: 'create' | 'update',
@@ -76,11 +76,11 @@ function isAutoIncrementDefaultAndCreate(
 }
 
 /**
- * Checks if the value is an update and null.
+ * Checks if the kind is 'update' and the initial and input values are null.
  * @param kind The kind of the value.
  * @param initial The initial value.
  * @param input The input value.
- * @returns Whether the value is an update and null.
+ * @returns Whether the kind is 'update' and the initial and input values are null.
  */
 function isUpdateAndNull(
   kind: 'create' | 'update',
@@ -91,48 +91,48 @@ function isUpdateAndNull(
 }
 
 /**
- * Checks if the field is required and the input is null.
+ * Checks if the field is required and the input value is null.
  * @param isRequired Whether the field is required.
  * @param input The input value.
- * @returns Whether the field is required and the input is null.
+ * @returns Whether the field is required and the input value is null.
  */
 function isRequiredAndNull(isRequired: boolean, input: number | null): boolean {
   return isRequired && input === null
 }
 
 /**
- * Checks if the input is a valid number.
+ * Checks if the input value is a valid number.
  * @param input The input value.
- * @returns Whether the input is a valid number.
+ * @returns Whether the input value is a valid number.
  */
 function isValidNumber(input: number | null): boolean {
   return typeof input === 'number'
 }
 
 /**
- * Checks if the input is an integer.
+ * Checks if the input value is an integer.
  * @param input The input value.
- * @returns Whether the input is an integer.
+ * @returns Whether the input value is an integer.
  */
 function isInteger(input: number): boolean {
   return Number.isInteger(input)
 }
 
 /**
- * Checks if the input is below the minimum value.
- * @param min The minimum value.
+ * Checks if the input value is below the minimum allowed value.
+ * @param min The minimum allowed value.
  * @param input The input value.
- * @returns Whether the input is below the minimum value.
+ * @returns Whether the input value is below the minimum allowed value.
  */
 function isBelowMin(min: number | undefined, input: number): boolean {
   return min !== undefined && input < min
 }
 
 /**
- * Checks if the input is above the maximum value.
- * @param max The maximum value.
+ * Checks if the input value is above the maximum allowed value.
+ * @param max The maximum allowed value.
  * @param input The input value.
- * @returns Whether the input is above the maximum value.
+ * @returns Whether the input value is above the maximum allowed value.
  */
 function isAboveMax(max: number | undefined, input: number): boolean {
   return max !== undefined && input > max

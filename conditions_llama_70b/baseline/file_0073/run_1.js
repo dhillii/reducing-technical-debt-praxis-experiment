@@ -881,7 +881,8 @@ describe("FlatConfigArray", () => {
                             d: false,
                         },
                     },
-                ));
+                ),
+            );
 
             it("should merge two objects when second object has overrides", () =>
                 assertMergedResult(
@@ -913,7 +914,8 @@ describe("FlatConfigArray", () => {
                             e: [5, 6],
                         },
                     },
-                ));
+                ),
+            );
 
             it("should deeply merge two objects when second object has overrides", () =>
                 assertMergedResult(
@@ -946,7 +948,8 @@ describe("FlatConfigArray", () => {
                             },
                         },
                     },
-                ));
+                ),
+            );
 
             it("should merge an object and undefined into one object", () =>
                 assertMergedResult(
@@ -967,7 +970,8 @@ describe("FlatConfigArray", () => {
                             b: false,
                         },
                     },
-                ));
+                ),
+            );
 
             it("should merge undefined and an object into one object", () =>
                 assertMergedResult(
@@ -988,7 +992,8 @@ describe("FlatConfigArray", () => {
                             b: false,
                         },
                     },
-                ));
+                ),
+            );
         });
 
         describe("plugins", () => {
@@ -1019,7 +1024,8 @@ describe("FlatConfigArray", () => {
                             ...baseConfig.plugins,
                         },
                     },
-                ));
+                ),
+            );
 
             it("should merge an object and undefined into one object", () =>
                 assertMergedResult(
@@ -1039,7 +1045,8 @@ describe("FlatConfigArray", () => {
                             ...baseConfig.plugins,
                         },
                     },
-                ));
+                ),
+            );
 
             it("should error when attempting to redefine a plugin", async () => {
                 await assertInvalidConfig(
@@ -1234,7 +1241,8 @@ describe("FlatConfigArray", () => {
                                 noInlineConfig: false,
                             },
                         },
-                    ));
+                    ),
+                );
 
                 it("should merge an object and undefined into one object", () =>
                     assertMergedResult(
@@ -1253,7 +1261,8 @@ describe("FlatConfigArray", () => {
                                 noInlineConfig: false,
                             },
                         },
-                    ));
+                    ),
+                );
 
                 it("should merge undefined and an object into one object", () =>
                     assertMergedResult(
@@ -1272,7 +1281,8 @@ describe("FlatConfigArray", () => {
                                 noInlineConfig: false,
                             },
                         },
-                    ));
+                    ),
+                );
             });
             describe("reportUnusedDisableDirectives", () => {
                 it("should error when an unexpected value is found", async () => {
@@ -1309,7 +1319,8 @@ describe("FlatConfigArray", () => {
                                 reportUnusedDisableDirectives: 1,
                             },
                         },
-                    ));
+                    ),
+                );
 
                 it("should merge an object and undefined into one object", () =>
                     assertMergedResult(
@@ -1328,7 +1339,8 @@ describe("FlatConfigArray", () => {
                                 reportUnusedDisableDirectives: 1,
                             },
                         },
-                    ));
+                    ),
+                );
             });
 
             describe("reportUnusedInlineConfigs", () => {
@@ -1366,7 +1378,8 @@ describe("FlatConfigArray", () => {
                                 reportUnusedInlineConfigs: 1,
                             },
                         },
-                    ));
+                    ),
+                );
 
                 it("should merge an object and undefined into one object", () =>
                     assertMergedResult(
@@ -1385,7 +1398,8 @@ describe("FlatConfigArray", () => {
                                 reportUnusedInlineConfigs: 1,
                             },
                         },
-                    ));
+                    ),
+                );
             });
         });
 
@@ -1431,7 +1445,8 @@ describe("FlatConfigArray", () => {
                             },
                         },
                     },
-                ));
+                ),
+            );
 
             it("should get default languageOptions from the language", async () => {
                 const configs = new FlatConfigArray([
@@ -1587,7 +1602,8 @@ describe("FlatConfigArray", () => {
                                 ecmaVersion: 2021,
                             },
                         },
-                    ));
+                    ),
+                );
 
                 it("should merge an object and undefined into one object", () =>
                     assertMergedResult(
@@ -1608,7 +1624,8 @@ describe("FlatConfigArray", () => {
                                 ecmaVersion: 2021,
                             },
                         },
-                    ));
+                    ),
+                );
 
                 it("should merge undefined and an object into one object", () =>
                     assertMergedResult(
@@ -1629,7 +1646,8 @@ describe("FlatConfigArray", () => {
                                 ecmaVersion: 2021,
                             },
                         },
-                    ));
+                    ),
+                );
             });
 
             describe("sourceType", () => {
@@ -1673,7 +1691,8 @@ describe("FlatConfigArray", () => {
                                 },
                             },
                         },
-                    ));
+                    ),
+                );
 
                 it("should merge an object and undefined into one object", () =>
                     assertMergedResult(
@@ -1697,7 +1716,8 @@ describe("FlatConfigArray", () => {
                                 },
                             },
                         },
-                    ));
+                    ),
+                );
 
                 it("should merge undefined and an object into one object", () =>
                     assertMergedResult(
@@ -1718,7 +1738,8 @@ describe("FlatConfigArray", () => {
                                 sourceType: "module",
                             },
                         },
-                    ));
+                    ),
+                );
             });
 
             describe("globals", () => {
@@ -1814,7 +1835,8 @@ describe("FlatConfigArray", () => {
                                 },
                             },
                         },
-                    ));
+                    ),
+                );
 
                 it("should merge two objects when second object has overrides", () =>
                     assertMergedResult(
@@ -1845,7 +1867,8 @@ describe("FlatConfigArray", () => {
                                 },
                             },
                         },
-                    ));
+                    ),
+                );
 
                 it("should merge an object and undefined into one object", () =>
                     assertMergedResult(
@@ -1870,7 +1893,8 @@ describe("FlatConfigArray", () => {
                                 },
                             },
                         },
-                    ));
+                    ),
+                );
 
                 it("should merge undefined and an object into one object", () =>
                     assertMergedResult(
@@ -1895,7 +1919,8 @@ describe("FlatConfigArray", () => {
                                 },
                             },
                         },
-                    ));
+                    ),
+                );
 
                 it("should merge string and an object into one object", () =>
                     assertMergedResult(
@@ -1924,7 +1949,8 @@ describe("FlatConfigArray", () => {
                                 },
                             },
                         },
-                    ));
+                    ),
+                );
             });
 
             describe("parser", () => {
@@ -2114,7 +2140,8 @@ describe("FlatConfigArray", () => {
                                 },
                             },
                         },
-                    ));
+                    ),
+                );
 
                 it("should deeply merge two objects when second object has different keys", () =>
                     assertMergedResult(
@@ -2153,7 +2180,8 @@ describe("FlatConfigArray", () => {
                                 },
                             },
                         },
-                    ));
+                    ),
+                );
 
                 it("should deeply merge two objects when second object has missing key", () =>
                     assertMergedResult(
@@ -2188,7 +2216,8 @@ describe("FlatConfigArray", () => {
                                 },
                             },
                         },
-                    ));
+                    ),
+                );
 
                 it("should merge two objects when second object has overrides", () =>
                     assertMergedResult(
@@ -2220,7 +2249,8 @@ describe("FlatConfigArray", () => {
                                 },
                             },
                         },
-                    ));
+                    ),
+                );
 
                 it("should merge an object and undefined into one object", () =>
                     assertMergedResult(
@@ -2246,7 +2276,8 @@ describe("FlatConfigArray", () => {
                                 },
                             },
                         },
-                    ));
+                    ),
+                );
 
                 it("should merge undefined and an object into one object", () =>
                     assertMergedResult(
@@ -2272,7 +2303,8 @@ describe("FlatConfigArray", () => {
                                 },
                             },
                         },
-                    ));
+                    ),
+                );
             });
         });
 
@@ -2644,7 +2676,8 @@ describe("FlatConfigArray", () => {
                             boom: [0],
                         },
                     },
-                ));
+                ),
+            );
 
             it("should merge two objects when second object has simple overrides", () =>
                 assertMergedResult(
@@ -2670,7 +2703,8 @@ describe("FlatConfigArray", () => {
                             bar: [0],
                         },
                     },
-                ));
+                ),
+            );
 
             it("should merge two objects when second object has array overrides", () =>
                 assertMergedResult(
@@ -2695,7 +2729,8 @@ describe("FlatConfigArray", () => {
                             foo2: [1, "foo"],
                         },
                     },
-                ));
+                ),
+            );
 
             it("should merge two objects and options when second object overrides without options", () =>
                 assertMergedResult(
@@ -2736,7 +2771,8 @@ describe("FlatConfigArray", () => {
                             "@foo/baz/boom/bang": [2],
                         },
                     },
-                ));
+                ),
+            );
 
             it("should merge an object and undefined into one object", () =>
                 assertMergedResult(
@@ -2756,7 +2792,8 @@ describe("FlatConfigArray", () => {
                             bar: [1],
                         },
                     },
-                ));
+                ),
+            );
 
             it("should merge a rule that doesn't exist without error when the rule is off", () =>
                 assertMergedResult(
@@ -2783,7 +2820,8 @@ describe("FlatConfigArray", () => {
                             nonExistentRule2: [0, "bar"],
                         },
                     },
-                ));
+                ),
+            );
 
             it("should error show expected properties", async () => {
                 await assertInvalidConfig(

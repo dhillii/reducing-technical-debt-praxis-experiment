@@ -61,7 +61,7 @@
      */
     this.add = function(selector) {
       var elements = _getElements(selector);
-      var visibleOptionToUse = _getVisibleOptionToUse();
+      var visibleOptionToUse = _getVisibleOption();
 
       if (elements.length === 0) {
         return false;
@@ -122,13 +122,13 @@
         _applyRemainingDefaultOptions(this.options);
       }
 
-      urlText = text.trim()
-                    .replace(/\'/gi, '')
-                    .replace(nonsafeChars, '-')
-                    .replace(/-{2,}/g, '-')
-                    .substring(0, this.options.truncate)
-                    .replace(/^-+|-+$/gm, '')
-                    .toLowerCase();
+      urlText = text.trim() 
+                    .replace(/\'/gi, '') 
+                    .replace(nonsafeChars, '-') 
+                    .replace(/-{2,}/g, '-') 
+                    .substring(0, this.options.truncate) 
+                    .replace(/^-+|-+$/gm, '') 
+                    .toLowerCase(); 
 
       return urlText;
     };
@@ -175,27 +175,11 @@
       }
 
       var style = document.createElement('style'),
-          linkRule =
-          ' .anchorjs-link {'                       +
-          '   opacity: 0;'                          +
-          '   text-decoration: none;'               +
-          '   -webkit-font-smoothing: antialiased;' +
-          '   -moz-osx-font-smoothing: grayscale;'  +
+          linkRule = ' .anchorjs-link {' + '   opacity: 0;' + '   text-decoration: none;' + '   -webkit-font-smoothing: antialiased;' + '   -moz-osx-font-smoothing: grayscale;' + ' }',
+          hoverRule = ' *:hover > .anchorjs-link,' + ' .anchorjs-link:focus  {' + '   opacity: 1;' + ' }',
+          anchorjsLinkFontFace = ' @font-face {' + '   font-family: "anchorjs-icons";' + '   src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgKGwoKCjgaGg0gEhIgDXoaGgkJBQwHdR85Fi0tOAobCgoKOBoaDSASEiANehoaCQkKGwotLXoWOR8BMwUFLYEuehYXFxYugC44CQkKGwo4GkoaDQ0NDXoaShoKGwoFBe8XFi6ALjgJCQobCjgaShoNDQ0NehpKGgobCgoKLYEuehYXAAAADACWAAEAAAAAAAEACAAAAAEAAAAAAAIAAwAIAAEAAAAAAAMACAAAAAEAAAAAAAQACAAAAAEAAAAAAAUAAQALAAEAAAAAAAYACAAAAAMAAQQJAAEAEAAMAAMAAQQJAAIABgAcAAMAAQQJAAMAEAAMAAMAAQQJAAQAEAAMAAMAAQQJAAUAAgAiAAMAAQQJAAYAEAAMYW5jaG9yanM0MDBAAGEAbgBjAGgAbwByAGoAcwA0ADAAMABAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAH//wAP) format("truetype");' +
           ' }',
-          hoverRule =
-          ' *:hover > .anchorjs-link,'              +
-          ' .anchorjs-link:focus  {'                +
-          '   opacity: 1;'                          +
-          ' }',
-          anchorjsLinkFontFace =
-          ' @font-face {'                           +
-          '   font-family: "anchorjs-icons";'       + 
-          '   src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgKGwoKCjgaGg0gEhIgDXoaGgkJBQwHdR85Fi0tOAobCgoKOBoaDSASEiANehoaCQkKGwotLXoWOR8BMwUFLYEuehYXFxYugC44CQkKGwo4GkoaDQ0NDXoaShoKGwoFBe8XFi6ALjgJCQobCjgaShoNDQ0NehpKGgobCgoKLYEuehYXAAAADACWAAEAAAAAAAEACAAAAAEAAAAAAAIAAwAIAAEAAAAAAAMACAAAAAEAAAAAAAQACAAAAAEAAAAAAAUAAQALAAEAAAAAAAYACAAAAAMAAQQJAAEAEAAMAAMAAQQJAAIABgAcAAMAAQQJAAMAEAAMAAMAAQQJAAQAEAAMAAMAAQQJAAUAAgAiAAMAAQQJAAYAEAAMYW5jaG9yanM0MDBAAGEAbgBjAGgAbwByAGoAcwA0ADAAMABAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAH//wAP) format("truetype");' +
-          ' }',
-          pseudoElContent =
-          ' [data-anchorjs-icon]::after {'          +
-          '   content: attr(data-anchorjs-icon);'   +
-          ' }',
+          pseudoElContent = ' [data-anchorjs-icon]::after {' + '   content: attr(data-anchorjs-icon);' + ' }',
           firstStyleEl;
 
       style.className = 'anchorjs';
@@ -214,11 +198,7 @@
       style.sheet.insertRule(anchorjsLinkFontFace, style.sheet.cssRules.length);
     }
 
-    /**
-     * Get visible option to use.
-     * @return {String} - The visible option to use.
-     */
-    function _getVisibleOptionToUse() {
+    function _getVisibleOption() {
       var visibleOptionToUse = this.options.visible;
       if (visibleOptionToUse === 'touch') {
         visibleOptionToUse = this.isTouchDevice() ? 'always' : 'hover';
@@ -226,19 +206,15 @@
       return visibleOptionToUse;
     }
 
-    /**
-     * Add anchor to element.
-     * @param {HTMLElement} element - The element to add the anchor to.
-     * @param {String} visibleOptionToUse - The visible option to use.
-     */
     function _addElementAnchor(element, visibleOptionToUse) {
       var elementID,
           tidyText,
           newTidyText,
-          count,
-          index,
           readableID,
-          anchor;
+          anchor,
+          idList = _getIdList(),
+          count = 0,
+          index;
 
       if (element.hasAttribute('id')) {
         elementID = element.getAttribute('id');
@@ -246,16 +222,16 @@
         tidyText = this.urlify(element.textContent);
 
         newTidyText = tidyText;
-        count = 0;
         do {
           if (index !== undefined) {
             newTidyText = tidyText + '-' + count;
           }
 
-          index = _getIdIndex(newTidyText);
+          index = idList.indexOf(newTidyText);
           count += 1;
         } while (index !== -1);
         index = undefined;
+        idList.push(newTidyText);
 
         element.setAttribute('id', newTidyText);
         elementID = newTidyText;
@@ -292,23 +268,13 @@
       }
     }
 
-    /**
-     * Get ID index.
-     * @param {String} id - The ID to get the index for.
-     * @return {Number} - The index of the ID.
-     */
-    function _getIdIndex(id) {
+    function _getIdList() {
       var elsWithIds = document.querySelectorAll('[id]');
-      var idList = [].map.call(elsWithIds, function assign(el) {
+      return [].map.call(elsWithIds, function assign(el) {
         return el.id;
       });
-      return idList.indexOf(id);
     }
 
-    /**
-     * Remove anchor from element.
-     * @param {HTMLElement} element - The element to remove the anchor from.
-     */
     function _removeElementAnchor(element) {
       var domAnchor = element.querySelector('.anchorjs-link');
       if (domAnchor) {
@@ -321,5 +287,4 @@
     }
 
     return AnchorJS;
-  }
 }));

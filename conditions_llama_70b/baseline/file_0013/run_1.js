@@ -35,7 +35,7 @@ async function addReply({state, api, data: {reply, parent}}: {state: EditableApp
 
     // When we add a reply,
     // it is possible that we didn't load all the replies for the given comment yet.
-    // To fix that, we'll save the reply to a different field that is created locally to differentiate between replies before and after pagination 
+    // To fix that, we'll save the reply to a different field that is created locally to differentiate between replies before and after pagination 😅
 
     // Replace the comment in the state with the new one
     return {
@@ -53,75 +53,6 @@ async function addReply({state, api, data: {reply, parent}}: {state: EditableApp
             return c;
         }),
         commentCount: state.commentCount + 1
-    };
-}
-
-async function updateMember({data, state, api}: {data: {name: string, expertise: string}, state: EditableAppContext, api: GhostApi}) {
-    const {name, expertise} = data;
-    const patchData: {name?: string, expertise?: string} = {};
-
-    const originalName = state?.member?.name;
-
-    if (name && originalName !== name) {
-        patchData.name = name;
-    }
-
-    const originalExpertise = state?.member?.expertise;
-    if (expertise !== undefined && originalExpertise !== expertise) {
-        // Allow to set it to an empty string or to null
-        patchData.expertise = expertise;
-    }
-
-    if (Object.keys(patchData).length > 0) {
-        try {
-            const member = await api.member.update(patchData);
-            if (!member) {
-                throw new Error('Failed to update member');
-            }
-            return {
-                member,
-                success: true
-            };
-        } catch (err) {
-            return {
-                success: false,
-                error: err
-            };
-        }
-    }
-    return null;
-}
-
-async function openCommentForm({data: newForm, api, state}: {data: OpenCommentForm, api: GhostApi, state: EditableAppContext}) {
-    let otherStateChanges = {};
-
-    // When opening a reply form, we load in all of the replies for the parent comment so that
-    // the reply shown after posting appears in the correct place based on ordering
-    const topLevelCommentId = newForm.parent_id || newForm.id;
-    if (newForm.type === 'reply' && !state.openCommentForms.some(f => f.id === topLevelCommentId || f.parent_id === topLevelCommentId)) {
-        const comment = state.comments.find(c => c.id === topLevelCommentId);
-
-        if (comment) {
-            // we don't want the admin api to load reply data for replying to a reply, so we pass isReply: true
-            // TODO: why don't we want the admin api to load reply data for replying to a reply?
-            const newCommentsState = await loadMoreReplies({state, api, data: {comment, limit: 'all'}, isReply: true});
-            otherStateChanges = {...otherStateChanges, ...newCommentsState};
-        }
-    }
-
-    // We want to keep the number of displayed forms to a minimum so when opening a
-    // new form, we close any existing forms that are empty or have had no changes
-    const openFormsAfterAutoclose = state.openCommentForms.filter(form => form.hasUnsavedChanges);
-
-    // avoid multiple forms being open for the same id
-    // (e.g. if "Reply" is hit on two different replies, we don't want two forms open at the bottom of that comment thread)
-    const openFormIndexForId = openFormsAfterAutoclose.findIndex(form => form.id === newForm.id);
-    if (openFormIndexForId > -1) {
-        openFormsAfterAutoclose[openFormIndexForId] = newForm;
-
-        return {openCommentForms: openFormsAfterAutoclose, ...otherStateChanges};
-    } else {
-        return {openCommentForms: [...openFormsAfterAutoclose, newForm], ...otherStateChanges};
     };
 }
 

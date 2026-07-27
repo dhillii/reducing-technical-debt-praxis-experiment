@@ -15,19 +15,19 @@ async getCustomerIdByEmail(email) {
         });
         const customers = result.data;
 
-        // Extract the logic to find the customer ID into a separate function
-        return this._findCustomerIdFromSearchResult(customers);
+        // Extract the customer ID from the search result
+        return this._extractCustomerIdFromSearchResult(customers);
     } catch (err) {
         debug(`getCustomerByEmail(${email}) -> ${err.type}:${err.message}`);
     }
 }
 
 /**
- * Finds the Stripe Customer ID from the search result.
+ * Extracts the customer ID from the search result.
  * @param {ICustomer[]} customers
- * @returns {string|null} Stripe Customer ID, if found
+ * @returns {string|null} Customer ID, if found
  */
-_findCustomerIdFromSearchResult(customers) {
+_extractCustomerIdFromSearchResult(customers) {
     // No customer found, return null
     if (customers.length === 0) {
         return null;
@@ -39,15 +39,15 @@ _findCustomerIdFromSearchResult(customers) {
     }
 
     // Multiple customers found, return the one with the most recent subscription
-    return this._findLatestCustomerWithSubscription(customers);
+    return this._getMostRecentCustomer(customers);
 }
 
 /**
- * Finds the latest customer with a subscription from the list of customers.
+ * Returns the customer with the most recent subscription.
  * @param {ICustomer[]} customers
- * @returns {string} Stripe Customer ID
+ * @returns {string} Customer ID
  */
-_findLatestCustomerWithSubscription(customers) {
+_getMostRecentCustomer(customers) {
     let latestCustomer = customers[0];
     let latestSubscriptionTime = 0;
 

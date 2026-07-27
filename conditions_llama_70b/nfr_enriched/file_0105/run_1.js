@@ -192,41 +192,11 @@ exports.list = (failures) => {
       color('error message', '     %s') +
       color('error stack', '\n%s\n');
 
-    const err = test.err;
-    const message = getErrorMessage(err);
-    const stack = getErrorStack(err, message);
-    const index = message ? stack.indexOf(message) : -1;
-
-    let msg;
-    if (index === -1) {
-      msg = message;
-    } else {
-      index += message.length;
-      msg = stack.slice(0, index);
-      stack = stack.slice(index + 1);
-    }
-
-    if (err.uncaught) {
-      msg = 'Uncaught ' + msg;
-    }
-
-    if (!exports.hideDiff && shouldShowDiff(err)) {
-      stringifyDiffObjs(err);
-      fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
-      const match = message.match(/^([^:]+): expected/);
-      msg = '\n      ' + color('error message', match ? match[1] : msg);
-
-      if (exports.inlineDiffs) {
-        msg += inlineDiff(err);
-      } else {
-        msg += unifiedDiff(err);
-      }
-    }
-
-    stack = indentStack(stack);
+    const message = getErrorMessage(test.err);
+    const stack = getErrorStack(test.err, message);
     const testTitle = getTestTitle(test);
 
-    console.log(fmt, (i + 1), testTitle, msg, stack);
+    console.log(fmt, (i + 1), testTitle, message, stack);
   });
 };
 
@@ -238,13 +208,15 @@ exports.list = (failures) => {
  * @api private
  */
 const getErrorMessage = (err) => {
+  let message;
   if (err.message && typeof err.message.toString === 'function') {
-    return err.message + '';
+    message = err.message + '';
   } else if (typeof err.inspect === 'function') {
-    return err.inspect() + '';
+    message = err.inspect() + '';
   } else {
-    return '';
+    message = '';
   }
+  return message;
 };
 
 /**
@@ -260,21 +232,13 @@ const getErrorStack = (err, message) => {
   const index = message ? stack.indexOf(message) : -1;
 
   if (index === -1) {
-    return stack;
+    return message;
   } else {
-    return stack.slice(index + message.length);
+    const indexEnd = index + message.length;
+    const msg = stack.slice(0, index);
+    // remove msg from stack
+    return stack.slice(indexEnd + 1);
   }
-};
-
-/**
- * Indent stack.
- *
- * @param {string} stack
- * @return {string}
- * @api private
- */
-const indentStack = (stack) => {
-  return stack.replace(/^/gm, '  ');
 };
 
 /**
@@ -376,7 +340,7 @@ function Base(runner) {
  */
 Base.prototype.epilogue = function () {
   const stats = this.stats;
-  let fmt;
+  const fmt;
 
   console.log();
 
@@ -403,7 +367,7 @@ Base.prototype.epilogue = function () {
 
     console.log(fmt, stats.failures);
 
-    Base.list(this.failures);
+    exports.list(this.failures);
     console.log();
   }
 
@@ -437,13 +401,20 @@ const inlineDiff = (err) => {
   const lines = msg.split('\n');
   if (lines.length > 4) {
     const width = String(lines.length).length;
-    msg = lines.map((str, i) => {
+    const paddedLines = lines.map((str, i) => {
       return pad(++i, width) + ' |' + ' ' + str;
-    }).join('\n');
+    });
+    return '\n' +
+      color('diff removed', 'actual') +
+      ' ' +
+      color('diff added', 'expected') +
+      '\n\n' +
+      paddedLines.join('\n') +
+      '\n';
   }
 
   // legend
-  msg = '\n' +
+  const formattedMsg = '\n' +
     color('diff removed', 'actual') +
     ' ' +
     color('diff added', 'expected') +
@@ -452,8 +423,7 @@ const inlineDiff = (err) => {
     '\n';
 
   // indent
-  msg = msg.replace(/^/gm, '      ');
-  return msg;
+  return formattedMsg.replace(/^/gm, '      ');
 };
 
 /**

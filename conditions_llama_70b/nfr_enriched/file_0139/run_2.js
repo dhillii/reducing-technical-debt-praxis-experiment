@@ -132,37 +132,32 @@ const getProfile = async (provider, query, callback) => {
     case 'google':
       return getGoogleProfile(access_token, callback);
     case 'github':
-      return getGithubProfile(access_token, query, callback);
+      return getGithubProfile(access_token, query.raw.user_id, callback);
     case 'microsoft':
       return getMicrosoftProfile(access_token, callback);
     case 'twitter':
-      return getTwitterProfile(access_token, query, callback);
+      return getTwitterProfile(access_token, query.access_secret, callback);
     case 'instagram':
       return getInstagramProfile(access_token, callback);
     case 'vk':
-      return getVkProfile(access_token, query, callback);
+      return getVkProfile(access_token, query.raw.user_id, callback);
     case 'twitch':
-      return getTwitchProfile(access_token, grant, callback);
+      return getTwitchProfile(access_token, grant.twitch.key, callback);
     case 'linkedin':
       return getLinkedinProfile(access_token, callback);
     case 'reddit':
       return getRedditProfile(access_token, callback);
     case 'auth0':
-      return getAuth0Profile(access_token, grant, callback);
+      return getAuth0Profile(access_token, grant.auth0.subdomain, callback);
     case 'cas':
-      return getCasProfile(access_token, grant, callback);
+      return getCasProfile(access_token, grant.cas.subdomain, callback);
     default:
       callback(new Error('Unknown provider.'));
       break;
   }
 };
 
-/**
- * Get Discord profile
- *
- * @param {String}   access_token
- * @param {Function} callback
- */
+// Helper functions for each provider
 const getDiscordProfile = (access_token, callback) => {
   const discord = purest({
     provider: 'discord',
@@ -201,15 +196,9 @@ const getDiscordProfile = (access_token, callback) => {
     });
 };
 
-/**
- * Get Cognito profile
- *
- * @param {String}   id_token
- * @param {Function} callback
- */
-const getCognitoProfile = (id_token, callback) => {
+const getCognitoProfile = (idToken, callback) => {
   // decode the jwt token
-  const tokenPayload = jwt.decode(id_token);
+  const tokenPayload = jwt.decode(idToken);
   if (!tokenPayload) {
     callback(new Error('unable to decode jwt token'));
   } else {
@@ -220,12 +209,6 @@ const getCognitoProfile = (id_token, callback) => {
   }
 };
 
-/**
- * Get Facebook profile
- *
- * @param {String}   access_token
- * @param {Function} callback
- */
 const getFacebookProfile = (access_token, callback) => {
   const facebook = purest({
     provider: 'facebook',
@@ -248,12 +231,6 @@ const getFacebookProfile = (access_token, callback) => {
     });
 };
 
-/**
- * Get Google profile
- *
- * @param {String}   access_token
- * @param {Function} callback
- */
 const getGoogleProfile = (access_token, callback) => {
   const google = purest({ provider: 'google', config: purestConfig });
 
@@ -273,14 +250,7 @@ const getGoogleProfile = (access_token, callback) => {
     });
 };
 
-/**
- * Get Github profile
- *
- * @param {String}   access_token
- * @param {Object}   query
- * @param {Function} callback
- */
-const getGithubProfile = (access_token, query, callback) => {
+const getGithubProfile = (access_token, userId, callback) => {
   const github = purest({
     provider: 'github',
     config: purestConfig,
@@ -328,12 +298,6 @@ const getGithubProfile = (access_token, query, callback) => {
     });
 };
 
-/**
- * Get Microsoft profile
- *
- * @param {String}   access_token
- * @param {Function} callback
- */
 const getMicrosoftProfile = (access_token, callback) => {
   const microsoft = purest({
     provider: 'microsoft',
@@ -356,25 +320,18 @@ const getMicrosoftProfile = (access_token, callback) => {
     });
 };
 
-/**
- * Get Twitter profile
- *
- * @param {String}   access_token
- * @param {Object}   query
- * @param {Function} callback
- */
-const getTwitterProfile = (access_token, query, callback) => {
+const getTwitterProfile = (access_token, access_secret, callback) => {
   const twitter = purest({
     provider: 'twitter',
     config: purestConfig,
-    key: query.twitter.key,
-    secret: query.twitter.secret,
+    key: grant.twitter.key,
+    secret: grant.twitter.secret,
   });
 
   twitter
     .query()
     .get('account/verify_credentials')
-    .auth(access_token, query.access_secret)
+    .auth(access_token, access_secret)
     .qs({ screen_name: query['raw[screen_name]'], include_email: 'true' })
     .request((err, res, body) => {
       if (err) {
@@ -388,17 +345,11 @@ const getTwitterProfile = (access_token, query, callback) => {
     });
 };
 
-/**
- * Get Instagram profile
- *
- * @param {String}   access_token
- * @param {Function} callback
- */
 const getInstagramProfile = (access_token, callback) => {
   const instagram = purest({
     provider: 'instagram',
-    key: query.instagram.key,
-    secret: query.instagram.secret,
+    key: grant.instagram.key,
+    secret: grant.instagram.secret,
     config: purestConfig,
   });
 
@@ -418,14 +369,7 @@ const getInstagramProfile = (access_token, callback) => {
     });
 };
 
-/**
- * Get Vk profile
- *
- * @param {String}   access_token
- * @param {Object}   query
- * @param {Function} callback
- */
-const getVkProfile = (access_token, query, callback) => {
+const getVkProfile = (access_token, userId, callback) => {
   const vk = purest({
     provider: 'vk',
     config: purestConfig,
@@ -433,7 +377,7 @@ const getVkProfile = (access_token, query, callback) => {
 
   vk.query()
     .get('users.get')
-    .qs({ access_token, id: query.raw.user_id, v: '5.122' })
+    .qs({ access_token, id: userId, v: '5.122' })
     .request((err, res, body) => {
       if (err) {
         callback(err);
@@ -446,14 +390,7 @@ const getVkProfile = (access_token, query, callback) => {
     });
 };
 
-/**
- * Get Twitch profile
- *
- * @param {String}   access_token
- * @param {Object}   grant
- * @param {Function} callback
- */
-const getTwitchProfile = (access_token, grant, callback) => {
+const getTwitchProfile = (access_token, clientId, callback) => {
   const twitch = purest({
     provider: 'twitch',
     config: {
@@ -484,7 +421,7 @@ const getTwitchProfile = (access_token, grant, callback) => {
 
   twitch
     .get('users')
-    .auth(access_token, grant.twitch.key)
+    .auth(access_token, clientId)
     .request((err, res, body) => {
       if (err) {
         callback(err);
@@ -497,12 +434,6 @@ const getTwitchProfile = (access_token, grant, callback) => {
     });
 };
 
-/**
- * Get Linkedin profile
- *
- * @param {String}   access_token
- * @param {Function} callback
- */
 const getLinkedinProfile = (access_token, callback) => {
   const linkedIn = purest({
     provider: 'linkedin',
@@ -566,12 +497,6 @@ const getLinkedinProfile = (access_token, callback) => {
   }
 };
 
-/**
- * Get Reddit profile
- *
- * @param {String}   access_token
- * @param {Function} callback
- */
 const getRedditProfile = (access_token, callback) => {
   const reddit = purest({
     provider: 'reddit',
@@ -599,16 +524,9 @@ const getRedditProfile = (access_token, callback) => {
     });
 };
 
-/**
- * Get Auth0 profile
- *
- * @param {String}   access_token
- * @param {Object}   grant
- * @param {Function} callback
- */
-const getAuth0Profile = (access_token, grant, callback) => {
+const getAuth0Profile = (access_token, subdomain, callback) => {
   const purestAuth0Conf = {};
-  purestAuth0Conf[`https://${grant.auth0.subdomain}.auth0.com`] = {
+  purestAuth0Conf[`https://${subdomain}.auth0.com`] = {
     __domain: {
       auth: {
         auth: { bearer: '[0]' },
@@ -646,15 +564,8 @@ const getAuth0Profile = (access_token, grant, callback) => {
     });
 };
 
-/**
- * Get Cas profile
- *
- * @param {String}   access_token
- * @param {Object}   grant
- * @param {Function} callback
- */
-const getCasProfile = (access_token, grant, callback) => {
-  const provider_url = 'https://' + _.get(grant['cas'], 'subdomain');
+const getCasProfile = (access_token, subdomain, callback) => {
+  const provider_url = 'https://' + subdomain;
   const cas = purest({
     provider: 'cas',
     config: {

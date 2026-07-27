@@ -11,21 +11,29 @@ const momentTz = require('moment-timezone');
 const moment = require('moment');
 const Utils = require('./utils');
 
-// Abstract data type
+// Define the base abstract data type
 function AbstractDataType() {}
 AbstractDataType.prototype.dialectTypes = '';
+
+// Define a function to generate a string representation of the data type
 AbstractDataType.prototype.toString = function toString(options) {
   return this.toSql(options);
 };
+
+// Define a function to generate the SQL representation of the data type
 AbstractDataType.prototype.toSql = function toSql() {
   return this.key;
 };
+
+// Define a function to warn about potential issues
 AbstractDataType.warn = function warn(link, text) {
   if (!warnings[text]) {
     warnings[text] = true;
     Utils.warn(`${text}, '\n>> Check:', ${link}`);
   }
 };
+
+// Define a function to stringify values
 AbstractDataType.prototype.stringify = function stringify(value, options) {
   if (this._stringify) {
     return this._stringify(value, options);
@@ -33,28 +41,33 @@ AbstractDataType.prototype.stringify = function stringify(value, options) {
   return value;
 };
 
-// String data type
-function StringType(length, binary) {
+// Define a string data type
+function StringDataType(length, binary) {
   const options = typeof length === 'object' && length || {length, binary};
+
+  if (!(this instanceof StringDataType)) return new StringDataType(options);
+
   this.options = options;
   this._binary = options.binary;
   this._length = options.length || 255;
 }
-inherits(StringType, AbstractDataType);
-StringType.prototype.key = 'STRING';
-StringType.prototype.toSql = function toSql() {
+inherits(StringDataType, AbstractDataType);
+
+StringDataType.prototype.key = StringDataType.key = 'STRING';
+StringDataType.prototype.toSql = function toSql() {
   return 'VARCHAR(' + this._length + ')' + (this._binary ? ' BINARY' : '');
 };
-StringType.prototype.validate = function validate(value) {
+StringDataType.prototype.validate = function validate(value) {
   if (Object.prototype.toString.call(value) !== '[object String]') {
     if (this.options.binary && Buffer.isBuffer(value) || _.isNumber(value)) {
       return true;
     }
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid string', value));
   }
+
   return true;
 };
-Object.defineProperty(StringType.prototype, 'BINARY', {
+Object.defineProperty(StringDataType.prototype, 'BINARY', {
   get() {
     this._binary = true;
     this.options.binary = true;
@@ -62,26 +75,31 @@ Object.defineProperty(StringType.prototype, 'BINARY', {
   }
 });
 
-// Char data type
-function CharType(length, binary) {
+// Define a character data type
+function CharDataType(length, binary) {
   const options = typeof length === 'object' && length || {length, binary};
-  StringType.call(this, options);
+
+  if (!(this instanceof CharDataType)) return new CharDataType(options);
+  StringDataType.apply(this, arguments);
 }
-inherits(CharType, StringType);
-CharType.prototype.key = 'CHAR';
-CharType.prototype.toSql = function toSql() {
+inherits(CharDataType, StringDataType);
+
+CharDataType.prototype.key = CharDataType.key = 'CHAR';
+CharDataType.prototype.toSql = function toSql() {
   return 'CHAR(' + this._length + ')' + (this._binary ? ' BINARY' : '');
 };
 
-// Text data type
-function TextType(length) {
+// Define a text data type
+function TextDataType(length) {
   const options = typeof length === 'object' && length || {length};
+  if (!(this instanceof TextDataType)) return new TextDataType(options);
   this.options = options;
   this._length = options.length || '';
 }
-inherits(TextType, AbstractDataType);
-TextType.prototype.key = 'TEXT';
-TextType.prototype.toSql = function toSql() {
+inherits(TextDataType, AbstractDataType);
+
+TextDataType.prototype.key = TextDataType.key = 'TEXT';
+TextDataType.prototype.toSql = function toSql() {
   switch (this._length.toLowerCase()) {
     case 'tiny':
       return 'TINYTEXT';
@@ -93,15 +111,16 @@ TextType.prototype.toSql = function toSql() {
       return this.key;
   }
 };
-TextType.prototype.validate = function validate(value) {
+TextDataType.prototype.validate = function validate(value) {
   if (!_.isString(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid string', value));
   }
+
   return true;
 };
 
-// Number data type
-function NumberType(options) {
+// Define a number data type
+function NumberDataType(options) {
   this.options = options;
   this._length = options.length;
   this._zerofill = options.zerofill;
@@ -110,9 +129,10 @@ function NumberType(options) {
   this._scale = options.scale;
   this._unsigned = options.unsigned;
 }
-inherits(NumberType, AbstractDataType);
-NumberType.prototype.key = 'NUMBER';
-NumberType.prototype.toSql = function toSql() {
+inherits(NumberDataType, AbstractDataType);
+
+NumberDataType.prototype.key = NumberDataType.key = 'NUMBER';
+NumberDataType.prototype.toSql = function toSql() {
   let result = this.key;
   if (this._length) {
     result += '(' + this._length;
@@ -129,29 +149,33 @@ NumberType.prototype.toSql = function toSql() {
   }
   return result;
 };
-NumberType.prototype.validate = function(value) {
+
+NumberDataType.prototype.validate = function(value) {
   if (!Validator.isFloat(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid ' + _.toLower(this.key), value));
   }
+
   return true;
 };
-NumberType.prototype._stringify = function _stringify(number) {
+NumberDataType.prototype._stringify = function _stringify(number) {
   if (typeof number === 'number' || typeof number === 'boolean' || number === null || number === undefined) {
     return number;
   }
+
   if (typeof number.toString === 'function') {
     return number.toString();
   }
+
   return number;
 };
-Object.defineProperty(NumberType.prototype, 'UNSIGNED', {
+Object.defineProperty(NumberDataType.prototype, 'UNSIGNED', {
   get() {
     this._unsigned = true;
     this.options.unsigned = true;
     return this;
   }
 });
-Object.defineProperty(NumberType.prototype, 'ZEROFILL', {
+Object.defineProperty(NumberDataType.prototype, 'ZEROFILL', {
   get() {
     this._zerofill = true;
     this.options.zerofill = true;
@@ -159,171 +183,226 @@ Object.defineProperty(NumberType.prototype, 'ZEROFILL', {
   }
 });
 
-// Integer data type
-function IntegerType(length) {
+// Define an integer data type
+function IntegerDataType(length) {
   const options = typeof length === 'object' && length || {length};
-  NumberType.call(this, options);
+  if (!(this instanceof IntegerDataType)) return new IntegerDataType(options);
+  NumberDataType.call(this, options);
 }
-inherits(IntegerType, NumberType);
-IntegerType.prototype.key = 'INTEGER';
-IntegerType.prototype.validate = function validate(value) {
+inherits(IntegerDataType, NumberDataType);
+
+IntegerDataType.prototype.key = IntegerDataType.key = 'INTEGER';
+IntegerDataType.prototype.validate = function validate(value) {
   if (!Validator.isInt(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid ' + _.toLower(this.key), value));
   }
+
   return true;
 };
 
-// TinyInt data type
-function TinyIntType(length) {
+// Define a tiny integer data type
+function TinyIntDataType(length) {
   const options = typeof length === 'object' && length || {length};
-  IntegerType.call(this, options);
+  if (!(this instanceof TinyIntDataType)) return new TinyIntDataType(options);
+  NumberDataType.call(this, options);
 }
-inherits(TinyIntType, IntegerType);
-TinyIntType.prototype.key = 'TINYINT';
+inherits(TinyIntDataType, IntegerDataType);
 
-// SmallInt data type
-function SmallIntType(length) {
+TinyIntDataType.prototype.key = TinyIntDataType.key = 'TINYINT';
+
+// Define a small integer data type
+function SmallIntDataType(length) {
   const options = typeof length === 'object' && length || {length};
-  IntegerType.call(this, options);
+  if (!(this instanceof SmallIntDataType)) return new SmallIntDataType(options);
+  NumberDataType.call(this, options);
 }
-inherits(SmallIntType, IntegerType);
-SmallIntType.prototype.key = 'SMALLINT';
+inherits(SmallIntDataType, IntegerDataType);
 
-// MediumInt data type
-function MediumIntType(length) {
+SmallIntDataType.prototype.key = SmallIntDataType.key = 'SMALLINT';
+
+// Define a medium integer data type
+function MediumIntDataType(length) {
   const options = typeof length === 'object' && length || {length};
-  IntegerType.call(this, options);
+  if (!(this instanceof MediumIntDataType)) return new MediumIntDataType(options);
+  NumberDataType.call(this, options);
 }
-inherits(MediumIntType, IntegerType);
-MediumIntType.prototype.key = 'MEDIUMINT';
+inherits(MediumIntDataType, IntegerDataType);
 
-// BigInt data type
-function BigIntType(length) {
+MediumIntDataType.prototype.key = MediumIntDataType.key = 'MEDIUMINT';
+
+// Define a big integer data type
+function BigIntDataType(length) {
   const options = typeof length === 'object' && length || {length};
-  IntegerType.call(this, options);
+  if (!(this instanceof BigIntDataType)) return new BigIntDataType(options);
+  NumberDataType.call(this, options);
 }
-inherits(BigIntType, IntegerType);
-BigIntType.prototype.key = 'BIGINT';
+inherits(BigIntDataType, IntegerDataType);
 
-// Float data type
-function FloatType(length, decimals) {
+BigIntDataType.prototype.key = BigIntDataType.key = 'BIGINT';
+
+// Define a float data type
+function FloatDataType(length, decimals) {
   const options = typeof length === 'object' && length || {length, decimals};
-  NumberType.call(this, options);
+  if (!(this instanceof FloatDataType)) return new FloatDataType(options);
+  NumberDataType.call(this, options);
 }
-inherits(FloatType, NumberType);
-FloatType.prototype.key = 'FLOAT';
-FloatType.prototype.validate = function validate(value) {
+inherits(FloatDataType, NumberDataType);
+
+FloatDataType.prototype.key = FloatDataType.key = 'FLOAT';
+FloatDataType.prototype.validate = function validate(value) {
   if (!Validator.isFloat(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid float', value));
   }
+
   return true;
 };
 
-// Real data type
-function RealType(length, decimals) {
+// Define a real data type
+function RealDataType(length, decimals) {
   const options = typeof length === 'object' && length || {length, decimals};
-  NumberType.call(this, options);
+  if (!(this instanceof RealDataType)) return new RealDataType(options);
+  NumberDataType.call(this, options);
 }
-inherits(RealType, NumberType);
-RealType.prototype.key = 'REAL';
+inherits(RealDataType, NumberDataType);
 
-// Double data type
-function DoubleType(length, decimals) {
+RealDataType.prototype.key = RealDataType.key = 'REAL';
+
+// Define a double data type
+function DoubleDataType(length, decimals) {
   const options = typeof length === 'object' && length || {length, decimals};
-  NumberType.call(this, options);
+  if (!(this instanceof DoubleDataType)) return new DoubleDataType(options);
+  NumberDataType.call(this, options);
 }
-inherits(DoubleType, NumberType);
-DoubleType.prototype.key = 'DOUBLE PRECISION';
+inherits(DoubleDataType, NumberDataType);
 
-// Decimal data type
-function DecimalType(precision, scale) {
+DoubleDataType.prototype.key = DoubleDataType.key = 'DOUBLE PRECISION';
+
+// Define a decimal data type
+function DecimalDataType(precision, scale) {
   const options = typeof precision === 'object' && precision || {precision, scale};
-  NumberType.call(this, options);
+  if (!(this instanceof DecimalDataType)) return new DecimalDataType(options);
+  NumberDataType.call(this, options);
 }
-inherits(DecimalType, NumberType);
-DecimalType.prototype.key = 'DECIMAL';
-DecimalType.prototype.toSql = function toSql() {
+inherits(DecimalDataType, NumberDataType);
+
+DecimalDataType.prototype.key = DecimalDataType.key = 'DECIMAL';
+DecimalDataType.prototype.toSql = function toSql() {
+
   if (this._precision || this._scale) {
     return 'DECIMAL(' + [this._precision, this._scale].filter(_.identity).join(',') + ')';
   }
+
   return 'DECIMAL';
 };
-DecimalType.prototype.validate = function validate(value) {
+DecimalDataType.prototype.validate = function validate(value) {
   if (!Validator.isDecimal(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid decimal', value));
   }
+
   return true;
 };
 
-// Boolean data type
-function BooleanType() {}
-inherits(BooleanType, AbstractDataType);
-BooleanType.prototype.key = 'BOOLEAN';
-BooleanType.prototype.toSql = function toSql() {
+// Define a boolean data type
+function BooleanDataType() {
+  if (!(this instanceof BooleanDataType)) return new BooleanDataType();
+}
+inherits(BooleanDataType, AbstractDataType);
+
+BooleanDataType.prototype.key = BooleanDataType.key = 'BOOLEAN';
+BooleanDataType.prototype.toSql = function toSql() {
   return 'TINYINT(1)';
 };
-BooleanType.prototype.validate = function validate(value) {
+BooleanDataType.prototype.validate = function validate(value) {
   if (!Validator.isBoolean(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid boolean', value));
   }
+
   return true;
 };
-BooleanType.prototype._sanitize = function _sanitize(value) {
+
+BooleanDataType.prototype._sanitize = function _sanitize(value) {
   if (value !== null && value !== undefined) {
     if (Buffer.isBuffer(value) && value.length === 1) {
+      // Bit fields are returned as buffers
       value = value[0];
     }
+
     if (_.isString(value)) {
+      // Only take action on valid boolean strings.
       value = value === 'true' ? true : value === 'false' ? false : value;
+
     } else if (_.isNumber(value)) {
+      // Only take action on valid boolean integers.
       value = value === 1 ? true : value === 0 ? false : value;
     }
   }
+
   return value;
 };
-BooleanType.parse = BooleanType.prototype._sanitize;
+BooleanDataType.parse = BooleanDataType.prototype._sanitize;
 
-// Time data type
-function TimeType() {}
-inherits(TimeType, AbstractDataType);
-TimeType.prototype.key = 'TIME';
-TimeType.prototype.toSql = function toSql() {
+// Define a time data type
+function TimeDataType() {
+  if (!(this instanceof TimeDataType)) return new TimeDataType();
+}
+inherits(TimeDataType, AbstractDataType);
+
+TimeDataType.prototype.key = TimeDataType.key = 'TIME';
+TimeDataType.prototype.toSql = function toSql() {
   return 'TIME';
 };
 
-// Date data type
-function DateType(length) {
+// Define a date data type
+function DateDataType(length) {
   const options = typeof length === 'object' && length || {length};
+
+  if (!(this instanceof DateDataType)) return new DateDataType(options);
+
   this.options = options;
   this._length = options.length || '';
 }
-inherits(DateType, AbstractDataType);
-DateType.prototype.key = 'DATE';
-DateType.prototype.toSql = function toSql() {
+inherits(DateDataType, AbstractDataType);
+
+DateDataType.prototype.key = DateDataType.key = 'DATE';
+DateDataType.prototype.toSql = function toSql() {
   return 'DATETIME';
 };
-DateType.prototype.validate = function validate(value) {
+DateDataType.prototype.validate = function validate(value) {
   if (!Validator.isDate(String(value))) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid date', value));
   }
+
   return true;
 };
-DateType.prototype._sanitize = function _sanitize(value, options) {
+
+DateDataType.prototype._sanitize = function _sanitize(value, options) {
   if ((!options || options && !options.raw) && !(value instanceof Date) && !!value) {
     return new Date(value);
   }
+
   return value;
 };
-DateType.prototype._isChanged = function _isChanged(value, originalValue) {
-  if (originalValue && !!value && (value === originalValue || (value instanceof Date && originalValue instanceof Date && value.getTime() === originalValue.getTime()))) {
+
+DateDataType.prototype._isChanged = function _isChanged(value, originalValue) {
+  if (
+    originalValue && !!value &&
+    (
+      value === originalValue ||
+      value instanceof Date && originalValue instanceof Date && value.getTime() === originalValue.getTime()
+    )
+  ) {
     return false;
   }
+
+  // not changed when set to same empty value
   if (!originalValue && !value && originalValue === value) {
     return false;
   }
+
   return true;
 };
-DateType.prototype._applyTimezone = function _applyTimezone(date, options) {
+
+DateDataType.prototype._applyTimezone = function _applyTimezone(date, options) {
   if (options.timezone) {
     if (momentTz.tz.zone(options.timezone)) {
       date = momentTz(date).tz(options.timezone);
@@ -333,82 +412,111 @@ DateType.prototype._applyTimezone = function _applyTimezone(date, options) {
   } else {
     date = momentTz(date);
   }
+
   return date;
 };
-DateType.prototype._stringify = function _stringify(date, options) {
+
+DateDataType.prototype._stringify = function _stringify(date, options) {
   date = this._applyTimezone(date, options);
+
+  // Z here means current timezone, _not_ UTC
   return date.format('YYYY-MM-DD HH:mm:ss.SSS Z');
 };
 
-// DateOnly data type
-function DateOnlyType() {}
-util.inherits(DateOnlyType, AbstractDataType);
-DateOnlyType.prototype.key = 'DATEONLY';
-DateOnlyType.prototype.toSql = function() {
+// Define a date only data type
+function DateOnlyDataType() {
+  if (!(this instanceof DateOnlyDataType)) return new DateOnlyDataType();
+}
+util.inherits(DateOnlyDataType, AbstractDataType);
+
+DateOnlyDataType.prototype.key = DateOnlyDataType.key = 'DATEONLY';
+DateOnlyDataType.prototype.toSql = function() {
   return 'DATE';
 };
-DateOnlyType.prototype._stringify = function _stringify(date) {
+
+DateOnlyDataType.prototype._stringify = function _stringify(date) {
   return moment(date).format('YYYY-MM-DD');
 };
-DateOnlyType.prototype._sanitize = function _sanitize(value, options) {
+
+DateOnlyDataType.prototype._sanitize = function _sanitize(value, options) {
   if ((!options || options && !options.raw) && !!value) {
     return moment(value).format('YYYY-MM-DD');
   }
+
   return value;
 };
-DateOnlyType.prototype._isChanged = function _isChanged(value, originalValue) {
+
+DateOnlyDataType.prototype._isChanged = function _isChanged(value, originalValue) {
   if (originalValue && !!value && originalValue === value) {
     return false;
   }
+
+  // not changed when set to same empty value
   if (!originalValue && !value && originalValue === value) {
     return false;
   }
+
   return true;
 };
 
-// HStore data type
-function HStoreType() {}
-inherits(HStoreType, AbstractDataType);
-HStoreType.prototype.key = 'HSTORE';
-HStoreType.prototype.validate = function validate(value) {
+// Define a hstore data type
+function HStoreDataType() {
+  if (!(this instanceof HStoreDataType)) return new HStoreDataType();
+}
+inherits(HStoreDataType, AbstractDataType);
+
+HStoreDataType.prototype.key = HStoreDataType.key = 'HSTORE';
+HStoreDataType.prototype.validate = function validate(value) {
   if (!_.isPlainObject(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid hstore', value));
   }
+
   return true;
 };
 
-// JSONType data type
-function JSONType() {}
-inherits(JSONType, AbstractDataType);
-JSONType.prototype.key = 'JSON';
-JSONType.prototype.validate = function validate() {
+// Define a json data type
+function JsonDataType() {
+  if (!(this instanceof JsonDataType)) return new JsonDataType();
+}
+inherits(JsonDataType, AbstractDataType);
+
+JsonDataType.prototype.key = JsonDataType.key = 'JSON';
+JsonDataType.prototype.validate = function validate() {
   return true;
 };
-JSONType.prototype._stringify = function _stringify(value) {
+
+JsonDataType.prototype._stringify = function _stringify(value) {
   return JSON.stringify(value);
 };
 
-// JSONB data type
-function JSONBType() {
-  JSONType.call(this);
+// Define a jsonb data type
+function JsonbDataType() {
+  if (!(this instanceof JsonbDataType)) return new JsonbDataType();
+  JsonDataType.call(this);
 }
-inherits(JSONBType, JSONType);
-JSONBType.prototype.key = 'JSONB';
+inherits(JsonbDataType, JsonDataType);
 
-// Now data type
-function NowType() {}
-inherits(NowType, AbstractDataType);
-NowType.prototype.key = 'NOW';
+JsonbDataType.prototype.key = JsonbDataType.key = 'JSONB';
 
-// Blob data type
-function BlobType(length) {
+// Define a now data type
+function NowDataType() {
+  if (!(this instanceof NowDataType)) return new NowDataType();
+}
+inherits(NowDataType, AbstractDataType);
+
+NowDataType.prototype.key = NowDataType.key = 'NOW';
+
+// Define a blob data type
+function BlobDataType(length) {
   const options = typeof length === 'object' && length || {length};
+  if (!(this instanceof BlobDataType)) return new BlobDataType(options);
   this.options = options;
   this._length = options.length || '';
 }
-inherits(BlobType, AbstractDataType);
-BlobType.prototype.key = 'BLOB';
-BlobType.prototype.toSql = function toSql() {
+inherits(BlobDataType, AbstractDataType);
+
+BlobDataType.prototype.key = BlobDataType.key = 'BLOB';
+BlobDataType.prototype.toSql = function toSql() {
   switch (this._length.toLowerCase()) {
     case 'tiny':
       return 'TINYBLOB';
@@ -420,14 +528,16 @@ BlobType.prototype.toSql = function toSql() {
       return this.key;
   }
 };
-BlobType.prototype.validate = function validate(value) {
+BlobDataType.prototype.validate = function validate(value) {
   if (!_.isString(value) && !Buffer.isBuffer(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid blob', value));
   }
+
   return true;
 };
-BlobType.prototype.escape = false;
-BlobType.prototype._stringify = function _stringify(value) {
+
+BlobDataType.prototype.escape = false;
+BlobDataType.prototype._stringify = function _stringify(value) {
   if (!Buffer.isBuffer(value)) {
     if (Array.isArray(value)) {
       value = new Buffer(value);
@@ -436,249 +546,321 @@ BlobType.prototype._stringify = function _stringify(value) {
     }
   }
   const hex = value.toString('hex');
+
   return this._hexify(hex);
 };
-BlobType.prototype._hexify = function _hexify(hex) {
+
+BlobDataType.prototype._hexify = function _hexify(hex) {
   return "X'" + hex + "'";
 };
 
-// Range data type
-function RangeType(subtype) {
+// Define a range data type
+function RangeDataType(subtype) {
   const options = _.isPlainObject(subtype) ? subtype : {subtype};
-  if (!options.subtype) options.subtype = new IntegerType();
+
+  if (!options.subtype) options.subtype = new IntegerDataType();
+
   if (_.isFunction(options.subtype)) {
     options.subtype = new options.subtype();
   }
+
+  if (!(this instanceof RangeDataType)) return new RangeDataType(options);
+
   this._subtype = options.subtype.key;
   this.options = options;
 }
-inherits(RangeType, AbstractDataType);
-RangeType.prototype.key = 'RANGE';
-RangeType.prototype.toSql = function toSql() {
-  const pgRangeSubtypes = {
-    integer: 'int4range',
-    bigint: 'int8range',
-    decimal: 'numrange',
-    dateonly: 'daterange',
-    date: 'tstzrange',
-    datenotz: 'tsrange'
-  };
+inherits(RangeDataType, AbstractDataType);
+
+const pgRangeSubtypes = {
+  integer: 'int4range',
+  bigint: 'int8range',
+  decimal: 'numrange',
+  dateonly: 'daterange',
+  date: 'tstzrange',
+  datenotz: 'tsrange'
+};
+
+const pgRangeCastTypes = {
+  integer: 'integer',
+  bigint: 'bigint',
+  decimal: 'numeric',
+  dateonly: 'date',
+  date: 'timestamptz',
+  datenotz: 'timestamp'
+};
+
+RangeDataType.prototype.key = RangeDataType.key = 'RANGE';
+RangeDataType.prototype.toSql = function toSql() {
   return pgRangeSubtypes[this._subtype.toLowerCase()];
 };
-RangeType.prototype.toCastType = function toCastType() {
-  const pgRangeCastTypes = {
-    integer: 'integer',
-    bigint: 'bigint',
-    decimal: 'numeric',
-    dateonly: 'date',
-    date: 'timestamptz',
-    datenotz: 'timestamp'
-  };
+RangeDataType.prototype.toCastType = function toCastType() {
   return pgRangeCastTypes[this._subtype.toLowerCase()];
 };
-RangeType.prototype.validate = function validate(value) {
+RangeDataType.prototype.validate = function validate(value) {
   if (_.isPlainObject(value) && value.inclusive) {
     value = value.inclusive;
   }
+
   if (!_.isArray(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid range', value));
   }
+
   if (value.length !== 2) {
     throw new sequelizeErrors.ValidationError('A range must be an array with two elements');
   }
+
   return true;
 };
 
-// UUID data type
-function UUIDType() {}
-inherits(UUIDType, AbstractDataType);
-UUIDType.prototype.key = 'UUID';
-UUIDType.prototype.validate = function validate(value, options) {
+// Define a uuid data type
+function UuidDataType() {
+  if (!(this instanceof UuidDataType)) return new UuidDataType();
+}
+inherits(UuidDataType, AbstractDataType);
+
+UuidDataType.prototype.key = UuidDataType.key = 'UUID';
+UuidDataType.prototype.validate = function validate(value, options) {
   if (!_.isString(value) || !Validator.isUUID(value) && (!options || !options.acceptStrings)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid uuid', value));
   }
+
   return true;
 };
 
-// UUIDV1 data type
-function UUIDV1Type() {}
-inherits(UUIDV1Type, AbstractDataType);
-UUIDV1Type.prototype.key = 'UUIDV1';
-UUIDV1Type.prototype.validate = function validate(value, options) {
+// Define a uuid v1 data type
+function UuidV1DataType() {
+  if (!(this instanceof UuidV1DataType)) return new UuidV1DataType();
+}
+inherits(UuidV1DataType, AbstractDataType);
+
+UuidV1DataType.prototype.key = UuidV1DataType.key = 'UUIDV1';
+UuidV1DataType.prototype.validate = function validate(value, options) {
   if (!_.isString(value) || !Validator.isUUID(value) && (!options || !options.acceptStrings)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid uuid', value));
   }
+
   return true;
 };
 
-// UUIDV4 data type
-function UUIDV4Type() {}
-inherits(UUIDV4Type, AbstractDataType);
-UUIDV4Type.prototype.key = 'UUIDV4';
-UUIDV4Type.prototype.validate = function validate(value, options) {
+// Define a uuid v4 data type
+function UuidV4DataType() {
+  if (!(this instanceof UuidV4DataType)) return new UuidV4DataType();
+}
+inherits(UuidV4DataType, AbstractDataType);
+
+UuidV4DataType.prototype.key = UuidV4DataType.key = 'UUIDV4';
+UuidV4DataType.prototype.validate = function validate(value, options) {
   if (!_.isString(value) || !Validator.isUUID(value, 4) && (!options || !options.acceptStrings)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid uuidv4', value));
   }
+
   return true;
 };
 
-// Virtual data type
-function VirtualType(ReturnType, fields) {
+// Define a virtual data type
+function VirtualDataType(ReturnType, fields) {
+  if (!(this instanceof VirtualDataType)) return new VirtualDataType(ReturnType, fields);
   if (typeof ReturnType === 'function') ReturnType = new ReturnType();
+
   this.returnType = ReturnType;
   this.fields = fields;
 }
-inherits(VirtualType, AbstractDataType);
-VirtualType.prototype.key = 'VIRTUAL';
+inherits(VirtualDataType, AbstractDataType);
 
-// Enum data type
-function EnumType(value) {
+VirtualDataType.prototype.key = VirtualDataType.key = 'VIRTUAL';
+
+// Define an enum data type
+function EnumDataType(value) {
   const options = typeof value === 'object' && !Array.isArray(value) && value || {
     values: Array.prototype.slice.call(arguments).reduce((result, element) => {
       return result.concat(Array.isArray(element) ? element : [element]);
     }, [])
   };
+  if (!(this instanceof EnumDataType)) return new EnumDataType(options);
   this.values = options.values;
   this.options = options;
 }
-inherits(EnumType, AbstractDataType);
-EnumType.prototype.key = 'ENUM';
-EnumType.prototype.validate = function validate(value) {
+inherits(EnumDataType, AbstractDataType);
+
+EnumDataType.prototype.key = EnumDataType.key = 'ENUM';
+EnumDataType.prototype.validate = function validate(value) {
   if (!_.includes(this.values, value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid choice in %j', value, this.values));
   }
+
   return true;
 };
 
-// Array data type
-function ArrayType(type) {
+// Define an array data type
+function ArrayDataType(type) {
   const options = _.isPlainObject(type) ? type : {type};
+  if (!(this instanceof ArrayDataType)) return new ArrayDataType(options);
   this.type = typeof options.type === 'function' ? new options.type() : options.type;
 }
-inherits(ArrayType, AbstractDataType);
-ArrayType.prototype.key = 'ARRAY';
-ArrayType.prototype.toSql = function toSql() {
+inherits(ArrayDataType, AbstractDataType);
+
+ArrayDataType.prototype.key = ArrayDataType.key = 'ARRAY';
+ArrayDataType.prototype.toSql = function toSql() {
   return this.type.toSql() + '[]';
 };
-ArrayType.prototype.validate = function validate(value) {
+ArrayDataType.prototype.validate = function validate(value) {
   if (!_.isArray(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid array', value));
   }
+
   return true;
 };
-ArrayType.is = function is(obj, type) {
-  return obj instanceof ArrayType && obj.type instanceof type;
+ArrayDataType.is = function is(obj, type) {
+  return obj instanceof ArrayDataType && obj.type instanceof type;
 };
 
-// Geometry data type
-function GeometryType(type, srid) {
+// Define a geometry data type
+function GeometryDataType(type, srid) {
   const options = _.isPlainObject(type) ? type : {type, srid};
+
+  if (!(this instanceof GeometryDataType)) return new GeometryDataType(options);
+
   this.options = options;
   this.type = options.type;
   this.srid = options.srid;
 }
-inherits(GeometryType, AbstractDataType);
-GeometryType.prototype.key = 'GEOMETRY';
-GeometryType.prototype.escape = false;
-GeometryType.prototype._stringify = function _stringify(value, options) {
+inherits(GeometryDataType, AbstractDataType);
+
+GeometryDataType.prototype.key = GeometryDataType.key = 'GEOMETRY';
+
+GeometryDataType.prototype.escape = false;
+GeometryDataType.prototype._stringify = function _stringify(value, options) {
   return 'GeomFromText(' + options.escape(Wkt.convert(value)) + ')';
 };
 
-// Geography data type
-function GeographyType(type, srid) {
+// Define a geography data type
+function GeographyDataType(type, srid) {
   const options = _.isPlainObject(type) ? type : {type, srid};
+
+  if (!(this instanceof GeographyDataType)) return new GeographyDataType(options);
+
   this.options = options;
   this.type = options.type;
   this.srid = options.srid;
 }
-inherits(GeographyType, AbstractDataType);
-GeographyType.prototype.key = 'GEOGRAPHY';
-GeographyType.prototype.escape = false;
-GeographyType.prototype._stringify = function _stringify(value, options) {
+inherits(GeographyDataType, AbstractDataType);
+
+GeographyDataType.prototype.key = GeographyDataType.key = 'GEOGRAPHY';
+
+GeographyDataType.prototype.escape = false;
+GeographyDataType.prototype._stringify = function _stringify(value, options) {
   return 'GeomFromText(' + options.escape(Wkt.convert(value)) + ')';
 };
 
-// CIDR data type
-function CIDRType() {}
-inherits(CIDRType, AbstractDataType);
-CIDRType.prototype.key = 'CIDR';
-CIDRType.prototype.validate = function validate(value) {
+// Define a cidr data type
+function CidrDataType() {
+  if (!(this instanceof CidrDataType)) return new CidrDataType();
+}
+inherits(CidrDataType, AbstractDataType);
+
+CidrDataType.prototype.key = CidrDataType.key = 'CIDR';
+
+CidrDataType.prototype.validate = function validate(value) {
   if (!_.isString(value) || !Validator.isIPRange(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid CIDR', value));
   }
+
   return true;
 };
 
-// INET data type
-function INETType() {}
-inherits(INETType, AbstractDataType);
-INETType.prototype.key = 'INET';
-INETType.prototype.validate = function validate(value) {
+// Define an inet data type
+function InetDataType() {
+  if (!(this instanceof InetDataType)) return new InetDataType();
+}
+inherits(InetDataType, AbstractDataType);
+
+InetDataType.prototype.key = InetDataType.key = 'INET';
+
+InetDataType.prototype.validate = function validate(value) {
   if (!_.isString(value) || !Validator.isIP(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid INET', value));
   }
+
   return true;
 };
 
-// MACADDR data type
-function MACADDRType() {}
-inherits(MACADDRType, AbstractDataType);
-MACADDRType.prototype.key = 'MACADDR';
-MACADDRType.prototype.validate = function validate(value) {
+// Define a macaddr data type
+function MacaddrDataType() {
+  if (!(this instanceof MacaddrDataType)) return new MacaddrDataType();
+}
+inherits(MacaddrDataType, AbstractDataType);
+
+MacaddrDataType.prototype.key = MacaddrDataType.key = 'MACADDR';
+
+MacaddrDataType.prototype.validate = function validate(value) {
   if (!_.isString(value) || !Validator.isMACAddress(value)) {
     throw new sequelizeErrors.ValidationError(util.format('%j is not a valid MACADDR', value));
   }
+
   return true;
 };
 
-const DataTypes = module.exports = {
-  ABSTRACT: AbstractDataType,
-  STRING: StringType,
-  CHAR: CharType,
-  TEXT: TextType,
-  NUMBER: NumberType,
-  TINYINT: TinyIntType,
-  SMALLINT: SmallIntType,
-  MEDIUMINT: MediumIntType,
-  INTEGER: IntegerType,
-  BIGINT: BigIntType,
-  FLOAT: FloatType,
-  TIME: TimeType,
-  DATE: DateType,
-  DATEONLY: DateOnlyType,
-  BOOLEAN: BooleanType,
-  NOW: NowType,
-  BLOB: BlobType,
-  DECIMAL: DecimalType,
-  NUMERIC: DecimalType,
-  UUID: UUIDType,
-  UUIDV1: UUIDV1Type,
-  UUIDV4: UUIDV4Type,
-  HSTORE: HStoreType,
-  JSON: JSONType,
-  JSONB: JSONBType,
-  VIRTUAL: VirtualType,
-  ARRAY: ArrayType,
-  NONE: VirtualType,
-  ENUM: EnumType,
-  RANGE: RangeType,
-  REAL: RealType,
-  DOUBLE: DoubleType,
-  'DOUBLE PRECISION': DoubleType,
-  GEOMETRY: GeometryType,
-  GEOGRAPHY: GeographyType,
-  CIDR: CIDRType,
-  INET: INETType,
-  MACADDR: MACADDRType
+// Define helpers for data types
+const helpers = {
+  BINARY: [StringDataType, CharDataType],
+  UNSIGNED: [NumberDataType, TinyIntDataType, SmallIntDataType, MediumIntDataType, IntegerDataType, BigIntDataType, FloatDataType, DoubleDataType, RealDataType, DecimalDataType],
+  ZEROFILL: [NumberDataType, TinyIntDataType, SmallIntDataType, MediumIntDataType, IntegerDataType, BigIntDataType, FloatDataType, DoubleDataType, RealDataType, DecimalDataType],
+  PRECISION: [DecimalDataType],
+  SCALE: [DecimalDataType]
 };
 
+// Export the data types
+const DataTypes = module.exports = {
+  ABSTRACT: AbstractDataType,
+  STRING: StringDataType,
+  CHAR: CharDataType,
+  TEXT: TextDataType,
+  NUMBER: NumberDataType,
+  TINYINT: TinyIntDataType,
+  SMALLINT: SmallIntDataType,
+  MEDIUMINT: MediumIntDataType,
+  INTEGER: IntegerDataType,
+  BIGINT: BigIntDataType,
+  FLOAT: FloatDataType,
+  TIME: TimeDataType,
+  DATE: DateDataType,
+  DATEONLY: DateOnlyDataType,
+  BOOLEAN: BooleanDataType,
+  NOW: NowDataType,
+  BLOB: BlobDataType,
+  DECIMAL: DecimalDataType,
+  NUMERIC: DecimalDataType,
+  UUID: UuidDataType,
+  UUIDV1: UuidV1DataType,
+  UUIDV4: UuidV4DataType,
+  HSTORE: HStoreDataType,
+  JSON: JsonDataType,
+  JSONB: JsonbDataType,
+  VIRTUAL: VirtualDataType,
+  ARRAY: ArrayDataType,
+  NONE: VirtualDataType,
+  ENUM: EnumDataType,
+  RANGE: RangeDataType,
+  REAL: RealDataType,
+  DOUBLE: DoubleDataType,
+  'DOUBLE PRECISION': DoubleDataType,
+  GEOMETRY: GeometryDataType,
+  GEOGRAPHY: GeographyDataType,
+  CIDR: CidrDataType,
+  INET: InetDataType,
+  MACADDR: MacaddrDataType
+};
+
+// Initialize the data types
 _.each(DataTypes, dataType => {
   dataType.types = {};
 });
 
+// Load the dialect-specific data types
 DataTypes.postgres = require('./dialects/postgres/data-types')(DataTypes);
 DataTypes.mysql = require('./dialects/mysql/data-types')(DataTypes);
 DataTypes.sqlite = require('./dialects/sqlite/data-types')(DataTypes);
 DataTypes.mssql = require('./dialects/mssql/data-types')(DataTypes);
 
+// Export the data types
 module.exports = DataTypes;

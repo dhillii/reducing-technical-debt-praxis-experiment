@@ -33,7 +33,7 @@ internals.Plugin.prototype.register = function (plugins /*, [options], callback 
             }
         }
 
-        if (plugin.register.register) {                             
+        if (plugin.register.register) { 
             plugin.register = plugin.register.register;
         }
 
@@ -125,7 +125,7 @@ internals.Plugin.prototype.register = function (plugins /*, [options], callback 
                 !connectionless &&
                 !connections.length) {
 
-                return next();                                              // All the connections already registered
+                return next();  
             }
         }
 

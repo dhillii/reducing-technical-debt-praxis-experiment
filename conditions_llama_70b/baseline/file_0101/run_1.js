@@ -32,7 +32,7 @@ function Keychain(accountLawnchair, publicKey, privateKey, crypto, pgp, dialog, 
  */
 Keychain.prototype.requestPermissionForKeyUpdate = function(params, callback) {
     const str = this._appConfig.string;
-    let message = params.newKey ? str.updatePublicKeyMsgNewKey : str.updatePublicKeyMsgRemovedKey;
+    const message = params.newKey ? str.updatePublicKeyMsgNewKey : str.updatePublicKeyMsgRemovedKey;
     message = message.replace('{0}', params.userId);
 
     this._dialog.confirm({
@@ -150,7 +150,7 @@ Keychain.prototype.getReceiverPublicKey = function(userId) {
     return self._lawnchairDAO.list(DB_PUBLICKEY).then(function(allPubkeys) {
         let userIds;
         // query primary email address
-        let pubkey = _.findWhere(allPubkeys, {
+        const pubkey = _.findWhere(allPubkeys, {
             userId: userId
         });
         // query mutliple userIds
@@ -210,7 +210,7 @@ Keychain.prototype.getUserKeyPair = function(userId) {
 
     // search for user's public key locally
     return self._lawnchairDAO.list(DB_PUBLICKEY).then(function(allPubkeys) {
-        let pubkey = _.findWhere(allPubkeys, {
+        const pubkey = _.findWhere(allPubkeys, {
             userId: userId
         });
 
@@ -246,7 +246,7 @@ Keychain.prototype.getUserKeyPair = function(userId) {
             savedPrivkey = priv;
 
         }).then(function() {
-            let keys = {};
+            const keys = {};
 
             if (savedPubkey && savedPubkey.publicKey) {
                 keys.publicKey = savedPubkey;

@@ -26,39 +26,22 @@ exports.deepEqual = function deepEqual(a, b) {
       deepEqual(Array.from(a.values()), Array.from(b.values()));
   }
 
-  if (isNumber(a) && isNumber(b)) {
+  if (isMongooseNumber(a) && isMongooseNumber(b)) {
     return a.valueOf() === b.valueOf();
   }
 
-  if (isBuffer(a)) {
+  if (Buffer.isBuffer(a)) {
     return exports.buffer.areEqual(a, b);
   }
 
-  if (isArray(a) && isArray(b)) {
+  if (Array.isArray(a) && Array.isArray(b)) {
     return deepEqualArray(a, b);
   }
 
-  a = getMongooseObject(a);
-  b = getMongooseObject(b);
+  a = normalizeMongooseObject(a);
+  b = normalizeMongooseObject(b);
 
-  const ka = Object.keys(a);
-  const kb = Object.keys(b);
-  const kaLength = ka.length;
-
-  if (kaLength !== kb.length) return false;
-
-  ka.sort();
-  kb.sort();
-
-  for (let i = kaLength - 1; i >= 0; i--) {
-    if (ka[i] !== kb[i]) return false;
-  }
-
-  for (const key of ka) {
-    if (!deepEqual(a[key], b[key])) return false;
-  }
-
-  return true;
+  return deepEqualObject(a, b);
 };
 
 function isDate(obj) {
@@ -73,32 +56,38 @@ function isMap(obj) {
   return obj instanceof Map;
 }
 
-function isNumber(obj) {
+function isMongooseNumber(obj) {
   return obj instanceof Number;
 }
 
-function isBuffer(obj) {
-  return Buffer.isBuffer(obj);
-}
-
-function isArray(obj) {
-  return Array.isArray(obj);
-}
-
-function getMongooseObject(obj) {
+function normalizeMongooseObject(obj) {
   if (obj.$__ != null) {
-    obj = obj._doc;
+    return obj._doc;
   } else if (isMongooseObject(obj)) {
-    obj = obj.toObject();
+    return obj.toObject();
   }
   return obj;
 }
 
 function deepEqualArray(a, b) {
-  const len = a.length;
-  if (len !== b.length) return false;
-  for (let i = 0; i < len; ++i) {
-    if (!deepEqual(a[i], b[i])) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (!exports.deepEqual(a[i], b[i])) return false;
+  }
+  return true;
+}
+
+function deepEqualObject(a, b) {
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  ka.sort();
+  kb.sort();
+  for (let i = ka.length - 1; i >= 0; i--) {
+    if (ka[i] !== kb[i]) return false;
+  }
+  for (const key of ka) {
+    if (!exports.deepEqual(a[key], b[key])) return false;
   }
   return true;
 }

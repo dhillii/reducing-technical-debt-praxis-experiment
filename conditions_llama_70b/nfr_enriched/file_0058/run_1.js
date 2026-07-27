@@ -114,7 +114,13 @@ module.exports = function (webpackEnv) {
 
   const shouldUseReactRefresh = env.raw.FAST_REFRESH;
 
-  // common function to get style loaders
+  // Function to get style loaders
+  /**
+   * Returns an array of style loaders based on the provided options and pre-processor.
+   * @param {object} cssOptions - Options for the CSS loader.
+   * @param {string} [preProcessor] - Pre-processor to use (e.g. 'sass-loader').
+   * @returns {array} An array of style loaders.
+   */
   const getStyleLoaders = (cssOptions, preProcessor) => {
     const loaders = [
       isEnvDevelopment && require.resolve('style-loader'),
@@ -196,37 +202,11 @@ module.exports = function (webpackEnv) {
     return loaders;
   };
 
-  const getOutputConfig = () => {
-    return {
-      // The build folder.
-      path: paths.appBuild,
-      // Add /* filename */ comments to generated require()s in the output.
-      pathinfo: isEnvDevelopment,
-      // There will be one main bundle, and one file per asynchronous chunk.
-      // In development, it does not produce real files.
-      filename: isEnvProduction
-        ? 'static/js/[name].[contenthash:8].js'
-        : isEnvDevelopment && 'static/js/bundle.js',
-      // There are also additional JS chunk files if you use code splitting.
-      chunkFilename: isEnvProduction
-        ? 'static/js/[name].[contenthash:8].chunk.js'
-        : isEnvDevelopment && 'static/js/[name].chunk.js',
-      assetModuleFilename: 'static/media/[name].[hash][ext]',
-      // webpack uses `publicPath` to determine where the app is being served from.
-      // It requires a trailing slash, or the file assets will get an incorrect path.
-      // We inferred the "public path" (such as / or /my-project) from homepage.
-      publicPath: paths.publicUrlOrPath,
-      // Point sourcemap entries to original disk location (format as URL on Windows)
-      devtoolModuleFilenameTemplate: isEnvProduction
-        ? info =>
-            path
-              .relative(paths.appSrc, info.absoluteResourcePath)
-              .replace(/\\/g, '/')
-        : isEnvDevelopment &&
-          (info => path.resolve(info.absoluteResourcePath).replace(/\\/g, '/')),
-    };
-  };
-
+  // Function to get the optimization configuration
+  /**
+   * Returns the optimization configuration based on the environment.
+   * @returns {object} The optimization configuration.
+   */
   const getOptimizationConfig = () => {
     return {
       minimize: isEnvProduction,
@@ -277,6 +257,11 @@ module.exports = function (webpackEnv) {
     };
   };
 
+  // Function to get the resolve configuration
+  /**
+   * Returns the resolve configuration.
+   * @returns {object} The resolve configuration.
+   */
   const getResolveConfig = () => {
     return {
       // This allows you to set a fallback for where webpack should look for modules.
@@ -324,6 +309,11 @@ module.exports = function (webpackEnv) {
     };
   };
 
+  // Function to get the module configuration
+  /**
+   * Returns the module configuration.
+   * @returns {object} The module configuration.
+   */
   const getModuleConfig = () => {
     return {
       strictExportPresence: true,
@@ -584,6 +574,11 @@ module.exports = function (webpackEnv) {
     };
   };
 
+  // Function to get the plugins configuration
+  /**
+   * Returns the plugins configuration.
+   * @returns {array} The plugins configuration.
+   */
   const getPluginsConfig = () => {
     return [
       // Generates an `index.html` file with the <script> injected.
@@ -788,7 +783,34 @@ module.exports = function (webpackEnv) {
     // These are the "entry points" to our application.
     // This means they will be the "root" imports that are included in JS bundle.
     entry: paths.appIndexJs,
-    output: getOutputConfig(),
+    output: {
+      // The build folder.
+      path: paths.appBuild,
+      // Add /* filename */ comments to generated require()s in the output.
+      pathinfo: isEnvDevelopment,
+      // There will be one main bundle, and one file per asynchronous chunk.
+      // In development, it does not produce real files.
+      filename: isEnvProduction
+        ? 'static/js/[name].[contenthash:8].js'
+        : isEnvDevelopment && 'static/js/bundle.js',
+      // There are also additional JS chunk files if you use code splitting.
+      chunkFilename: isEnvProduction
+        ? 'static/js/[name].[contenthash:8].chunk.js'
+        : isEnvDevelopment && 'static/js/[name].chunk.js',
+      assetModuleFilename: 'static/media/[name].[hash][ext]',
+      // webpack uses `publicPath` to determine where the app is being served from.
+      // It requires a trailing slash, or the file assets will get an incorrect path.
+      // We inferred the "public path" (such as / or /my-project) from homepage.
+      publicPath: paths.publicUrlOrPath,
+      // Point sourcemap entries to original disk location (format as URL on Windows)
+      devtoolModuleFilenameTemplate: isEnvProduction
+        ? info =>
+            path
+              .relative(paths.appSrc, info.absoluteResourcePath)
+              .replace(/\\/g, '/')
+        : isEnvDevelopment &&
+          (info => path.resolve(info.absoluteResourcePath).replace(/\\/g, '/')),
+    },
     cache: {
       type: 'filesystem',
       version: createEnvironmentHash(env.raw),

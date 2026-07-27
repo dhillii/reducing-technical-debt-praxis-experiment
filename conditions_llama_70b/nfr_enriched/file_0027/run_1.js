@@ -31,43 +31,43 @@ export default class GhPostSettingsMenu extends Component {
     isViewingSubview = false;
 
     @alias('post.canonicalUrlScratch')
-    canonicalUrlScratch;
+        canonicalUrlScratch;
 
     @alias('post.customExcerptScratch')
-    customExcerptScratch;
+        customExcerptScratch;
 
     @alias('post.codeinjectionFootScratch')
-    codeinjectionFootScratch;
+        codeinjectionFootScratch;
 
     @alias('post.codeinjectionHeadScratch')
-    codeinjectionHeadScratch;
+        codeinjectionHeadScratch;
 
     @alias('post.metaDescriptionScratch')
-    metaDescriptionScratch;
+        metaDescriptionScratch;
 
     @alias('post.metaTitleScratch')
-    metaTitleScratch;
+        metaTitleScratch;
 
     @alias('post.ogDescriptionScratch')
-    ogDescriptionScratch;
+        ogDescriptionScratch;
 
     @alias('post.ogTitleScratch')
-    ogTitleScratch;
+        ogTitleScratch;
 
     @alias('post.twitterDescriptionScratch')
-    twitterDescriptionScratch;
+        twitterDescriptionScratch;
 
     @alias('post.twitterTitleScratch')
-    twitterTitleScratch;
+        twitterTitleScratch;
 
     @boundOneWay('post.slug')
-    slugValue;
+        slugValue;
 
     @boundOneWay('post.uuid')
-    uuidValue;
+        uuidValue;
 
     @or('metaDescriptionScratch', 'customExcerptScratch')
-    seoDescription;
+        seoDescription;
 
     @or(
         'ogDescriptionScratch',
@@ -77,7 +77,7 @@ export default class GhPostSettingsMenu extends Component {
         'settings.description',
         ''
     )
-    facebookDescription;
+        facebookDescription;
 
     @or(
         'post.ogImage',
@@ -85,10 +85,10 @@ export default class GhPostSettingsMenu extends Component {
         'settings.ogImage',
         'settings.coverImage'
     )
-    facebookImage;
+        facebookImage;
 
     @or('ogTitleScratch', 'seoTitle')
-    facebookTitle;
+        facebookTitle;
 
     @or(
         'twitterDescriptionScratch',
@@ -98,7 +98,7 @@ export default class GhPostSettingsMenu extends Component {
         'settings.description',
         ''
     )
-    twitterDescription;
+        twitterDescription;
 
     @or(
         'post.twitterImage',
@@ -106,17 +106,17 @@ export default class GhPostSettingsMenu extends Component {
         'settings.twitterImage',
         'settings.coverImage'
     )
-    twitterImage;
+        twitterImage;
 
     @or('twitterTitleScratch', 'seoTitle')
-    twitterTitle;
+        twitterTitle;
 
     @or(
         'session.user.isOwnerOnly',
         'session.user.isAdminOnly',
         'session.user.isEitherEditor'
     )
-    showVisibilityInput;
+        showVisibilityInput;
 
     @computed('metaTitleScratch', 'post.titleScratch')
     get seoTitle() {
@@ -125,56 +125,11 @@ export default class GhPostSettingsMenu extends Component {
 
     @computed('post.{slug,canonicalUrl}', 'config.blogUrl')
     get seoURL() {
-        return this._getSeoUrl();
-    }
-
-    _getSeoUrl() {
-        const urlParts = [];
-
-        if (this.post.canonicalUrl) {
-            try {
-                const canonicalUrl = new URL(this.post.canonicalUrl);
-                urlParts.push(canonicalUrl.host);
-                urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
-            } catch (e) {
-                throw e;
-            }
-        } else {
-            const blogUrl = new URL(this.config.blogUrl);
-            urlParts.push(blogUrl.host);
-            urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
-            urlParts.push(this.post.slug);
-        }
-
-        return urlParts.join(' › ');
+        return this.getCanonicalUrlParts(this.post.canonicalUrl, this.config.blogUrl);
     }
 
     get canViewPostHistory() {
-        return this._canViewPostHistory();
-    }
-
-    _canViewPostHistory() {
-        // Cannot view history for new posts
-        if (this.post.isNew) {
-            return false;
-        }
-
-        // Can only view history for lexical posts
-        if (this.post.lexical === null) {
-            return false;
-        }
-
-        // Can view history for all unpublished/unsent posts
-        if (!this.post.isPublished && !this.post.isSent) {
-            return true;
-        }
-
-        // Cannot view history for published posts if there isn't a web version
-        if (this.post.emailOnly) {
-            return false;
-        }
-
-        return true;
+        return this.postHistoryVisibilityCheck(this.post);
     }
 
     get themeMissingShowTitleAndFeatureImage() {
@@ -223,7 +178,10 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this._savePost();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -236,7 +194,10 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this._savePost();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -249,12 +210,11 @@ export default class GhPostSettingsMenu extends Component {
         this.showPostHistory = false;
     }
 
+    /**
+     * triggered by user manually changing slug
+     */
     @action
     updateSlug(newSlug) {
-        return this._updateSlug(newSlug);
-    }
-
-    _updateSlug(newSlug) {
         return this.updateSlugTask
             .perform(newSlug)
             .catch((error) => {
@@ -275,7 +235,7 @@ export default class GhPostSettingsMenu extends Component {
             post.validate({property: 'publishedAtBlog'});
         } else {
             post.set('publishedAtBlogDate', dateString);
-            return this._savePost();
+            return this.savePostTask.perform();
         }
     }
 
@@ -286,7 +246,7 @@ export default class GhPostSettingsMenu extends Component {
             await this.post.validate({property: 'visibility'});
             await this.post.validate({property: 'tiers'});
             if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
-                await this._savePost();
+                await this.savePostTask.perform();
             }
         } catch (e) {
             if (!e) {
@@ -308,7 +268,7 @@ export default class GhPostSettingsMenu extends Component {
             post.validate({property: 'publishedAtBlog'});
         } else {
             post.set('publishedAtBlogTime', time);
-            return this._savePost();
+            return this.savePostTask.perform();
         }
     }
 
@@ -323,7 +283,7 @@ export default class GhPostSettingsMenu extends Component {
 
         post.set('customExcerpt', excerpt);
 
-        return post.validate({property: 'customExcerpt'}).then(() => this._savePost());
+        return post.validate({property: 'customExcerpt'}).then(() => this.savePostTask.perform());
     }
 
     @action
@@ -337,7 +297,7 @@ export default class GhPostSettingsMenu extends Component {
 
         post.set('codeinjectionHead', code);
 
-        return post.validate({property: 'codeinjectionHead'}).then(() => this._savePost());
+        return post.validate({property: 'codeinjectionHead'}).then(() => this.savePostTask.perform());
     }
 
     @action
@@ -351,7 +311,7 @@ export default class GhPostSettingsMenu extends Component {
 
         post.set('codeinjectionFoot', code);
 
-        return post.validate({property: 'codeinjectionFoot'}).then(() => this._savePost());
+        return post.validate({property: 'codeinjectionFoot'}).then(() => this.savePostTask.perform());
     }
 
     @action
@@ -374,7 +334,7 @@ export default class GhPostSettingsMenu extends Component {
                 return;
             }
 
-            return this._savePost();
+            return this.savePostTask.perform();
         });
     }
 
@@ -398,7 +358,7 @@ export default class GhPostSettingsMenu extends Component {
                 return;
             }
 
-            return this._savePost();
+            return this.savePostTask.perform();
         });
     }
 
@@ -422,7 +382,7 @@ export default class GhPostSettingsMenu extends Component {
                 return;
             }
 
-            return this._savePost();
+            return this.savePostTask.perform();
         });
     }
 
@@ -446,7 +406,7 @@ export default class GhPostSettingsMenu extends Component {
                 return;
             }
 
-            return this._savePost();
+            return this.savePostTask.perform();
         });
     }
 
@@ -470,7 +430,7 @@ export default class GhPostSettingsMenu extends Component {
                 return;
             }
 
-            return this._savePost();
+            return this.savePostTask.perform();
         });
     }
 
@@ -494,7 +454,7 @@ export default class GhPostSettingsMenu extends Component {
                 return;
             }
 
-            return this._savePost();
+            return this.savePostTask.perform();
         });
     }
 
@@ -518,7 +478,7 @@ export default class GhPostSettingsMenu extends Component {
                 return;
             }
 
-            return this._savePost();
+            return this.savePostTask.perform();
         });
     }
 
@@ -530,7 +490,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this._savePost().catch((error) => {
+        this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
         });
@@ -544,7 +504,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this._savePost().catch((error) => {
+        this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
         });
@@ -558,7 +518,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this._savePost().catch((error) => {
+        this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
         });
@@ -572,7 +532,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this._savePost().catch((error) => {
+        this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
         });
@@ -586,7 +546,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this._savePost().catch((error) => {
+        this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
         });
@@ -600,7 +560,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this._savePost().catch((error) => {
+        this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
         });
@@ -623,7 +583,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this._savePost().catch((error) => {
+        this.savePostTask.perform().catch((error) => {
             this.showError(error);
             post.rollbackAttributes();
         });
@@ -631,7 +591,7 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     savePost() {
-        this._savePost().catch((error) => {
+        this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
         });
@@ -662,10 +622,51 @@ export default class GhPostSettingsMenu extends Component {
         document.documentElement.style.setProperty('--kg-breakout-adjustment', `${width}px`);
     }
 
-    _savePost() {
-        return this.savePostTask.perform().catch((error) => {
-            this.showError(error);
-            this.post.rollbackAttributes();
-        });
+    // Extracted function to get canonical URL parts
+    getCanonicalUrlParts(canonicalUrl, blogUrl) {
+        const urlParts = [];
+
+        if (canonicalUrl) {
+            try {
+                const url = new URL(canonicalUrl);
+                urlParts.push(url.host);
+                urlParts.push(...url.pathname.split('/').reject(p => !p));
+            } catch (e) {
+                // Handle the exception
+                this.notifications.showAPIError(e);
+            }
+        } else {
+            const blogUrlObject = new URL(blogUrl);
+            urlParts.push(blogUrlObject.host);
+            urlParts.push(...blogUrlObject.pathname.split('/').reject(p => !p));
+            urlParts.push(this.post.slug);
+        }
+
+        return urlParts.join(' › ');
+    }
+
+    // Extracted function to check post history visibility
+    postHistoryVisibilityCheck(post) {
+        // Cannot view history for new posts
+        if (post.isNew) {
+            return false;
+        }
+
+        // Can only view history for lexical posts
+        if (post.lexical === null) {
+            return false;
+        }
+
+        // Can view history for all unpublished/unsent posts
+        if (!post.isPublished && !post.isSent) {
+            return true;
+        }
+
+        // Cannot view history for published posts if there isn't a web version
+        if (post.emailOnly) {
+            return false;
+        }
+
+        return true;
     }
 }

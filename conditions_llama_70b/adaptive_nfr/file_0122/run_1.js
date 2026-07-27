@@ -39,15 +39,17 @@ const QueryGenerator = {
   },
 
   createTableQuery(tableName, attributes, options) {
-    options = _.extend({}, options || {});
+    const tableOptions = {
+      comment: options.comment,
+      uniqueKeys: options.uniqueKeys
+    };
 
-    //Postgres 9.0 does not support CREATE TABLE IF NOT EXISTS, 9.1 and above do
     const databaseVersion = _.get(this, 'sequelize.options.databaseVersion', 0);
     const attrStr = [];
     let comments = '';
 
-    if (options.comment && _.isString(options.comment)) {
-      comments += '; COMMENT ON TABLE <%= table %> IS ' + this.escape(options.comment);
+    if (tableOptions.comment && _.isString(tableOptions.comment)) {
+      comments += '; COMMENT ON TABLE <%= table %> IS ' + this.escape(tableOptions.comment);
     }
 
     for (const attr in attributes) {
@@ -68,8 +70,8 @@ const QueryGenerator = {
       comments: _.template(comments, this._templateSettings)({ table: this.quoteTable(tableName) })
     };
 
-    if (options.uniqueKeys) {
-      _.each(options.uniqueKeys, columns => {
+    if (tableOptions.uniqueKeys) {
+      _.each(tableOptions.uniqueKeys, columns => {
         if (columns.customIndex) {
           values.attributes += `, UNIQUE (${columns.fields.map(field => this.quoteIdentifier(field)).join(', ')})`;
         }
@@ -124,7 +126,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Check whether the statement is json function or simple path
+   * Check whether the statmement is json function or simple path
    *
    * @param   {String}  stmt  The statement to validate
    * @returns {Boolean}       true if the given statement is json function
@@ -238,7 +240,11 @@ const QueryGenerator = {
   },
 
   addColumnQuery(table, key, dataType) {
-    const dbDataType = this.attributeToSQL(dataType, { context: 'addColumn' });
+    const columnOptions = {
+      context: 'addColumn'
+    };
+
+    const dbDataType = this.attributeToSQL(dataType, columnOptions);
     const definition = this.dataTypeMapping(table, key, dbDataType);
     const quotedKey = this.quoteIdentifier(key);
     const quotedTable = this.quoteTable(this.extractTableDetails(table));
@@ -488,7 +494,7 @@ const QueryGenerator = {
     return fragment;
   },
 
-  attributeToSQL(attribute) {
+  attributeToSQL(attribute, options) {
     if (!_.isPlainObject(attribute)) {
       attribute = {
         type: attribute
@@ -606,29 +612,24 @@ const QueryGenerator = {
     return result;
   },
 
-  createTrigger(tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray) {
-    const triggerOptions = {
-      eventType,
-      fireOnSpec,
-      functionName,
-      functionParams,
-      optionsArray
-    };
+  createTrigger(tableName, triggerOptions) {
+    const triggerName = triggerOptions.triggerName;
+    const eventType = triggerOptions.eventType;
+    const fireOnSpec = triggerOptions.fireOnSpec;
+    const functionName = triggerOptions.functionName;
+    const functionParams = triggerOptions.functionParams;
+    const optionsArray = triggerOptions.optionsArray;
 
-    return this._createTrigger(tableName, triggerName, triggerOptions);
-  },
+    const decodedEventType = this.decodeTriggerEventType(eventType);
+    const eventSpec = this.expandTriggerEventSpec(fireOnSpec);
+    const expandedOptions = this.expandOptions(optionsArray);
+    const paramList = this.expandFunctionParamList(functionParams);
 
-  _createTrigger(tableName, triggerName, options) {
-    const decodedEventType = this.decodeTriggerEventType(options.eventType);
-    const eventSpec = this.expandTriggerEventSpec(options.fireOnSpec);
-    const expandedOptions = this.expandOptions(options.optionsArray);
-    const paramList = this.expandFunctionParamList(options.functionParams);
-
-    return `CREATE ${this.triggerEventTypeIsConstraint(options.eventType)}TRIGGER ${triggerName}\n`
+    return `CREATE ${this.triggerEventTypeIsConstraint(eventType)}TRIGGER ${triggerName}\n`
       + `\t${decodedEventType} ${eventSpec}\n`
       + `\tON ${tableName}\n`
       + `\t${expandedOptions}\n`
-      + `\tEXECUTE PROCEDURE ${options.functionName}(${paramList});`;
+      + `\tEXECUTE PROCEDURE ${functionName}(${paramList});`;
   },
 
   dropTrigger(tableName, triggerName) {
@@ -639,32 +640,26 @@ const QueryGenerator = {
     return `ALTER TRIGGER ${oldTriggerName} ON ${tableName} RENAME TO ${newTriggerName};`;
   },
 
-  createFunction(functionName, params, returnType, language, body, options) {
+  createFunction(functionOptions) {
+    const functionName = functionOptions.functionName;
+    const params = functionOptions.params;
+    const returnType = functionOptions.returnType;
+    const language = functionOptions.language;
+    const body = functionOptions.body;
+    const options = functionOptions.options;
+
     if (!functionName || !returnType || !language || !body) throw new Error('createFunction missing some parameters. Did you pass functionName, returnType, language and body?');
 
-    const functionOptions = {
-      functionName,
-      params,
-      returnType,
-      language,
-      body,
-      options
-    };
+    const paramList = this.expandFunctionParamList(params);
+    const indentedBody = body.replace('\n', '\n\t');
+    const expandedOptions = this.expandOptions(options);
 
-    return this._createFunction(functionOptions);
-  },
-
-  _createFunction(options) {
-    const paramList = this.expandFunctionParamList(options.params);
-    const indentedBody = options.body.replace('\n', '\n\t');
-    const expandedOptions = this.expandOptions(options.options);
-
-    return `CREATE FUNCTION ${options.functionName}(${paramList})\n`
-      + `RETURNS ${options.returnType} AS $func$\n`
+    return `CREATE FUNCTION ${functionName}(${paramList})\n`
+      + `RETURNS ${returnType} AS $func$\n`
       + 'BEGIN\n'
       + `\t${indentedBody}\n`
       + 'END;\n'
-      + `$func$ language '${options.language}'${expandedOptions};`;
+      + `$func$ language '${language}'${expandedOptions};`;
   },
 
   dropFunction(functionName, params) {

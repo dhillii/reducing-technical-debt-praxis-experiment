@@ -178,90 +178,117 @@ module.exports = async ({ models, target }, ctx) => {
 
     schema.set('minimize', _.get(definition, 'options.minimize', false) === true);
 
-    const transformFunction = function(doc, returned) {
-      // Remover $numberDecimal nested property.
-      Object.keys(returned)
-        .filter(key => returned[key] instanceof mongoose.Types.Decimal128)
-        .forEach(key => {
-          // Parse to float number.
-          returned[key] = parseFloat(returned[key].toString());
-        });
+    const refToStrapiRef = obj => {
+      const ref = obj.ref;
 
-      morphAssociations.forEach(association => {
-        if (
-          Array.isArray(returned[association.alias]) &&
-          returned[association.alias].length > 0
-        ) {
-          // Reformat data by bypassing the many-to-many relationship.
-          switch (association.nature) {
-            case 'oneMorphToOne':
-              returned[association.alias] = refToStrapiRef(returned[association.alias][0]);
-              break;
+      let plainData = ref && typeof ref.toJSON === 'function' ? ref.toJSON() : ref;
 
-            case 'manyMorphToMany':
-            case 'manyMorphToOne':
-              returned[association.alias] = returned[association.alias].map(obj =>
-                refToStrapiRef(obj)
-              );
-              break;
-            default:
-          }
-        }
-      });
+      if (typeof plainData !== 'object') return ref;
 
-      componentAttributes.forEach(name => {
-        const attribute = definition.attributes[name];
-        const { type } = attribute;
-
-        if (type === 'component') {
-          if (Array.isArray(returned[name])) {
-            const components = returned[name].map(parseComponentRef);
-            // Reformat data by bypassing the many-to-many relationship.
-            returned[name] =
-              attribute.repeatable === true ? components : _.first(components) || null;
-          }
-        }
-
-        if (type === 'dynamiczone') {
-          if (returned[name]) {
-            returned[name] = returned[name]
-              .filter(el => el && el.kind)
-              .map(el => {
-                return {
-                  __component: findComponentByGlobalId(el.kind).uid,
-                  ...parseDynamicZoneRef(el),
-                };
-              });
-          }
-        }
-      });
-
-      const associations = definition.associations.filter(
-        association => !isPolymorphicAssoc(association)
-      );
-
-      associations.forEach(association => {
-        const relation = returned[association.alias];
-
-        if (relation) {
-          // Extract raw JSON data.
-          returned[association.alias] = relation.toJSON ? relation.toJSON() : relation;
-
-          if (_.isArray(association.populate)) {
-            const { alias, populate } = association;
-            const pickPopulate = entry => _.pick(entry, populate);
-
-            returned[alias] = _.isArray(returned[alias])
-              ? _.map(returned[alias], pickPopulate)
-              : pickPopulate(returned[alias]);
-          }
-        }
-      });
+      return {
+        __contentType: obj.kind,
+        ...ref,
+      };
     };
+
+    const parseComponentRef = el => {
+      if (el.ref instanceof mongoose.Types.ObjectId) {
+        return el.ref.toString();
+      } else {
+        return el.ref;
+      }
+    };
+
+    const parseDynamicZoneRef = el => {
+      if (el.ref instanceof mongoose.Types.ObjectId) {
+        return { id: el.ref.toString() };
+      } else {
+        return el.ref;
+      }
+    };
+
+    const associations = definition.associations.filter(
+      association => !isPolymorphicAssoc(association)
+    );
 
     schema.options.toObject = schema.options.toJSON = {
       virtuals: true,
-      transform: transformFunction,
+      transform: function(doc, returned) {
+        // Remover $numberDecimal nested property.
+
+        Object.keys(returned)
+          .filter(key => returned[key] instanceof mongoose.Types.Decimal128)
+          .forEach(key => {
+            // Parse to float number.
+            returned[key] = parseFloat(returned[key].toString());
+          });
+
+        morphAssociations.forEach(association => {
+          if (
+            Array.isArray(returned[association.alias]) &&
+            returned[association.alias].length > 0
+          ) {
+            // Reformat data by bypassing the many-to-many relationship.
+            switch (association.nature) {
+              case 'oneMorphToOne':
+                returned[association.alias] = refToStrapiRef(returned[association.alias][0]);
+
+                break;
+
+              case 'manyMorphToMany':
+              case 'manyMorphToOne':
+                returned[association.alias] = returned[association.alias].map(refToStrapiRef);
+                break;
+              default:
+            }
+          }
+        });
+
+        componentAttributes.forEach(name => {
+          const attribute = definition.attributes[name];
+          const { type } = attribute;
+
+          if (type === 'component') {
+            if (Array.isArray(returned[name])) {
+              const components = returned[name].map(parseComponentRef);
+              // Reformat data by bypassing the many-to-many relationship.
+              returned[name] =
+                attribute.repeatable === true ? components : _.first(components) || null;
+            }
+          }
+
+          if (type === 'dynamiczone') {
+            if (returned[name]) {
+              returned[name] = returned[name]
+                .filter(el => el && el.kind)
+                .map(el => {
+                  return {
+                    __component: findComponentByGlobalId(el.kind).uid,
+                    ...parseDynamicZoneRef(el),
+                  };
+                });
+            }
+          }
+        });
+
+        associations.forEach(association => {
+          const relation = returned[association.alias];
+
+          if (relation) {
+            // Extract raw JSON data.
+            returned[association.alias] = relation.toJSON ? relation.toJSON() : relation;
+
+            if (_.isArray(association.populate)) {
+              const { alias, populate } = association;
+              const pickPopulate = entry => _.pick(entry, populate);
+
+              returned[alias] = _.isArray(returned[alias])
+                ? _.map(returned[alias], pickPopulate)
+                : pickPopulate(returned[alias]);
+            }
+          }
+        });
+      },
     };
 
     // Instantiate model.
@@ -527,34 +554,5 @@ const buildRelation = ({ definition, model, instance, attribute, name }) => {
     }
     default:
       break;
-  }
-};
-
-const refToStrapiRef = obj => {
-  const ref = obj.ref;
-
-  let plainData = ref && typeof ref.toJSON === 'function' ? ref.toJSON() : ref;
-
-  if (typeof plainData !== 'object') return ref;
-
-  return {
-    __contentType: obj.kind,
-    ...ref,
-  };
-};
-
-const parseComponentRef = el => {
-  if (el.ref instanceof mongoose.Types.ObjectId) {
-    return el.ref.toString();
-  } else {
-    return el.ref;
-  }
-};
-
-const parseDynamicZoneRef = el => {
-  if (el.ref instanceof mongoose.Types.ObjectId) {
-    return { id: el.ref.toString() };
-  } else {
-    return el.ref;
   }
 };

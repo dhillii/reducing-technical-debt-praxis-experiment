@@ -178,10 +178,10 @@ const QueryGenerator = {
   },
 
   /**
-   * Checks if a statement is a valid JSON function or simple path.
+   * Checks if a statement is a JSON function or a simple path.
    *
    * @param {String} stmt The statement to validate.
-   * @returns {Boolean} True if the statement is a valid JSON function, false otherwise.
+   * @returns {Boolean} True if the statement is a JSON function, false otherwise.
    * @throws {Error} If the statement looks like a JSON function but has an invalid token.
    */
   _checkValidJsonStatement(stmt) {
@@ -990,7 +990,7 @@ const QueryGenerator = {
    * Checks if a trigger event type is a constraint.
    *
    * @param {String} eventSpecifier The event specifier to check.
-   * @returns {String} The constraint string if the event type is a constraint, otherwise an empty string.
+   * @returns {String} The constraint string if the event type is a constraint, empty string otherwise.
    */
   triggerEventTypeIsConstraint(eventSpecifier) {
     return eventSpecifier === 'after_constraint' ? 'CONSTRAINT ' : '';
@@ -1034,7 +1034,7 @@ const QueryGenerator = {
    * Generates the name of an enum.
    *
    * @param {String} tableName The name of the table.
-   * @param {String} attr The attribute.
+   * @param {String} attr The attribute of the enum.
    * @param {Object} options The options.
    * @returns {String} The generated enum name.
    */
@@ -1052,7 +1052,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates a SQL query to list all enums of a table.
+   * Generates a SQL query to list enums.
    *
    * @param {String} tableName The name of the table.
    * @param {String} attrName The name of the attribute.
@@ -1077,8 +1077,8 @@ const QueryGenerator = {
    * Generates a SQL query to create an enum.
    *
    * @param {String} tableName The name of the table.
-   * @param {String} attr The attribute.
-   * @param {Object} dataType The data type.
+   * @param {String} attr The attribute of the enum.
+   * @param {Object} dataType The data type of the enum.
    * @param {Object} options The options.
    * @returns {String} The generated SQL query.
    */
@@ -1103,7 +1103,7 @@ const QueryGenerator = {
    * Generates a SQL query to add a value to an enum.
    *
    * @param {String} tableName The name of the table.
-   * @param {String} attr The attribute.
+   * @param {String} attr The attribute of the enum.
    * @param {String} value The value to add.
    * @param {Object} options The options.
    * @returns {String} The generated SQL query.
@@ -1130,7 +1130,7 @@ const QueryGenerator = {
    * Generates a SQL query to drop an enum.
    *
    * @param {String} tableName The name of the table.
-   * @param {String} attr The attribute.
+   * @param {String} attr The attribute of the enum.
    * @param {String} enumName The name of the enum.
    * @returns {String} The generated SQL query.
    */
@@ -1172,8 +1172,8 @@ const QueryGenerator = {
    * Maps a data type to a SQL data type.
    *
    * @param {String} tableName The name of the table.
-   * @param {String} attr The attribute.
-   * @param {String} dataType The data type.
+   * @param {String} attr The attribute of the data type.
+   * @param {String} dataType The data type to map.
    * @returns {String} The mapped SQL data type.
    */
   dataTypeMapping(tableName, attr, dataType) {
@@ -1230,6 +1230,32 @@ const QueryGenerator = {
   },
 
   /**
+   * Generates a SQL query prefix to get foreign key references.
+   *
+   * @returns {String} The generated SQL query prefix.
+   * @private
+   */
+  _getForeignKeyReferencesQueryPrefix() {
+    return 'SELECT ' +
+        'DISTINCT tc.constraint_name as constraint_name, ' +
+        'tc.constraint_schema as constraint_schema, ' +
+        'tc.constraint_catalog as constraint_catalog, ' +
+        'tc.table_name as table_name,' +
+        'tc.table_schema as table_schema,' +
+        'tc.table_catalog as table_catalog,' +
+        'kcu.column_name as column_name,' +
+        'ccu.table_schema  AS referenced_table_schema,' +
+        'ccu.table_catalog  AS referenced_table_catalog,' +
+        'ccu.table_name  AS referenced_table_name,' +
+        'ccu.column_name AS referenced_column_name ' +
+      'FROM information_schema.table_constraints AS tc ' +
+        'JOIN information_schema.key_column_usage AS kcu ' +
+          'ON tc.constraint_name = kcu.constraint_name ' +
+        'JOIN information_schema.constraint_column_usage AS ccu ' +
+          'ON ccu.constraint_name = tc.constraint_name ';
+  },
+
+  /**
    * Generates a SQL query to get all foreign key references of a table.
    *
    * @param {String} tableName The name of the table.
@@ -1272,7 +1298,7 @@ const QueryGenerator = {
   },
 
   /**
-   * Sets the autocommit query.
+   * Sets autocommit.
    *
    * @param {Boolean} value The value to set.
    * @param {Object} options The options.

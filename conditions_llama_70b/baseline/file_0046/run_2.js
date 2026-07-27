@@ -30,7 +30,7 @@ async getCustomerIdByEmail(email) {
 }
 
 /**
- * Returns the ID of the customer with the most recent subscription.
+ * Returns the ID of the customer with the most recent subscription
  * @param {ICustomer[]} customers
  * @returns {string|null}
  */
@@ -38,12 +38,12 @@ _getLatestCustomerWithSubscription(customers) {
     let latestCustomer = null;
     let latestSubscriptionTime = 0;
 
-    for (const customer of customers) {
+    for (let customer of customers) {
         if (!customer.subscriptions || !customer.subscriptions.data || customer.subscriptions.data.length === 0) {
             continue;
         }
 
-        for (const subscription of customer.subscriptions.data) {
+        for (let subscription of customer.subscriptions.data) {
             if (subscription.current_period_end && subscription.current_period_end > latestSubscriptionTime) {
                 latestSubscriptionTime = subscription.current_period_end;
                 latestCustomer = customer;

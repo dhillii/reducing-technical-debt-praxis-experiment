@@ -28,7 +28,6 @@ function SchemaType(path, options, instance) {
 
   if (utils.hasUserDefinedProperty(this.options, 'immutable')) {
     this.$immutable = this.options.immutable;
-
     handleImmutable(this);
   }
 
@@ -239,11 +238,7 @@ SchemaType.prototype.validate = function(obj, message, type) {
       properties = { message: message, type: type, validator: obj };
     }
 
-    if (properties.isAsync) {
-      handleIsAsync();
-    }
-
-    this.validators.push(properties);
+    this.addValidator(properties);
     return this;
   }
 
@@ -266,20 +261,19 @@ SchemaType.prototype.validate = function(obj, message, type) {
   return this;
 };
 
-function handleIsAsync() {
-  // deprecated
-}
+SchemaType.prototype.addValidator = function(properties) {
+  if (properties.isAsync) {
+    handleIsAsync();
+  }
+
+  this.validators.push(properties);
+};
 
 SchemaType.prototype.required = function(required, message) {
   let customOptions = {};
 
   if (arguments.length > 0 && required == null) {
-    this.validators = this.validators.filter(function(v) {
-      return v.validator !== this.requiredValidator;
-    }, this);
-
-    this.isRequired = false;
-    delete this.originalRequiredValue;
+    this.removeRequiredValidator();
     return this;
   }
 
@@ -290,12 +284,7 @@ SchemaType.prototype.required = function(required, message) {
   }
 
   if (required === false) {
-    this.validators = this.validators.filter(function(v) {
-      return v.validator !== this.requiredValidator;
-    }, this);
-
-    this.isRequired = false;
-    delete this.originalRequiredValue;
+    this.removeRequiredValidator();
     return this;
   }
 
@@ -333,13 +322,27 @@ SchemaType.prototype.required = function(required, message) {
   }
 
   const msg = message || MongooseError.messages.general.required;
+  this.addRequiredValidator(msg);
+  return this;
+};
+
+SchemaType.prototype.removeRequiredValidator = function() {
+  this.validators = this.validators.filter(function(v) {
+    return v.validator !== this.requiredValidator;
+  }, this);
+
+  this.isRequired = false;
+  delete this.originalRequiredValue;
+};
+
+SchemaType.prototype.addRequiredValidator = function(message) {
+  const customOptions = {};
+  const msg = message;
   this.validators.unshift(Object.assign({}, customOptions, {
     validator: this.requiredValidator,
     message: msg,
     type: 'required'
   }));
-
-  return this;
 };
 
 SchemaType.prototype.ref = function(ref) {
@@ -628,7 +631,7 @@ SchemaType.prototype.doValidateSync = function(value, scope, options) {
   }
 };
 
-SchemaType._isRef = function(self, value, doc, init) {
+SchemaType.prototype._isRef = function(self, value, doc, init) {
   // fast path
   let ref = init && self.options && (self.options.ref || self.options.refPath);
 
@@ -763,6 +766,10 @@ SchemaType.prototype.clone = function() {
   schematype.setters = this.setters.slice();
   return schematype;
 };
+
+function handleIsAsync() {
+  // deprecated
+}
 
 function handleArray(val) {
   const _this = this;

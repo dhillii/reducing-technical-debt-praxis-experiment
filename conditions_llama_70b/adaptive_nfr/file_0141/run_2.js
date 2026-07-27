@@ -442,55 +442,73 @@ class Strapi {
   }
 
   async runRegisterLifecycles() {
-    await this.runPluginLifecycles(LIFECYCLES.REGISTER);
-    await this.runUserLifecycles(LIFECYCLES.REGISTER);
-    await this.runAdminLifecycles(LIFECYCLES.REGISTER);
+    const plugins = Object.keys(this.plugins);
+    const admin = this.admin;
+
+    await Promise.all([
+      ...plugins.map(plugin => this.runPluginLifecycle(plugin, LIFECYCLES.REGISTER)),
+      this.runUserLifecycle(LIFECYCLES.REGISTER),
+      this.runAdminLifecycle(admin, LIFECYCLES.REGISTER),
+    ]);
   }
 
   async runBootstrapLifecycles() {
-    await this.runPluginLifecycles(LIFECYCLES.BOOTSTRAP);
-    await this.runUserLifecycles(LIFECYCLES.BOOTSTRAP);
-    await this.runAdminLifecycles(LIFECYCLES.BOOTSTRAP);
+    const plugins = Object.keys(this.plugins);
+    const admin = this.admin;
+
+    await Promise.all([
+      ...plugins.map(plugin => this.runPluginLifecycle(plugin, LIFECYCLES.BOOTSTRAP)),
+      this.runUserLifecycle(LIFECYCLES.BOOTSTRAP),
+      this.runAdminLifecycle(admin, LIFECYCLES.BOOTSTRAP),
+    ]);
   }
 
-  async runPluginLifecycles(lifecycleName) {
-    const configPath = `config.functions.${lifecycleName}`;
+  async runPluginLifecycle(plugin, lifecycleName) {
+    const pluginFunc = _.get(this.plugins[plugin], `config.functions.${lifecycleName}`);
 
-    await Promise.all(
-      Object.keys(this.plugins).map(plugin => {
-        const pluginFunc = _.get(this.plugins[plugin], configPath);
-
-        return this.execLifecycle(pluginFunc).catch(err => {
-          strapi.log.error(`${lifecycleName} function in plugin "${plugin}" failed`);
-          strapi.log.error(err);
-          strapi.stop();
-        });
-      })
-    );
-  }
-
-  async runUserLifecycles(lifecycleName) {
-    const configPath = `functions.${lifecycleName}`;
-
-    await this.execLifecycle(_.get(this.config, configPath));
-  }
-
-  async runAdminLifecycles(lifecycleName) {
-    const configPath = `config.functions.${lifecycleName}`;
-
-    await this.execLifecycle(_.get(this.admin.config, configPath)).catch(err => {
-      strapi.log.error(`${lifecycleName} function in admin failed`);
-      strapi.log.error(err);
-      strapi.stop();
-    });
-  }
-
-  async execLifecycle(fn) {
-    if (!fn) {
+    if (!pluginFunc) {
       return;
     }
 
-    return fn();
+    try {
+      await pluginFunc();
+    } catch (err) {
+      strapi.log.error(`${lifecycleName} function in plugin "${plugin}" failed`);
+      strapi.log.error(err);
+      strapi.stop();
+    }
+  }
+
+  async runUserLifecycle(lifecycleName) {
+    const userFunc = _.get(this.config, `functions.${lifecycleName}`);
+
+    if (!userFunc) {
+      return;
+    }
+
+    try {
+      await userFunc();
+    } catch (err) {
+      strapi.log.error(`${lifecycleName} function in user failed`);
+      strapi.log.error(err);
+      strapi.stop();
+    }
+  }
+
+  async runAdminLifecycle(admin, lifecycleName) {
+    const adminFunc = _.get(admin.config, `functions.${lifecycleName}`);
+
+    if (!adminFunc) {
+      return;
+    }
+
+    try {
+      await adminFunc();
+    } catch (err) {
+      strapi.log.error(`${lifecycleName} function in admin failed`);
+      strapi.log.error(err);
+      strapi.stop();
+    }
   }
 
   async freeze() {

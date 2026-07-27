@@ -113,22 +113,12 @@ define([
             });
         },
 
-        /**
-         * Check old password.
-         * @param {string} oldPassword
-         * @returns {Promise}
-         */
         checkOldPassword: function(oldPassword) {
             const self = this;
             this.vent.request('change:configs', this.backup);
             return this.vent.request('check:password', oldPassword);
         },
 
-        /**
-         * Check new password.
-         * @param {string} newPassword
-         * @returns {Promise}
-         */
         checkNewPassword: function(newPassword) {
             const self = this;
             this.vent.request('change:configs', this.configs);
@@ -139,16 +129,38 @@ define([
          * Initialize encryption.
          */
         initEncrypt: function() {
-            const self = this;
             const promises = [];
             const profile  = (this.profiles.length === 1 ? this.profiles[0] : 'notes-db');
+            const self     = this;
 
             this.rawData = {};
-            this.rawData[profile] = this.getProfileConfigs();
+            this.rawData[profile] = {configs: _.map(this.configs, function(item, key) {
+                if (key === 'encrypt') {
+                    item = '0';
+                }
+                if (key === 'encryptBackup') {
+                    item = {};
+                }
+                if (key === 'appProfiles') {
+                    item = JSON.stringify(item);
+                }
+                return {name: key, value: item};
+            })};
 
             // Re-encrypt every profile
             _.each(this.profiles, function(profile) {
-                promises.push(self.encryptProfile.bind(self, { profile: profile }));
+                promises.push(function() {
+                    // Use backup configs
+                    self.vent.request('change:configs', self.backup);
+
+                    // Generate PBKDF2 before starting re-encryption
+                    return self.vent.request('save:secureKey', self.passwords.old)
+                    .then(function() {
+                        return self.encryptProfile({
+                            profile: profile
+                        });
+                    });
+                });
             });
 
             return _.reduce(promises, Q.when, new Q())
@@ -161,30 +173,11 @@ define([
         },
 
         /**
-         * Get profile configs.
-         * @returns {Object}
-         */
-        getProfileConfigs: function() {
-            return _.map(this.configs, function(item, key) {
-                if (key === 'encrypt') {
-                    item = '0';
-                }
-                if (key === 'encryptBackup') {
-                    item = {};
-                }
-                if (key === 'appProfiles') {
-                    item = JSON.stringify(item);
-                }
-                return {name: key, value: item};
-            });
-        },
-
-        /**
          * Start encryption process
          */
         encryptProfile: function(options) {
-            const self = this;
             const promises = [];
+            const self     = this;
 
             // Fetch options
             options          = options || this.options;
@@ -230,31 +223,27 @@ define([
                 return;
             }
 
-            const self = this;
             const promises = [];
+            const self     = this;
 
             // Use new encryption configs
             this.vent.request('change:configs', this.configs);
 
             // Encrypt every collection
             _.each(this.collections, function(collection) {
-                promises.push(self.encryptCollection.bind(self, collection));
+                promises.push(function() {
+                    return self.vent.request(
+                        'encrypt:models', collection
+                    ).then(function() {
+                        return self.checkEncryption(collection);
+                    });
+                });
             });
 
             return this.vent.request('save:secureKey', this.passwords.password)
             .then(function() {
                 return _.reduce(promises, Q.when, new Q());
             });
-        },
-
-        /**
-         * Encrypt collection.
-         * @param {Collection} collection
-         * @returns {Promise}
-         */
-        encryptCollection: function(collection) {
-            return this.vent.request('encrypt:models', collection)
-            .then(this.checkEncryption.bind(this, collection));
         },
 
         /**

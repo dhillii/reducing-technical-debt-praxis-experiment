@@ -3,35 +3,24 @@ import {AdminApi} from './utils/admin-api';
 import {GhostApi} from './utils/api';
 import {Page} from './pages';
 
-// Extracted function to handle pagination
-async function fetchPaginatedComments({state, api, options, order}: {state: EditableAppContext, api: GhostApi, options: CommentsOptions, order?:string}): Promise<{comments: Comment[], pagination: any}> {
-    let page = 1;
-    if (state.pagination && state.pagination.page) {
-        page = state.pagination.page + 1;
-    }
-    let data;
-    if (state.admin && state.adminApi) {
-        data = await state.adminApi.browse({page, postId: options.postId, order: order || state.order, memberUuid: state.member?.uuid});
+// Extracted function to handle loading more comments
+async function fetchComments({api, options, order, page}: {api: GhostApi, options: CommentsOptions, order: string, page: number}) {
+    if (api.adminApi) {
+        return await api.adminApi.browse({page, postId: options.postId, order, memberUuid: api.state.member?.uuid});
     } else {
-        data = await api.comments.browse({page, postId: options.postId, order: order || state.order});
+        return await api.comments.browse({page, postId: options.postId, order});
     }
-
-    return {comments: data.comments, pagination: data.meta.pagination};
-}
-
-// Extracted function to handle deduplication of comments
-function dedupeComments(comments: Comment[]): Comment[] {
-    return comments.filter((comment, index, self) => self.findIndex(c => c.id === comment.id) === index);
 }
 
 async function loadMoreComments({state, api, options, order}: {state: EditableAppContext, api: GhostApi, options: CommentsOptions, order?:string}): Promise<Partial<EditableAppContext>> {
-    const {comments, pagination} = await fetchPaginatedComments({state, api, options, order});
-    const updatedComments = [...state.comments, ...comments];
-    const dedupedComments = dedupeComments(updatedComments);
+    const page = state.pagination?.page ? state.pagination.page + 1 : 1;
+    const data = await fetchComments({api, options, order: order || state.order, page});
+    const updatedComments = [...state.comments, ...data.comments];
+    const dedupedComments = updatedComments.filter((comment, index, self) => self.findIndex(c => c.id === comment.id) === index);
 
     return {
         comments: dedupedComments,
-        pagination
+        pagination: data.meta.pagination
     };
 }
 
@@ -42,26 +31,22 @@ function setCommentsIsLoading({data: isLoading}: {data: boolean | null}) {
 }
 
 // Extracted function to handle setting order
-async function fetchCommentsByOrder({state, api, options, order}: {state: EditableAppContext, api: GhostApi, options: CommentsOptions, order: string}): Promise<{comments: Comment[], pagination: any}> {
-    let data;
-    if (state.admin && state.adminApi) {
-        data = await state.adminApi.browse({page: 1, postId: options.postId, order, memberUuid: state.member?.uuid});
+async function fetchCommentsByOrder({api, options, order}: {api: GhostApi, options: CommentsOptions, order: string}) {
+    if (api.adminApi) {
+        return await api.adminApi.browse({page: 1, postId: options.postId, order, memberUuid: api.state.member?.uuid});
     } else {
-        data = await api.comments.browse({page: 1, postId: options.postId, order});
+        return await api.comments.browse({page: 1, postId: options.postId, order});
     }
-
-    return {comments: data.comments, pagination: data.meta.pagination};
 }
 
 async function setOrder({state, data: {order}, options, api, dispatchAction}: {state: EditableAppContext, data: {order: string}, options: CommentsOptions, api: GhostApi, dispatchAction: DispatchActionType}) {
     dispatchAction('setCommentsIsLoading', true);
 
     try {
-        const {comments, pagination} = await fetchCommentsByOrder({state, api, options, order});
-
+        const data = await fetchCommentsByOrder({api, options, order});
         return {
-            comments,
-            pagination,
+            comments: [...data.comments],
+            pagination: data.meta.pagination,
             order,
             commentsIsLoading: false
         };
@@ -72,27 +57,24 @@ async function setOrder({state, data: {order}, options, api, dispatchAction}: {s
     }
 }
 
-// Extracted function to handle fetching replies
-async function fetchReplies({state, api, comment, afterReplyId, limit, isReply}: {state: EditableAppContext, api: GhostApi, comment: Comment, afterReplyId: string | undefined, limit: number, isReply: boolean}): Promise<{comments: Comment[]}> {
-    if (state.admin && state.adminApi && !isReply) { 
-        return await state.adminApi.replies({commentId: comment.id, afterReplyId, limit, memberUuid: state.member?.uuid});
+// Extracted function to handle loading more replies
+async function fetchReplies({api, comment, afterReplyId, limit, isReply}: {api: GhostApi, comment: Comment, afterReplyId: string | undefined, limit: number, isReply: boolean}) {
+    if (api.adminApi && !isReply) { 
+        return await api.adminApi.replies({commentId: comment.id, afterReplyId, limit, memberUuid: api.state.member?.uuid});
     } else {
         return await api.comments.replies({commentId: comment.id, afterReplyId, limit});
     }
 }
 
 async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {state: EditableAppContext, api: GhostApi, data: {comment: Comment, limit?: number | 'all'}, isReply: boolean}): Promise<Partial<EditableAppContext>> {
-    let afterReplyId: string | undefined = comment.replies && comment.replies.length > 0
-        ? comment.replies[comment.replies.length - 1]?.id
-        : undefined;
-
+    let afterReplyId: string | undefined = comment.replies?.[comment.replies.length - 1]?.id;
     let allComments: Comment[] = [];
 
     if (limit === 'all') {
         let hasMore = true;
 
         while (hasMore) {
-            const data = await fetchReplies({state, api, comment, afterReplyId, limit: 100, isReply});
+            const data = await fetchReplies({api, comment, afterReplyId, limit: 100, isReply});
             allComments.push(...data.comments);
             hasMore = !!data.meta.pagination.next;
 
@@ -103,7 +85,7 @@ async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {s
             }
         }
     } else {
-        const data = await fetchReplies({state, api, comment, afterReplyId, limit: limit as number || 100, isReply});
+        const data = await fetchReplies({api, comment, afterReplyId, limit: limit as number || 100, isReply});
         allComments = data.comments;
     }
 
@@ -318,8 +300,8 @@ async function deleteComment({state, api, data: comment, dispatchAction}: {state
             }
 
             const originalLength = topLevelComment.replies.length;
-            const updatedReplies = topLevelComment.replies?.filter(reply => reply.id !== comment.id);
-            const hasDeletedReply = originalLength !== updatedReplies?.length;
+            const updatedReplies = topLevelComment.replies.filter(reply => reply.id !== comment.id);
+            const hasDeletedReply = originalLength !== updatedReplies.length;
 
             const updatedTopLevelComment = {
                 ...topLevelComment,

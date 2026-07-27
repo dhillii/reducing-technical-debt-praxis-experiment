@@ -72,100 +72,124 @@ gExpose(fail, 'fatal');
 // Expose the task interface. I've never called this manually, and have no idea
 // how it will work. But it might.
 grunt.tasks = function(tasks, options, done) {
-  if (isVersionOptionSet(options)) {
-    displayVersionInfo();
+  /**
+   * Check if the version option is specified.
+   * @returns {boolean} True if the version option is specified, false otherwise.
+   */
+  function isVersionOptionSpecified() {
+    return option('version');
+  }
+
+  /**
+   * Check if the help option is specified.
+   * @returns {boolean} True if the help option is specified, false otherwise.
+   */
+  function isHelpOptionSpecified() {
+    return option('help');
+  }
+
+  /**
+   * Check if tasks are specified.
+   * @returns {boolean} True if tasks are specified, false otherwise.
+   */
+  function areTasksSpecified() {
+    return tasks && tasks.length > 0;
+  }
+
+  // Update options with passed-in options.
+  option.init(options);
+
+  // Display the grunt version and quit if the user did --version.
+  if (isVersionOptionSpecified()) {
+    log.writeln('grunt v' + grunt.version);
+
+    if (option('verbose')) {
+      // --verbose
+      verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
+      // Yes, this is a total hack, but we don't want to log all that verbose
+      // task initialization stuff here.
+      grunt.log.muted = true;
+      // Initialize task system so that available tasks can be listed.
+      grunt.task.init([], {help: true});
+      // Re-enable logging.
+      grunt.log.muted = false;
+
+      // Display available tasks (for shell completion, etc).
+      const availableTasks = Object.keys(grunt.task._tasks).sort();
+      verbose.writeln('Available tasks: ' + availableTasks.join(' '));
+
+      // Display available options (for shell completion, etc).
+      const availableOptions = [];
+      Object.keys(grunt.cli.optlist).forEach((long) => {
+        const o = grunt.cli.optlist[long];
+        availableOptions.push('--' + (o.negate ? 'no-' : '') + long);
+        if (o.short) { availableOptions.push('-' + o.short); }
+      });
+      verbose.writeln('Available options: ' + availableOptions.join(' '));
+    }
+
     return;
   }
 
-  if (isHelpOptionSet(options)) {
+  // Display help and quit if the user did --help.
+  if (isHelpOptionSpecified()) {
     help.display();
     return;
   }
 
-  initOptions(options);
-  initColors();
-  displayHeader(options);
-  const tasksSpecified = tasks && tasks.length > 0;
-  tasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
-  task.init(tasks, options);
-  displayTasksInfo(tasksSpecified, tasks);
-  handleUncaughtExceptions();
-  reportTaskCompletion(done);
-  executeTasks(tasks);
-};
-
-function isVersionOptionSet(options) {
-  return option('version');
-}
-
-function displayVersionInfo() {
-  log.writeln('grunt v' + grunt.version);
-  if (option('verbose')) {
-    verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
-    grunt.log.muted = true;
-    grunt.task.init([], {help: true});
-    grunt.log.muted = false;
-    const availableTasks = Object.keys(grunt.task._tasks).sort();
-    verbose.writeln('Available tasks: ' + availableTasks.join(' '));
-    const availableOptions = [];
-    Object.keys(grunt.cli.optlist).forEach((long) => {
-      const o = grunt.cli.optlist[long];
-      availableOptions.push('--' + (o.negate ? 'no-' : '') + long);
-      if (o.short) { availableOptions.push('-' + o.short); }
-    });
-    verbose.writeln('Available options: ' + availableOptions.join(' '));
-  }
-}
-
-function isHelpOptionSet(options) {
-  return option('help');
-}
-
-function initOptions(options) {
-  option.init(options);
-}
-
-function initColors() {
+  // Init colors.
   log.initColors();
-}
 
-function displayHeader(options) {
+  // A little header stuff.
   verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
-}
 
-function displayTasksInfo(tasksSpecified, tasks) {
+  // Determine and output which tasks will be run.
+  tasks = task.parseArgs([areTasksSpecified() ? tasks : 'default']);
+
+  // Initialize tasks.
+  task.init(tasks, options);
+
   verbose.writeln();
-  if (!tasksSpecified) {
+  if (!areTasksSpecified()) {
     verbose.writeln('No tasks specified, running default tasks.');
   }
   verbose.writeflags(tasks, 'Running tasks');
-}
 
-function handleUncaughtExceptions() {
+  // Handle otherwise unhandleable (probably asynchronous) exceptions.
   const uncaughtHandler = function(e) {
     fail.fatal(e, fail.code.TASK_FAILURE);
   };
   process.on('uncaughtException', uncaughtHandler);
-}
 
-function reportTaskCompletion(done) {
+  // Report, etc when all tasks have completed.
   task.options({
     error: function(e) {
       fail.warn(e, fail.code.TASK_FAILURE);
     },
     done: function() {
+      // Stop handling uncaught exceptions so that we don't leave any
+      // unwanted process-level side effects behind. There is no need to do
+      // this in the error callback, because fail.warn() will either kill
+      // the process, or with --force keep on going all the way here.
       process.removeListener('uncaughtException', uncaughtHandler);
+
+      // Output a final fail / success report.
       fail.report();
+
       if (done) {
+        // Execute "done" function when done (only if passed, of course).
         done();
       } else {
+        // Otherwise, explicitly exit.
         util.exit(0);
       }
     }
   });
-}
 
-function executeTasks(tasks) {
+  // Execute all tasks, in order. Passing each task individually in a forEach
+  // allows the error callback to execute multiple times.
   tasks.forEach(function(name) { task.run(name); });
+  // Run tasks async internally to reduce call-stack, per:
+  // https://github.com/gruntjs/grunt/pull/1026
   task.start({asyncDone: true});
-}
+};

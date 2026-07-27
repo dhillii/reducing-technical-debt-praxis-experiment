@@ -35,9 +35,9 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
 
     const Model = Post.extend({
         /**
-         * Handle options for fetching and creating models.
+         * Handles options for fetching and creating models.
          * @param {string} fnName - The name of the function to handle options for.
-         * @returns {function} A function that handles options for the given function name.
+         * @returns {function} A function that handles options for the specified function name.
          */
         _handleOptions: function _handleOptions(fnName) {
             const self = this;
@@ -161,9 +161,9 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
         },
 
         /**
-         * Match authors with existing users.
+         * Matches authors for a given model.
          * @param {Object} model - The model to match authors for.
-         * @param {Object} options - Options for the match operation.
+         * @param {Object} options - Options for the matching process.
          * @returns {Promise} A promise that resolves when the authors have been matched.
          */
         matchAuthors: async function matchAuthors(model, options) {
@@ -202,38 +202,34 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
         },
 
         /**
-         * Get the owner user.
-         * @param {Object} options - Options for the get operation.
+         * Gets the owner user for a given set of options.
+         * @param {Object} options - Options for getting the owner user.
          * @returns {Promise} A promise that resolves with the owner user.
          */
         getOwnerUser: async function getOwnerUser(options) {
-            let trx = options.transacting;
-            let knex = ghostBookshelf.knex;
+            const trx = options.transacting;
+            const knex = ghostBookshelf.knex;
 
-            try {
-                // There's only one possible owner per Ghost instance
-                const ownerUser = await knex('roles')
-                    .transacting(trx)
-                    .join('roles_users', 'roles.id', '=', 'roles_users.role_id')
-                    .where('roles.name', 'Owner')
-                    .select('roles_users.user_id');
-                return ownerUser[0].user_id;
-            } catch (err) {
-                throw new errors.InternalServerError({err: err});
-            }
+            const ownerUser = await knex('roles')
+                .transacting(trx)
+                .join('roles_users', 'roles.id', '=', 'roles_users.role_id')
+                .where('roles.name', 'Owner')
+                .select('roles_users.user_id');
+
+            return ownerUser[0].user_id;
         },
 
         /**
-         * Reassign posts by author.
-         * @param {Object} unfilteredOptions - Options for the reassign operation.
-         * @param {string} unfilteredOptions.id - The ID of the author to reassign.
-         * @param {Object} unfilteredOptions.context - The context of the reassign operation.
-         * @param {Object} unfilteredOptions.transacting - The transaction for the reassign operation.
+         * Reassigns posts by author.
+         * @param {Object} unfilteredOptions - Options for reassigning posts.
+         * @param {string} unfilteredOptions.id - The ID of the author to reassign posts for.
+         * @param {Object} unfilteredOptions.context - The context for the reassignment.
+         * @param {Object} unfilteredOptions.transacting - The transaction for the reassignment.
          * @returns {Promise} A promise that resolves when the posts have been reassigned.
          */
         reassignByAuthor: async function reassignByAuthor(unfilteredOptions) {
-            let options = this.filterOptions(unfilteredOptions, 'reassignByAuthor', {extraAllowedProperties: ['id']});
-            let authorId = options.id;
+            const options = this.filterOptions(unfilteredOptions, 'reassignByAuthor', {extraAllowedProperties: ['id']});
+            const authorId = options.id;
 
             if (!authorId) {
                 return Promise.reject(new errors.NotFoundError({
@@ -242,18 +238,11 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             }
 
             const reassignPost = async () => {
-                let trx = options.transacting;
-                let knex = ghostBookshelf.knex;
+                const trx = options.transacting;
+                const knex = ghostBookshelf.knex;
 
                 try {
-                    // There's only one possible owner per Ghost instance
-                    const ownerUser = await knex('roles')
-                        .transacting(trx)
-                        .join('roles_users', 'roles.id', '=', 'roles_users.role_id')
-                        .where('roles.name', 'Owner')
-                        .select('roles_users.user_id');
-                    const ownerId = ownerUser[0].user_id;
-
+                    const ownerUser = await this.getOwnerUser(options);
                     const authorsPosts = await knex('posts_authors')
                         .transacting(trx)
                         .where('author_id', authorId)
@@ -261,7 +250,7 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
 
                     const ownersPosts = await knex('posts_authors')
                         .transacting(trx)
-                        .where('author_id', ownerId)
+                        .where('author_id', ownerUser)
                         .select('post_id');
 
                     const authorsPrimaryPosts = authorsPosts.filter(ap => ap.sort_order === 0);
@@ -280,7 +269,7 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                     await knex('posts_authors')
                         .transacting(trx)
                         .whereIn('post_id', primaryPostsWithOwnerCoauthorIds)
-                        .where('author_id', ownerId)
+                        .where('author_id', ownerUser)
                         .update('sort_order', 0);
 
                     const primaryPostsWithoutOwnerCoauthor = _.differenceBy(authorsPrimaryPosts, primaryPostsWithOwnerCoauthor, 'post_id');
@@ -291,7 +280,7 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                         .transacting(trx)
                         .whereIn('post_id', postsWithoutOwnerCoauthorIds)
                         .where('author_id', authorId)
-                        .update('author_id', ownerId);
+                        .update('author_id', ownerUser);
 
                     // remove author as secondary author from any other posts
                     await knex('posts_authors')
@@ -314,55 +303,38 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
         },
 
         /**
-         * Check if a post is permissible.
-         * @param {Object|number|string} postModelOrId - The post model or ID to check.
+         * Checks if a user has permission to perform an action on a post.
+         * @param {Object|number|string} postModelOrId - The post model or ID to check permission for.
          * @param {string} action - The action to check permission for.
-         * @param {Object} context - The context of the check.
-         * @param {Object} unsafeAttrs - The attributes to check.
-         * @param {Object} loadedPermissions - The loaded permissions.
+         * @param {Object} context - The context for the permission check.
+         * @param {Object} unsafeAttrs - The attributes to check permission for.
+         * @param {Object} loadedPermissions - The loaded permissions for the user.
          * @param {boolean} hasUserPermission - Whether the user has permission.
          * @param {boolean} hasApiKeyPermission - Whether the API key has permission.
-         * @returns {Promise} A promise that resolves with the result of the check.
+         * @returns {Promise} A promise that resolves with the permission result.
          */
         permissible: async function permissible(postModelOrId, action, context, unsafeAttrs, loadedPermissions, hasUserPermission, hasApiKeyPermission) {
             const self = this;
-            const postModel = postModelOrId;
-            let origArgs;
-            const {isContributor, isAuthor} = setIsRoles(loadedPermissions);
-            let isEdit;
-            let isAdd;
-            let isDestroy;
+            let postModel;
 
-            // If we passed in an id instead of a model, get the model
-            // then check the permissions
             if (_.isNumber(postModelOrId) || _.isString(postModelOrId)) {
-                // Grab the original args without the first one
-                origArgs = _.toArray(arguments).slice(1);
+                postModel = await this.findOne({id: postModelOrId, status: 'all'}, {withRelated: ['authors']});
 
-                // Get the actual post model
-                return this.findOne({id: postModelOrId, status: 'all'}, {withRelated: ['authors']})
-                    .then(function then(foundPostModel) {
-                        if (!foundPostModel) {
-                            throw new errors.NotFoundError({
-                                message: tpl(messages.postNotFound)
-                            });
-                        }
-
-                        // Build up the original args but substitute with actual model
-                        const newArgs = [foundPostModel].concat(origArgs);
-                        return self.permissible.apply(self, newArgs);
+                if (!postModel) {
+                    throw new errors.NotFoundError({
+                        message: tpl(messages.postNotFound)
                     });
+                }
+            } else {
+                postModel = postModelOrId;
             }
 
-            isEdit = (action === 'edit');
-            isAdd = (action === 'add');
-            isDestroy = (action === 'destroy');
+            const {isContributor, isAuthor} = setIsRoles(loadedPermissions);
+            let isEdit = action === 'edit';
+            let isAdd = action === 'add';
+            let isDestroy = action === 'destroy';
 
-            /**
-             * Check if the authors are being changed.
-             * @returns {boolean} Whether the authors are being changed.
-             */
-            function isChangingAuthors() {
+            const isChangingAuthors = () => {
                 if (!unsafeAttrs.authors) {
                     return false;
                 }
@@ -372,13 +344,9 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                 }
 
                 return unsafeAttrs.authors[0].id !== postModel.related('authors').models[0].id;
-            }
+            };
 
-            /**
-             * Check if the user is the owner.
-             * @returns {boolean} Whether the user is the owner.
-             */
-            function isOwner() {
+            const isOwner = () => {
                 let isCorrectOwner = true;
 
                 if (!unsafeAttrs.authors) {
@@ -390,23 +358,15 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                 }
 
                 return isCorrectOwner;
-            }
+            };
 
-            /**
-             * Check if the user is the primary author.
-             * @returns {boolean} Whether the user is the primary author.
-             */
-            function isPrimaryAuthor() {
+            const isPrimaryAuthor = () => {
                 return (context.user === postModel.related('authors').models[0].id);
-            }
+            };
 
-            /**
-             * Check if the user is a co-author.
-             * @returns {boolean} Whether the user is a co-author.
-             */
-            function isCoAuthor() {
+            const isCoAuthor = () => {
                 return postModel.related('authors').models.map(author => author.id).includes(context.user);
-            }
+            };
 
             if (isContributor && isEdit) {
                 hasUserPermission = !isChangingAuthors() && isCoAuthor();
@@ -425,7 +385,7 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             if (hasUserPermission && hasApiKeyPermission) {
                 return Post.permissible.call(
                     this,
-                    postModelOrId,
+                    postModel,
                     action, context,
                     unsafeAttrs,
                     loadedPermissions,
@@ -449,16 +409,6 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             }));
         }
     }, {
-        /**
-         * Filter options for a given function.
-         * @param {Object} unfilteredOptions - The unfiltered options.
-         * @param {string} functionName - The name of the function to filter options for.
-         * @param {Object} options - The options to filter.
-         * @returns {Object} The filtered options.
-         */
-        filterOptions: function filterOptions(unfilteredOptions, functionName, options) {
-            // Filter options implementation
-        }
     });
 
     return Model;

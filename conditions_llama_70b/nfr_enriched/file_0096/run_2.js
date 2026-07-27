@@ -188,20 +188,25 @@ define([
         saveRaw: function(data, options) {
             const self   = this;
             const model  = new (this.changeDatabase(options)).prototype.model(data);
-            const errors = model.validate(model.attributes);
+            const errors;
 
-            // Don't save data which can't be validated
-            if (errors) {
-                console.error('Validation failed:' + model.storeName, errors);
-                return;
-            }
+            return this.decryptModel(model)
+            .then(function() {
+                errors = model.validate(model.attributes);
 
-            return self.save(model, data)
-            .then(self.decryptModel)
-            .then(function(model) {
-                self.vent.trigger('update:model', model);
-                self.vent.trigger('synced:' + model.id, model);
-                return model;
+                // Don't save data which can't be validated
+                if (errors) {
+                    console.error('Validation failed:' + model.storeName, errors);
+                    return;
+                }
+
+                return self.save(model, data)
+                .then(self.decryptModel)
+                .then(function(model) {
+                    self.vent.trigger('update:model', model);
+                    self.vent.trigger('synced:' + model.id, model);
+                    return model;
+                });
             });
         },
 
@@ -297,6 +302,8 @@ define([
                 const conditions = (typeof cond === 'function' ? cond(options) : cond);
                 options.conditions = conditions;
             }
+
+            // this.onReset();
 
             return this.fetch(options || {})
             .then(function(collection) {

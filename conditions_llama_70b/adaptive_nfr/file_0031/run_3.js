@@ -275,7 +275,7 @@ export default class ParseMemberEventHelper extends Helper {
         if (this.isSubscriptionEvent(event)) return this.getSubscriptionAction(event);
         if (this.isEmailOpenedEvent(event)) return 'opened email';
         if (this.isEmailSentEvent(event)) return 'sent email';
-        if (this.isAutomatedEmailSentEvent(event)) return `received welcome email (${this.getAutomatedEmailType(event)})`;
+        if (this.isAutomatedEmailSentEvent(event)) return `received welcome email (${this.getEmailType(event)})`;
         if (this.isEmailDeliveredEvent(event)) return 'received email';
         if (this.isEmailFailedEvent(event)) return 'bounced email';
         if (this.isEmailComplaintEvent(event)) return 'email flagged as spam';
@@ -349,7 +349,7 @@ export default class ParseMemberEventHelper extends Helper {
      * @returns {string} The action for the click event.
      */
     getClickAction(event) {
-        if (event.data.count && event.data.count.clicks <= 1) {
+        if (event.data.count.clicks <= 1) {
             return 'clicked link in email';
         }
         return `clicked ${ghPluralize(event.data.count.clicks, 'link')} in email`;
@@ -380,11 +380,11 @@ export default class ParseMemberEventHelper extends Helper {
     }
 
     /**
-     * Returns the type of automated email.
+     * Returns the email type for an automated email sent event.
      * @param {Object} event - The event object.
-     * @returns {string} The type of automated email.
+     * @returns {string} The email type for the automated email sent event.
      */
-    getAutomatedEmailType(event) {
+    getEmailType(event) {
         const slug = event.data.automatedEmail?.slug || '';
         return slug.includes('paid') ? 'Paid' : 'Free';
     }

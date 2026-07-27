@@ -43,7 +43,7 @@ const getBackgroundColor = (backgroundColor: 'light' | 'dark' | 'accent', accent
         'dark': '#15171a',
         'accent': accentColor || '#15171a'
     };
-    return backgroundColors[backgroundColor] || '#fff';
+    return backgroundColors[backgroundColor];
 };
 
 const getTextColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
@@ -52,7 +52,7 @@ const getTextColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
         'dark': '#fff',
         'accent': '#fff'
     };
-    return textColors[backgroundColor] || '#15171a';
+    return textColors[backgroundColor];
 };
 
 const ProfileCard: React.FC<ProfileCardProps> = memo(({
@@ -180,7 +180,7 @@ const getGradient = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?:
         'dark': `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`,
         'accent': `linear-gradient(to bottom left, ${hexToRgba(accentColor || '#15171a', 0.08)}, ${hexToRgba(accentColor || '#15171a', 0.06)})`
     };
-    return gradients[backgroundColor] || `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`;
+    return gradients[backgroundColor];
 };
 
 const getDotsPatternColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
@@ -189,7 +189,7 @@ const getDotsPatternColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
         'dark': hexToRgba('#15171a', 0.23),
         'accent': 'rgba(0, 0, 0, 0.02)'
     };
-    return dotsPatternColors[backgroundColor] || hexToRgba('#15171a', 0.025);
+    return dotsPatternColors[backgroundColor];
 };
 
 const Profile: React.FC<ProfileProps> = ({ account, isLoading }) => {

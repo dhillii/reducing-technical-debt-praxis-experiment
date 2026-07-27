@@ -9,7 +9,11 @@ internals.Plugin.prototype.register = function (plugins /*, [options], callback 
 
     options = Schema.apply('register', options);
 
-    const registrations = plugins.map(plugin => {
+    const registrations = [];
+    plugins = [].concat(plugins);
+    for (let i = 0; i < plugins.length; ++i) {
+        let plugin = plugins[i];
+
         if (typeof plugin === 'function') {
             if (!plugin.register) { 
                 plugin = { register: plugin };
@@ -45,12 +49,12 @@ internals.Plugin.prototype.register = function (plugins /*, [options], callback 
             }
         };
 
-        return registration;
-    });
+        registrations.push(registration);
+    }
 
     this.root._registring = true;
 
-    const registerPlugin = (item, next) => {
+    const each = (item, next) => {
         const selection = this._select(item.options.select, item.name);
         selection.realm.modifiers.route.prefix = item.options.routes.prefix;
         selection.realm.modifiers.route.vhost = item.options.routes.vhost;
@@ -83,7 +87,9 @@ internals.Plugin.prototype.register = function (plugins /*, [options], callback 
                     this.root._registrations[item.name] = registrationData;
                 }
             }
+        };
 
+        const registerPlugin = () => {
             const connections = [];
             if (selection.connections) {
                 for (let i = 0; i < selection.connections.length; ++i) {
@@ -120,18 +126,16 @@ internals.Plugin.prototype.register = function (plugins /*, [options], callback 
             if (connectionless) {
                 selection.connection = this.root.connection;
             }
-        };
 
-        const register = () => {
             item.register(selection, item.pluginOptions || {}, next);
         };
 
         validateRequirements();
         protectAgainstMultipleRegistrations();
-        register();
+        registerPlugin();
     };
 
-    Items.serial(registrations, registerPlugin, (err) => {
+    Items.serial(registrations, each, (err) => {
 
         this.root._registring = false;
         return Hoek.nextTick(callback)(err);

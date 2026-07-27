@@ -127,7 +127,7 @@ module.exports = function(God) {
     function fin(err) {
       if (processList.length === 0) {
         if (!fs.existsSync(cst.DUMP_FILE_PATH) && typeof God.clearDump === 'function') {
-          God.clearDump(function() { });
+          God.clearDump(function(){});
         }
         return cb(null, { success: true, processList: processList });
       }
@@ -198,12 +198,15 @@ module.exports = function(God) {
     if (!(id in God.clusters_db)) return cb(God.logAndGenerateError(id + ' id unknown'), {});
 
     const proc = God.clusters_db[id];
+
     if (!proc || !proc.pm2_env) return cb(God.logAndGenerateError('Error when getting proc || proc.pm2_env'), {});
 
     const newProc = Utility.clone(proc.pm2_env);
+
     delete newProc.created_at;
     delete newProc.pm_id;
     delete newProc.unique_id;
+
     newProc.unique_id = Utility.generateUUID();
 
     God.injectVariables(newProc, function inject(_err, newProc) {
@@ -226,6 +229,7 @@ module.exports = function(God) {
     if (!(id in God.clusters_db)) return cb(God.logAndGenerateError(id + ' id unknown'), {});
 
     const proc = God.clusters_db[id];
+
     if (proc.pm2_env.status === cst.ONLINE_STATUS) return cb(God.logAndGenerateError('process already online'), {});
     if (proc.pm2_env.status === cst.LAUNCHING_STATUS) return cb(God.logAndGenerateError('process already started'), {});
     if (proc.process && proc.process.pid) return cb(God.logAndGenerateError('Process with pid ' + proc.process.pid + ' already exists'), {});
@@ -284,7 +288,7 @@ module.exports = function(God) {
       if (proc.pm2_env.pm_id.toString().indexOf('_old_') !== 0) {
         try {
           fs.unlinkSync(proc.pm2_env.pm_pid_path);
-        } catch (e) { }
+        } catch (e) {}
       }
 
       if (proc.pm2_env.axm_actions) proc.pm2_env.axm_actions = [];
@@ -575,21 +579,21 @@ module.exports = function(God) {
   God.sendLineToStdin = function(packet, cb) {
     if (typeof packet.pm_id === 'undefined' || !packet.line) return cb(God.logAndGenerateError('pm_id or line field missing'), {});
 
-    const pm_id = packet.pm_id;
+    const pmId = packet.pm_id;
     const line = packet.line;
 
-    const proc = God.clusters_db[pm_id];
+    const proc = God.clusters_db[pmId];
 
-    if (!proc) return cb(God.logAndGenerateError('Process with ID <' + pm_id + '> unknown.'), {});
+    if (!proc) return cb(God.logAndGenerateError('Process with ID <' + pmId + '> unknown.'), {});
 
     if (proc.pm2_env.exec_mode === 'cluster_mode') return cb(God.logAndGenerateError('Cannot send line to processes in cluster mode'), {});
 
-    if (proc.pm2_env.status !== cst.ONLINE_STATUS && proc.pm2_env.status !== cst.LAUNCHING_STATUS) return cb(God.logAndGenerateError('Process with ID <' + pm_id + '> offline.'), {});
+    if (proc.pm2_env.status !== cst.ONLINE_STATUS && proc.pm2_env.status !== cst.LAUNCHING_STATUS) return cb(God.logAndGenerateError('Process with ID <' + pmId + '> offline.'), {});
 
     try {
       proc.stdin.write(line, function() {
         return cb(null, {
-          pm_id: pm_id,
+          pm_id: pmId,
           line: line
         });
       });
@@ -607,14 +611,14 @@ module.exports = function(God) {
       typeof packet.data === 'undefined' ||
       !packet.topic) return cb(God.logAndGenerateError('ID, DATA or TOPIC field is missing'), {});
 
-    const pm_id = packet.id;
+    const pmId = packet.id;
     const data = packet.data;
 
-    const proc = God.clusters_db[pm_id];
+    const proc = God.clusters_db[pmId];
 
-    if (!proc) return cb(God.logAndGenerateError('Process with ID <' + pm_id + '> unknown.'), {});
+    if (!proc) return cb(God.logAndGenerateError('Process with ID <' + pmId + '> unknown.'), {});
 
-    if (proc.pm2_env.status !== cst.ONLINE_STATUS && proc.pm2_env.status !== cst.LAUNCHING_STATUS) return cb(God.logAndGenerateError('Process with ID <' + pm_id + '> offline.'), {});
+    if (proc.pm2_env.status !== cst.ONLINE_STATUS && proc.pm2_env.status !== cst.LAUNCHING_STATUS) return cb(God.logAndGenerateError('Process with ID <' + pmId + '> offline.'), {});
 
     try {
       proc.send(packet);
@@ -698,7 +702,6 @@ module.exports = function(God) {
         }
       })(arr);
     } else return cb(God.logAndGenerateError('method requires name or id field'), {});
-    return false;
   };
 
   /**
@@ -714,18 +717,18 @@ module.exports = function(God) {
     });
   };
 
-  God.monitor = function Monitor(pm_id, cb) {
-    if (!God.clusters_db[pm_id] || !God.clusters_db[pm_id].pm2_env) return cb(new Error('Unknown pm_id'));
+  God.monitor = function Monitor(pmId, cb) {
+    if (!God.clusters_db[pmId] || !God.clusters_db[pmId].pm2_env) return cb(new Error('Unknown pm_id'));
 
-    God.clusters_db[pm_id].pm2_env._km_monitored = true;
-    return cb(null, { success: true, pm_id: pm_id });
+    God.clusters_db[pmId].pm2_env._km_monitored = true;
+    return cb(null, { success: true, pm_id: pmId });
   }
 
-  God.unmonitor = function Monitor(pm_id, cb) {
-    if (!God.clusters_db[pm_id] || !God.clusters_db[pm_id].pm2_env) return cb(new Error('Unknown pm_id'));
+  God.unmonitor = function Monitor(pmId, cb) {
+    if (!God.clusters_db[pmId] || !God.clusters_db[pmId].pm2_env) return cb(new Error('Unknown pm_id'));
 
-    God.clusters_db[pm_id].pm2_env._km_monitored = false;
-    return cb(null, { success: true, pm_id: pm_id });
+    God.clusters_db[pmId].pm2_env._km_monitored = false;
+    return cb(null, { success: true, pm_id: pmId });
   }
 
   God.getReport = function(arg, cb) {

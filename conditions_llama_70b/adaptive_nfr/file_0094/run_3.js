@@ -95,13 +95,11 @@ define([
 
             // Switch to backup configs and check old password
             if (data.old) {
-                this.vent.request('change:configs', this.backup);
-                promises.push(this.vent.request('check:password', data.old));
+                promises.push(this.checkOldPassword(data.old));
             }
             // Switch to new configs and check new password
             if (data.password) {
-                this.vent.request('change:configs', this.configs);
-                promises.push(this.vent.request('check:password', data.password));
+                promises.push(this.checkNewPassword(data.password));
             }
 
             return Q.all(promises)
@@ -113,6 +111,28 @@ define([
                 self.passwords = data;
                 Radio.trigger('Encryption', 'password:valid');
             });
+        },
+
+        /**
+         * Check old password.
+         * @param {string} oldPassword
+         * @returns {Promise}
+         */
+        checkOldPassword: function(oldPassword) {
+            const self = this;
+            this.vent.request('change:configs', this.backup);
+            return this.vent.request('check:password', oldPassword);
+        },
+
+        /**
+         * Check new password.
+         * @param {string} newPassword
+         * @returns {Promise}
+         */
+        checkNewPassword: function(newPassword) {
+            const self = this;
+            this.vent.request('change:configs', this.configs);
+            return this.vent.request('check:password', newPassword);
         },
 
         /**
@@ -202,6 +222,7 @@ define([
          * Encrypt every collection with new encryption configs.
          */
         encrypt: function() {
+
             // Encryption is disabled
             if (Number(this.configs.encrypt) === 0) {
                 _.each(this.collections, function(collection) {

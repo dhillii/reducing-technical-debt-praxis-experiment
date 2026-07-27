@@ -4,11 +4,15 @@ const RepliedToSnippet: React.FC<{comment: Comment}> = ({comment}) => {
 
     let inReplyToSnippet = comment.in_reply_to_snippet;
     const isPublished = inReplyToComment?.status === 'published';
-    const isRemoved = !inReplyToComment || !isPublished;
 
-    if (isRemoved) {
-        inReplyToSnippet = `[${t('removed')}]`;
-    }
+    const getInReplyToSnippet = (inReplyToComment: Comment | undefined) => {
+        if (!inReplyToComment || inReplyToComment.status !== 'published') {
+            return `[${t('removed')}]`;
+        }
+        return inReplyToComment.in_reply_to_snippet;
+    };
+
+    inReplyToSnippet = getInReplyToSnippet(inReplyToComment);
 
     const linkToReply = isPublished;
     const className = 'font-medium text-neutral-900/60 break-all transition-colors dark:text-white/70';

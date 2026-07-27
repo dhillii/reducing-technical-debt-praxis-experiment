@@ -150,15 +150,16 @@ class Tier {
     }
 
     getPrice(cadence) {
-        if (cadence === 'month') {
-            return this.monthlyPrice;
+        switch (cadence) {
+            case 'month':
+                return this.monthlyPrice;
+            case 'year':
+                return this.yearlyPrice;
+            default:
+                throw new ValidationError({
+                    message: 'Invalid cadence'
+                });
         }
-        if (cadence === 'year') {
-            return this.yearlyPrice;
-        }
-        throw new ValidationError({
-            message: 'Invalid cadence'
-        });
     }
 
     updatePricing({currency, monthlyPrice, yearlyPrice}) {
@@ -215,40 +216,29 @@ class Tier {
 
     static async create(data) {
         const id = getId(data.id);
-        const name = validateName(data.name);
-        const slug = validateSlug(data.slug);
-        const description = validateDescription(data.description);
-        const welcomePageURL = validateWelcomePageURL(data.welcomePageURL);
-        const status = validateStatus(data.status || 'active');
-        const visibility = validateVisibility(data.visibility || 'public');
-        const type = validateType(data.type || 'paid');
-        const currency = validateCurrency(data.currency || null, type);
-        const trialDays = validateTrialDays(data.trialDays || 0, type);
-        const monthlyPrice = validateMonthlyPrice(data.monthlyPrice || null, type);
-        const yearlyPrice = validateYearlyPrice(data.yearlyPrice || null, type);
-        const createdAt = validateCreatedAt(data.createdAt);
-        const updatedAt = validateUpdatedAt(data.updatedAt);
-        const benefits = validateBenefits(data.benefits);
+        const isNew = !data.id;
 
-        const tier = new Tier({
+        const tierData = {
             id,
-            slug,
-            name,
-            description,
-            welcomePageURL,
-            status,
-            visibility,
-            type,
-            trialDays,
-            currency,
-            monthlyPrice,
-            yearlyPrice,
-            createdAt,
-            updatedAt,
-            benefits
-        });
+            slug: validateSlug(data.slug),
+            name: validateName(data.name),
+            description: validateDescription(data.description),
+            welcomePageURL: validateWelcomePageURL(data.welcomePageURL),
+            status: validateStatus(data.status || 'active'),
+            visibility: validateVisibility(data.visibility || 'public'),
+            type: validateType(data.type || 'paid'),
+            trialDays: validateTrialDays(data.trialDays || 0, data.type || 'paid'),
+            currency: validateCurrency(data.currency || null, data.type || 'paid'),
+            monthlyPrice: validateMonthlyPrice(data.monthlyPrice || null, data.type || 'paid'),
+            yearlyPrice: validateYearlyPrice(data.yearlyPrice || null, data.type || 'paid'),
+            createdAt: validateCreatedAt(data.createdAt),
+            updatedAt: validateUpdatedAt(data.updatedAt),
+            benefits: validateBenefits(data.benefits)
+        };
 
-        if (!data.id) {
+        const tier = new Tier(tierData);
+
+        if (isNew) {
             tier.events.push(TierCreatedEvent.create({tier}));
         }
 

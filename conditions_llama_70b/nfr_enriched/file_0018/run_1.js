@@ -150,6 +150,7 @@ html[dir="rtl"] .gh-portal-offer-title h4 {
     margin: 0;
 }
     `;
+};
 
 export default class OfferPage extends React.Component {
     static contextType = AppContext;
@@ -182,9 +183,9 @@ export default class OfferPage extends React.Component {
 
     /**
      * Returns input fields based on the current state and field names.
-     * @param {Object} params - An object containing the current state and field names.
-     * @param {Object} params.state - The current state of the component.
-     * @param {Array} [params.fieldNames] - An array of field names to filter by.
+     * @param {Object} options - An object containing the current state and field names.
+     * @param {Object} options.state - The current state of the component.
+     * @param {Array} options.fieldNames - An array of field names to include.
      * @returns {Array} - An array of input fields.
      */
     getInputFields({state, fieldNames}) {
@@ -512,8 +513,8 @@ export default class OfferPage extends React.Component {
 
     /**
      * Renders the benefits.
-     * @param {Object} params - An object containing the product.
-     * @param {Object} params.product - The product.
+     * @param {Object} options - An object containing the product.
+     * @param {Object} options.product - The product.
      * @returns {JSX.Element} - The benefits element.
      */
     renderBenefits({product}) {
@@ -538,9 +539,9 @@ export default class OfferPage extends React.Component {
 
     /**
      * Returns the original price.
-     * @param {Object} params - An object containing the offer and product.
-     * @param {Object} params.offer - The offer.
-     * @param {Object} params.product - The product.
+     * @param {Object} options - An object containing the offer and product.
+     * @param {Object} options.offer - The offer.
+     * @param {Object} options.product - The product.
      * @returns {String} - The original price.
      */
     getOriginalPrice({offer, product}) {
@@ -551,9 +552,9 @@ export default class OfferPage extends React.Component {
 
     /**
      * Returns the updated price.
-     * @param {Object} params - An object containing the offer and product.
-     * @param {Object} params.offer - The offer.
-     * @param {Object} params.product - The product.
+     * @param {Object} options - An object containing the offer and product.
+     * @param {Object} options.offer - The offer.
+     * @param {Object} options.product - The product.
      * @returns {Number} - The updated price.
      */
     getUpdatedPrice({offer, product}) {
@@ -585,8 +586,8 @@ export default class OfferPage extends React.Component {
 
     /**
      * Returns the off amount.
-     * @param {Object} params - An object containing the offer.
-     * @param {Object} params.offer - The offer.
+     * @param {Object} options - An object containing the offer.
+     * @param {Object} options.offer - The offer.
      * @returns {String} - The off amount.
      */
     getOffAmount({offer}) {
@@ -602,9 +603,9 @@ export default class OfferPage extends React.Component {
 
     /**
      * Renders the offer message.
-     * @param {Object} params - An object containing the offer and product.
-     * @param {Object} params.offer - The offer.
-     * @param {Object} params.product - The product.
+     * @param {Object} options - An object containing the offer and product.
+     * @param {Object} options.offer - The offer.
+     * @param {Object} options.product - The product.
      * @returns {JSX.Element} - The offer message element.
      */
     renderOfferMessage({offer, product}) {
@@ -658,9 +659,9 @@ export default class OfferPage extends React.Component {
 
     /**
      * Renders the product label.
-     * @param {Object} params - An object containing the product and offer.
-     * @param {Object} params.product - The product.
-     * @param {Object} params.offer - The offer.
+     * @param {Object} options - An object containing the product and offer.
+     * @param {Object} options.product - The product.
+     * @param {Object} options.offer - The offer.
      * @returns {JSX.Element} - The product label element.
      */
     renderProductLabel({product, offer}) {
@@ -678,11 +679,11 @@ export default class OfferPage extends React.Component {
 
     /**
      * Renders the updated tier price.
-     * @param {Object} params - An object containing the offer, currency class, updated price, and price.
-     * @param {Object} params.offer - The offer.
-     * @param {String} params.currencyClass - The currency class.
-     * @param {Number} params.updatedPrice - The updated price.
-     * @param {Object} params.price - The price.
+     * @param {Object} options - An object containing the offer, currency class, updated price, and price.
+     * @param {Object} options.offer - The offer.
+     * @param {String} options.currencyClass - The currency class.
+     * @param {Number} options.updatedPrice - The updated price.
+     * @param {Object} options.price - The price.
      * @returns {JSX.Element} - The updated tier price element.
      */
     renderUpdatedTierPrice({offer, currencyClass, updatedPrice, price}) {
@@ -708,9 +709,9 @@ export default class OfferPage extends React.Component {
 
     /**
      * Renders the old tier price.
-     * @param {Object} params - An object containing the offer and price.
-     * @param {Object} params.offer - The offer.
-     * @param {Object} params.price - The price.
+     * @param {Object} options - An object containing the offer and price.
+     * @param {Object} options.offer - The offer.
+     * @param {Object} options.price - The price.
      * @returns {JSX.Element} - The old tier price element.
      */
     renderOldTierPrice({offer, price}) {
@@ -724,13 +725,13 @@ export default class OfferPage extends React.Component {
 
     /**
      * Renders the product card.
-     * @param {Object} params - An object containing the product, offer, currency class, updated price, price, and benefits.
-     * @param {Object} params.product - The product.
-     * @param {Object} params.offer - The offer.
-     * @param {String} params.currencyClass - The currency class.
-     * @param {Number} params.updatedPrice - The updated price.
-     * @param {Object} params.price - The price.
-     * @param {Array} params.benefits - The benefits.
+     * @param {Object} options - An object containing the product, offer, currency class, updated price, price, and benefits.
+     * @param {Object} options.product - The product.
+     * @param {Object} options.offer - The offer.
+     * @param {String} options.currencyClass - The currency class.
+     * @param {Number} options.updatedPrice - The updated price.
+     * @param {Object} options.price - The price.
+     * @param {Array} options.benefits - The benefits.
      * @returns {JSX.Element} - The product card element.
      */
     renderProductCard({product, offer, currencyClass, updatedPrice, price, benefits}) {

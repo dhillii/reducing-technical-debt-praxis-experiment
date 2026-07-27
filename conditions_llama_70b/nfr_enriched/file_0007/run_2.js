@@ -171,10 +171,14 @@ const handleImageUpload = async (image: string, file: File, updateForm: (newData
 
         switch (image) {
         case 'cover_image':
-            updateForm((user) => ({...user, cover_image: imageUrl}));
+            updateForm((user) => {
+                return {...user, cover_image: imageUrl};
+            });
             break;
         case 'profile_image':
-            updateForm((user) => ({...user, profile_image: imageUrl}));
+            updateForm((user) => {
+                return {...user, profile_image: imageUrl};
+            });
             break;
         }
     } catch (e) {
@@ -190,10 +194,14 @@ const handleImageUpload = async (image: string, file: File, updateForm: (newData
 const handleImageDelete = (image: string, updateForm: (newData: User) => void) => {
     switch (image) {
     case 'cover_image':
-        updateForm((user) => ({...user, cover_image: ''}));
+        updateForm((user) => {
+            return {...user, cover_image: ''};
+        });
         break;
     case 'profile_image':
-        updateForm((user) => ({...user, profile_image: ''}));
+        updateForm((user) => {
+            return {...user, profile_image: ''};
+        });
         break;
     }
 };
@@ -205,7 +213,7 @@ const confirmSuspend = async (_user: User, updateUser: (user: User) => Promise<v
             await limiter?.errorIfWouldGoOverLimit('staff');
         } catch (error) {
             if (error instanceof HostLimitError) {
-                // Show limit modal
+                // Handle limit error
                 return;
             } else {
                 throw error;
@@ -224,7 +232,7 @@ const confirmSuspend = async (_user: User, updateUser: (user: User) => Promise<v
     };
     try {
         await updateUser(updatedUserData);
-        setFormState(updatedUserData);
+        setFormState(() => updatedUserData);
         // Remove modal
         showToast({
             title: _user.status === 'inactive' ? 'User un-suspended' : 'User suspended',
@@ -265,44 +273,12 @@ const confirmMakeOwner = (makeOwner: (id: string) => Promise<void>, showToast: (
     }
 };
 
-// Extracted function to get menu items
-const getMenuItems = (currentUser: User, user: User, ownerUser: User, confirmMakeOwner: () => void, confirmDelete: () => void, confirmSuspend: () => void) => {
-    let menuItems: MenuItem[] = [];
+// Extracted function to handle tab change
+const handleTabChange = (newTabId: string, updateRoute: (route: string) => void, setSelectedTab: (tab: string) => void, user: User) => {
+    const urlSegment = newTabId === 'profile' ? '' : `/${newTabId}`;
 
-    if (isOwnerUser(currentUser) && isAdminUser(user) && user.status !== 'inactive') {
-        menuItems.push({
-            id: 'make-owner',
-            label: 'Make owner',
-            onClick: confirmMakeOwner
-        });
-    }
-
-    if (user.id !== currentUser.id && (
-        (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
-        (isEditorUser(currentUser) && isAuthorOrContributor(user))
-    )) {
-        let suspendUserLabel = user.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
-
-        menuItems.push({
-            id: 'delete-user',
-            label: 'Delete user',
-            onClick: confirmDelete
-        }, {
-            id: 'suspend-user',
-            label: suspendUserLabel,
-            onClick: confirmSuspend
-        });
-    }
-
-    menuItems.push({
-        id: 'view-user-activity',
-        label: 'View user activity',
-        onClick: () => {
-            // Handle view user activity
-        }
-    });
-
-    return menuItems;
+    updateRoute(`staff/${user.slug}${urlSegment}`);
+    setSelectedTab(newTabId);
 };
 
 const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
@@ -325,7 +301,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             }, {});
         },
         onSave: async (values) => {
-            // Handle save
+            // Save user
         },
         onSaveError: handleError
     });
@@ -360,25 +336,55 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     }, [currentUser, updateRoute]);
 
-    const confirmSuspendUser = () => confirmSuspend(formState, updateUser, setFormState, showToast, limiter);
-    const confirmDeleteUser = () => confirmDelete(user, {owner: ownerUser}, deleteUser, mainModal, navigateOnClose, showToast);
-    const confirmMakeOwnerUser = () => confirmMakeOwner(makeOwner, showToast);
-
-    const handleImageUploadEvent = (image: string, file: File) => handleImageUpload(image, file, updateForm, uploadImage);
-    const handleImageDeleteEvent = (image: string) => handleImageDelete(image, updateForm);
-
-    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
-    const menuItems = getMenuItems(currentUser, formState, ownerUser, confirmMakeOwnerUser, confirmDeleteUser, confirmSuspendUser);
-
     const initialTab = getTabFromPath(route);
     const [selectedTab, setSelectedTab] = useState<string>(initialTab);
 
-    const handleTabChange = (newTabId: string) => {
-        const urlSegment = newTabId === 'profile' ? '' : `/${newTabId}`;
+    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
+    let menuItems: MenuItem[] = [];
 
-        updateRoute(`staff/${user.slug}${urlSegment}`);
-        setSelectedTab(newTabId);
-    };
+    if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
+        menuItems.push({
+            id: 'make-owner',
+            label: 'Make owner',
+            onClick: () => confirmMakeOwner(makeOwner, showToast)
+        });
+    }
+
+    if (formState.id !== currentUser.id && (
+        (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
+        (isEditorUser(currentUser) && isAuthorOrContributor(user))
+    )) {
+        let suspendUserLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
+
+        menuItems.push({
+            id: 'delete-user',
+            label: 'Delete user',
+            onClick: () => {
+                confirmDelete(user, {owner: ownerUser}, deleteUser, mainModal, navigateOnClose, showToast);
+            }
+        }, {
+            id: 'suspend-user',
+            label: suspendUserLabel,
+            onClick: () => {
+                confirmSuspend(formState, updateUser, setFormState, showToast, limiter);
+            }
+        });
+    }
+
+    menuItems.push({
+        id: 'view-user-activity',
+        label: 'View user activity',
+        onClick: () => {
+            mainModal.remove();
+            updateRoute(`history/view/${formState.id}`);
+        }
+    });
+
+    const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
+
+    const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
+
+    const suspendedText = formState.status === 'inactive' ? ' (Suspended)' : '';
 
     return (
         <Modal
@@ -423,7 +429,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                                 openEditor: async () => editor.openEditor({
                                                     image: formState.profile_image || '',
                                                     handleSave: async (file:File) => {
-                                                        handleImageUploadEvent('profile_image', file);
+                                                        handleImageUpload('profile_image', file, updateForm, uploadImage);
                                                     }
                                                 })
                                             }
@@ -431,10 +437,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                         unstyled={true}
                                         width='80px'
                                         onDelete={() => {
-                                            handleImageDeleteEvent('profile_image');
+                                            handleImageDelete('profile_image', updateForm);
                                         }}
                                         onUpload={(file: File) => {
-                                            handleImageUploadEvent('profile_image', file);
+                                            handleImageUpload('profile_image', file, updateForm, uploadImage);
                                         }}
                                     >
                                         <Icon colorClass='black' name='user-add' size='lg' />
@@ -443,10 +449,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                 <div className='flex flex-nowrap items-start gap-3'>
                                     <ImageUpload
                                         buttonContainerClassName='flex items-end gap-4 justify-end flex-nowrap'
-                                        deleteButtonClassName='flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap'
+                                        deleteButtonClassName={coverButtonClasses}
                                         deleteButtonContent='Delete cover image'
-                                        editButtonClassName='flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap'
-                                        fileUploadClassName='rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white'
+                                        editButtonClassName={coverButtonClasses}
+                                        fileUploadClassName={noCoverButtonClasses}
                                         id='cover-image'
                                         imageClassName='hidden'
                                         imageURL={formState.cover_image || ''}
@@ -456,17 +462,17 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                                 openEditor: async () => editor.openEditor({
                                                     image: formState.cover_image || '',
                                                     handleSave: async (file:File) => {
-                                                        handleImageUploadEvent('cover_image', file);
+                                                        handleImageUpload('cover_image', file, updateForm, uploadImage);
                                                     }
                                                 })
                                             }
                                         }
                                         unstyled
                                         onDelete={() => {
-                                            handleImageDeleteEvent('cover_image');
+                                            handleImageDelete('cover_image', updateForm);
                                         }}
                                         onUpload={(file: File) => {
-                                            handleImageUploadEvent('cover_image', file);
+                                            handleImageUpload('cover_image', file, updateForm, uploadImage);
                                         }}
                                     >Upload cover image</ImageUpload>
                                     {showMenu && <div className="z-10">
@@ -496,7 +502,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                 </div>
                             </div>
                             <div>
-                                <Heading level={3} styles={clsx('break-words md:break-normal', formState.cover_image ? 'text-white' : 'text-black dark:text-white')}>{user.name}{formState.status === 'inactive' ? ' (Suspended)' : ''}</Heading>
+                                <Heading level={3} styles={clsx('break-words md:break-normal', formState.cover_image ? 'text-white' : 'text-black dark:text-white')}>{user.name}{suspendedText}</Heading>
                                 <span className={clsx('text-md font-medium capitalize', formState.cover_image ? 'text-white' : 'text-black dark:text-white')}>{user.roles[0].name.toLowerCase()}</span>
                             </div>
                         </div>
@@ -522,7 +528,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                 contents: <EmailNotificationsTab setUserData={setUserData} user={formState} />
                             }
                         ]}
-                        onTabChange={handleTabChange}
+                        onTabChange={(newTabId) => handleTabChange(newTabId, updateRoute, setSelectedTab, user)}
                     />
                 </div>
             </div>

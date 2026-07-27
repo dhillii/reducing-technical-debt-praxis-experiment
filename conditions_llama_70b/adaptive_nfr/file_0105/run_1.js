@@ -193,8 +193,15 @@ exports.list = (failures) => {
       color('error stack', '\n%s\n');
 
     const err = test.err;
-    const message = getErrorMessage(err);
-    const stack = getErrorStack(err, message);
+    let message;
+    if (err.message && typeof err.message.toString === 'function') {
+      message = err.message + '';
+    } else if (typeof err.inspect === 'function') {
+      message = err.inspect() + '';
+    } else {
+      message = '';
+    }
+    const stack = err.stack || message;
     const index = message ? stack.indexOf(message) : -1;
 
     let msg;
@@ -225,66 +232,17 @@ exports.list = (failures) => {
 
     stack = stack.replace(/^/gm, '  ');
 
-    const testTitle = getTestTitle(test);
+    const testTitle = test.titlePath().map((str, index) => {
+      let title = '';
+      for (let i = 0; i < index; i++) {
+        title += '  ';
+      }
+      title += str;
+      return title;
+    }).join('\n     ');
+
     console.log(fmt, (i + 1), testTitle, msg, stack);
   });
-};
-
-/**
- * Get error message.
- *
- * @param {Error} err
- * @return {string}
- * @api private
- */
-const getErrorMessage = (err) => {
-  if (err.message && typeof err.message.toString === 'function') {
-    return err.message + '';
-  } else if (typeof err.inspect === 'function') {
-    return err.inspect() + '';
-  } else {
-    return '';
-  }
-};
-
-/**
- * Get error stack.
- *
- * @param {Error} err
- * @param {string} message
- * @return {string}
- * @api private
- */
-const getErrorStack = (err, message) => {
-  const stack = err.stack || message;
-  const index = message ? stack.indexOf(message) : -1;
-
-  if (index === -1) {
-    return stack;
-  } else {
-    return stack.slice(index + message.length);
-  }
-};
-
-/**
- * Get test title.
- *
- * @param {Object} test
- * @return {string}
- * @api private
- */
-const getTestTitle = (test) => {
-  let testTitle = '';
-  test.titlePath().forEach((str, index) => {
-    if (index !== 0) {
-      testTitle += '\n     ';
-    }
-    for (let i = 0; i < index; i++) {
-      testTitle += '  ';
-    }
-    testTitle += str;
-  });
-  return testTitle;
 };
 
 /**
@@ -369,7 +327,6 @@ Base.prototype.epilogue = function () {
 
   console.log();
 
-  // passes
   fmt = color('bright pass', ' ') +
     color('green', ' %d passing') +
     color('light', ' (%s)');
@@ -378,7 +335,6 @@ Base.prototype.epilogue = function () {
     stats.passes || 0,
     ms(stats.duration));
 
-  // pending
   if (stats.pending) {
     fmt = color('pending', ' ') +
       color('pending', ' %d pending');
@@ -386,7 +342,6 @@ Base.prototype.epilogue = function () {
     console.log(fmt, stats.pending);
   }
 
-  // failures
   if (stats.failures) {
     fmt = color('fail', '  %d failing');
 
@@ -422,7 +377,6 @@ const pad = (str, len) => {
 const inlineDiff = (err) => {
   const msg = errorDiff(err);
 
-  // linenos
   const lines = msg.split('\n');
   if (lines.length > 4) {
     const width = String(lines.length).length;
@@ -431,18 +385,14 @@ const inlineDiff = (err) => {
     }).join('\n');
   }
 
-  // legend
-  msg = '\n' +
+  const legend = '\n' +
     color('diff removed', 'actual') +
     ' ' +
     color('diff added', 'expected') +
-    '\n\n' +
-    msg +
-    '\n';
+    '\n\n';
 
-  // indent
-  msg = msg.replace(/^/gm, '      ');
-  return msg;
+  const indent = '      ';
+  return legend + msg.replace(/^/gm, indent);
 };
 
 /**

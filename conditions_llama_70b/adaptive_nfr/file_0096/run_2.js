@@ -130,7 +130,7 @@ define([
             // Set new values
             model[setF](data);
 
-            return new Q(this.encryptModel(model))
+            return new Q(self.encryptModel(model))
             .then(function(model) {
                 return new Q(model.save(model.attributes, {validate: false}))
                 .thenResolve(model);
@@ -353,7 +353,9 @@ define([
         },
 
         /**
-         * @return boolean
+         * Checks if encryption is enabled for a model.
+         * @param {object} model - The model to check.
+         * @return {boolean} True if encryption is enabled, false otherwise.
          */
         _isEncryptEnabled: function(model) {
             // Don't use encryption on configs
@@ -372,7 +374,9 @@ define([
         },
 
         /**
-         * @type object Backbone model
+         * Encrypts a model.
+         * @param {object} model - The model to encrypt.
+         * @return {Promise} A promise that resolves with the encrypted model.
          */
         encryptModel: function(model) {
             if (!this._isEncryptEnabled(model)) {
@@ -383,7 +387,9 @@ define([
         },
 
         /**
-         * @type object Backbone model
+         * Decrypts a model.
+         * @param {object} model - The model to decrypt.
+         * @return {Promise} A promise that resolves with the decrypted model.
          */
         decryptModel: function(model) {
             if (!this._isEncryptEnabled(model)) {
@@ -396,8 +402,9 @@ define([
         },
 
         /**
-         * Decrypt every model in the collection
-         * @type object Backbone collection
+         * Decrypts every model in the collection.
+         * @param {object} collection - The collection to decrypt.
+         * @return {Promise} A promise that resolves with the decrypted collection.
          */
         decryptModels: function(collection) {
             collection = collection || this.collection;

@@ -7,7 +7,7 @@ function FreeProductCard({products, handleChooseSignup, error}) {
     const freeBenefits = getFreeProductBenefits({site});
     const hasOnlyFree = hasOnlyFreeProduct({site});
 
-    const isDisabled = isDisabledState({action, hasOnlyFree});
+    const isDisabled = isDisabledState({action, site});
 
     const cardClass = getCardClass({selectedProduct, hasOnlyFree});
     const currencySymbol = getCurrencySymbolFromProducts({products});
@@ -35,26 +35,25 @@ function FreeProductCard({products, handleChooseSignup, error}) {
 }
 
 // Extracted functions
-function isDisabledState({action, hasOnlyFree}) {
-    return (action === 'signup:running') || isCookiesDisabled() || hasOnlyFree;
+function isDisabledState({action, site}) {
+    // @TODO: doublecheck this!
+    return (action === 'signup:running') || isCookiesDisabled();
 }
 
 function getCardClass({selectedProduct, hasOnlyFree}) {
-    const baseClass = 'gh-portal-product-card free';
-    if (selectedProduct === 'free') {
-        return baseClass + ' checked';
-    }
+    let cardClass = selectedProduct === 'free' ? 'gh-portal-product-card free checked' : 'gh-portal-product-card free';
     if (hasOnlyFree) {
-        return baseClass + ' only-free';
+        cardClass += ' only-free';
     }
-    return baseClass;
+    return cardClass;
 }
 
 function getCurrencySymbolFromProducts({products}) {
     if (products && products[1]) {
         return getCurrencySymbol(products[1].monthlyPrice.currency);
+    } else {
+        return '$';
     }
-    return '$';
 }
 
 function renderFreeProductPrice({hasOnlyFree, currencySymbol}) {

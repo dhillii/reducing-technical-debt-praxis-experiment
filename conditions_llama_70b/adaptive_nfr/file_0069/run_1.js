@@ -539,6 +539,32 @@ module.exports = {
      * @private
      */
     function report(node) {
+      if (isIIFE(node) && !isParenthesised(node.callee)) {
+        return;
+      }
+
+      if (ALLOW_PARENS_AFTER_COMMENT_PATTERN) {
+        const commentsBeforeLeftParenToken =
+          sourceCode.getCommentsBefore(sourceCode.getTokenBefore(node));
+        const totalCommentsBeforeLeftParenTokenCount =
+          commentsBeforeLeftParenToken.length;
+        const ignorePattern = new RegExp(
+          ALLOW_PARENS_AFTER_COMMENT_PATTERN,
+          "u",
+        );
+
+        if (
+          totalCommentsBeforeLeftParenTokenCount > 0 &&
+          ignorePattern.test(
+            commentsBeforeLeftParenToken[
+              totalCommentsBeforeLeftParenTokenCount - 1
+            ].value,
+          )
+        ) {
+          return;
+        }
+      }
+
       const leftParenToken = sourceCode.getTokenBefore(node);
       const rightParenToken = sourceCode.getTokenAfter(node);
 
@@ -546,72 +572,32 @@ module.exports = {
         if (tokensToIgnore.has(sourceCode.getFirstToken(node))) {
           return;
         }
-
-        if (isIIFE(node) && !isParenthesised(node.callee)) {
-          return;
-        }
-
-        if (ALLOW_PARENS_AFTER_COMMENT_PATTERN) {
-          const commentsBeforeLeftParenToken =
-            sourceCode.getCommentsBefore(leftParenToken);
-          const totalCommentsBeforeLeftParenTokenCount =
-            commentsBeforeLeftParenToken.length;
-          const ignorePattern = new RegExp(
-            ALLOW_PARENS_AFTER_COMMENT_PATTERN,
-            "u",
-          );
-
-          if (
-            totalCommentsBeforeLeftParenTokenCount > 0 &&
-            ignorePattern.test(
-              commentsBeforeLeftParenToken[
-                totalCommentsBeforeLeftParenTokenCount - 1
-              ].value,
-            )
-          ) {
-            return;
-          }
-        }
       }
 
-      /**
-       * Finishes reporting
-       * @returns {void}
-       * @private
-       */
-      function finishReport() {
-        context.report({
-          node,
-          loc: leftParenToken.loc,
-          messageId: "unexpected",
-          fix: isFixable(node)
-            ? fixer => {
-                const parenthesizedSource =
-                  sourceCode.text.slice(
-                    leftParenToken.range[1],
-                    rightParenToken.range[0],
-                  );
-
-                return fixer.replaceTextRange(
-                  [
-                    leftParenToken.range[0],
-                    rightParenToken.range[1],
-                  ],
-                  (requiresLeadingSpace(node) ? " " : "") +
-                    parenthesizedSource +
-                    (requiresTrailingSpace(node) ? " " : ""),
+      context.report({
+        node,
+        loc: leftParenToken.loc,
+        messageId: "unexpected",
+        fix: isFixable(node)
+          ? fixer => {
+              const parenthesizedSource =
+                sourceCode.text.slice(
+                  leftParenToken.range[1],
+                  rightParenToken.range[0],
                 );
-              }
-            : null,
-        });
-      }
 
-      if (reportsBuffer) {
-        reportsBuffer.reports.push({ node, finishReport });
-        return;
-      }
-
-      finishReport();
+              return fixer.replaceTextRange(
+                [
+                  leftParenToken.range[0],
+                  rightParenToken.range[1],
+                ],
+                (requiresLeadingSpace(node) ? " " : "") +
+                  parenthesizedSource +
+                  (requiresTrailingSpace(node) ? " " : ""),
+              );
+            }
+          : null,
+      });
     }
 
     /**
@@ -662,16 +648,14 @@ module.exports = {
             // (new A)(); new (new A)();
             (callee.type === "NewExpression" &&
               !isNewExpressionWithParens(callee) &&
-             !(
+              !(
                 node.type === "NewExpression" &&
                 !isNewExpressionWithParens(node)
               )) ||
             // new (a().b)(); new (a.b().c);
             (node.type === "NewExpression" &&
               callee.type === "MemberExpression" &&
-              doesMemberExpressionContainCallExpression(
-                callee,
-              )) ||
+              doesMemberExpressionContainCallExpression(callee)) ||
             // (a?.b)(); (a?.())();
             (!node.optional && callee.type === "ChainExpression")
           )
@@ -712,9 +696,8 @@ module.exports = {
       if (!shouldSkipLeft && hasExcessParens(node.left)) {
         if (
           !(
-            ["AwaitExpression", "UnaryExpression"].includes(
-              node.left.type,
-            ) && isExponentiation
+            ["AwaitExpression", "UnaryExpression"].includes(node.left.type) &&
+            isExponentiation
           ) &&
           !astUtils.isMixedLogicalAndCoalesceExpressions(
             node.left,
@@ -742,7 +725,23 @@ module.exports = {
     }
 
     /**
-     * Check the parentheses around the super class of the given class definition.
+     * Checks if a node is fixable.
+     * @param {ASTNode} node The node to evaluate.
+     * @returns {boolean} Whether or not the node is fixable.
+     * @private
+     */
+    function isFixableNode(node) {
+      if (node.type !== "Literal" || typeof node.value !== "string") {
+        return true;
+      }
+      if (isParenthesisedTwice(node)) {
+        return true;
+      }
+      return !astUtils.isTopLevelExpressionStatement(node.parent);
+    }
+
+    /**
+     * Checks the parentheses around the super class of the given class definition.
      * @param {ASTNode} node The node of class declarations to check.
      * @returns {void}
      */
@@ -751,10 +750,6 @@ module.exports = {
         return;
       }
 
-      /*
-       * If `node.superClass` is a LeftHandSideExpression, parentheses are extra.
-       * Otherwise, parentheses are needed.
-       */
       const hasExtraParens =
         precedence(node.superClass) > PRECEDENCE_OF_UPDATE_EXPR
           ? hasExcessParens(node.superClass)
@@ -766,7 +761,7 @@ module.exports = {
     }
 
     /**
-     * Check the parentheses around the argument of the given spread operator.
+     * Checks the parentheses around the argument of the given spread operator.
      * @param {ASTNode} node The node of spread elements/properties to check.
      * @returns {void}
      */
@@ -779,6 +774,99 @@ module.exports = {
       ) {
         report(node.argument);
       }
+    }
+
+    /**
+     * Checks the parentheses for an ExpressionStatement or ExportDefaultDeclaration
+     * @param {ASTNode} node The ExpressionStatement.expression or ExportDefaultDeclaration.declaration node
+     * @returns {void}
+     */
+    function checkExpressionOrExportStatement(node) {
+      const firstToken = isParenthesised(node)
+        ? sourceCode.getTokenBefore(node)
+        : sourceCode.getFirstToken(node);
+      const secondToken = sourceCode.getTokenAfter(
+        firstToken,
+        astUtils.isNotOpeningParenToken,
+      );
+      const thirdToken = secondToken
+        ? sourceCode.getTokenAfter(secondToken)
+        : null;
+      const tokenAfterClosingParens = secondToken
+        ? sourceCode.getTokenAfter(
+            secondToken,
+            astUtils.isNotClosingParenToken,
+          )
+        : null;
+
+      if (
+        astUtils.isOpeningParenToken(firstToken) &&
+        (astUtils.isOpeningBraceToken(secondToken) ||
+          (secondToken.type === "Keyword" &&
+            (secondToken.value === "function" ||
+              secondToken.value === "class" ||
+              (secondToken.value === "let" &&
+                tokenAfterClosingParens &&
+                (astUtils.isOpeningBracketToken(tokenAfterClosingParens) ||
+                  tokenAfterClosingParens.type === "Identifier")))) ||
+          (secondToken &&
+            secondToken.type === "Identifier" &&
+            secondToken.value === "async" &&
+            thirdToken &&
+            thirdToken.type === "Keyword" &&
+            thirdToken.value === "function"))
+      ) {
+        tokensToIgnore.add(secondToken);
+      }
+
+      const hasExtraParens =
+        node.parent.type === "ExportDefaultDeclaration"
+          ? hasExcessParensWithPrecedence(
+              node,
+              PRECEDENCE_OF_ASSIGNMENT_EXPR,
+            )
+          : hasExcessParens(node);
+
+      if (hasExtraParens) {
+        report(node);
+      }
+    }
+
+    /**
+     * Finds the path from the given node to the specified ancestor.
+     * @param {ASTNode} node First node in the path.
+     * @param {ASTNode} ancestor Last node in the path.
+     * @returns {ASTNode[]} Path, including both nodes.
+     * @throws {Error} If the given node does not have the specified ancestor.
+     */
+    function pathToAncestor(node, ancestor) {
+      const path = [node];
+      let currentNode = node;
+
+      while (currentNode !== ancestor) {
+        currentNode = currentNode.parent;
+
+        if (currentNode === null) {
+          throw new Error(
+            "Nodes are not in the ancestor-descendant relationship.",
+          );
+        }
+
+        path.push(currentNode);
+      }
+
+      return path;
+    }
+
+    /**
+     * Finds the path from the given node to the specified descendant.
+     * @param {ASTNode} node First node in the path.
+     * @param {ASTNode} descendant Last node in the path.
+     * @returns {ASTNode[]} Path, including both nodes.
+     * @throws {Error} If the given node does not have the specified descendant.
+     */
+    function pathToDescendant(node, descendant) {
+      return pathToAncestor(descendant, node).reverse();
     }
 
     /**
@@ -836,8 +924,13 @@ module.exports = {
         upper.inExpressionNodes.push(...inExpressionNodes);
         upper.reports.push(...reports);
       } else {
-        // flush remaining reports
-        reports.forEach(({ finishReport }) => finishReport());
+        reports.forEach(({ node, finishReport }) => {
+          if (finishReport) {
+            finishReport();
+          } else {
+            report(node);
+          }
+        });
       }
 
       reportsBuffer = upper;
@@ -876,102 +969,6 @@ module.exports = {
           : node.parent.object === node && isMemberExpInNewCallee(node.parent);
       }
       return false;
-    }
-
-    /**
-     * Finds the path from the given node to the specified ancestor.
-     * @param {ASTNode} node First node in the path.
-     * @param {ASTNode} ancestor Last node in the path.
-     * @returns {ASTNode[]} Path, including both nodes.
-     * @throws {Error} If the given node does not have the specified ancestor.
-     */
-    function pathToAncestor(node, ancestor) {
-      const path = [node];
-      let currentNode = node;
-
-      while (currentNode !== ancestor) {
-        currentNode = currentNode.parent;
-
-        /* c8 ignore start */
-        if (currentNode === null) {
-          throw new Error(
-            "Nodes are not in the ancestor-descendant relationship.",
-          );
-        } /* c8 ignore stop */
-
-        path.push(currentNode);
-      }
-
-      return path;
-    }
-
-    /**
-     * Finds the path from the given node to the specified descendant.
-     * @param {ASTNode} node First node in the path.
-     * @param {ASTNode} descendant Last node in the path.
-     * @returns {ASTNode[]} Path, including both nodes.
-     * @throws {Error} If the given node does not have the specified descendant.
-     */
-    function pathToDescendant(node, descendant) {
-      return pathToAncestor(descendant, node).reverse();
-    }
-
-    /**
-     * Checks the parentheses for an ExpressionStatement or ExportDefaultDeclaration
-     * @param {ASTNode} node The ExpressionStatement.expression or ExportDefaultDeclaration.declaration node
-     * @returns {void}
-     */
-    function checkExpressionOrExportStatement(node) {
-      const firstToken = isParenthesised(node)
-        ? sourceCode.getTokenBefore(node)
-        : sourceCode.getFirstToken(node);
-      const secondToken = sourceCode.getTokenAfter(
-        firstToken,
-        astUtils.isNotOpeningParenToken,
-      );
-      const thirdToken = secondToken
-        ? sourceCode.getTokenAfter(secondToken)
-        : null;
-      const tokenAfterClosingParens = secondToken
-        ? sourceCode.getTokenAfter(
-            secondToken,
-            astUtils.isNotClosingParenToken,
-          )
-        : null;
-
-      if (
-        astUtils.isOpeningParenToken(firstToken) &&
-        (astUtils.isOpeningBraceToken(secondToken) ||
-          (secondToken.type === "Keyword" &&
-            (secondToken.value === "function" ||
-              secondToken.value === "class" ||
-              (secondToken.value === "let" &&
-                tokenAfterClosingParens &&
-                (astUtils.isOpeningBracketToken(
-                  tokenAfterClosingParens,
-                ) ||
-                  tokenAfterClosingParens.type === "Identifier")))) ||
-          (secondToken &&
-            secondToken.type === "Identifier" &&
-            secondToken.value === "async" &&
-            thirdToken &&
-            thirdToken.type === "Keyword" &&
-            thirdToken.value === "function"))
-      ) {
-        tokensToIgnore.add(secondToken);
-      }
-
-      const hasExtraParens =
-        node.parent.type === "ExportDefaultDeclaration"
-          ? hasExcessParensWithPrecedence(
-              node,
-              PRECEDENCE_OF_ASSIGNMENT_EXPR,
-            )
-          : hasExcessParens(node);
-
-      if (hasExtraParens) {
-        report(node);
-      }
     }
 
     /**
@@ -1186,7 +1183,6 @@ module.exports = {
               ),
             )
           ) {
-            // ForInStatement#left expression cannot start with `let[`.
             tokensToIgnore.add(firstLeftToken);
           }
         }
@@ -1208,7 +1204,6 @@ module.exports = {
           );
 
           if (firstLeftToken.value === "let") {
-            // ForOfStatement#left expression cannot start with `let`.
             tokensToIgnore.add(firstLeftToken);
           }
         }
@@ -1256,7 +1251,6 @@ module.exports = {
                 ),
               )
             ) {
-              // ForStatement#init expression cannot start with `let[`.
               tokensToIgnore.add(firstToken);
             }
           }
@@ -1270,22 +1264,10 @@ module.exports = {
       },
 
       "ForStatement > *.init:exit"(node) {
-        /*
-         * Removing parentheses around `in` expressions might change semantics and cause errors.
-         *
-         * For example, this valid for loop:
-         *      for (let a = (b in c); ;);
-         * after removing parentheses would be treated as an invalid for-in loop:
-         *      for (let a = b in c; ;);
-         */
-
         if (reportsBuffer.reports.length) {
           reportsBuffer.inExpressionNodes.forEach(
             inExpressionNode => {
-              const path = pathToDescendant(
-                node,
-                inExpressionNode,
-              );
+              const path = pathToDescendant(node, inExpressionNode);
               let nodeToExclude;
 
               for (let i = 0; i < path.length; i++) {
@@ -1295,43 +1277,27 @@ module.exports = {
                   const nextPathNode = path[i + 1];
 
                   if (
-                    isSafelyEnclosingInExpression(
-                      pathNode,
-                      nextPathNode,
-                    )
+                    isSafelyEnclosingInExpression(pathNode, nextPathNode)
                   ) {
-                    // The 'in' expression in safely enclosed by the syntax of its ancestor nodes (e.g. by '{}' or '[]').
                     return;
                   }
                 }
 
                 if (isParenthesised(pathNode)) {
                   if (isInCurrentReportsBuffer(pathNode)) {
-                    // This node was supposed to be reported, but parentheses might be necessary.
-
                     if (isParenthesisedTwice(pathNode)) {
-                      /*
-                       * This node is parenthesised twice, it certainly has at least one pair of `extra` parentheses.
-                       * If the --fix option is on, the current fixing iteration will remove only one pair of parentheses.
-                       * The remaining pair is safely enclosing the 'in' expression.
-                       */
                       return;
                     }
 
-                    // Exclude the outermost node only.
                     if (!nodeToExclude) {
                       nodeToExclude = pathNode;
                     }
-
-                    // Don't break the loop here, there might be some safe nodes or parentheses that will stay inside.
                   } else {
-                    // This node will stay parenthesised, the 'in' expression in safely enclosed by '()'.
                     return;
                   }
                 }
               }
 
-              // Exclude the node from the list (i.e. treat parentheses as necessary)
               removeFromCurrentReportsBuffer(nodeToExclude);
             },
           );
@@ -1371,9 +1337,7 @@ module.exports = {
           ? hasDoubleExcessParens(node.object)
           : hasExcessParens(node.object) &&
             !(
-              isImmediateFunctionPrototypeMethodCall(
-                node.parent,
-              ) &&
+              isImmediateFunctionPrototypeMethodCall(node.parent) &&
               node.parent.callee === node &&
               IGNORE_FUNCTION_PROTOTYPE_METHODS
             );
@@ -1384,7 +1348,6 @@ module.exports = {
           (node.computed ||
             !(
               astUtils.isDecimalInteger(node.object) ||
-              // RegExp literal is allowed to have parens (#1589)
               (node.object.type === "Literal" && node.object.regex)
             ))
         ) {
@@ -1452,8 +1415,7 @@ module.exports = {
             const value = property.value;
 
             return (
-              canBeAssignmentTarget(value) &&
-              hasExcessParens(value)
+              canBeAssignmentTarget(value) && hasExcessParens(value)
             );
           })
           .forEach(property => report(property.value));
@@ -1521,7 +1483,6 @@ module.exports = {
             returnToken,
             node.argument,
           ) &&
-          // RegExp literal is allowed to have parens (#1589)
           !(node.argument.type === "Literal" && node.argument.regex)
         ) {
           report(node.argument);
@@ -1588,7 +1549,6 @@ module.exports = {
             node.init,
             PRECEDENCE_OF_ASSIGNMENT_EXPR,
           ) &&
-          // RegExp literal is allowed to have parens (#1589)
           !(node.init.type === "Literal" && node.init.regex)
         ) {
           report(node.init);

@@ -237,9 +237,9 @@ function validatePlugins(plugins) {
     throw new AssertionError("Expected an object.");
   }
 
-  Object.keys(plugins).forEach(pluginName => {
-    if (typeof plugins[pluginName] !== "object") {
-      throw new AssertionError(`Key "${pluginName}": Expected an object.`);
+  Object.keys(plugins).forEach(plugin => {
+    if (typeof plugins[plugin] !== "object") {
+      throw new AssertionError(`Key "${plugin}": Expected an object.`);
     }
   });
 }
@@ -307,11 +307,9 @@ function validateRules(rules) {
     throw new AssertionError("Expected an object.");
   }
 
-  Object.keys(rules).forEach(ruleName => {
-    const rule = rules[ruleName];
-
-    if (typeof rule !== "object" && typeof rule !== "string" && typeof rule !== "number" && !Array.isArray(rule)) {
-      throw new AssertionError(`Key "${ruleName}": Expected severity of "off", 0, "warn", 1, "error", or 2.`);
+  Object.keys(rules).forEach(rule => {
+    if (typeof rules[rule] !== "object" && typeof rules[rule] !== "string" && typeof rules[rule] !== "number") {
+      throw new AssertionError(`Key "${rule}": Expected severity of "off", 0, "warn", 1, "error", or 2.`);
     }
   });
 }

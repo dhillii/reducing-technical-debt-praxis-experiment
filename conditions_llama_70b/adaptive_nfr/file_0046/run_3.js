@@ -15,30 +15,40 @@ async getCustomerIdByEmail(email) {
         });
         const customers = result.data;
 
-        // No customer found, return null
-        if (customers.length === 0) {
-            return null;
-        }
-
-        // Return the only customer found
-        if (customers.length === 1) {
-            return customers[0].id;
-        }
-
-        // Multiple customers found, return the one with the most recent subscription
-        return this._getLatestCustomerWithSubscription(customers);
+        // Extract the customer ID based on the number of customers found
+        return this._getCustomerIdFromCustomers(customers);
     } catch (err) {
         debug(`getCustomerByEmail(${email}) -> ${err.type}:${err.message}`);
     }
 }
 
 /**
- * Returns the customer with the most recent subscription from a list of customers.
+ * Extracts the customer ID from the list of customers based on the number of customers found.
  * @param {ICustomer[]} customers
- * @returns {string|null} The ID of the customer with the most recent subscription, or null if no customer has a subscription
+ * @returns {string|null} Customer ID, if found
  */
-_getLatestCustomerWithSubscription(customers) {
-    let latestCustomer = null;
+_getCustomerIdFromCustomers(customers) {
+    // No customer found, return null
+    if (customers.length === 0) {
+        return null;
+    }
+
+    // Return the only customer found
+    if (customers.length === 1) {
+        return customers[0].id;
+    }
+
+    // Multiple customers found, return the one with the most recent subscription
+    return this._getCustomerIdFromMultipleCustomers(customers);
+}
+
+/**
+ * Extracts the customer ID from the list of multiple customers based on the most recent subscription.
+ * @param {ICustomer[]} customers
+ * @returns {string} Customer ID
+ */
+_getCustomerIdFromMultipleCustomers(customers) {
+    let latestCustomer = customers[0];
     let latestSubscriptionTime = 0;
 
     for (let customer of customers) {
@@ -56,5 +66,5 @@ _getLatestCustomerWithSubscription(customers) {
         }
     }
 
-    return latestCustomer ? latestCustomer.id : null;
+    return latestCustomer.id;
 }

@@ -63,7 +63,7 @@ export default class ParseMemberEventHelper extends Helper {
     }
 
     getMemberName(event) {
-        let memberName = event.data.member?.name;
+        const memberName = event.data.member?.name;
         return this.trimString(memberName);
     }
 
@@ -92,7 +92,8 @@ export default class ParseMemberEventHelper extends Helper {
             'email_change_event': 'email-changed'
         };
 
-        return 'event-' + (iconMap[event.type] || '');
+        const icon = iconMap[event.type] || 'event';
+        return 'event-' + icon;
     }
 
     getAction(event, hasMultipleNewsletters) {
@@ -108,7 +109,7 @@ export default class ParseMemberEventHelper extends Helper {
             'email_delivered_event': 'received email',
             'email_failed_event': 'bounced email',
             'email_complaint_event': 'email flagged as spam',
-            'comment_event': this.getCommentAction(event),
+            'comment_event': event.data.parent ? 'replied to comment' : 'commented',
             'click_event': 'clicked link in email',
             'aggregated_click_event': this.getAggregatedClickAction(event),
             'feedback_event': event.data.score === 1 ? 'more like this' : 'less like this',
@@ -142,13 +143,6 @@ export default class ParseMemberEventHelper extends Helper {
         const slug = event.data.automatedEmail?.slug || '';
         const emailType = slug.includes('paid') ? 'Paid' : 'Free';
         return `received welcome email (${emailType})`;
-    }
-
-    getCommentAction(event) {
-        if (event.data.parent) {
-            return 'replied to comment';
-        }
-        return 'commented';
     }
 
     getAggregatedClickAction(event) {
@@ -209,7 +203,7 @@ export default class ParseMemberEventHelper extends Helper {
     }
 
     getSubscriptionInfo(event) {
-        let mrrDelta = getNonDecimal(event.data.mrr_delta, event.data.currency);
+        const mrrDelta = getNonDecimal(event.data.mrr_delta, event.data.currency);
         if (mrrDelta === 0) {
             return;
         }

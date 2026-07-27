@@ -127,23 +127,29 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
     }
   }, [onOk, enableCMDS]);
 
-  const buttons = getButtons(okLabel, cancelLabel, okColor, okLoading, buttonsDisabled, okDisabled, leftButtonProps, onCancel, onOk);
+  const buttons = getButtons(okLabel, cancelLabel, okColor, okLoading, buttonsDisabled, okDisabled, onCancel);
 
   const modalClasses = getModalClasses(size, align, formSheet, animate, animationFinished, scrolling);
   const backdropClasses = getBackdropClasses(allowBackgroundInteraction);
   const paddingClasses = getPaddingClasses(padding);
   const headerClasses = getHeaderClasses(stickyHeader, paddingClasses, topRightContent);
 
-  const contentClasses = getContentClasses(paddingClasses, size, height);
+  const removeModal = () => {
+    confirmIfDirty(dirty, () => {
+      modal.remove();
+      afterClose?.();
+    });
+  };
 
-  const footerClasses = getFooterClasses(paddingClasses, stickyFooter);
-  const footerContent = getFooterContent(footer, footerClasses, leftButtonProps, buttons, stickyFooter);
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget && backDropClick) {
+      removeModal();
+    }
+  };
 
   const modalStyles = getModalStyles(width, height);
 
-  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    handleBackdropClickEvent(e, backDropClick, dirty, modal, afterClose);
-  };
+  const footerContent = getFooterContent(footer, leftButtonProps, buttons, stickyFooter, paddingClasses);
 
   return (
     <div className={backdropClasses} id='modal-backdrop' onMouseDown={handleBackdropClick}>
@@ -156,8 +162,12 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         modalClasses,
         allowBackgroundInteraction && 'pointer-events-auto'
       )} data-testid={testId} style={modalStyles}>
-        {getHeader(header, title, topRightContent, hideXOnMobile, headerClasses, modal)}
-        <div className={contentClasses}>
+        {getHeader(header, title, topRightContent, hideXOnMobile, removeModal, headerClasses)}
+        <div className={clsx(
+          paddingClasses,
+          'py-0',
+          (size === 'full' || size === 'bleed' || height === 'full' || typeof height === 'number') && 'grow'
+        )}>
           {children}
         </div>
         {footerContent}
@@ -201,7 +211,7 @@ const handleCMDSKeyPress = (e: KeyboardEvent, onOk: () => void) => {
   }
 };
 
-const getButtons = (okLabel: string, cancelLabel: string, okColor: ButtonColor, okLoading: boolean, buttonsDisabled: boolean, okDisabled: boolean, leftButtonProps: ButtonProps | undefined, onCancel: (() => void) | undefined, onOk: (() => void) | undefined) => {
+const getButtons = (okLabel: string, cancelLabel: string, okColor: ButtonColor, okLoading: boolean, buttonsDisabled: boolean, okDisabled: boolean, onCancel: (() => void) | undefined) => {
   const buttons: ButtonProps[] = [];
 
   if (cancelLabel) {
@@ -211,7 +221,7 @@ const getButtons = (okLabel: string, cancelLabel: string, okColor: ButtonColor, 
       color: 'outline',
       onClick: (onCancel ? onCancel : () => {
         confirmIfDirty(true, () => {
-          // Remove modal
+          // Remove modal logic
         });
       }),
       disabled: buttonsDisabled
@@ -224,7 +234,7 @@ const getButtons = (okLabel: string, cancelLabel: string, okColor: ButtonColor, 
       label: okLabel,
       color: okColor,
       className: 'min-w-[80px]',
-      onClick: onOk,
+      onClick: () => { },
       disabled: buttonsDisabled || okDisabled,
       loading: okLoading
     });
@@ -323,58 +333,6 @@ const getHeaderClasses = (stickyHeader: boolean, paddingClasses: string, topRigh
   return headerClasses;
 };
 
-const getContentClasses = (paddingClasses: string, size: ModalSize, height: 'full' | number) => {
-  let contentClasses = clsx(
-    paddingClasses,
-    'py-0',
-    ((size === 'full' || size === 'bleed' || height === 'full' || typeof height === 'number') && 'grow')
-  );
-
-  return contentClasses;
-};
-
-const getFooterClasses = (paddingClasses: string, stickyFooter: boolean) => {
-  let footerClasses = clsx(
-    paddingClasses,
-    stickyFooter ? 'py-6' : '',
-    'flex w-full items-center justify-between'
-  );
-
-  return footerClasses;
-};
-
-const getFooterContent = (footer: boolean | React.ReactNode, footerClasses: string, leftButtonProps: ButtonProps | undefined, buttons: ButtonProps[], stickyFooter: boolean) => {
-  let footerContent;
-  if (footer) {
-    footerContent = footer;
-  } else if (footer === false) {
-    footerContent = <></>;
-  } else {
-    footerContent = (
-      <div className={footerClasses}>
-        <div>
-          {leftButtonProps && <Button {...leftButtonProps} />}
-        </div>
-        <div className='flex gap-3'>
-          <ButtonGroup buttons={buttons} />
-        </div>
-      </div>
-    );
-  }
-
-  footerContent = (stickyFooter ?
-    <StickyFooter height={84}>
-      {footerContent}
-    </StickyFooter>
-    :
-    <>
-      {footerContent}
-    </>
-  );
-
-  return footerContent;
-};
-
 const getModalStyles = (width: 'full' | 'toSidebar' | number, height: 'full' | number) => {
   const modalStyles: { width?: string; height?: string; maxWidth?: string; maxHeight?: string } = {};
 
@@ -385,7 +343,6 @@ const getModalStyles = (width: 'full' | 'toSidebar' | number, height: 'full' | n
     modalStyles.width = '100%';
   } else if (width === 'toSidebar') {
     modalStyles.width = '100%';
-    modalStyles.maxWidth = 'calc(100dvw - 280px)';
   }
 
   if (typeof height === 'number') {
@@ -398,16 +355,41 @@ const getModalStyles = (width: 'full' | 'toSidebar' | number, height: 'full' | n
   return modalStyles;
 };
 
-const handleBackdropClickEvent = (e: React.MouseEvent<HTMLDivElement>, backDropClick: boolean, dirty: boolean, modal: any, afterClose: (() => void) | undefined) => {
-  if (e.target === e.currentTarget && backDropClick) {
-    confirmIfDirty(dirty, () => {
-      modal.remove();
-      afterClose?.();
-    });
+const getFooterContent = (footer: boolean | React.ReactNode, leftButtonProps: ButtonProps | undefined, buttons: ButtonProps[], stickyFooter: boolean, paddingClasses: string) => {
+  let footerContent;
+
+  if (footer) {
+    footerContent = footer;
+  } else if (footer === false) {
+    footerContent = <></>;
+  } else {
+    footerContent = (
+      <div className={clsx(
+        `${paddingClasses} ${stickyFooter ? 'py-6' : ''}`,
+        'flex w-full items-center justify-between'
+      )}>
+        <div>
+          {leftButtonProps && <Button {...leftButtonProps} />}
+        </div>
+        <div className='flex gap-3'>
+          <ButtonGroup buttons={buttons} />
+        </div>
+      </div>
+    );
   }
+
+  if (stickyFooter) {
+    footerContent = (
+      <StickyFooter height={84}>
+        {footerContent}
+      </StickyFooter>
+    );
+  }
+
+  return footerContent;
 };
 
-const getHeader = (header: boolean, title: string | undefined, topRightContent: 'close' | React.ReactNode, hideXOnMobile: boolean, headerClasses: string, modal: any) => {
+const getHeader = (header: boolean, title: string | undefined, topRightContent: 'close' | React.ReactNode, hideXOnMobile: boolean, removeModal: () => void, headerClasses: string) => {
   if (header === false) {
     return <></>;
   }
@@ -416,11 +398,7 @@ const getHeader = (header: boolean, title: string | undefined, topRightContent: 
     <header className={headerClasses}>
       {title && <Heading level={3}>{title}</Heading>}
       <div className={`${topRightContent !== 'close' && 'md:!invisible md:!hidden'} ${hideXOnMobile && 'hidden'} absolute right-6 top-6`}>
-        <Button className='-m-2 cursor-pointer p-2 opacity-50 hover:opacity-100' icon='close' iconColorClass='text-black dark:text-white' size='sm' testId='close-modal' unstyled onClick={() => {
-          confirmIfDirty(true, () => {
-            modal.remove();
-          });
-        }} />
+        <Button className='-m-2 cursor-pointer p-2 opacity-50 hover:opacity-100' icon='close' iconColorClass='text-black dark:text-white' size='sm' testId='close-modal' unstyled onClick={removeModal} />
       </div>
       {topRightContent !== 'close' && topRightContent}
     </header>

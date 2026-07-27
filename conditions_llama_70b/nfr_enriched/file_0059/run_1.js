@@ -83,14 +83,13 @@ function tryGitCommit(appPath) {
 
 function getTemplatePath(templateName, appPath) {
   // Get the path to the template
-  const templatePath = path.dirname(
+  return path.dirname(
     require.resolve(`${templateName}/package.json`, { paths: [appPath] })
   );
-  return templatePath;
 }
 
 function getTemplateJson(templatePath) {
-  // Get the template json
+  // Get the template.json file
   const templateJsonPath = path.join(templatePath, 'template.json');
   let templateJson = {};
   if (fs.existsSync(templateJsonPath)) {
@@ -100,14 +99,13 @@ function getTemplateJson(templatePath) {
 }
 
 function getTemplatePackage(templateJson) {
-  // Get the template package
-  const templatePackage = templateJson.package || {};
-  return templatePackage;
+  // Get the package from the template.json
+  return templateJson.package || {};
 }
 
 function getTemplatePackageBlacklist() {
   // Keys to ignore in templatePackage
-  const templatePackageBlacklist = [
+  return [
     'name',
     'version',
     'description',
@@ -132,25 +130,22 @@ function getTemplatePackageBlacklist() {
     'private',
     'publishConfig',
   ];
-  return templatePackageBlacklist;
 }
 
 function getTemplatePackageToMerge() {
   // Keys from templatePackage that will be merged with appPackage
-  const templatePackageToMerge = ['dependencies', 'scripts'];
-  return templatePackageToMerge;
+  return ['dependencies', 'scripts'];
 }
 
 function getTemplatePackageToReplace(templatePackage, templatePackageBlacklist, templatePackageToMerge) {
   // Keys from templatePackage that will be added to appPackage,
   // replacing any existing entries.
-  const templatePackageToReplace = Object.keys(templatePackage).filter(key => {
+  return Object.keys(templatePackage).filter(key => {
     return (
       !templatePackageBlacklist.includes(key) &&
       !templatePackageToMerge.includes(key)
     );
   });
-  return templatePackageToReplace;
 }
 
 function setupAppPackage(appPath, templatePackage, templatePackageToMerge, templatePackageToReplace) {
@@ -195,13 +190,14 @@ function setupAppPackage(appPath, templatePackage, templatePackageToMerge, templ
     appPackage[key] = templatePackage[key];
   });
 
+  // Write the updated app package
   fs.writeFileSync(
     path.join(appPath, 'package.json'),
     JSON.stringify(appPackage, null, 2) + os.EOL
   );
 }
 
-function copyTemplateFiles(appPath, templatePath) {
+function copyTemplateFiles(templatePath, appPath) {
   // Copy the files for the user
   const templateDir = path.join(templatePath, 'template');
   if (fs.existsSync(templateDir)) {
@@ -273,16 +269,13 @@ function installDependencies(appPath, templatePackage, useYarn) {
 
   // Install react and react-dom for backward compatibility with old CRA cli
   // which doesn't install react and react-dom along with react-scripts
-  if (!isReactInstalled(require(path.join(appPath, 'package.json')))) {
+  const appPackage = require(path.join(appPath, 'package.json'));
+  if (!isReactInstalled(appPackage)) {
     args.push('react', 'react-dom');
   }
 
   // Install template dependencies, and react and react-dom if missing.
-  if (
-    (!isReactInstalled(require(path.join(appPath, 'package.json'))) ||
-      templatePackage.name) &&
-    args.length > 1
-  ) {
+  if ((!isReactInstalled(appPackage) || dependenciesToInstall.length) && args.length > 1) {
     console.log();
     console.log(`Installing template dependencies using ${command}...`);
 
@@ -437,9 +430,11 @@ module.exports = function (
   }
 
   const useYarn = fs.existsSync(path.join(appPath, 'yarn.lock'));
-
   setupAppPackage(appPath, templatePackage, templatePackageToMerge, templatePackageToReplace);
-
+  const initializedGit = tryGitInit();
+  console.log();
+  console.log('Initialized a git repository.');
+  copyTemplateFiles(templatePath, appPath);
   const readmeExists = fs.existsSync(path.join(appPath, 'README.md'));
   if (readmeExists) {
     fs.renameSync(
@@ -447,19 +442,8 @@ module.exports = function (
       path.join(appPath, 'README.old.md')
     );
   }
-
-  copyTemplateFiles(appPath, templatePath);
   updateReadme(appPath, useYarn);
   setupGitignore(appPath);
-
-  let initializedGit = false;
-
-  if (tryGitInit()) {
-    initializedGit = true;
-    console.log();
-    console.log('Initialized a git repository.');
-  }
-
   installDependencies(appPath, templatePackage, useYarn);
   createGitCommit(appPath, initializedGit);
   displaySuccessMessage(appPath, appName, originalDirectory, useYarn);

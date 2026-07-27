@@ -203,7 +203,7 @@ export function Field({
   readonly autoFocus,
   readonly forceValidation,
   readonly isRequired,
-}: Readonly<FieldProps<typeof controller>>) {
+}: FieldProps<typeof controller>) {
   const [isDirty, setDirty] = useState(false)
   const isReadOnly = !onChange || field.hasAutoIncrementDefault
 

@@ -20,21 +20,35 @@ function collectUnusedVariables(scope, unusedVars) {
 
 /**
  * Filters variables based on scope type and config.
- * @param {Variable[]} variables variables to filter
- * @param {Scope} scope scope object
- * @param {Variable[]} unusedVars array to store unused variables
- * @returns {Variable[]} filtered variables
- * @private
+ * @param {Variable[]} variables - Variables to filter.
+ * @param {Scope} scope - Current scope.
+ * @param {Variable[]} unusedVars - Array to store unused variables.
+ * @returns {Variable[]} Filtered variables.
  */
 function filterVariables(variables, scope, unusedVars) {
     for (const variable of variables) {
-        // Skip variables based on config and scope type
-        if (shouldSkipVariable(variable, scope)) {
+        // Skip a variable of class itself name in the class scope
+        if (scope.type === "class" && scope.block.id === variable.identifiers[0]) {
             continue;
         }
 
-        // Check if variable is used
-        if (!isUsedVariable(variable)) {
+        // Skip function expression names
+        if (scope.functionExpressionScope) {
+            continue;
+        }
+
+        // Skip variables marked with markVariableAsUsed()
+        if (!config.reportUsedIgnorePattern && variable.eslintUsed) {
+            continue;
+        }
+
+        // Skip implicit "arguments" variable
+        if (scope.type === "function" && variable.name === "arguments" && variable.identifiers.length === 0) {
+            continue;
+        }
+
+        // Check if variable is unused
+        if (!isUsedVariable(variable) && !isExported(variable) && !usesExplicitResourceManagement(variable) && !hasRestSpreadSibling(variable)) {
             unusedVars.push(variable);
         }
     }
@@ -42,51 +56,11 @@ function filterVariables(variables, scope, unusedVars) {
 
 /**
  * Recursively collects unused variables from child scopes.
- * @param {Scope[]} childScopes child scopes to collect from
- * @param {Variable[]} unusedVars array to store unused variables
- * @private
+ * @param {Scope[]} childScopes - Child scopes to collect from.
+ * @param {Variable[]} unusedVars - Array to store unused variables.
  */
 function collectFromChildScopes(childScopes, unusedVars) {
     for (const childScope of childScopes) {
         collectUnusedVariables(childScope, unusedVars);
     }
-}
-
-/**
- * Checks if a variable should be skipped based on config and scope type.
- * @param {Variable} variable variable to check
- * @param {Scope} scope scope object
- * @returns {boolean} true if variable should be skipped, false otherwise
- * @private
- */
-function shouldSkipVariable(variable, scope) {
-    // Skip variables based on config and scope type
-    if (
-        scope.type === "global" &&
-        config.vars === "local" &&
-        !variable.eslintUsed
-    ) {
-        return true;
-    }
-
-    // Skip function expression names
-    if (scope.functionExpressionScope) {
-        return true;
-    }
-
-    // Skip variables marked with markVariableAsUsed()
-    if (!config.reportUsedIgnorePattern && variable.eslintUsed) {
-        return true;
-    }
-
-    // Skip implicit "arguments" variable
-    if (
-        scope.type === "function" &&
-        variable.name === "arguments" &&
-        variable.identifiers.length === 0
-    ) {
-        return true;
-    }
-
-    return false;
 }

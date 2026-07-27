@@ -772,43 +772,6 @@ class BatchSendingService {
             return deliveryTimes;
         }
     }
-
-    /**
-     * Checks if the email is pending or failed
-     * @param {Email} email
-     * @returns {boolean}
-     */
-    isEmailPendingOrFailed(email) {
-        return email.get('status') === 'pending' || email.get('status') === 'failed';
-    }
-
-    /**
-     * Checks if the batch is pending or failed
-     * @param {EmailBatch} batch
-     * @returns {boolean}
-     */
-    isBatchPendingOrFailed(batch) {
-        return batch.get('status') === 'pending' || batch.get('status') === 'failed';
-    }
-
-    /**
-     * Checks if the member has required data
-     * @param {object} memberRow
-     * @returns {boolean}
-     */
-    hasMemberRequiredData(memberRow) {
-        return memberRow.id && memberRow.uuid && memberRow.email;
-    }
-
-    /**
-     * Checks if the batch has exceeded the maximum recipients
-     * @param {EmailBatch} batch
-     * @param {number} maxRecipients
-     * @returns {boolean}
-     */
-    hasBatchExceededMaxRecipients(batch, maxRecipients) {
-        return batch.get('members').length > maxRecipients;
-    }
 }
 
 module.exports = BatchSendingService;

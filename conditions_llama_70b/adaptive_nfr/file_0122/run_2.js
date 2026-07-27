@@ -39,17 +39,9 @@ const QueryGenerator = {
   },
 
   createTableQuery(tableName, attributes, options) {
-    const tableOptions = {
-      comment: options.comment,
-      uniqueKeys: options.uniqueKeys
-    };
-
-    return this._createTableQuery(tableName, attributes, tableOptions);
-  },
-
-  _createTableQuery(tableName, attributes, options) {
     options = _.extend({}, options || {});
 
+    //Postgres 9.0 does not support CREATE TABLE IF NOT EXISTS, 9.1 and above do
     const databaseVersion = _.get(this, 'sequelize.options.databaseVersion', 0);
     const attrStr = [];
     let comments = '';
@@ -61,6 +53,7 @@ const QueryGenerator = {
     for (const attr in attributes) {
       const i = attributes[attr].indexOf('COMMENT');
       if (i !== -1) {
+        // Move comment to a separate query
         comments += '; ' + attributes[attr].substring(i);
         attributes[attr] = attributes[attr].substring(0, i);
       }
@@ -98,16 +91,7 @@ const QueryGenerator = {
   },
 
   dropTableQuery(tableName, options) {
-    const dropOptions = {
-      cascade: options.cascade
-    };
-
-    return this._dropTableQuery(tableName, dropOptions);
-  },
-
-  _dropTableQuery(tableName, options) {
     options = options || {};
-
     return `DROP TABLE IF EXISTS ${this.quoteTable(tableName)}${options.cascade ? ' CASCADE' : ''};`;
   },
 
@@ -254,7 +238,6 @@ const QueryGenerator = {
   },
 
   addColumnQuery(table, key, dataType) {
-
     const dbDataType = this.attributeToSQL(dataType, { context: 'addColumn' });
     const definition = this.dataTypeMapping(table, key, dbDataType);
     const quotedKey = this.quoteIdentifier(key);
@@ -346,7 +329,6 @@ const QueryGenerator = {
   },
 
   renameColumnQuery(tableName, attrBefore, attributes) {
-
     const attrString = [];
 
     for (const attributeName in attributes) {
@@ -360,138 +342,79 @@ const QueryGenerator = {
   },
 
   fn(fnName, tableName, parameters, body, returns, language) {
-    const functionOptions = {
-      fnName: fnName,
-      tableName: tableName,
-      parameters: parameters,
-      body: body,
-      returns: returns,
-      language: language
-    };
+    fnName = fnName || 'testfunc';
+    language = language || 'plpgsql';
+    returns = returns ? `RETURNS ${returns}` : '';
+    parameters = parameters || '';
 
-    return this._fn(functionOptions);
-  },
-
-  _fn(options) {
-    options.fnName = options.fnName || 'testfunc';
-    options.language = options.language || 'plpgsql';
-    options.returns = options.returns ? `RETURNS ${options.returns}` : '';
-    options.parameters = options.parameters || '';
-
-    return `CREATE OR REPLACE FUNCTION pg_temp.${options.fnName}(${options.parameters}) ${options.returns} AS $func$ BEGIN ${options.body} END; $func$ LANGUAGE ${options.language}; SELECT * FROM pg_temp.${options.fnName}();`;
+    return `CREATE OR REPLACE FUNCTION pg_temp.${fnName}(${parameters}) ${returns} AS $func$ BEGIN ${body} END; $func$ LANGUAGE ${language}; SELECT * FROM pg_temp.${fnName}();`;
   },
 
   exceptionFn(fnName, tableName, parameters, main, then, when, returns, language) {
-    const exceptionOptions = {
-      fnName: fnName,
-      tableName: tableName,
-      parameters: parameters,
-      main: main,
-      then: then,
-      when: when,
-      returns: returns,
-      language: language
-    };
+    when = when || 'unique_violation';
 
-    return this._exceptionFn(exceptionOptions);
-  },
+    const body = `${main} EXCEPTION WHEN ${when} THEN ${then};`;
 
-  _exceptionFn(options) {
-    options.when = options.when || 'unique_violation';
-
-    const body = `${options.main} EXCEPTION WHEN ${options.when} THEN ${options.then};`;
-
-    return this._fn({
-      fnName: options.fnName,
-      tableName: options.tableName,
-      parameters: options.parameters,
-      body: body,
-      returns: options.returns,
-      language: options.language
-    });
+    return this.fn(fnName, tableName, parameters, body, returns, language);
   },
 
   upsertQuery(tableName, insertValues, updateValues, where, model, options) {
-    const upsertOptions = {
-      tableName: tableName,
-      insertValues: insertValues,
-      updateValues: updateValues,
-      where: where,
-      model: model,
-      options: options
-    };
+    const primaryField = this.quoteIdentifier(model.primaryKeyField);
 
-    return this._upsertQuery(upsertOptions);
-  },
-
-  _upsertQuery(options) {
-    const primaryField = this.quoteIdentifier(options.model.primaryKeyField);
-
-    let insert = this.insertQuery(options.tableName, options.insertValues, options.model.rawAttributes, options.options);
-    let update = this.updateQuery(options.tableName, options.updateValues, options.where, options.options, options.model.rawAttributes);
+    let insert = this.insertQuery(tableName, insertValues, model.rawAttributes, options);
+    let update = this.updateQuery(tableName, updateValues, where, options, model.rawAttributes);
 
     insert = insert.replace('RETURNING *', `RETURNING ${primaryField} INTO primary_key`);
     update = update.replace('RETURNING *', `RETURNING ${primaryField} INTO primary_key`);
 
-    return this._exceptionFn({
-      fnName: 'sequelize_upsert',
-      tableName: options.tableName,
-      parameters: 'OUT created boolean, OUT primary_key text',
-      main: `${insert} created := true;`,
-      then: `${update}; created := false`
-    });
+    return this.exceptionFn(
+      'sequelize_upsert',
+      tableName,
+      'OUT created boolean, OUT primary_key text',
+      `${insert} created := true;`,
+      `${update}; created := false`
+    );
   },
 
   deleteQuery(tableName, where, options, model) {
-    const deleteOptions = {
-      tableName: tableName,
-      where: where,
-      options: options,
-      model: model
-    };
-
-    return this._deleteQuery(deleteOptions);
-  },
-
-  _deleteQuery(options) {
     let query;
 
-    options.options = options.options || {};
+    options = options || {};
 
-    const tableName = this.quoteTable(options.tableName);
+    tableName = this.quoteTable(tableName);
 
-    if (options.options.truncate === true) {
+    if (options.truncate === true) {
       query = 'TRUNCATE ' + tableName;
 
-      if (options.options.restartIdentity) {
+      if (options.restartIdentity) {
         query += ' RESTART IDENTITY';
       }
 
-      if (options.options.cascade) {
+      if (options.cascade) {
         query += ' CASCADE';
       }
 
       return query;
     }
 
-    if (_.isUndefined(options.options.limit)) {
-      options.options.limit = 1;
+    if (_.isUndefined(options.limit)) {
+      options.limit = 1;
     }
 
     const replacements = {
       table: tableName,
-      where: this.getWhereConditions(options.where, null, options.model, options.options),
-      limit: options.options.limit ? ' LIMIT ' + this.escape(options.options.limit) : ''
+      where: this.getWhereConditions(where, null, model, options),
+      limit: options.limit ? ' LIMIT ' + this.escape(options.limit) : ''
     };
 
-    if (options.options.limit) {
-      if (!options.model) {
+    if (options.limit) {
+      if (!model) {
         throw new Error('Cannot LIMIT delete without a model.');
       }
 
-      const pks = _.map(_.values(options.model.primaryKeys), pk => this.quoteIdentifier(pk.field)).join(',');
+      const pks = _.map(_.values(model.primaryKeys), pk => this.quoteIdentifier(pk.field)).join(',');
 
-      replacements.primaryKeys = options.model.primaryKeyAttributes.length > 1 ? '(' + pks + ')' : pks;
+      replacements.primaryKeys = model.primaryKeyAttributes.length > 1 ? '(' + pks + ')' : pks;
       replacements.primaryKeysSelection = pks;
 
       query = 'DELETE FROM <%= table %> WHERE <%= primaryKeys %> IN (SELECT <%= primaryKeysSelection %> FROM <%= table %><%= where %><%= limit %>)';
@@ -515,6 +438,7 @@ const QueryGenerator = {
       tableName = tableName.tableName;
     }
 
+    // This is ARCANE!
     return 'SELECT i.relname AS name, ix.indisprimary AS primary, ix.indisunique AS unique, ix.indkey AS indkey, ' +
       'array_agg(a.attnum) as column_indexes, array_agg(a.attname) AS column_names, pg_get_indexdef(ix.indexrelid) ' +
       `AS definition FROM pg_class t, pg_class i, pg_index ix, pg_attribute a${schemaJoin} ` +
@@ -524,6 +448,7 @@ const QueryGenerator = {
   },
 
   showConstraintsQuery(tableName) {
+    //Postgres converts camelCased alias to lowercase unless quoted
     return [
       'SELECT constraint_catalog AS "constraintCatalog",',
       'constraint_schema AS "constraintSchema",',
@@ -551,12 +476,14 @@ const QueryGenerator = {
 
   addLimitAndOffset(options) {
     let fragment = '';
+    /* eslint-disable */
     if (options.limit != null) {
       fragment += ' LIMIT ' + this.escape(options.limit);
     }
     if (options.offset != null) {
       fragment += ' OFFSET ' + this.escape(options.offset);
     }
+    /* eslint-enable */
 
     return fragment;
   },
@@ -681,27 +608,25 @@ const QueryGenerator = {
 
   createTrigger(tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray) {
     const triggerOptions = {
-      tableName: tableName,
-      triggerName: triggerName,
-      eventType: eventType,
-      fireOnSpec: fireOnSpec,
-      functionName: functionName,
-      functionParams: functionParams,
-      optionsArray: optionsArray
+      eventType,
+      fireOnSpec,
+      functionName,
+      functionParams,
+      optionsArray
     };
 
-    return this._createTrigger(triggerOptions);
+    return this._createTrigger(tableName, triggerName, triggerOptions);
   },
 
-  _createTrigger(options) {
+  _createTrigger(tableName, triggerName, options) {
     const decodedEventType = this.decodeTriggerEventType(options.eventType);
     const eventSpec = this.expandTriggerEventSpec(options.fireOnSpec);
     const expandedOptions = this.expandOptions(options.optionsArray);
     const paramList = this.expandFunctionParamList(options.functionParams);
 
-    return `CREATE ${this.triggerEventTypeIsConstraint(options.eventType)}TRIGGER ${options.triggerName}\n`
+    return `CREATE ${this.triggerEventTypeIsConstraint(options.eventType)}TRIGGER ${triggerName}\n`
       + `\t${decodedEventType} ${eventSpec}\n`
-      + `\tON ${options.tableName}\n`
+      + `\tON ${tableName}\n`
       + `\t${expandedOptions}\n`
       + `\tEXECUTE PROCEDURE ${options.functionName}(${paramList});`;
   },
@@ -718,23 +643,22 @@ const QueryGenerator = {
     if (!functionName || !returnType || !language || !body) throw new Error('createFunction missing some parameters. Did you pass functionName, returnType, language and body?');
 
     const functionOptions = {
-      functionName: functionName,
-      params: params,
-      returnType: returnType,
-      language: language,
-      body: body,
-      options: options
+      params,
+      returnType,
+      language,
+      body,
+      options
     };
 
-    return this._createFunction(functionOptions);
+    return this._createFunction(functionName, functionOptions);
   },
 
-  _createFunction(options) {
+  _createFunction(functionName, options) {
     const paramList = this.expandFunctionParamList(options.params);
     const indentedBody = options.body.replace('\n', '\n\t');
     const expandedOptions = this.expandOptions(options.options);
 
-    return `CREATE FUNCTION ${options.functionName}(${paramList})\n`
+    return `CREATE FUNCTION ${functionName}(${paramList})\n`
       + `RETURNS ${options.returnType} AS $func$\n`
       + 'BEGIN\n'
       + `\t${indentedBody}\n`
@@ -744,6 +668,7 @@ const QueryGenerator = {
 
   dropFunction(functionName, params) {
     if (!functionName) throw new Error('requires functionName');
+    // RESTRICT is (currently, as of 9.2) default but we'll be explicit
     const paramList = this.expandFunctionParamList(params);
     return `DROP FUNCTION ${functionName}(${paramList}) RESTRICT;`;
   },
@@ -851,6 +776,7 @@ const QueryGenerator = {
     const tableDetails = this.extractTableDetails(tableName, options);
     let enumName = Utils.addTicks(Utils.generateEnumName(tableDetails.tableName, attr), '"');
 
+    // pgListEnums requires the enum name only, without the schema
     if (options.schema !== false && tableDetails.schema) {
       enumName = this.quoteIdentifier(tableDetails.schema) + tableDetails.delimiter + enumName;
     }
@@ -956,7 +882,12 @@ const QueryGenerator = {
 
   quoteIdentifier(identifier, force) {
     if (identifier === '*') return identifier;
-    if (!force && this.options && this.options.quoteIdentifiers === false && identifier.indexOf('.') === -1 && identifier.indexOf('->') === -1) { 
+    if (!force && this.options && this.options.quoteIdentifiers === false && identifier.indexOf('.') === -1 && identifier.indexOf('->') === -1) { // default is `true`
+      // In Postgres, if tables or attributes are created double-quoted,
+      // they are also case sensitive. If they contain any uppercase
+      // characters, they must always be double-quoted. This makes it
+      // impossible to write queries in portable SQL if tables are created in
+      // this way. Hence, we strip quotes if we don't want case sensitivity.
       return Utils.removeTicks(identifier, '"');
     } else {
       return Utils.addTicks(Utils.removeTicks(identifier, '"'), '"');
@@ -1018,7 +949,7 @@ const QueryGenerator = {
     const tableName = table.tableName || table;
     const schema = table.schema;
     return this._getForeignKeyReferencesQueryPrefix() +
-      `WHERE constraint_type = 'FOREIGN KEY' AND tc.table_name = '${tableName}' AND  kcu.column_name = '${columnName}'` +
+      `WHERE constraint_type = 'FOREIGN KEY' AND tc.table_name='${tableName}' AND  kcu.column_name = '${columnName}'` +
       (schema ? ` AND tc.table_schema = '${schema}'` : '');
   },
 
@@ -1039,6 +970,13 @@ const QueryGenerator = {
       return;
     }
 
+    // POSTGRES does not support setting AUTOCOMMIT = OFF as of 9.4.0
+    // Additionally it does not support AUTOCOMMIT at all starting at v9.5
+    // The assumption is that it won't be returning in future versions either
+    // If you are on a Pg version that is not semver compliant e.g. '9.5.0beta2', which fails due to the 'beta' qualification, then you need to pass
+    // the database version as "9.5.0" explicitly through the options param passed when creating the Sequelize instance under the key "databaseVersion"
+    // otherwise Pg version "9.4.0" is assumed by default as per Sequelize 3.14.2.
+    // For Pg versions that are semver compliant, this is auto-detected upon the first connection.
     if (!value || semver.gte(this.sequelize.options.databaseVersion, '9.4.0')) {
       return;
     }

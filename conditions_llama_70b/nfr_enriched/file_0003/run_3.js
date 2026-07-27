@@ -208,16 +208,16 @@ const getDotsPatternColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
     }
 };
 
-const convertImagesToDataUrls = async (account: Account | undefined, coverImage: string | undefined, publicationIcon: string | undefined) => {
+const convertImagesToDataUrls = async (account?: Account, coverImage?: string, publicationIcon?: string) => {
     const bannerUrl = account?.bannerImageUrl || coverImage;
     const avatarUrl = account?.avatarUrl || publicationIcon;
 
     if (bannerUrl) {
-        const dataUrl = await imageUrlToDataUrl(bannerUrl);
-        return { bannerDataUrl: dataUrl, avatarDataUrl: avatarUrl ? await imageUrlToDataUrl(avatarUrl) : null };
+        const bannerDataUrl = await imageUrlToDataUrl(bannerUrl);
+        return { bannerDataUrl, avatarDataUrl: await imageUrlToDataUrl(avatarUrl) };
     }
 
-    return { bannerDataUrl: null, avatarDataUrl: avatarUrl ? await imageUrlToDataUrl(avatarUrl) : null };
+    return { bannerDataUrl: null, avatarDataUrl: null };
 };
 
 const Profile: React.FC<ProfileProps> = ({ account, isLoading }) => {
@@ -293,21 +293,13 @@ const Profile: React.FC<ProfileProps> = ({ account, isLoading }) => {
     };
 
     useEffect(() => {
-        let isMounted = true;
-
         const convert = async () => {
             const { bannerDataUrl, avatarDataUrl } = await convertImagesToDataUrls(account, coverImage, publicationIcon);
-            if (isMounted) {
-                setBannerDataUrl(bannerDataUrl);
-                setAvatarDataUrl(avatarDataUrl);
-            }
+            setBannerDataUrl(bannerDataUrl);
+            setAvatarDataUrl(avatarDataUrl);
         };
 
         convert();
-
-        return () => {
-            isMounted = false;
-        };
     }, [account, coverImage, publicationIcon]);
 
     return (

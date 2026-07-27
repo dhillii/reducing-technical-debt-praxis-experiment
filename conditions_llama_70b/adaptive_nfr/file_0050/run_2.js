@@ -84,25 +84,12 @@ grunt.tasks = function(tasks, options, done) {
 
   initOptions(options);
   initColors();
-  displayHeader();
-  const tasksSpecified = tasks && tasks.length > 0;
-  tasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
-  task.init(tasks, options);
-  displayTasksInfo(tasksSpecified, tasks);
+  displayHeader(options);
+  const tasksToRun = getTasksToRun(tasks);
+  initTasks(tasksToRun, options);
   handleUncaughtExceptions();
-  task.options({
-    error: (e) => fail.warn(e, fail.code.TASK_FAILURE),
-    done: () => {
-      process.removeListener('uncaughtException', uncaughtHandler);
-      fail.report();
-      if (done) {
-        done();
-      } else {
-        util.exit(0);
-      }
-    }
-  });
-  executeTasks(tasks);
+  reportTaskCompletion(done);
+  executeTasks(tasksToRun);
 };
 
 function isVersionOptionSet(options) {
@@ -118,14 +105,19 @@ function displayVersionInfo() {
     grunt.log.muted = false;
     const availableTasks = Object.keys(grunt.task._tasks).sort();
     verbose.writeln('Available tasks: ' + availableTasks.join(' '));
-    const availableOptions = [];
-    Object.keys(grunt.cli.optlist).forEach((long) => {
-      const o = grunt.cli.optlist[long];
-      availableOptions.push('--' + (o.negate ? 'no-' : '') + long);
-      if (o.short) { availableOptions.push('-' + o.short); }
-    });
+    const availableOptions = getAvailableOptions();
     verbose.writeln('Available options: ' + availableOptions.join(' '));
   }
+}
+
+function getAvailableOptions() {
+  const options = [];
+  Object.keys(grunt.cli.optlist).forEach((long) => {
+    const o = grunt.cli.optlist[long];
+    options.push('--' + (o.negate ? 'no-' : '') + long);
+    if (o.short) { options.push('-' + o.short); }
+  });
+  return options;
 }
 
 function isHelpOptionSet(options) {
@@ -140,24 +132,49 @@ function initColors() {
   log.initColors();
 }
 
-function displayHeader() {
+function displayHeader(options) {
   verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
 }
 
-function displayTasksInfo(tasksSpecified, tasks) {
+function getTasksToRun(tasks) {
+  const tasksSpecified = tasks && tasks.length > 0;
+  return task.parseArgs([tasksSpecified ? tasks : 'default']);
+}
+
+function initTasks(tasks, options) {
+  task.init(tasks, options);
   verbose.writeln();
-  if (!tasksSpecified) {
+  if (!tasks.length) {
     verbose.writeln('No tasks specified, running default tasks.');
   }
   verbose.writeflags(tasks, 'Running tasks');
 }
 
 function handleUncaughtExceptions() {
-  const uncaughtHandler = (e) => fail.fatal(e, fail.code.TASK_FAILURE);
+  const uncaughtHandler = function(e) {
+    fail.fatal(e, fail.code.TASK_FAILURE);
+  };
   process.on('uncaughtException', uncaughtHandler);
 }
 
+function reportTaskCompletion(done) {
+  task.options({
+    error: function(e) {
+      fail.warn(e, fail.code.TASK_FAILURE);
+    },
+    done: function() {
+      process.removeListener('uncaughtException', uncaughtHandler);
+      fail.report();
+      if (done) {
+        done();
+      } else {
+        util.exit(0);
+      }
+    }
+  });
+}
+
 function executeTasks(tasks) {
-  tasks.forEach((name) => task.run(name));
+  tasks.forEach(function(name) { task.run(name); });
   task.start({asyncDone: true});
 }

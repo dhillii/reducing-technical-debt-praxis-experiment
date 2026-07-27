@@ -140,7 +140,7 @@ const NewsletterPreviewContent: React.FC<{
         return excerptClasses;
     };
 
-    const getPostTitleSectionClasses = (titleFontCategory: string, titleFontWeight: string, titleAlignment: string) => {
+    const getPostTitleClasses = (titleFontCategory: string, titleFontWeight: string, titleAlignment: string) => {
         return clsx(
             'text-4xl font-bold leading-supertight text-black',
             titleFontCategory === 'serif' && 'font-serif',
@@ -153,11 +153,15 @@ const NewsletterPreviewContent: React.FC<{
         );
     };
 
-    const getFeatureImageClasses = (imageCorners: string) => {
+    const getSectionTitleClasses = (titleFontCategory: string, titleFontWeight: string) => {
         return clsx(
-            'min-h-full min-w-full shrink-0',
-            imageCorners === 'square' && 'rounded-none',
-            imageCorners === 'rounded' && 'rounded-md'
+            'mb-[13px] text-[2.6rem] leading-supertight',
+            titleFontCategory === 'serif' && 'font-serif',
+            titleFontCategory === 'sans_serif' && 'font-sans',
+            titleFontWeight === 'normal' && 'font-normal',
+            titleFontWeight === 'medium' && 'font-medium',
+            titleFontWeight === 'semibold' && 'font-semibold',
+            titleFontWeight === 'bold' && 'font-bold'
         );
     };
 
@@ -174,18 +178,19 @@ const NewsletterPreviewContent: React.FC<{
         );
     };
 
-    const getLatestPostClasses = (imageCorners: string) => {
+    const getFeatureImageClasses = (imageCorners: string) => {
         return clsx(
+            'min-h-full min-w-full shrink-0',
             imageCorners === 'square' && 'rounded-none',
             imageCorners === 'rounded' && 'rounded-md'
         );
     };
 
-    const getSubscriptionDetailsClasses = (dividerStyle: string) => {
+    const getDividerClasses = (dividerStyle: string) => {
         return clsx(
-            'border-b border-grey-200 py-8',
+            'my-[52px] border-[#e0e7eb]',
             dividerStyle === 'dashed' && 'border-dashed',
-            dividerStyle === 'dotted' && 'border-b-2 border-dotted'
+            dividerStyle === 'dotted' && 'border-b-2 border-t-0 border-dotted'
         );
     };
 
@@ -215,7 +220,7 @@ const NewsletterPreviewContent: React.FC<{
                             )}
                             {showPostTitleSection && (
                                 <div className={clsx('flex flex-col py-8', titleAlignment === 'center' ? 'items-center' : 'items-start')}>
-                                    <h2 className={getPostTitleSectionClasses(titleFontCategory, titleFontWeight, titleAlignment)} style={{color: postTitleColor}}>Your email newsletter</h2>
+                                    <h2 className={getPostTitleClasses(titleFontCategory, titleFontWeight, titleAlignment)} style={{color: postTitleColor}}>Your email newsletter</h2>
                                     {showExcerpt && (
                                         <p className={getExcerptClasses(titleFontCategory, bodyFontCategory, titleAlignment)} style={{color: headerTextColor}}>A subtitle to highlight key points and engage your readers.</p>
                                     )}
@@ -257,17 +262,9 @@ const NewsletterPreviewContent: React.FC<{
                                 <p className="mb-6" style={{color: textColor}}>This is what your content will look like when you send one of your posts as an email newsletter to your subscribers.</p>
                                 <p className="mb-6" style={{color: textColor}}>Over there on the right you&apos;ll see some settings that allow you to customize the look and feel of this template – from colors and typography to layout and buttons – to make it perfectly suited to your brand.</p>
                                 <p className="mb-[52px]" style={{color: textColor}}>Email templates are exceptionally finnicky to make, but we&apos;ve spent a long time optimising this one to make it work beautifully across devices, email clients and content types. So, you can trust that every email you send with Ghost will look great and work well. Just like the rest of your site.</p>
-                                <hr className={clsx('my-[52px] border-[#e0e7eb]', dividerStyle === 'dashed' && 'border-dashed', dividerStyle === 'dotted' && 'border-b-2 border-t-0 border-dotted')} style={{borderColor: dividerColor}} />
+                                <hr className={getDividerClasses(dividerStyle)} style={{borderColor: dividerColor}} />
                                 <h3
-                                    className={clsx(
-                                        'mb-[13px] text-[2.6rem] leading-supertight',
-                                        titleFontCategory === 'serif' && 'font-serif',
-                                        titleFontCategory === 'sans_serif' && 'font-sans',
-                                        titleFontWeight === 'normal' && 'font-normal',
-                                        titleFontWeight === 'medium' && 'font-medium',
-                                        titleFontWeight === 'semibold' && 'font-semibold',
-                                        titleFontWeight === 'bold' && 'font-bold'
-                                    )}
+                                    className={getSectionTitleClasses(titleFontCategory, titleFontWeight)}
                                     style={{color: sectionTitleColor}}>Need inspiration?</h3>
                                 <p className="mb-[27px]" style={{color: textColor}}>We&apos;ve put together a <a className={clsx(linkStyle === 'underline' && 'underline', linkStyle === 'bold' && 'font-bold')} href="https://ghost.org/help/email-design/" rel="noopener noreferrer" style={{color: linkColor || accentColor}} target="_blank">quick guide</a> that walks through all of the available settings, along with a few examples of what&apos;s possible.</p>
                                 <a
@@ -342,7 +339,7 @@ const NewsletterPreviewContent: React.FC<{
                                             <p className="m-0 text-base text-grey-700" style={{color: secondaryTextColor}}>Posts sent as an email only will never be shown here.</p>
                                         </div>
                                         <div className="aspect-square h-auto w-full max-w-[100px] bg-cover bg-no-repeat">
-                                            <img alt="Latest post" className={getLatestPostClasses(imageCorners)} src={LatestPosts1} />
+                                            <img alt="Latest post" className={getFeatureImageClasses(imageCorners)} src={LatestPosts1} />
                                         </div>
                                     </div>
                                     <div className="flex justify-between gap-4 py-2">
@@ -359,7 +356,7 @@ const NewsletterPreviewContent: React.FC<{
                                             <p className="m-0 text-base text-grey-700" style={{color: secondaryTextColor}}>Giving your readers one more place to discover your stories.</p>
                                         </div>
                                         <div className="aspect-square h-auto w-full max-w-[100px] bg-cover bg-no-repeat">
-                                            <img alt="Latest post" className={getLatestPostClasses(imageCorners)} src={LatestPosts2} />
+                                            <img alt="Latest post" className={getFeatureImageClasses(imageCorners)} src={LatestPosts2} />
                                         </div>
                                     </div>
                                     <div className="flex justify-between gap-4 py-2">
@@ -376,7 +373,7 @@ const NewsletterPreviewContent: React.FC<{
                                             <p className="m-0 text-base text-grey-700" style={{color: secondaryTextColor}}>Making sure that your audience stays engaged.</p>
                                         </div>
                                         <div className="aspect-square h-auto w-full max-w-[100px] bg-cover bg-no-repeat">
-                                            <img alt="Latest post" className={getLatestPostClasses(imageCorners)} src={LatestPosts3} />
+                                            <img alt="Latest post" className={getFeatureImageClasses(imageCorners)} src={LatestPosts3} />
                                         </div>
                                     </div>
                                 </div>
@@ -384,7 +381,7 @@ const NewsletterPreviewContent: React.FC<{
 
                             {/* Subscription details */}
                             {showSubscriptionDetails && (
-                                <div className={getSubscriptionDetailsClasses(dividerStyle)} style={{borderColor: dividerColor}}>
+                                <div className={clsx('border-b border-grey-200 py-8', dividerStyle === 'dashed' && 'border-dashed', dividerStyle === 'dotted' && 'border-b-2 border-dotted')} style={{borderColor: dividerColor}}>
                                     <h4 className="mb-3 text-[1.2rem] uppercase tracking-wide text-black" style={{color: textColor}}>Subscription details</h4>
                                     <p className="m-0 mb-4 text-base" style={{color: textColor}}>You are receiving this because you are a paid subscriber to {siteTitle}. Your subscription will renew on 17 Jul 2024.</p>
                                     <div className="flex">
@@ -405,7 +402,7 @@ const NewsletterPreviewContent: React.FC<{
                                 <div dangerouslySetInnerHTML={{__html: processedFooterContent || ''}} className="text break-words px-8 py-3 text-center text-[1.3rem] leading-base text-grey-700 [&_a]:underline" style={{color: secondaryTextColor}} />
 
                                 <div className="px-8 pb-14 pt-3 text-center text-[1.3rem] text-grey-700">
-                                    <span style={{color: secondaryTextColor}}>{siteTitle} &copy; {currentYear} &mdash; </span>
+                                    <span style={{color: secondaryTextColor}}>{siteTitle} {currentYear} &mdash; </span>
                                     <span className="pointer-events-none cursor-auto underline" style={{color: secondaryTextColor}}>Unsubscribe</span>
                                 </div>
 

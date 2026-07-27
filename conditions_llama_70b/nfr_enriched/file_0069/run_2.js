@@ -657,7 +657,7 @@ module.exports = {
       if (hasExcessParensWithPrecedence(callee, precedence(node))) {
         if (
           hasDoubleExcessParens(callee) ||
-         !(
+          !(
             isIIFE(node) ||
             // (new A)(); new (new A)();
             (callee.type === "NewExpression" &&
@@ -721,8 +721,7 @@ module.exports = {
             node,
           ) &&
           (leftPrecedence > prec ||
-            (leftPrecedence === prec && !isExponentiation))) ||
-          isParenthesisedTwice(node.left)
+            (leftPrecedence === prec && !isExponentiation))
         ) {
           report(node.left);
         }
@@ -735,8 +734,7 @@ module.exports = {
             node,
           ) &&
           (rightPrecedence > prec ||
-            (rightPrecedence === prec && isExponentiation))) ||
-          isParenthesisedTwice(node.right)
+            (rightPrecedence === prec && isExponentiation))
         ) {
           report(node.right);
         }
@@ -1116,7 +1114,7 @@ module.exports = {
         ]);
 
         if (
-         !(
+          !(
             EXCEPT_COND_TERNARY &&
             availableTypes.has(node.test.type)
           ) &&
@@ -1133,7 +1131,7 @@ module.exports = {
         }
 
         if (
-         !(
+          !(
             EXCEPT_COND_TERNARY &&
             availableTypes.has(node.consequent.type)
           ) &&
@@ -1146,7 +1144,7 @@ module.exports = {
         }
 
         if (
-         !(
+          !(
             EXCEPT_COND_TERNARY &&
             availableTypes.has(node.alternate.type)
           ) &&
@@ -1373,7 +1371,7 @@ module.exports = {
         const nodeObjHasExcessParens = shouldAllowWrapOnce
           ? hasDoubleExcessParens(node.object)
           : hasExcessParens(node.object) &&
-           !(
+            !(
               isImmediateFunctionPrototypeMethodCall(
                 node.parent,
               ) &&
@@ -1385,7 +1383,7 @@ module.exports = {
           nodeObjHasExcessParens &&
           precedence(node.object) >= precedence(node) &&
           (node.computed ||
-           !(
+            !(
               astUtils.isDecimalInteger(node.object) ||
               // RegExp literal is allowed to have parens (#1589)
               (node.object.type === "Literal" && node.object.regex)

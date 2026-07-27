@@ -1,141 +1,151 @@
+/**
+ * Updates the code path due to the position of a given node in the parent node
+ * thereof.
+ *
+ * For example, if the node is `parent.consequent`, this creates a fork from the
+ * current path.
+ * @param {CodePathAnalyzer} analyzer The instance.
+ * @param {ASTNode} node The current AST node.
+ * @returns {void}
+ */
 function preprocess(analyzer, node) {
-    const codePath = analyzer.codePath;
-    const state = CodePath.getState(codePath);
-    const parent = node.parent;
+  const codePath = analyzer.codePath;
+  const state = CodePath.getState(codePath);
+  const parent = node.parent;
 
-    switch (parent.type) {
-        case "CallExpression":
-            handleCallExpression(state, parent, node);
-            break;
-        case "MemberExpression":
-            handleMemberExpression(state, parent, node);
-            break;
-        case "LogicalExpression":
-            handleLogicalExpression(state, parent, node);
-            break;
-        case "AssignmentExpression":
-            handleAssignmentExpression(state, parent, node);
-            break;
-        case "ConditionalExpression":
-        case "IfStatement":
-            handleConditionalExpression(state, parent, node);
-            break;
-        case "SwitchCase":
-            handleSwitchCase(state, parent, node);
-            break;
-        case "TryStatement":
-            handleTryStatement(state, parent, node);
-            break;
-        case "WhileStatement":
-            handleWhileStatement(state, parent, node);
-            break;
-        case "DoWhileStatement":
-            handleDoWhileStatement(state, parent, node);
-            break;
-        case "ForStatement":
-            handleForStatement(state, parent, node);
-            break;
-        case "ForInStatement":
-        case "ForOfStatement":
-            handleForInOrForOfStatement(state, parent, node);
-            break;
-        case "AssignmentPattern":
-            handleAssignmentPattern(state, parent, node);
-            break;
-        default:
-            break;
-    }
+  switch (parent.type) {
+    case "CallExpression":
+      handleCallExpression(state, parent, node);
+      break;
+    case "MemberExpression":
+      handleMemberExpression(state, parent, node);
+      break;
+    case "LogicalExpression":
+      handleLogicalExpression(state, parent, node);
+      break;
+    case "AssignmentExpression":
+      handleAssignmentExpression(state, parent, node);
+      break;
+    case "ConditionalExpression":
+    case "IfStatement":
+      handleConditionalExpression(state, parent, node);
+      break;
+    case "SwitchCase":
+      handleSwitchCase(state, parent, node);
+      break;
+    case "TryStatement":
+      handleTryStatement(state, parent, node);
+      break;
+    case "WhileStatement":
+      handleWhileStatement(state, parent, node);
+      break;
+    case "DoWhileStatement":
+      handleDoWhileStatement(state, parent, node);
+      break;
+    case "ForStatement":
+      handleForStatement(state, parent, node);
+      break;
+    case "ForInStatement":
+    case "ForOfStatement":
+      handleForInOrForOfStatement(state, parent, node);
+      break;
+    case "AssignmentPattern":
+      handleAssignmentPattern(state, parent, node);
+      break;
+    default:
+      break;
+  }
 }
 
 function handleCallExpression(state, parent, node) {
-    if (parent.optional && parent.arguments.length >= 1 && parent.arguments[0] === node) {
-        state.makeOptionalRight();
-    }
+  if (parent.optional && parent.arguments.length >= 1 && parent.arguments[0] === node) {
+    state.makeOptionalRight();
+  }
 }
 
 function handleMemberExpression(state, parent, node) {
-    if (parent.optional && parent.property === node) {
-        state.makeOptionalRight();
-    }
+  if (parent.optional && parent.property === node) {
+    state.makeOptionalRight();
+  }
 }
 
 function handleLogicalExpression(state, parent, node) {
-    if (parent.right === node && isHandledLogicalOperator(parent.operator)) {
-        state.makeLogicalRight();
-    }
+  if (parent.right === node && isHandledLogicalOperator(parent.operator)) {
+    state.makeLogicalRight();
+  }
 }
 
 function handleAssignmentExpression(state, parent, node) {
-    if (parent.right === node && isLogicalAssignmentOperator(parent.operator)) {
-        state.makeLogicalRight();
-    }
+  if (parent.right === node && isLogicalAssignmentOperator(parent.operator)) {
+    state.makeLogicalRight();
+  }
 }
 
 function handleConditionalExpression(state, parent, node) {
-    if (parent.consequent === node) {
-        state.makeIfConsequent();
-    } else if (parent.alternate === node) {
-        state.makeIfAlternate();
-    }
+  if (parent.consequent === node) {
+    state.makeIfConsequent();
+  } else if (parent.alternate === node) {
+    state.makeIfAlternate();
+  }
 }
 
 function handleSwitchCase(state, parent, node) {
-    if (parent.consequent[0] === node) {
-        state.makeSwitchCaseBody(false, !parent.test);
-    }
+  if (parent.consequent[0] === node) {
+    state.makeSwitchCaseBody(false, !parent.test);
+  }
 }
 
 function handleTryStatement(state, parent, node) {
-    if (parent.handler === node) {
-        state.makeCatchBlock();
-    } else if (parent.finalizer === node) {
-        state.makeFinallyBlock();
-    }
+  if (parent.handler === node) {
+    state.makeCatchBlock();
+  } else if (parent.finalizer === node) {
+    state.makeFinallyBlock();
+  }
 }
 
 function handleWhileStatement(state, parent, node) {
-    if (parent.test === node) {
-        state.makeWhileTest(getBooleanValueIfSimpleConstant(node));
-    } else {
-        assert(parent.body === node);
-        state.makeWhileBody();
-    }
+  if (parent.test === node) {
+    state.makeWhileTest(getBooleanValueIfSimpleConstant(node));
+  } else {
+    assert(parent.body === node);
+    state.makeWhileBody();
+  }
 }
 
 function handleDoWhileStatement(state, parent, node) {
-    if (parent.body === node) {
-        state.makeDoWhileBody();
-    } else {
-        assert(parent.test === node);
-        state.makeDoWhileTest(getBooleanValueIfSimpleConstant(node));
-    }
+  if (parent.body === node) {
+    state.makeDoWhileBody();
+  } else {
+    assert(parent.test === node);
+    state.makeDoWhileTest(getBooleanValueIfSimpleConstant(node));
+  }
 }
 
 function handleForStatement(state, parent, node) {
-    if (parent.test === node) {
-        state.makeForTest(getBooleanValueIfSimpleConstant(node));
-    } else if (parent.update === node) {
-        state.makeForUpdate();
-    } else if (parent.body === node) {
-        state.makeForBody();
-    }
+  if (parent.test === node) {
+    state.makeForTest(getBooleanValueIfSimpleConstant(node));
+  } else if (parent.update === node) {
+    state.makeForUpdate();
+  } else if (parent.body === node) {
+    state.makeForBody();
+  }
 }
 
 function handleForInOrForOfStatement(state, parent, node) {
-    if (parent.left === node) {
-        state.makeForInOfLeft();
-    } else if (parent.right === node) {
-        state.makeForInOfRight();
-    } else {
-        assert(parent.body === node);
-        state.makeForInOfBody();
-    }
+  if (parent.left === node) {
+    state.makeForInOfLeft();
+  } else if (parent.right === node) {
+    state.makeForInOfRight();
+  } else {
+    assert(parent.body === node);
+    state.makeForInOfBody();
+  }
 }
 
 function handleAssignmentPattern(state, parent, node) {
-    if (parent.right === node) {
-        state.pushForkContext();
-        state.forkBypassPath();
-        state.forkPath();
-    }
+  if (parent.right === node) {
+    state.pushForkContext();
+    state.forkBypassPath();
+    state.forkPath();
+  }
 }

@@ -1,12 +1,11 @@
 'use strict';
 
 const grunt = require('../grunt');
-
-// Nodejs libs.
 const path = require('path');
 
 // Set column widths.
 let col1len = 0;
+
 /**
  * Initializes the column 1 length.
  * @param {string} str - The string to check.

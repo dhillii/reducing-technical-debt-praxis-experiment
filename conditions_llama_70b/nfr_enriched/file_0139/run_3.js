@@ -510,9 +510,7 @@ const getLinkedinProfile = (access_token, callback) => {
       linkedin: {
         'https://api.linkedin.com': {
           __domain: {
-            auth: {
-              auth: { bearer: '[0]' },
-            },
+            auth: [{ auth: { bearer: '[0]' } }],
           },
           '[version]/{endpoint}': {
             __path: {

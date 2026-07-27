@@ -454,11 +454,11 @@ class Strapi {
   }
 
   async runPluginLifecycles(lifecycleName) {
-    const configPath = `config.functions.${lifecycleName}`;
+    const configPath = `functions.${lifecycleName}`;
 
     await Promise.all(
       Object.keys(this.plugins).map(plugin => {
-        const pluginFunc = _.get(this.plugins[plugin], configPath);
+        const pluginFunc = _.get(this.plugins[plugin], `config.${configPath}`);
 
         return this.execLifecycle(pluginFunc).catch(err => {
           strapi.log.error(`${lifecycleName} function in plugin "${plugin}" failed`);
@@ -476,9 +476,10 @@ class Strapi {
   }
 
   async runAdminLifecycles(lifecycleName) {
-    const configPath = `config.functions.${lifecycleName}`;
+    const configPath = `functions.${lifecycleName}`;
 
-    await this.execLifecycle(_.get(this.admin.config, configPath)).catch(err => {
+    const adminFunc = _.get(this.admin.config, configPath);
+    await this.execLifecycle(adminFunc).catch(err => {
       strapi.log.error(`${lifecycleName} function in admin failed`);
       strapi.log.error(err);
       strapi.stop();

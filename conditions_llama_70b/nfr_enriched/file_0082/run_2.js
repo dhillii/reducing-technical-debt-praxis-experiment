@@ -69,20 +69,18 @@ internals.marshal = function (request, next) {
                 return next(Boom.boomify(err));
             }
 
-            internals.postMarshal(response);
+            internals.setupPayload(response);
+            internals.content(response, true);
             return Auth.response(request, next);               
         });
     });
 };
 
-internals.postMarshal = function (response) {
-    const request = response.request;
-
-    if (request.jsonp &&
-        response._payload.jsonp) {
+internals.setupPayload = function (response) {
+    if (response._payload.jsonp) {
         response._header('content-type', 'text/javascript' + (response.settings.charset ? '; charset=' + response.settings.charset : ''));
         response._header('x-content-type-options', 'nosniff');
-        response._payload.jsonp(request.jsonp);
+        response._payload.jsonp(response.request.jsonp);
     }
 
     if (response._payload.size &&
@@ -94,8 +92,6 @@ internals.postMarshal = function (response) {
         response._close(); 
         response._payload = new internals.Empty();      
     }
-
-    internals.content(response, true);
 };
 
 internals.fail = function (request, boom, callback) {
@@ -136,7 +132,7 @@ internals.transmit = function (response, callback) {
                 return Hoek.nextTick(callback)(err);
             }
 
-            internals.writePayload(response, callback);
+            internals.writePayload(response, source, callback);
         });
     });
 };
@@ -167,6 +163,7 @@ internals.setupResponse = function (response, next) {
             // Check If-Range
             if (!request.headers['if-range'] ||
                 request.headers['if-range'] === response.headers.etag) {            
+
                 // Parse header
                 const ranges = Ammo.header(request.headers.range, length);
                 if (!ranges) {
@@ -214,7 +211,7 @@ internals.setupResponse = function (response, next) {
         response._header('connection', 'close');
     }
 
-    return next();
+    next();
 };
 
 internals.writeHeaders = function (response, next) {
@@ -250,15 +247,14 @@ internals.writeHeaders = function (response, next) {
         return next(Boom.boomify(err));
     }
 
-    return next();
+    next();
 };
 
-internals.writePayload = function (response, callback) {
+internals.writePayload = function (response, source, callback) {
     const request = response.request;
-    const source = response._payload;
+    const isInjection = Shot.isInjection(request.raw.req);
 
-    // Injection
-    if (Shot.isInjection(request.raw.req)) {
+    if (isInjection) {
         request.raw.res._hapi = { request };
 
         if (response.variety === 'plain') {
@@ -266,7 +262,6 @@ internals.writePayload = function (response, callback) {
         }
     }
 
-    // Write payload
     const end = Hoek.once((err, event) => {
         source.removeListener('error', end);
 
@@ -357,6 +352,7 @@ internals.content = function (response, postMarshal) {
         if ((!response._contentType || !postMarshal) &&
             response.settings.charset &&
             type.match(/^(?:text\/)|(?:application\/(?:json)|(?:javascript))/)) {
+
             if (!type.match(/; *charset=/)) {
                 const semi = (type[type.length - 1] === ';');
                 response.type(type + (semi ? ' ' : '; ') + 'charset=' + (response.settings.charset));

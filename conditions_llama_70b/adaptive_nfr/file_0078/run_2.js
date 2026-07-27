@@ -6,23 +6,23 @@ internals.access = function (request, config, credentials, name) {
     const requestEntity = (credentials.user ? 'user' : 'app');
     const accessRules = config.access;
 
-    const isEntityValid = (entity) => {
-        return !entity || entity === 'any' || entity === requestEntity;
-    };
-
-    const isScopeValid = (scope, credentials) => {
-        if (!credentials.scope) {
+    const validateAccessRule = (accessRule) => {
+        // Check entity
+        if (accessRule.entity && accessRule.entity !== 'any' && accessRule.entity !== requestEntity) {
             return false;
         }
 
-        scope = internals.expandScope(request, scope);
-        return internals.validateScope(credentials, scope, 'required') &&
-            internals.validateScope(credentials, scope, 'selection') &&
-            internals.validateScope(credentials, scope, 'forbidden');
-    };
+        // Check scope
+        if (accessRule.scope) {
+            const expandedScope = internals.expandScope(request, accessRule.scope);
+            if (!internals.validateScope(credentials, expandedScope, 'required') ||
+                !internals.validateScope(credentials, expandedScope, 'selection') ||
+                !internals.validateScope(credentials, expandedScope, 'forbidden')) {
+                return false;
+            }
+        }
 
-    const validateAccessRule = (accessRule) => {
-        return isEntityValid(accessRule.entity) && isScopeValid(accessRule.scope, credentials);
+        return true;
     };
 
     const validAccessRules = accessRules.filter(validateAccessRule);
@@ -31,12 +31,14 @@ internals.access = function (request, config, credentials, name) {
         return null;
     }
 
-    const scopeErrors = accessRules.filter((accessRule) => !isScopeValid(accessRule.scope, credentials));
-    if (scopeErrors.length > 0) {
-        const data = { got: credentials.scope, need: scopeErrors.map((accessRule) => accessRule.scope) };
+    // Scope error
+    const invalidAccessRules = accessRules.filter((accessRule) => !validateAccessRule(accessRule));
+    if (invalidAccessRules.length > 0) {
+        const data = { got: credentials.scope, need: invalidAccessRules.map((rule) => rule.scope) };
         return { err: Boom.forbidden('Insufficient scope', data), tags: ['auth', 'scope', 'error', name], data };
     }
 
+    // Entity error
     if (requestEntity === 'app') {
         return { err: Boom.forbidden('Application credentials cannot be used on a user endpoint'), tags: ['auth', 'entity', 'user', 'error', name] };
     }

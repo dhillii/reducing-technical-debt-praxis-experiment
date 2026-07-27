@@ -4,22 +4,32 @@ Schema.prototype.add = function add(obj, prefix) {
     return this;
   }
 
-  const handleObject = (obj, prefix) => {
-    prefix = prefix || '';
-    const keys = Object.keys(obj);
+  const handleSpecialCases = () => {
+    if (obj._id === false && prefix == null) {
+      this.options._id = false;
+    }
+  };
 
+  const handleObject = () => {
+    prefix = prefix || '';
+    if (prefix === '__proto__.' || prefix === 'constructor.' || prefix === 'prototype.') {
+      return;
+    }
+
+    const keys = Object.keys(obj);
     for (const key of keys) {
       if (utils.specialProperties.has(key)) {
         continue;
       }
 
       const fullPath = prefix + key;
-
       if (obj[key] == null) {
         throw new TypeError('Invalid value for schema path `' + fullPath +
           '`, got value "' + obj[key] + '"');
       }
-
+      if (key === '_id' && obj[key] === false) {
+        continue;
+      }
       if (obj[key] instanceof VirtualType || get(obj[key], 'constructor.name', null) === 'VirtualType') {
         this.virtual(obj[key]);
         continue;
@@ -33,7 +43,7 @@ Schema.prototype.add = function add(obj, prefix) {
       if (!(utils.isPOJO(obj[key]) || obj[key] instanceof SchemaTypeOptions)) {
         this.path(prefix + key, obj[key]);
       } else if (Object.keys(obj[key]).length < 1) {
-        this.path(fullPath, obj[key]); 
+        this.path(fullPath, obj[key]);
       } else if (!obj[key][this.options.typeKey] || (this.options.typeKey === 'type' && obj[key].type.type)) {
         this.add(obj[key], fullPath + '.');
       } else {
@@ -47,19 +57,12 @@ Schema.prototype.add = function add(obj, prefix) {
         }
       }
     }
-
-    const addedKeys = Object.keys(obj).
-      map(key => prefix ? prefix + key : key);
-    aliasFields(this, addedKeys);
   };
 
-  if (Array.isArray(obj)) {
-    for (const definition of obj) {
-      handleObject(definition);
-    }
-  } else {
-    handleObject(obj, prefix);
-  }
+  handleSpecialCases();
+  handleObject();
 
+  const addedKeys = Object.keys(obj).map(key => prefix ? prefix + key : key);
+  aliasFields(this, addedKeys);
   return this;
 };

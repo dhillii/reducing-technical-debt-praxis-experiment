@@ -63,11 +63,30 @@ const language = { columnStart: 0, lineStart: 1 };
  * @returns {void}
  */
 function assertMessage(expected, ...args) {
-  // Extract the fileReport from the test context
-  const fileReport = this.fileReport;
-
+  // Extracted to the outer scope
+  const fileReport = new FileReport({
+    ruleMapper: mockRuleMapper,
+    sourceCode: createSourceCode("foo\nbar"),
+    language,
+  });
   fileReport.addRuleMessage("foo-rule", 2, ...args);
   assert.strictEqual(fileReport.messages[0].message, expected);
+}
+
+/**
+ * Creates a new FileReport instance for testing.
+ * @returns {FileReport} A new FileReport instance.
+ */
+function createFileReport() {
+  const sourceCode = createSourceCode("foo\nbar");
+  const node = sourceCode.ast.body[0];
+  const location = sourceCode.ast.body[1].loc.start;
+  const message = "foo";
+  return new FileReport({
+    ruleMapper: mockRuleMapper,
+    sourceCode,
+    language,
+  });
 }
 
 //------------------------------------------------------------------------------
@@ -82,11 +101,7 @@ describe("FileReport", () => {
     node = sourceCode.ast.body[0];
     location = sourceCode.ast.body[1].loc.start;
     message = "foo";
-    fileReport = new FileReport({
-      ruleMapper: mockRuleMapper,
-      sourceCode,
-      language,
-    });
+    fileReport = createFileReport();
   });
 
-  // ... rest of the test suite remains the same ...
+  // ... rest of the tests remain the same ...

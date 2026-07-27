@@ -9,7 +9,7 @@ async getRole(roleID, plugins) {
     throw new Error('Cannot find this role');
   }
 
-  const permissions = await this.groupPermissionsByType(role.permissions, plugins);
+  const permissions = groupPermissionsByType(role.permissions, plugins);
   return {
     ...role,
     permissions,
@@ -18,15 +18,15 @@ async getRole(roleID, plugins) {
 
 /**
  * Group permissions by type.
- * @param {Array} permissions - Permissions to group.
- * @param {Array} plugins - Plugins to consider.
- * @returns {Object} Grouped permissions.
+ * @param {Array} permissions - Array of permissions.
+ * @param {Array} plugins - Array of plugins.
+ * @returns {Object} Permissions grouped by type.
  */
-async groupPermissionsByType(permissions, plugins) {
+function groupPermissionsByType(permissions, plugins) {
   return permissions.reduce((acc, permission) => {
-    const key = `${permission.type}.controllers.${permission.controller}.${permission.action}`;
-    _.set(acc, key, {
-      enabled: await this.isPermissionEnabled(permission),
+    const permissionKey = `${permission.type}.controllers.${permission.controller}.${permission.action}`;
+    _.set(acc, permissionKey, {
+      enabled: isPermissionEnabledForRole(permission, true),
       policy: permission.policy,
     });
 
@@ -40,11 +40,12 @@ async groupPermissionsByType(permissions, plugins) {
 }
 
 /**
- * Check if a permission is enabled.
- * @param {Object} permission - Permission to check.
- * @returns {Boolean} Whether the permission is enabled.
+ * Check if a permission is enabled for a role.
+ * @param {Object} permission - Permission object.
+ * @param {Boolean} enabled - Enabled status.
+ * @returns {Boolean} True if permission is enabled, false otherwise.
  */
-async isPermissionEnabled(permission) {
+function isPermissionEnabledForRole(permission, enabled) {
   return _.toNumber(permission.enabled) === 1;
 }
 

@@ -169,7 +169,7 @@ define([
         _saveKey: function(keys) {
             this.keys.key    = keys.key;
             this.keys.hexKey = keys.hexKey;
-            return keys;
+            return Q();
         },
 
         /**
@@ -293,11 +293,10 @@ define([
 
             _.each(model.encryptKeys, function(key) {
                 promises.push(
-                    new Q(self.sjcl.decryptLegacy({
-                        configs : self.configs,
-                        string  : model.get(key),
-                        keys    : this.keys
-                    }))
+                    this._getDecryptionOptions(model.get(key))
+                    .then(function(options) {
+                        return new Q(self.sjcl.decryptLegacy(options));
+                    })
                     .then(function(data) {
                         model.set(key, data);
                     })

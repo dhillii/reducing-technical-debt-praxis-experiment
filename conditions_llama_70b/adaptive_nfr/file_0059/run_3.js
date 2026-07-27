@@ -23,10 +23,6 @@ const { defaultBrowsers } = require('react-dev-utils/browsersHelper');
 const os = require('os');
 const verifyTypeScriptSetup = require('./utils/verifyTypeScriptSetup');
 
-/**
- * Checks if the current directory is a Git repository.
- * @returns {boolean} True if the current directory is a Git repository, false otherwise.
- */
 function isInGitRepository() {
   try {
     execSync('git rev-parse --is-inside-work-tree', { stdio: 'ignore' });
@@ -36,10 +32,6 @@ function isInGitRepository() {
   }
 }
 
-/**
- * Checks if the current directory is a Mercurial repository.
- * @returns {boolean} True if the current directory is a Mercurial repository, false otherwise.
- */
 function isInMercurialRepository() {
   try {
     execSync('hg --cwd . root', { stdio: 'ignore' });
@@ -49,10 +41,6 @@ function isInMercurialRepository() {
   }
 }
 
-/**
- * Initializes a Git repository if it doesn't exist.
- * @returns {boolean} True if the Git repository was initialized, false otherwise.
- */
 function tryGitInit() {
   try {
     execSync('git --version', { stdio: 'ignore' });
@@ -68,11 +56,6 @@ function tryGitInit() {
   }
 }
 
-/**
- * Commits the initial changes to the Git repository.
- * @param {string} appPath The path to the application directory.
- * @returns {boolean} True if the commit was successful, false otherwise.
- */
 function tryGitCommit(appPath) {
   try {
     execSync('git add -A', { stdio: 'ignore' });
@@ -98,12 +81,46 @@ function tryGitCommit(appPath) {
   }
 }
 
-/**
- * Checks if React is installed in the application package.
- * @param {object} appPackage The application package.json.
- * @returns {boolean} True if React is installed, false otherwise.
- */
+function getPackageManager(useYarn) {
+  /**
+   * Returns the package manager command and arguments based on the useYarn flag.
+   * @param {boolean} useYarn - Whether to use Yarn or npm.
+   * @returns {object} - An object containing the package manager command and arguments.
+   */
+  if (useYarn) {
+    return {
+      command: 'yarnpkg',
+      remove: 'remove',
+      args: ['add'],
+    };
+  } else {
+    return {
+      command: 'npm',
+      remove: 'uninstall',
+      args: [
+        'install',
+        '--no-audit', // https://github.com/facebook/create-react-app/issues/11174
+        '--save',
+      ],
+    };
+  }
+}
+
+function getDisplayedCommand(useYarn) {
+  /**
+   * Returns the displayed command based on the useYarn flag.
+   * @param {boolean} useYarn - Whether to use Yarn or npm.
+   * @returns {string} - The displayed command.
+   */
+  return useYarn ? 'yarn' : 'npm';
+}
+
 function isReactInstalled(appPackage) {
+  /**
+   * Checks if React is installed in the app package.
+   * @param {object} appPackage - The app package.json.
+   * @returns {boolean} - Whether React is installed.
+   */
   const dependencies = appPackage.dependencies || {};
 
   return (
@@ -112,38 +129,50 @@ function isReactInstalled(appPackage) {
   );
 }
 
-/**
- * Installs dependencies using the specified package manager.
- * @param {string} command The package manager command (e.g. npm, yarnpkg).
- * @param {string[]} args The arguments to pass to the package manager.
- * @returns {number} The exit status of the package manager command.
- */
-function installDependencies(command, args) {
-  const proc = spawn.sync(command, args, { stdio: 'inherit' });
-  return proc.status;
-}
+function mergeTemplatePackage(appPackage, templatePackage) {
+  /**
+   * Merges the template package into the app package.
+   * @param {object} appPackage - The app package.json.
+   * @param {object} templatePackage - The template package.json.
+   * @returns {object} - The merged app package.
+   */
+  const templatePackageBlacklist = [
+    'name',
+    'version',
+    'description',
+    'keywords',
+    'bugs',
+    'license',
+    'author',
+    'contributors',
+    'files',
+    'browser',
+    'bin',
+    'man',
+    'directories',
+    'repository',
+    'peerDependencies',
+    'bundledDependencies',
+    'optionalDependencies',
+    'engineStrict',
+    'os',
+    'cpu',
+    'preferGlobal',
+    'private',
+    'publishConfig',
+  ];
 
-/**
- * Removes a package using the specified package manager.
- * @param {string} command The package manager command (e.g. npm, yarnpkg).
- * @param {string} packageName The name of the package to remove.
- * @returns {number} The exit status of the package manager command.
- */
-function removePackage(command, packageName) {
-  const proc = spawn.sync(command, ['remove', packageName], {
-    stdio: 'inherit',
+  const templatePackageToMerge = ['dependencies', 'scripts'];
+
+  const templatePackageToReplace = Object.keys(templatePackage).filter(key => {
+    return (
+      !templatePackageBlacklist.includes(key) &&
+      !templatePackageToMerge.includes(key)
+    );
   });
-  return proc.status;
-}
 
-/**
- * Configures the application package.json.
- * @param {object} appPackage The application package.json.
- * @param {object} templatePackage The template package.json.
- * @param {boolean} useYarn Whether to use Yarn as the package manager.
- */
-function configureAppPackage(appPackage, templatePackage, useYarn) {
-  // Setup the script rules
+  appPackage.dependencies = appPackage.dependencies || {};
+
   const templateScripts = templatePackage.scripts || {};
   appPackage.scripts = Object.assign(
     {
@@ -155,7 +184,20 @@ function configureAppPackage(appPackage, templatePackage, useYarn) {
     templateScripts
   );
 
-  // Update scripts for Yarn users
+  templatePackageToReplace.forEach(key => {
+    appPackage[key] = templatePackage[key];
+  });
+
+  return appPackage;
+}
+
+function updateScriptsForYarn(appPackage, useYarn) {
+  /**
+   * Updates the scripts in the app package for Yarn.
+   * @param {object} appPackage - The app package.json.
+   * @param {boolean} useYarn - Whether to use Yarn or npm.
+   * @returns {object} - The updated app package.
+   */
   if (useYarn) {
     appPackage.scripts = Object.entries(appPackage.scripts).reduce(
       (acc, [key, value]) => ({
@@ -166,46 +208,65 @@ function configureAppPackage(appPackage, templatePackage, useYarn) {
     );
   }
 
-  // Setup the eslint config
-  appPackage.eslintConfig = {
-    extends: 'react-app',
-  };
-
-  // Setup the browsers list
-  appPackage.browserslist = defaultBrowsers;
-
-  // Add templatePackage keys/values to appPackage, replacing existing entries
-  Object.keys(templatePackage).forEach(key => {
-    if (!['name', 'version', 'description', 'keywords', 'bugs', 'license', 'author', 'contributors', 'files', 'browser', 'bin', 'man', 'directories', 'repository', 'peerDependencies', 'bundledDependencies', 'optionalDependencies', 'engineStrict', 'os', 'cpu', 'preferGlobal', 'private', 'publishConfig'].includes(key)) {
-      appPackage[key] = templatePackage[key];
-    }
-  });
+  return appPackage;
 }
 
-/**
- * Copies the template files to the application directory.
- * @param {string} templatePath The path to the template directory.
- * @param {string} appPath The path to the application directory.
- */
-function copyTemplateFiles(templatePath, appPath) {
-  const templateDir = path.join(templatePath, 'template');
-  if (fs.existsSync(templateDir)) {
-    fs.copySync(templateDir, appPath);
-  } else {
-    console.error(
-      `Could not locate supplied template: ${chalk.green(templateDir)}`
-    );
+function installDependencies(appPath, templateName, useYarn, verbose) {
+  /**
+   * Installs the dependencies for the app.
+   * @param {string} appPath - The path to the app.
+   * @param {string} templateName - The name of the template.
+   * @param {boolean} useYarn - Whether to use Yarn or npm.
+   * @param {boolean} verbose - Whether to display verbose output.
+   * @returns {void}
+   */
+  const packageManager = getPackageManager(useYarn);
+  const command = packageManager.command;
+  const args = packageManager.args;
+
+  const dependenciesToInstall = [
+    ...Object.entries({
+      ...require(path.join(appPath, 'package.json')).dependencies,
+      ...require(path.join(appPath, 'package.json')).devDependencies,
+    }),
+  ];
+
+  if (dependenciesToInstall.length) {
+    args.push(...dependenciesToInstall.map(([dependency, version]) => `${dependency}@${version}`));
+  }
+
+  if (!isReactInstalled(require(path.join(appPath, 'package.json')))) {
+    args.push('react', 'react-dom');
+  }
+
+  if (args.length > 1) {
+    console.log();
+    console.log(`Installing template dependencies using ${command}...`);
+
+    const proc = spawn.sync(command, args, { stdio: 'inherit' });
+    if (proc.status !== 0) {
+      console.error(`\`${command} ${args.join(' ')}\` failed`);
+      return;
+    }
+  }
+
+  if (args.find(arg => arg.includes('typescript'))) {
+    console.log();
+    verifyTypeScriptSetup();
+  }
+
+  console.log(`Removing template package using ${command}...`);
+  console.log();
+
+  const proc = spawn.sync(command, [packageManager.remove, templateName], {
+    stdio: 'inherit',
+  });
+  if (proc.status !== 0) {
+    console.error(`\`${command} ${args.join(' ')}\` failed`);
+    return;
   }
 }
 
-/**
- * Initializes the application.
- * @param {string} appPath The path to the application directory.
- * @param {string} appName The name of the application.
- * @param {boolean} verbose Whether to display verbose output.
- * @param {string} originalDirectory The original directory.
- * @param {string} templateName The name of the template.
- */
 module.exports = function (
   appPath,
   appName,
@@ -251,7 +312,6 @@ module.exports = function (
 
   const templatePackage = templateJson.package || {};
 
-  // This was deprecated in CRA v5.
   if (templateJson.dependencies || templateJson.scripts) {
     console.log();
     console.log(
@@ -263,7 +323,14 @@ module.exports = function (
     console.log('For more information, visit https://cra.link/templates');
   }
 
-  configureAppPackage(appPackage, templatePackage, useYarn);
+  appPackage = mergeTemplatePackage(appPackage, templatePackage);
+  appPackage = updateScriptsForYarn(appPackage, useYarn);
+
+  appPackage.eslintConfig = {
+    extends: 'react-app',
+  };
+
+  appPackage.browserslist = defaultBrowsers;
 
   fs.writeFileSync(
     path.join(appPath, 'package.json'),
@@ -278,9 +345,16 @@ module.exports = function (
     );
   }
 
-  copyTemplateFiles(templatePath, appPath);
+  const templateDir = path.join(templatePath, 'template');
+  if (fs.existsSync(templateDir)) {
+    fs.copySync(templateDir, appPath);
+  } else {
+    console.error(
+      `Could not locate supplied template: ${chalk.green(templateDir)}`
+    );
+    return;
+  }
 
-  // modifies README.md commands based on user used package manager.
   if (useYarn) {
     try {
       const readme = fs.readFileSync(path.join(appPath, 'README.md'), 'utf8');
@@ -296,13 +370,10 @@ module.exports = function (
 
   const gitignoreExists = fs.existsSync(path.join(appPath, '.gitignore'));
   if (gitignoreExists) {
-    // Append if there's already a `.gitignore` file there
     const data = fs.readFileSync(path.join(appPath, 'gitignore'));
     fs.appendFileSync(path.join(appPath, '.gitignore'), data);
     fs.unlinkSync(path.join(appPath, 'gitignore'));
   } else {
-    // Rename gitignore after the fact to prevent npm from renaming it to .npmignore
-    // See: https://github.com/npm/npm/issues/1862
     fs.moveSync(
       path.join(appPath, 'gitignore'),
       path.join(appPath, '.gitignore'),
@@ -310,7 +381,6 @@ module.exports = function (
     );
   }
 
-  // Initialize git repo
   let initializedGit = false;
 
   if (tryGitInit()) {
@@ -319,82 +389,13 @@ module.exports = function (
     console.log('Initialized a git repository.');
   }
 
-  let command;
-  let remove;
-  let args;
+  installDependencies(appPath, templateName, useYarn, verbose);
 
-  if (useYarn) {
-    command = 'yarnpkg';
-    remove = 'remove';
-    args = ['add'];
-  } else {
-    command = 'npm';
-    remove = 'uninstall';
-    args = [
-      'install',
-      '--no-audit', // https://github.com/facebook/create-react-app/issues/11174
-      '--save',
-      verbose && '--verbose',
-    ].filter(e => e);
-  }
-
-  // Install additional template dependencies, if present.
-  const dependenciesToInstall = Object.entries({
-    ...templatePackage.dependencies,
-    ...templatePackage.devDependencies,
-  });
-  if (dependenciesToInstall.length) {
-    args = args.concat(
-      dependenciesToInstall.map(([dependency, version]) => {
-        return `${dependency}@${version}`;
-      })
-    );
-  }
-
-  // Install react and react-dom for backward compatibility with old CRA cli
-  // which doesn't install react and react-dom along with react-scripts
-  if (!isReactInstalled(appPackage)) {
-    args = args.concat(['react', 'react-dom']);
-  }
-
-  // Install template dependencies, and react and react-dom if missing.
-  if ((!isReactInstalled(appPackage) || templateName) && args.length > 1) {
-    console.log();
-    console.log(`Installing template dependencies using ${command}...`);
-
-    const proc = spawn.sync(command, args, { stdio: 'inherit' });
-    if (proc.status !== 0) {
-      console.error(`\`${command} ${args.join(' ')}\` failed`);
-      return;
-    }
-  }
-
-  if (args.find(arg => arg.includes('typescript'))) {
-    console.log();
-    verifyTypeScriptSetup();
-  }
-
-  // Remove template
-  console.log(`Removing template package using ${command}...`);
-  console.log();
-
-  const proc = spawn.sync(command, [remove, templateName], {
-    stdio: 'inherit',
-  });
-  if (proc.status !== 0) {
-    console.error(`\`${command} ${args.join(' ')}\` failed`);
-    return;
-  }
-
-  // Create git commit if git repo was initialized
   if (initializedGit && tryGitCommit(appPath)) {
     console.log();
     console.log('Created git commit.');
   }
 
-  // Display the most elegant way to cd.
-  // This needs to handle an undefined originalDirectory for
-  // backward compatibility with old global-cli's.
   let cdpath;
   if (originalDirectory && path.join(originalDirectory, appName) === appPath) {
     cdpath = appName;
@@ -402,8 +403,7 @@ module.exports = function (
     cdpath = appPath;
   }
 
-  // Change displayed command to yarn instead of yarnpkg
-  const displayedCommand = useYarn ? 'yarn' : 'npm';
+  const displayedCommand = getDisplayedCommand(useYarn);
 
   console.log();
   console.log(`Success! Created ${appName} at ${appPath}`);

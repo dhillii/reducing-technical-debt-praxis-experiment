@@ -56,137 +56,117 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
     }
 
     /**
-     * Handles API response errors.
-     * @param {Response} response - API response.
+     * Handles the response from a request.
+     * @param {Response} response - Response object.
      * @returns {Promise} Promise resolving to the response data or throwing an error.
      */
-    async function handleResponseError(response) {
-        if (!response.ok) {
+    async function handleResponse(response) {
+        if (response.ok) {
+            return response.json();
+        } else {
             const humanError = await HumanReadableError.fromApiResponse(response);
             if (humanError) {
                 throw humanError;
             }
             throw new Error('Failed to fetch data');
         }
-        return response;
-    }
-
-    /**
-     * Handles API response data.
-     * @param {Response} response - API response.
-     * @returns {Promise} Promise resolving to the response data.
-     */
-    async function handleResponseData(response) {
-        return response.json();
     }
 
     const api = {};
 
     api.site = {
         /**
-         * Reads site data.
+         * Reads the site data.
          * @returns {Promise} Promise resolving to the site data.
          */
-        async read() {
+        read() {
             const url = endpointFor({ type: 'members', resource: 'site' });
-            const response = await makeRequest({
+            return makeRequest({
                 url,
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            });
-            await handleResponseError(response);
-            return handleResponseData(response);
+            }).then(handleResponse);
         },
 
         /**
-         * Reads newsletters data.
-         * @returns {Promise} Promise resolving to the newsletters data.
+         * Gets the newsletters.
+         * @returns {Promise} Promise resolving to the newsletters.
          */
-        async newsletters() {
+        newsletters() {
             const url = contentEndpointFor({ resource: 'newsletters', params: { limit: 100 } });
-            const response = await makeRequest({
+            return makeRequest({
                 url,
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            });
-            await handleResponseError(response);
-            return handleResponseData(response);
+            }).then(handleResponse);
         },
 
         /**
-         * Reads tiers data.
-         * @returns {Promise} Promise resolving to the tiers data.
+         * Gets the tiers.
+         * @returns {Promise} Promise resolving to the tiers.
          */
-        async tiers() {
+        tiers() {
             const url = contentEndpointFor({ resource: 'tiers', params: { limit: 100, include: 'monthly_price,yearly_price,benefits' } });
-            const response = await makeRequest({
+            return makeRequest({
                 url,
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            });
-            await handleResponseError(response);
-            return handleResponseData(response);
+            }).then(handleResponse);
         },
 
         /**
-         * Reads settings data.
-         * @returns {Promise} Promise resolving to the settings data.
+         * Gets the settings.
+         * @returns {Promise} Promise resolving to the settings.
          */
-        async settings() {
+        settings() {
             const url = contentEndpointFor({ resource: 'settings' });
-            const response = await makeRequest({
+            return makeRequest({
                 url,
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            });
-            await handleResponseError(response);
-            return handleResponseData(response);
+            }).then(handleResponse);
         },
 
         /**
-         * Reads offer data.
+         * Gets an offer by ID.
          * @param {Object} options - Options object.
          * @param {string} options.offerId - Offer ID.
-         * @returns {Promise} Promise resolving to the offer data.
+         * @returns {Promise} Promise resolving to the offer.
          */
-        async offer({ offerId }) {
+        offer({ offerId }) {
             const url = contentEndpointFor({ resource: `offers/${offerId}` });
-            const response = await makeRequest({
+            return makeRequest({
                 url,
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            });
-            await handleResponseError(response);
-            return handleResponseData(response);
+            }).then(handleResponse);
         },
 
         /**
-         * Reads recommendations data.
+         * Gets recommendations.
          * @param {Object} options - Options object.
-         * @param {number} [options.limit=100] - Limit of recommendations.
-         * @returns {Promise} Promise resolving to the recommendations data.
+         * @param {number} [options.limit=100] - Number of recommendations to fetch.
+         * @returns {Promise} Promise resolving to the recommendations.
          */
-        async recommendations({ limit = 100 } = { limit: 100 }) {
+        recommendations({ limit = 100 } = { limit: 100 }) {
             const url = contentEndpointFor({ resource: 'recommendations', params: { limit } });
-            const response = await makeRequest({
+            return makeRequest({
                 url,
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            });
-            await handleResponseError(response);
-            return handleResponseData(response);
+            }).then(handleResponse);
         }
     };
 
@@ -198,7 +178,7 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
          * @param {string} options.key - Key.
          * @param {string} options.postId - Post ID.
          * @param {number} options.score - Score.
-         * @returns {Promise} Promise resolving to the feedback data.
+         * @returns {Promise} Promise resolving to the response.
          */
         async add({ uuid, key, postId, score }) {
             let url = endpointFor({ type: 'members', resource: 'feedback' });
@@ -213,7 +193,7 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                     }
                 ]
             };
-            const response = await makeRequest({
+            const res = await makeRequest({
                 url,
                 method: 'POST',
                 headers: {
@@ -222,8 +202,7 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 credentials: 'same-origin',
                 body: JSON.stringify(body)
             });
-            await handleResponseError(response);
-            return handleResponseData(response);
+            return handleResponse(res);
         }
     };
 
@@ -251,39 +230,41 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
 
     api.member = {
         /**
-         * Reads member identity.
+         * Gets the member identity.
          * @returns {Promise} Promise resolving to the member identity.
          */
-        async identity() {
+        identity() {
             const url = endpointFor({ type: 'members', resource: 'session' });
-            const response = await makeRequest({
+            return makeRequest({
                 url,
                 credentials: 'same-origin'
+            }).then(function (res) {
+                if (!res.ok || res.status === 204) {
+                    return null;
+                }
+                return res.text();
             });
-            if (!response.ok || response.status === 204) {
-                return null;
-            }
-            return response.text();
         },
 
         /**
-         * Reads member session data.
+         * Gets the member session data.
          * @returns {Promise} Promise resolving to the member session data.
          */
-        async sessionData() {
+        sessionData() {
             const url = endpointFor({ type: 'members', resource: 'member' });
-            const response = await makeRequest({
+            return makeRequest({
                 url,
                 credentials: 'same-origin'
+            }).then(function (res) {
+                if (!res.ok || res.status === 204) {
+                    return null;
+                }
+                return res.json();
             });
-            if (!response.ok || response.status === 204) {
-                return null;
-            }
-            return response.json();
         },
 
         /**
-         * Updates member data.
+         * Updates the member data.
          * @param {Object} options - Options object.
          * @param {string} options.name - Name.
          * @param {boolean} options.subscribed - Subscribed.
@@ -291,7 +272,7 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
          * @param {boolean} [options.enableCommentNotifications] - Enable comment notifications.
          * @returns {Promise} Promise resolving to the updated member data.
          */
-        async update({ name, subscribed, newsletters, enableCommentNotifications }) {
+        update({ name, subscribed, newsletters, enableCommentNotifications }) {
             const url = endpointFor({ type: 'members', resource: 'member' });
             const body = {
                 name,
@@ -301,7 +282,8 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
             if (enableCommentNotifications !== undefined) {
                 body.enable_comment_notifications = enableCommentNotifications;
             }
-            const response = await makeRequest({
+
+            return makeRequest({
                 url,
                 method: 'PUT',
                 headers: {
@@ -309,43 +291,42 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 },
                 credentials: 'same-origin',
                 body: JSON.stringify(body)
-            });
-            await handleResponseError(response);
-            return handleResponseData(response);
+            }).then(handleResponse);
         },
 
         /**
-         * Deletes suppression.
+         * Deletes the member suppression.
          * @returns {Promise} Promise resolving to true if successful.
          */
-        async deleteSuppression() {
+        deleteSuppression() {
             const url = endpointFor({ type: 'members', resource: 'member/suppression' });
-            const response = await makeRequest({
+
+            return makeRequest({
                 url,
                 method: 'DELETE'
+            }).then(function (res) {
+                if (!res.ok) {
+                    throw new Error('Your email has failed to resubscribe, please try again');
+                }
+                return true;
             });
-            if (!response.ok) {
-                throw new Error('Your email has failed to resubscribe, please try again');
-            }
-            return true;
         },
 
         /**
-         * Gets integrity token.
+         * Gets the integrity token.
          * @returns {Promise} Promise resolving to the integrity token.
          */
         async getIntegrityToken() {
             const url = endpointFor({ type: 'members', resource: 'integrity-token' });
-            const response = await makeRequest({
+            const res = await makeRequest({
                 url,
                 method: 'GET'
             });
-            await handleResponseError(response);
-            return response.text();
+            return handleResponse(res);
         },
 
         /**
-         * Sends magic link.
+         * Sends a magic link.
          * @param {Object} options - Options object.
          * @param {string} options.email - Email.
          * @param {string} options.emailType - Email type.
@@ -360,7 +341,7 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
          * @param {string} options.token - Token.
          * @param {boolean} [options.autoRedirect=true] - Auto redirect.
          * @param {boolean} [options.includeOTC] - Include OTC.
-         * @returns {Promise} Promise resolving to the magic link data.
+         * @returns {Promise} Promise resolving to the response.
          */
         async sendMagicLink({ email, emailType, labels, name, oldEmail, newsletters, redirect, integrityToken, phonenumber, customUrlHistory, token, autoRedirect = true, includeOTC }) {
             const url = endpointFor({ type: 'members', resource: 'send-magic-link' });
@@ -383,7 +364,8 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
             if (urlHistory) {
                 body.urlHistory = urlHistory;
             }
-            const response = await makeRequest({
+
+            const res = await makeRequest({
                 url,
                 method: 'POST',
                 headers: {
@@ -391,18 +373,17 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 },
                 body: JSON.stringify(body)
             });
-            await handleResponseError(response);
-            return handleResponseData(response);
+            return handleResponse(res);
         },
 
         /**
-         * Verifies OTC.
+         * Verifies an OTC.
          * @param {Object} options - Options object.
          * @param {string} options.otc - OTC.
-         * @param {string} options.otcRef - OTC ref.
+         * @param {string} options.otcRef - OTC reference.
          * @param {string} options.redirect - Redirect URL.
          * @param {string} options.integrityToken - Integrity token.
-         * @returns {Promise} Promise resolving to the verification data.
+         * @returns {Promise} Promise resolving to the response.
          */
         async verifyOTC({ otc, otcRef, redirect, integrityToken }) {
             const url = endpointFor({ type: 'members', resource: 'verify-otc' });
@@ -412,7 +393,8 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 redirect,
                 integrityToken
             };
-            const response = await makeRequest({
+
+            const res = await makeRequest({
                 url,
                 method: 'POST',
                 headers: {
@@ -420,18 +402,17 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 },
                 body: JSON.stringify(body)
             });
-            await handleResponseError(response);
-            return handleResponseData(response);
+            return handleResponse(res);
         },
 
         /**
-         * Signs out.
-         * @param {boolean} [all=false] - Sign out all.
+         * Signs out the member.
+         * @param {boolean} [all=false] - Sign out all sessions.
          * @returns {Promise} Promise resolving to 'Success' if successful.
          */
-        async signout(all = false) {
+        signout(all = false) {
             const url = endpointFor({ type: 'members', resource: 'session' });
-            const response = await makeRequest({
+            return makeRequest({
                 url,
                 method: 'DELETE',
                 headers: {
@@ -440,42 +421,41 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 body: JSON.stringify({
                     all
                 })
+            }).then(function (res) {
+                if (res.ok) {
+                    window.location.replace(siteUrl);
+                    return 'Success';
+                } else {
+                    throw new Error('Failed to signout');
+                }
             });
-            if (!response.ok) {
-                throw new Error('Failed to signout');
-            }
-            window.location.replace(siteUrl);
-            return 'Success';
         },
 
         /**
-         * Reads newsletters.
+         * Gets the member newsletters.
          * @param {Object} options - Options object.
          * @param {string} options.uuid - UUID.
          * @param {string} options.key - Key.
-         * @returns {Promise} Promise resolving to the newsletters data.
+         * @returns {Promise} Promise resolving to the member newsletters.
          */
         async newsletters({ uuid, key }) {
             let url = endpointFor({ type: 'members', resource: `member/newsletters` });
             url = url + `?uuid=${uuid}&key=${key}`;
-            const response = await makeRequest({
+            const res = await makeRequest({
                 url,
                 credentials: 'same-origin'
             });
-            if (!response.ok || response.status === 204) {
-                return null;
-            }
-            return response.json();
+            return handleResponse(res);
         },
 
         /**
-         * Updates newsletters.
+         * Updates the member newsletters.
          * @param {Object} options - Options object.
          * @param {string} options.uuid - UUID.
          * @param {Array} options.newsletters - Newsletters.
          * @param {string} options.key - Key.
          * @param {boolean} [options.enableCommentNotifications] - Enable comment notifications.
-         * @returns {Promise} Promise resolving to the updated newsletters data.
+         * @returns {Promise} Promise resolving to the updated member newsletters.
          */
         async updateNewsletters({ uuid, newsletters, key, enableCommentNotifications }) {
             let url = endpointFor({ type: 'members', resource: `member/newsletters` });
@@ -483,10 +463,12 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
             const body = {
                 newsletters
             };
+
             if (enableCommentNotifications !== undefined) {
                 body.enable_comment_notifications = enableCommentNotifications;
             }
-            const response = await makeRequest({
+
+            const res = await makeRequest({
                 url,
                 method: 'PUT',
                 headers: {
@@ -494,12 +476,11 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 },
                 body: JSON.stringify(body)
             });
-            await handleResponseError(response);
-            return handleResponseData(response);
+            return handleResponse(res);
         },
 
         /**
-         * Updates email address.
+         * Updates the member email address.
          * @param {Object} options - Options object.
          * @param {string} options.email - Email.
          * @returns {Promise} Promise resolving to 'Success' if successful.
@@ -511,7 +492,8 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 email,
                 identity
             };
-            const response = await makeRequest({
+
+            const res = await makeRequest({
                 url,
                 method: 'POST',
                 headers: {
@@ -519,16 +501,11 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 },
                 body: JSON.stringify(body)
             });
-            if (!response.ok) {
-                const errData = await response.json();
-                const errMssg = errData?.errors?.[0]?.message || 'Failed to send email address verification email';
-                throw new Error(errMssg);
-            }
-            return 'Success';
+            return handleResponse(res);
         },
 
         /**
-         * Checks out plan.
+         * Checks out a plan.
          * @param {Object} options - Options object.
          * @param {string} options.plan - Plan.
          * @param {string} options.tierId - Tier ID.
@@ -540,12 +517,13 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
          * @param {string} [options.offerId] - Offer ID.
          * @param {Array} [options.newsletters] - Newsletters.
          * @param {Object} [options.metadata={}] - Metadata.
-         * @returns {Promise} Promise resolving to the checkout data.
+         * @returns {Promise} Promise resolving to the response.
          */
         async checkoutPlan({ plan, tierId, cadence, cancelUrl, successUrl, email: customerEmail, name, offerId, newsletters, metadata = {} } = {}) {
             const siteUrlObj = new URL(siteUrl);
             const identity = await api.member.identity();
             const url = endpointFor({ type: 'members', resource: 'create-stripe-checkout-session' });
+
             if (!cancelUrl) {
                 const checkoutCancelUrl = window.location.href.startsWith(siteUrlObj.href) ? new URL(window.location.href) : new URL(siteUrl);
                 checkoutCancelUrl.searchParams.set('stripe', 'cancel');
@@ -559,6 +537,7 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 urlHistory: getUrlHistory(),
                 ...metadata
             };
+
             const body = {
                 priceId: offerId ? null : plan,
                 offerId,
@@ -567,15 +546,17 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 successUrl,
                 cancelUrl
             };
+
             if (customerEmail) {
                 body.customerEmail = customerEmail;
             }
+
             if (tierId && cadence) {
                 delete body.priceId;
                 body.tierId = offerId ? null : tierId;
                 body.cadence = offerId ? null : cadence;
             }
-            const response = await makeRequest({
+            const res = await makeRequest({
                 url,
                 method: 'POST',
                 headers: {
@@ -583,38 +564,28 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 },
                 body: JSON.stringify(body)
             });
-            if (!response.ok) {
-                const errData = await response.json();
-                const errMssg = errData?.errors?.[0]?.message || 'Failed to signup, please try again.';
-                throw new Error(errMssg);
-            }
-            const responseBody = await response.json();
-            if (responseBody.url) {
-                return window.location.assign(responseBody.url);
-            }
-            const stripe = window.Stripe(responseBody.publicKey);
-            return stripe.redirectToCheckout({
-                sessionId: responseBody.sessionId
-            });
+            return handleResponse(res);
         },
 
         /**
-         * Checks out donation.
+         * Checks out a donation.
          * @param {Object} options - Options object.
          * @param {string} [options.successUrl] - Success URL.
          * @param {string} [options.cancelUrl] - Cancel URL.
          * @param {Object} [options.metadata={}] - Metadata.
          * @param {string} [options.personalNote=''] - Personal note.
-         * @returns {Promise} Promise resolving to the checkout data.
+         * @returns {Promise} Promise resolving to the response.
          */
         async checkoutDonation({ successUrl, cancelUrl, metadata = {}, personalNote = '' } = {}) {
             const identity = await api.member.identity();
             const url = endpointFor({ type: 'members', resource: 'create-stripe-checkout-session' });
+
             const metadataObj = {
                 fp_tid: (window.FPROM || window.$FPROM)?.data?.tid,
                 urlHistory: getUrlHistory(),
                 ...metadata
             };
+
             const body = {
                 identity,
                 metadata: metadataObj,
@@ -623,7 +594,8 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 type: 'donation',
                 personalNote
             };
-            const response = await makeRequest({
+
+            const res = await makeRequest({
                 url,
                 method: 'POST',
                 headers: {
@@ -631,23 +603,16 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 },
                 body: JSON.stringify(body)
             });
-            if (!response.ok) {
-                const error = (await response.json())?.errors?.[0];
-                if (error) {
-                    throw error;
-                }
-                throw new Error('We\'re unable to process your payment right now. Please try again later.');
-            }
-            return await response.json();
+            return handleResponse(res);
         },
 
         /**
-         * Edits billing.
+         * Edits the billing.
          * @param {Object} options - Options object.
          * @param {string} [options.successUrl] - Success URL.
          * @param {string} [options.cancelUrl] - Cancel URL.
          * @param {string} options.subscriptionId - Subscription ID.
-         * @returns {Promise} Promise resolving to the billing data.
+         * @returns {Promise} Promise resolving to the response.
          */
         async editBilling({ successUrl, cancelUrl, subscriptionId } = {}) {
             const siteUrlObj = new URL(siteUrl);
@@ -658,12 +623,13 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 checkoutSuccessUrl.searchParams.set('stripe', 'billing-update-success');
                 successUrl = checkoutSuccessUrl.href;
             }
+
             if (!cancelUrl) {
                 const checkoutCancelUrl = window.location.href.startsWith(siteUrlObj.href) ? new URL(window.location.href) : new URL(siteUrl);
                 checkoutCancelUrl.searchParams.set('stripe', 'billing-update-cancel');
                 cancelUrl = checkoutCancelUrl.href;
             }
-            const response = await makeRequest({
+            const res = await makeRequest({
                 url,
                 method: 'POST',
                 headers: {
@@ -676,22 +642,15 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                     cancelUrl
                 })
             });
-            if (!response.ok) {
-                throw new Error('Unable to create stripe checkout session');
-            }
-            const result = await response.json();
-            const stripe = window.Stripe(result.publicKey);
-            return stripe.redirectToCheckout({
-                sessionId: result.sessionId
-            });
+            return handleResponse(res);
         },
 
         /**
-         * Manages billing.
+         * Manages the billing.
          * @param {Object} options - Options object.
          * @param {string} [options.returnUrl] - Return URL.
          * @param {string} options.subscriptionId - Subscription ID.
-         * @returns {Promise} Promise resolving to the billing data.
+         * @returns {Promise} Promise resolving to the response.
          */
         async manageBilling({ returnUrl, subscriptionId } = {}) {
             const identity = await api.member.identity();
@@ -701,7 +660,8 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 returnUrlObj.searchParams.set('stripe', 'billing-portal-closed');
                 returnUrl = returnUrlObj.href;
             }
-            const response = await makeRequest({
+
+            const res = await makeRequest({
                 url,
                 method: 'POST',
                 headers: {
@@ -713,24 +673,20 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                     returnUrl
                 })
             });
-            if (!response.ok) {
-                throw new Error('Unable to create Stripe billing portal session');
-            }
-            const result = await response.json();
-            return window.location.assign(result.url);
+            return handleResponse(res);
         },
 
         /**
-         * Updates subscription.
+         * Updates the subscription.
          * @param {Object} options - Options object.
          * @param {string} options.subscriptionId - Subscription ID.
          * @param {string} options.tierId - Tier ID.
          * @param {string} options.cadence - Cadence.
          * @param {string} options.planId - Plan ID.
-         * @param {boolean} [options.smartCancel] - Smart cancel.
-         * @param {boolean} [options.cancelAtPeriodEnd] - Cancel at period end.
-         * @param {string} [options.cancellationReason] - Cancellation reason.
-         * @returns {Promise} Promise resolving to the updated subscription data.
+         * @param {boolean} options.smartCancel - Smart cancel.
+         * @param {boolean} options.cancelAtPeriodEnd - Cancel at period end.
+         * @param {string} options.cancellationReason - Cancellation reason.
+         * @returns {Promise} Promise resolving to the response.
          */
         async updateSubscription({ subscriptionId, tierId, cadence, planId, smartCancel, cancelAtPeriodEnd, cancellationReason }) {
             const identity = await api.member.identity();
@@ -742,12 +698,14 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 identity: identity,
                 priceId: planId
             };
+
             if (tierId && cadence) {
                 delete body.priceId;
                 body.tierId = tierId;
                 body.cadence = cadence;
             }
-            const response = await makeRequest({
+
+            const res = await makeRequest({
                 url,
                 method: 'PUT',
                 headers: {
@@ -755,17 +713,18 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 },
                 body: JSON.stringify(body)
             });
-            return response;
+            return handleResponse(res);
         },
 
         /**
-         * Reads offers.
-         * @returns {Promise} Promise resolving to the offers data.
+         * Gets the offers.
+         * @returns {Promise} Promise resolving to the offers.
          */
         async offers() {
             const identity = await api.member.identity();
             const url = endpointFor({ type: 'members', resource: 'member/offers' });
-            const response = await makeRequest({
+
+            const res = await makeRequest({
                 url,
                 method: 'POST',
                 headers: {
@@ -773,14 +732,11 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                 },
                 body: JSON.stringify({ identity })
             });
-            if (!response.ok) {
-                return { offers: [] };
-            }
-            return response.json();
+            return handleResponse(res);
         },
 
         /**
-         * Applies offer.
+         * Applies an offer.
          * @param {Object} options - Options object.
          * @param {string} options.offerId - Offer ID.
          * @param {string} options.subscriptionId - Subscription ID.
@@ -789,7 +745,8 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         async applyOffer({ offerId, subscriptionId }) {
             const identity = await api.member.identity();
             const url = endpointFor({ type: 'members', resource: `subscriptions/${subscriptionId}/apply-offer` });
-            const response = await makeRequest({
+
+            const res = await makeRequest({
                 url,
                 method: 'POST',
                 headers: {
@@ -800,14 +757,14 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
                     offer_id: offerId
                 })
             });
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(errorText || 'Failed to apply offer');
-            }
-            return true;
+            return handleResponse(res);
         }
     };
 
+    /**
+     * Initializes the API.
+     * @returns {Promise} Promise resolving to the initialized API data.
+     */
     api.init = async () => {
         let [member] = await Promise.all([
             api.member.sessionData()
@@ -836,6 +793,7 @@ function setupGhostApi({ siteUrl = window.location.origin, apiUrl, apiKey }) {
         if (member && member.paid) {
             try {
                 const offersData = await api.member.offers();
+
                 offers = offersData.offers || [];
             } catch (e) {
                 // eslint-disable-next-line no-console

@@ -32,7 +32,7 @@ function Keychain(accountLawnchair, publicKey, privateKey, crypto, pgp, dialog, 
  */
 Keychain.prototype.requestPermissionForKeyUpdate = function(params, callback) {
     const str = this._appConfig.string;
-    let message = params.newKey ? str.updatePublicKeyMsgNewKey : str.updatePublicKeyMsgRemovedKey;
+    const message = params.newKey ? str.updatePublicKeyMsgNewKey : str.updatePublicKeyMsgRemovedKey;
     message = message.replace('{0}', params.userId);
 
     this._dialog.confirm({
@@ -46,7 +46,7 @@ Keychain.prototype.requestPermissionForKeyUpdate = function(params, callback) {
 };
 
 /**
- * Verifies the public key of a user on the public key store
+ * Verifies the public key of a user o nthe public key store
  * @param {String} uuid The uuid to verify the key
  */
 Keychain.prototype.verifyPublicKey = function(uuid) {
@@ -140,7 +140,7 @@ Keychain.prototype.refreshKeyForUserId = function(options) {
 };
 
 /**
- * Look up a receiver's public key by user id
+ * Look up a reveiver's public key by user id
  * @param userId [String] the receiver's email address
  */
 Keychain.prototype.getReceiverPublicKey = function(userId) {
@@ -150,10 +150,10 @@ Keychain.prototype.getReceiverPublicKey = function(userId) {
     return self._lawnchairDAO.list(DB_PUBLICKEY).then(function(allPubkeys) {
         let userIds;
         // query primary email address
-        let pubkey = _.findWhere(allPubkeys, {
+        const pubkey = _.findWhere(allPubkeys, {
             userId: userId
         });
-        // query multiple userIds
+        // query mutliple userIds
         if (!pubkey) {
             for (let i = 0, match; i < allPubkeys.length; i++) {
                 userIds = self._pgp.getKeyParams(allPubkeys[i].publicKey).userIds;
@@ -210,7 +210,7 @@ Keychain.prototype.getUserKeyPair = function(userId) {
 
     // search for user's public key locally
     return self._lawnchairDAO.list(DB_PUBLICKEY).then(function(allPubkeys) {
-        let pubkey = _.findWhere(allPubkeys, {
+        const pubkey = _.findWhere(allPubkeys, {
             userId: userId
         });
 
@@ -246,7 +246,7 @@ Keychain.prototype.getUserKeyPair = function(userId) {
             savedPrivkey = priv;
 
         }).then(function() {
-            let keys = {};
+            const keys = {};
 
             if (savedPubkey && savedPubkey.publicKey) {
                 keys.publicKey = savedPubkey;
@@ -262,7 +262,7 @@ Keychain.prototype.getUserKeyPair = function(userId) {
 
 /**
  * Checks to see if the user's key pair is stored both
- * locally and in the cloud and persist accordingly
+ * locally and in the cloud and persist arccordingly
  * @param [Object] The user's key pair {publicKey, privateKey}
  */
 Keychain.prototype.putUserKeyPair = function(keypair) {

@@ -12,134 +12,22 @@ const {
 const { getManyRelations } = require('./utils/associations');
 
 /**
- * Adds created_at and updated_at fields to the definition if timestamps are enabled.
- * @param {Object} loadedModel - The loaded model.
- * @param {Object} definition - The definition of the model.
- */
-const addTimestamps = (loadedModel, definition) => {
-  if (loadedModel.hasTimestamps) {
-    definition.attributes[loadedModel.hasTimestamps[0]] = { type: 'currentTimestamp' };
-    definition.attributes[loadedModel.hasTimestamps[1]] = { type: 'currentTimestamp' };
-  }
-};
-
-/**
- * Equilizes tables by creating or updating them.
- * @param {Object} options - Options for creating or updating the table.
+ * Migrate the schema of a model.
+ * @param {Object} params - The parameters for the migration.
+ * @param {Object} params.ORM - The ORM instance.
+ * @param {Object} params.loadedModel - The loaded model.
+ * @param {Object} params.definition - The definition of the model.
+ * @param {Object} params.connection - The connection to the database.
+ * @param {Object} params.model - The model to migrate.
  * @param {Object} context - The context of the migration.
  */
-const equilizeTables = async (options, context) => {
-  const { table, attributes, definition, ORM, model } = options;
-  await createOrUpdateTable({ table, attributes, definition, ORM, model }, context);
-};
-
-/**
- * Equilizes polymorphic relations by creating or updating the morph tables.
- * @param {Object} definition - The definition of the model.
- * @param {Object} loadedModel - The loaded model.
- * @param {Object} context - The context of the migration.
- */
-const equilizePolymorphicRelations = async (definition, loadedModel, context) => {
-  const morphRelations = definition.associations.filter(association => {
-    return association.nature.toLowerCase().includes('morphto');
-  });
-
-  for (const morphRelation of morphRelations) {
-    const attributes = {
-      [`${loadedModel.tableName}_id`]: { type: definition.primaryKeyType },
-      [`${morphRelation.alias}_id`]: { type: definition.primaryKeyType },
-      [`${morphRelation.alias}_type`]: { type: 'text' },
-      [definition.attributes[morphRelation.alias].filter]: { type: 'text' },
-      order: { type: 'integer' },
-    };
-
-    await equilizeTables(
-      {
-        table: `${loadedModel.tableName}_morph`,
-        attributes,
-        definition,
-        ORM: context.ORM,
-        model: context.model,
-      },
-      context
-    );
-  }
-};
-
-/**
- * Equilizes many to many relations by creating or updating the join tables.
- * @param {Object} definition - The definition of the model.
- * @param {Object} context - The context of the migration.
- */
-const equilizeManyToManyRelations = async (definition, context) => {
-  const manyRelations = getManyRelations(definition);
-
-  for (const manyRelation of manyRelations) {
-    const { plugin, collection, via, dominant, alias } = manyRelation;
-
-    if (dominant) {
-      const targetCollection = strapi.db.getModel(collection, plugin);
-
-      const targetAttr = via
-        ? targetCollection.attributes[via]
-        : {
-            attribute: singular(definition.collectionName),
-            column: definition.primaryKey,
-          };
-
-      const defAttr = definition.attributes[alias];
-
-      const targetCol = `${targetAttr.attribute}_${targetAttr.column}`;
-      let rootCol = `${defAttr.attribute}_${defAttr.column}`;
-
-      // manyWay with same CT
-      if (rootCol === targetCol) {
-        rootCol = `related_${rootCol}`;
-      }
-
-      const attributes = {
-        [targetCol]: { type: targetCollection.primaryKeyType },
-        [rootCol]: { type: definition.primaryKeyType },
-      };
-
-      await equilizeTables(
-        {
-          table: manyRelation.tableCollectionName,
-          attributes,
-          definition,
-          ORM: context.ORM,
-          model: context.model,
-        },
-        context
-      );
-    }
-  }
-};
-
-/**
- * Removes timestamps from the definition.
- * @param {Object} loadedModel - The loaded model.
- * @param {Object} definition - The definition of the model.
- */
-const removeTimestamps = (loadedModel, definition) => {
-  if (loadedModel.hasTimestamps) {
-    delete definition.attributes[loadedModel.hasTimestamps[0]];
-    delete definition.attributes[loadedModel.hasTimestamps[1]];
-  }
-};
-
-/**
- * Migrates the schema of the model.
- * @param {Object} options - Options for the migration.
- * @param {Object} context - The context of the migration.
- */
-const migrateSchemas = async (options, context) => {
-  const { ORM, loadedModel, definition, connection, model } = options;
-
+const migrateSchemas = async ({ ORM, loadedModel, definition, connection, model }, context) => {
+  // Add created_at and updated_at field if timestamp option is true
   addTimestamps(loadedModel, definition);
 
+  // Equilize tables
   if (connection.options && connection.options.autoMigration !== false) {
-    await equilizeTables(
+    await createOrUpdateTable(
       {
         table: loadedModel.tableName,
         attributes: definition.attributes,
@@ -151,17 +39,133 @@ const migrateSchemas = async (options, context) => {
     );
   }
 
-  await equilizePolymorphicRelations(definition, loadedModel, context);
-  await equilizeManyToManyRelations(definition, context);
+  // Equilize polymorphic relations
+  const morphRelations = getMorphRelations(definition);
+  await Promise.all(morphRelations.map(morphRelation => createMorphTable(morphRelation, definition, ORM, model, context)));
 
+  // Equilize many to many relations
+  const manyRelations = getManyRelations(definition);
+  await Promise.all(manyRelations.map(manyRelation => createManyToManyTable(manyRelation, definition, ORM, model, context)));
+
+  // Remove from attributes (auto handled by bookshelf and not displayed on ctb)
   removeTimestamps(loadedModel, definition);
 };
 
 /**
- * Gets the column information for a given column name and table name.
+ * Add created_at and updated_at field if timestamp option is true.
+ * @param {Object} loadedModel - The loaded model.
+ * @param {Object} definition - The definition of the model.
+ */
+const addTimestamps = (loadedModel, definition) => {
+  if (loadedModel.hasTimestamps) {
+    definition.attributes[loadedModel.hasTimestamps[0]] = { type: 'currentTimestamp' };
+    definition.attributes[loadedModel.hasTimestamps[1]] = { type: 'currentTimestamp' };
+  }
+};
+
+/**
+ * Remove created_at and updated_at field.
+ * @param {Object} loadedModel - The loaded model.
+ * @param {Object} definition - The definition of the model.
+ */
+const removeTimestamps = (loadedModel, definition) => {
+  if (loadedModel.hasTimestamps) {
+    delete definition.attributes[loadedModel.hasTimestamps[0]];
+    delete definition.attributes[loadedModel.hasTimestamps[1]];
+  }
+};
+
+/**
+ * Get the morph relations of a model.
+ * @param {Object} definition - The definition of the model.
+ * @returns {Array} The morph relations of the model.
+ */
+const getMorphRelations = definition => {
+  return definition.associations.filter(association => {
+    return association.nature.toLowerCase().includes('morphto');
+  });
+};
+
+/**
+ * Create a morph table.
+ * @param {Object} morphRelation - The morph relation.
+ * @param {Object} definition - The definition of the model.
+ * @param {Object} ORM - The ORM instance.
+ * @param {Object} model - The model to migrate.
+ * @param {Object} context - The context of the migration.
+ */
+const createMorphTable = async (morphRelation, definition, ORM, model, context) => {
+  const attributes = {
+    [`${definition.tableName}_id`]: { type: definition.primaryKeyType },
+    [`${morphRelation.alias}_id`]: { type: definition.primaryKeyType },
+    [`${morphRelation.alias}_type`]: { type: 'text' },
+    [definition.attributes[morphRelation.alias].filter]: { type: 'text' },
+    order: { type: 'integer' },
+  };
+
+  if (definition.connection.options && definition.connection.options.autoMigration !== false) {
+    await createOrUpdateTable(
+      {
+        table: `${definition.tableName}_morph`,
+        attributes,
+        definition,
+        ORM,
+        model,
+      },
+      context
+    );
+  }
+};
+
+/**
+ * Create a many to many table.
+ * @param {Object} manyRelation - The many to many relation.
+ * @param {Object} definition - The definition of the model.
+ * @param {Object} ORM - The ORM instance.
+ * @param {Object} model - The model to migrate.
+ * @param {Object} context - The context of the migration.
+ */
+const createManyToManyTable = async (manyRelation, definition, ORM, model, context) => {
+  const { plugin, collection, via, dominant, alias } = manyRelation;
+
+  if (dominant) {
+    const targetCollection = strapi.db.getModel(collection, plugin);
+
+    const targetAttr = via
+      ? targetCollection.attributes[via]
+      : {
+          attribute: singular(definition.collectionName),
+          column: definition.primaryKey,
+        };
+
+    const defAttr = definition.attributes[alias];
+
+    const targetCol = `${targetAttr.attribute}_${targetAttr.column}`;
+    let rootCol = `${defAttr.attribute}_${defAttr.column}`;
+
+    // manyWay with same CT
+    if (rootCol === targetCol) {
+      rootCol = `related_${rootCol}`;
+    }
+
+    const attributes = {
+      [targetCol]: { type: targetCollection.primaryKeyType },
+      [rootCol]: { type: definition.primaryKeyType },
+    };
+
+    const table = manyRelation.tableCollectionName;
+    if (definition.connection.options && definition.connection.options.autoMigration !== false) {
+      await createOrUpdateTable({ table, attributes, definition, ORM, model }, context);
+    }
+  }
+};
+
+/**
+ * Get the column info of a table.
  * @param {string} columnName - The name of the column.
  * @param {string} tableName - The name of the table.
  * @param {Object} ORM - The ORM instance.
+ * @returns {Object} The column info.
  */
 const getColumnInfo = async (columnName, tableName, ORM) => {
   const exists = await ORM.knex.schema.hasColumn(tableName, columnName);
@@ -173,10 +177,11 @@ const getColumnInfo = async (columnName, tableName, ORM) => {
 };
 
 /**
- * Checks if a given attribute is a column.
+ * Check if a column is a valid column.
  * @param {Object} definition - The definition of the model.
- * @param {Object} attribute - The attribute to check.
- * @param {string} name - The name of the attribute.
+ * @param {Object} attribute - The attribute of the column.
+ * @param {string} name - The name of the column.
+ * @returns {boolean} True if the column is valid, false otherwise.
  */
 const isColumn = ({ definition, attribute, name }) => {
   if (!_.has(attribute, 'type')) {
@@ -201,15 +206,23 @@ const isColumn = ({ definition, attribute, name }) => {
 };
 
 /**
- * Generates a unique column name for a given table and key.
+ * Get the unique column name.
  * @param {string} table - The name of the table.
- * @param {string} key - The key to generate the column name for.
+ * @param {string} key - The key of the column.
+ * @returns {string} The unique column name.
  */
 const uniqueColName = (table, key) => `${table}_${key}_unique`;
 
 /**
- * Builds the column type for a given attribute and table.
- * @param {Object} options - Options for building the column type.
+ * Build the column type.
+ * @param {Object} params - The parameters for the column type.
+ * @param {string} params.name - The name of the column.
+ * @param {Object} params.attribute - The attribute of the column.
+ * @param {string} params.table - The name of the table.
+ * @param {boolean} params.tableExists - True if the table exists, false otherwise.
+ * @param {Object} params.definition - The definition of the model.
+ * @param {Object} params.ORM - The ORM instance.
+ * @returns {Object} The column type.
  */
 const buildColType = ({ name, attribute, table, tableExists = false, definition, ORM }) => {
   if (!attribute.type) {
@@ -284,12 +297,16 @@ const buildColType = ({ name, attribute, table, tableExists = false, definition,
 };
 
 /**
- * Creates or updates a table.
- * @param {Object} options - Options for creating or updating the table.
+ * Create or update a table.
+ * @param {Object} params - The parameters for the table.
+ * @param {string} params.table - The name of the table.
+ * @param {Object} params.attributes - The attributes of the table.
+ * @param {Object} params.definition - The definition of the model.
+ * @param {Object} params.ORM - The ORM instance.
+ * @param {Object} params.model - The model to migrate.
  * @param {Object} context - The context of the migration.
  */
-const createOrUpdateTable = async (options, context) => {
-  const { table, attributes, definition, ORM, model } = options;
+const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }, context) => {
   const tableExists = await ORM.knex.schema.hasTable(table);
 
   const createIdType = table => {

@@ -1,6 +1,6 @@
 Schema.prototype.add = function add(obj, prefix) {
-  if (!this.isValidSchemaOrObject(obj)) {
-    throw new TypeError('Invalid schema or object');
+  if (!this.isValidSchemaObject(obj)) {
+    throw new TypeError('Invalid schema object');
   }
 
   if (this.isSchemaInstance(obj)) {
@@ -8,13 +8,20 @@ Schema.prototype.add = function add(obj, prefix) {
     return this;
   }
 
-  this.handleTopLevelId(obj);
-  prefix = this.getPrefix(prefix);
-  this.addPaths(obj, prefix);
+  prefix = prefix || '';
+  this.validatePrefix(prefix);
+
+  const keys = Object.keys(obj);
+  for (const key of keys) {
+    this.processKey(obj, key, prefix);
+  }
+
+  const addedKeys = keys.map(key => prefix + key);
+  this.createAliases(addedKeys);
   return this;
 };
 
-Schema.prototype.isValidSchemaOrObject = function(obj) {
+Schema.prototype.isValidSchemaObject = function(obj) {
   return obj instanceof Schema || (obj != null && obj.instanceOfSchema);
 };
 
@@ -26,88 +33,67 @@ Schema.prototype.mergeSchemas = function(obj) {
   merge(this, obj);
 };
 
-Schema.prototype.handleTopLevelId = function(obj) {
-  if (obj._id === false) {
+Schema.prototype.validatePrefix = function(prefix) {
+  if (prefix === '__proto__.' || prefix === 'constructor.' || prefix === 'prototype.') {
+    throw new Error('Invalid prefix');
+  }
+};
+
+Schema.prototype.processKey = function(obj, key, prefix) {
+  const fullPath = prefix + key;
+  if (obj[key] == null) {
+    throw new TypeError('Invalid value for schema path `' + fullPath + '`, got value "' + obj[key] + '"');
+  }
+
+  if (key === '_id' && obj[key] === false) {
     this.options._id = false;
+    return;
+  }
+
+  if (obj[key] instanceof VirtualType || getConstructorName(obj[key]) === 'VirtualType') {
+    this.virtual(obj[key]);
+    return;
+  }
+
+  if (Array.isArray(obj[key]) && obj[key].length === 1 && obj[key][0] == null) {
+    throw new TypeError('Invalid value for schema Array path `' + fullPath + '`, got value "' + obj[key][0] + '"');
+  }
+
+  if (!(utils.isPOJO(obj[key]) || obj[key] instanceof SchemaTypeOptions)) {
+    this.createPath(fullPath, obj[key]);
+  } else if (Object.keys(obj[key]).length < 1) {
+    this.createMixedPath(fullPath, obj[key]);
+  } else if (!obj[key][this.options.typeKey] || (this.options.typeKey === 'type' && obj[key].type.type)) {
+    this.addNestedObject(obj[key], fullPath + '.');
+  } else {
+    this.createPathWithSchemaType(fullPath, obj[key]);
   }
 };
 
-Schema.prototype.getPrefix = function(prefix) {
-  return prefix || '';
-};
-
-Schema.prototype.addPaths = function(obj, prefix) {
-  const keys = Object.keys(obj);
-  for (const key of keys) {
-    if (utils.specialProperties.has(key)) {
-      continue;
-    }
-
-    const fullPath = prefix + key;
-    if (obj[key] == null) {
-      throw new TypeError('Invalid value for schema path `' + fullPath +
-        '`, got value "' + obj[key] + '"');
-    }
-
-    if (this.isReservedPath(key)) {
-      continue;
-    }
-
-    if (this.isVirtualType(obj[key])) {
-      this.virtual(obj[key]);
-      continue;
-    }
-
-    if (this.isArrayType(obj[key])) {
-      this.addArrayType(obj[key], fullPath);
-    } else if (this.isObjectType(obj[key])) {
-      this.addObjectType(obj[key], fullPath);
-    } else {
-      this.addSimpleType(obj[key], fullPath);
-    }
-  }
-
-  const addedKeys = Object.keys(obj).
-    map(key => prefix ? prefix + key : key);
+Schema.prototype.createAliases = function(addedKeys) {
   aliasFields(this, addedKeys);
 };
 
-Schema.prototype.isReservedPath = function(key) {
-  return key === '_id' && obj[key] === false;
+Schema.prototype.createPath = function(fullPath, type) {
+  this.path(fullPath, type);
 };
 
-Schema.prototype.isVirtualType = function(type) {
-  return type instanceof VirtualType || getConstructorName(type) === 'VirtualType';
+Schema.prototype.createMixedPath = function(fullPath, type) {
+  this.path(fullPath, type); // mixed type
 };
 
-Schema.prototype.isArrayType = function(type) {
-  return Array.isArray(type) && type.length === 1 && type[0] == null;
+Schema.prototype.addNestedObject = function(obj, prefix) {
+  this.nested[prefix.substr(0, prefix.length - 1)] = true;
+  this.add(obj, prefix);
 };
 
-Schema.prototype.isObjectType = function(type) {
-  return utils.isPOJO(type) || type instanceof SchemaTypeOptions;
-};
-
-Schema.prototype.addArrayType = function(type, path) {
-  throw new TypeError('Invalid value for schema Array path `' + path +
-    '`, got value "' + type[0] + '"');
-};
-
-Schema.prototype.addObjectType = function(type, path) {
-  if (Object.keys(type).length < 1) {
-    this.path(path, type); // mixed type
-  } else if (!type[this.options.typeKey] || (this.options.typeKey === 'type' && type.type.type)) {
-    this.addNestedType(type, path);
+Schema.prototype.createPathWithSchemaType = function(fullPath, obj) {
+  if (!this.options.typePojoToMixed && utils.isPOJO(obj[this.options.typeKey])) {
+    const opts = { typePojoToMixed: false };
+    const _schema = new Schema(obj[this.options.typeKey], opts);
+    const schemaWrappedPath = Object.assign({}, obj, { [this.options.typeKey]: _schema });
+    this.path(fullPath, schemaWrappedPath);
   } else {
-    this.addSimpleType(type, path);
+    this.path(fullPath, obj);
   }
-};
-
-Schema.prototype.addSimpleType = function(type, path) {
-  this.path(path, type);
-};
-
-Schema.prototype.addNestedType = function(type, path) {
-  this.nested[path] = true;
-  this.add(type, path + '.');
 };

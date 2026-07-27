@@ -31,7 +31,6 @@ const getOppositeNature = originalNature => {
 };
 
 const addComponentsToState = (state, componentToAddUid, objToUpdate) => {
-  let newObj = objToUpdate;
   const componentToAdd = state.getIn(['components', componentToAddUid]);
   const isTemporaryComponent = componentToAdd.get('isTemporary');
   const componentToAddSchema = componentToAdd.getIn(['schema', 'attributes']);
@@ -39,10 +38,10 @@ const addComponentsToState = (state, componentToAddUid, objToUpdate) => {
     state.getIn(['modifiedData', 'components', componentToAddUid]) !== undefined;
 
   if (isTemporaryComponent || hasComponentAlreadyBeenAdded) {
-    return newObj;
+    return objToUpdate;
   }
 
-  newObj = newObj.set(componentToAddUid, componentToAdd);
+  const newObj = objToUpdate.set(componentToAddUid, componentToAdd);
   const nestedComponents = retrieveComponentsFromSchema(
     componentToAddSchema.toJS(),
     state.get('components').toJS()
@@ -54,11 +53,11 @@ const addComponentsToState = (state, componentToAddUid, objToUpdate) => {
       state.getIn(['modifiedData', 'components', componentUid]) !== undefined;
 
     if (!isTemporary && !hasNestedComponentAlreadyBeenAdded) {
-      newObj = newObj.set(componentUid, state.getIn(['components', componentUid]));
+      objToUpdate = objToUpdate.set(componentUid, state.getIn(['components', componentUid]));
     }
   });
 
-  return newObj;
+  return objToUpdate;
 };
 
 const handleAddAttribute = (state, action) => {

@@ -1,13 +1,19 @@
 // Helper to transform device value and get display label
 const getDeviceLabel = (v: string): string => {
-    const deviceLabels: Record<string, string> = {
-        'mobile-ios': 'iOS',
-        'mobile-android': 'Android',
-        'desktop': 'Desktop',
-        'bot': 'Bot',
-        'unknown': 'Unknown'
-    };
-    return deviceLabels[v] || v;
+    switch (v) {
+        case 'mobile-ios':
+            return 'iOS';
+        case 'mobile-android':
+            return 'Android';
+        case 'desktop':
+            return 'Desktop';
+        case 'bot':
+            return 'Bot';
+        case 'unknown':
+            return 'Unknown';
+        default:
+            return v;
+    }
 };
 
 // Configuration for each filter field type

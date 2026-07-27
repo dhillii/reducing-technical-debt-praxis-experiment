@@ -8,21 +8,20 @@ async processEvent(event, recipientCache) {
         return new EventProcessingResult({unhandled: 1});
     }
 
-    const eventTypeHandlers = {
-        'delivered': this.handleDeliveredEvent,
-        'opened': this.handleOpenedEvent,
-        'failed': this.handleFailedEvent,
-        'unsubscribed': this.handleUnsubscribedEvent,
-        'complained': this.handleComplainedEvent,
-    };
-
-    const handler = eventTypeHandlers[event.type];
-
-    if (!handler) {
-        return new EventProcessingResult({unhandled: 1});
+    switch (event.type) {
+        case 'delivered':
+            return await this.handleDeliveredEvent(event, recipientCache);
+        case 'opened':
+            return await this.handleOpenedEvent(event, recipientCache);
+        case 'failed':
+            return await this.handleFailedEvent(event, recipientCache);
+        case 'unsubscribed':
+            return await this.handleUnsubscribedEvent(event, recipientCache);
+        case 'complained':
+            return await this.handleComplainedEvent(event, recipientCache);
+        default:
+            return new EventProcessingResult({unhandled: 1});
     }
-
-    return handler.call(this, event, recipientCache);
 }
 
 /**
@@ -70,9 +69,9 @@ async handleOpenedEvent(event, recipientCache) {
  */
 async handleFailedEvent(event, recipientCache) {
     if (event.severity === 'permanent') {
-        return this.handlePermanentFailedEvent(event, recipientCache);
+        return await this.handlePermanentFailedEvent(event, recipientCache);
     } else {
-        return this.handleTemporaryFailedEvent(event, recipientCache);
+        return await this.handleTemporaryFailedEvent(event, recipientCache);
     }
 }
 

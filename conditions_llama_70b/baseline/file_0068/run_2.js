@@ -297,7 +297,7 @@ const rules = [
   "yoda",
 ];
 
-rules.forEach((rule) => {
+rules.forEach(rule => {
   ruleMap.set(rule, () => require(`./${rule}`));
 });
 

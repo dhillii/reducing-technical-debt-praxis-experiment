@@ -215,12 +215,14 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {mutateAsync: makeOwner} = useMakeOwner();
     const limiter = useLimiter();
 
+    // Pintura integration
     const editor = usePinturaEditor();
 
     const navigateOnClose = useCallback(() => {
         if (canAccessSettings(currentUser)) {
             updateRoute('staff');
         } else {
+            // Contributors can't access settings, exit to let the shell handle navigation
             updateRoute({isExternal: true, route: ''});
         }
     }, [currentUser, updateRoute]);
@@ -365,15 +367,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
     let menuItems: MenuItem[] = [];
 
-    const isOwner = isOwnerUser(currentUser);
-    const isAdmin = isAdminUser(formState);
-    const isEditor = isEditorUser(currentUser);
-    const isAuthorOrContributorUser = isAuthorOrContributor(user);
-
-    const canMakeOwner = isOwner && isAdmin && formState.status !== 'inactive';
-    const canDeleteOrSuspend = (formState.id !== currentUser.id) && ((hasAdminAccess(currentUser) && !isOwnerUser(user)) || (isEditor && isAuthorOrContributorUser));
-
-    if (canMakeOwner) {
+    if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
         menuItems.push({
             id: 'make-owner',
             label: 'Make owner',
@@ -381,7 +375,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     }
 
-    if (canDeleteOrSuspend) {
+    if (formState.id !== currentUser.id && (
+        (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
+        (isEditorUser(currentUser) && isAuthorOrContributor(user))
+    )) {
         let suspendUserLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
 
         menuItems.push({
@@ -577,13 +574,16 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
 const UserDetailModal: React.FC<RoutingModalProps> = ({params}) => {
     const {currentUser} = useGlobalData();
 
+    // Skip API call if it's the current user (we already have their data)
     const isCurrentUser = currentUser.slug === params?.slug;
 
+    // Fetch user by slug if it's not the current user
     const {data: fetchedUserData} = useGetUserBySlug(
         params?.slug || '',
         {enabled: !isCurrentUser && !!params?.slug}
     );
 
+    // Use current user data or fetched user data
     const user = isCurrentUser ? currentUser : fetchedUserData?.users?.[0];
 
     if (user) {

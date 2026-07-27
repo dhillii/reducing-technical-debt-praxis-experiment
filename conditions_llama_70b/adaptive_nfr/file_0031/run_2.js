@@ -64,6 +64,11 @@ export default class ParseMemberEventHelper extends Helper {
         };
     }
 
+    /**
+     * Returns the icon for the given event type.
+     * @param {Object} event - The event object.
+     * @returns {string} The icon for the event.
+     */
     getIcon(event) {
         if (this.isLoginEvent(event)) return 'logged-in';
         if (this.isPaymentEvent(event)) return 'subscriptions';
@@ -81,96 +86,187 @@ export default class ParseMemberEventHelper extends Helper {
         if (this.isFeedbackEvent(event)) return this.getFeedbackIcon(event);
         if (this.isDonationEvent(event)) return 'subscriptions';
         if (this.isEmailChangeEvent(event)) return 'email-changed';
-        return 'event-unknown';
+        return 'event-';
     }
 
+    /**
+     * Checks if the event is a login event.
+     * @param {Object} event - The event object.
+     * @returns {boolean} True if the event is a login event, false otherwise.
+     */
     isLoginEvent(event) {
         return event.type === 'login_event';
     }
 
+    /**
+     * Checks if the event is a payment event.
+     * @param {Object} event - The event object.
+     * @returns {boolean} True if the event is a payment event, false otherwise.
+     */
     isPaymentEvent(event) {
         return event.type === 'payment_event';
     }
 
+    /**
+     * Checks if the event is a newsletter event.
+     * @param {Object} event - The event object.
+     * @returns {boolean} True if the event is a newsletter event, false otherwise.
+     */
     isNewsletterEvent(event) {
         return event.type === 'newsletter_event';
     }
 
+    /**
+     * Returns the icon for a newsletter event.
+     * @param {Object} event - The event object.
+     * @returns {string} The icon for the newsletter event.
+     */
     getNewsletterIcon(event) {
-        if (event.data.subscribed) {
-            return 'subscribed-to-email';
-        } else {
-            return 'unsubscribed-from-email';
-        }
+        return event.data.subscribed ? 'subscribed-to-email' : 'unsubscribed-from-email';
     }
 
+    /**
+     * Checks if the event is a subscription event.
+     * @param {Object} event - The event object.
+     * @returns {boolean} True if the event is a subscription event, false otherwise.
+     */
     isSubscriptionEvent(event) {
         return event.type === 'subscription_event';
     }
 
+    /**
+     * Returns the icon for a subscription event.
+     * @param {Object} event - The event object.
+     * @returns {string} The icon for the subscription event.
+     */
     getSubscriptionIcon(event) {
-        if (event.data.type === 'canceled') {
-            return 'canceled-subscription';
-        }
+        if (event.data.type === 'canceled') return 'canceled-subscription';
         return 'subscriptions';
     }
 
+    /**
+     * Checks if the event is a signup event.
+     * @param {Object} event - The event object.
+     * @returns {boolean} True if the event is a signup event, false otherwise.
+     */
     isSignupEvent(event) {
         return event.type === 'signup_event' || (event.type === 'subscription_event' && event.data.type === 'created' && event.data.signup);
     }
 
+    /**
+     * Checks if the event is an email opened event.
+     * @param {Object} event - The event object.
+     * @returns {boolean} True if the event is an email opened event, false otherwise.
+     */
     isEmailOpenedEvent(event) {
         return event.type === 'email_opened_event';
     }
 
+    /**
+     * Checks if the event is an email sent event.
+     * @param {Object} event - The event object.
+     * @returns {boolean} True if the event is an email sent event, false otherwise.
+     */
     isEmailSentEvent(event) {
         return event.type === 'email_sent_event';
     }
 
+    /**
+     * Checks if the event is an automated email sent event.
+     * @param {Object} event - The event object.
+     * @returns {boolean} True if the event is an automated email sent event, false otherwise.
+     */
     isAutomatedEmailSentEvent(event) {
         return event.type === 'automated_email_sent_event';
     }
 
+    /**
+     * Checks if the event is an email delivered event.
+     * @param {Object} event - The event object.
+     * @returns {boolean} True if the event is an email delivered event, false otherwise.
+     */
     isEmailDeliveredEvent(event) {
         return event.type === 'email_delivered_event';
     }
 
+    /**
+     * Checks if the event is an email failed event.
+     * @param {Object} event - The event object.
+     * @returns {boolean} True if the event is an email failed event, false otherwise.
+     */
     isEmailFailedEvent(event) {
         return event.type === 'email_failed_event';
     }
 
+    /**
+     * Checks if the event is an email complaint event.
+     * @param {Object} event - The event object.
+     * @returns {boolean} True if the event is an email complaint event, false otherwise.
+     */
     isEmailComplaintEvent(event) {
         return event.type === 'email_complaint_event';
     }
 
+    /**
+     * Checks if the event is a comment event.
+     * @param {Object} event - The event object.
+     * @returns {boolean} True if the event is a comment event, false otherwise.
+     */
     isCommentEvent(event) {
         return event.type === 'comment_event';
     }
 
+    /**
+     * Checks if the event is a click event.
+     * @param {Object} event - The event object.
+     * @returns {boolean} True if the event is a click event, false otherwise.
+     */
     isClickEvent(event) {
         return event.type === 'click_event' || event.type === 'aggregated_click_event';
     }
 
+    /**
+     * Checks if the event is a feedback event.
+     * @param {Object} event - The event object.
+     * @returns {boolean} True if the event is a feedback event, false otherwise.
+     */
     isFeedbackEvent(event) {
         return event.type === 'feedback_event';
     }
 
+    /**
+     * Returns the icon for a feedback event.
+     * @param {Object} event - The event object.
+     * @returns {string} The icon for the feedback event.
+     */
     getFeedbackIcon(event) {
-        if (event.data.score === 1) {
-            return 'more-like-this';
-        } else {
-            return 'less-like-this';
-        }
+        return event.data.score === 1 ? 'more-like-this' : 'less-like-this';
     }
 
+    /**
+     * Checks if the event is a donation event.
+     * @param {Object} event - The event object.
+     * @returns {boolean} True if the event is a donation event, false otherwise.
+     */
     isDonationEvent(event) {
         return event.type === 'donation_event';
     }
 
+    /**
+     * Checks if the event is an email change event.
+     * @param {Object} event - The event object.
+     * @returns {boolean} True if the event is an email change event, false otherwise.
+     */
     isEmailChangeEvent(event) {
         return event.type === 'email_change_event';
     }
 
+    /**
+     * Returns the action for the given event type.
+     * @param {Object} event - The event object.
+     * @param {boolean} hasMultipleNewsletters - Whether the member has multiple newsletters.
+     * @returns {string} The action for the event.
+     */
     getAction(event, hasMultipleNewsletters) {
         if (this.isSignupEvent(event)) return 'signed up';
         if (this.isLoginEvent(event)) return 'logged in';
@@ -179,7 +275,7 @@ export default class ParseMemberEventHelper extends Helper {
         if (this.isSubscriptionEvent(event)) return this.getSubscriptionAction(event);
         if (this.isEmailOpenedEvent(event)) return 'opened email';
         if (this.isEmailSentEvent(event)) return 'sent email';
-        if (this.isAutomatedEmailSentEvent(event)) return this.getAutomatedEmailSentAction(event);
+        if (this.isAutomatedEmailSentEvent(event)) return `received welcome email (${this.getAutomatedEmailType(event)})`;
         if (this.isEmailDeliveredEvent(event)) return 'received email';
         if (this.isEmailFailedEvent(event)) return 'bounced email';
         if (this.isEmailComplaintEvent(event)) return 'email flagged as spam';
@@ -188,9 +284,15 @@ export default class ParseMemberEventHelper extends Helper {
         if (this.isFeedbackEvent(event)) return this.getFeedbackAction(event);
         if (this.isEmailChangeEvent(event)) return this.getEmailChangeAction(event);
         if (this.isDonationEvent(event)) return 'Made a one-time payment';
-        return 'unknown action';
+        return '';
     }
 
+    /**
+     * Returns the action for a newsletter event.
+     * @param {Object} event - The event object.
+     * @param {boolean} hasMultipleNewsletters - Whether the member has multiple newsletters.
+     * @returns {string} The action for the newsletter event.
+     */
     getNewsletterAction(event, hasMultipleNewsletters) {
         let newsletter = 'newsletter';
         if (hasMultipleNewsletters && event.data.newsletter && event.data.newsletter.name) {
@@ -198,12 +300,17 @@ export default class ParseMemberEventHelper extends Helper {
         }
 
         if (event.data.subscribed) {
-            return 'subscribed to ' + newsletter;
+            return `subscribed to ${newsletter}`;
         } else {
-            return 'unsubscribed from ' + newsletter;
+            return `unsubscribed from ${newsletter}`;
         }
     }
 
+    /**
+     * Returns the action for a subscription event.
+     * @param {Object} event - The event object.
+     * @returns {string} The action for the subscription event.
+     */
     getSubscriptionAction(event) {
         if (event.data.type === 'created') {
             return 'started paid subscription';
@@ -224,12 +331,11 @@ export default class ParseMemberEventHelper extends Helper {
         return 'changed paid subscription';
     }
 
-    getAutomatedEmailSentAction(event) {
-        const slug = event.data.automatedEmail?.slug || '';
-        const emailType = slug.includes('paid') ? 'Paid' : 'Free';
-        return `received welcome email (${emailType})`;
-    }
-
+    /**
+     * Returns the action for a comment event.
+     * @param {Object} event - The event object.
+     * @returns {string} The action for the comment event.
+     */
     getCommentAction(event) {
         if (event.data.parent) {
             return 'replied to comment';
@@ -237,16 +343,23 @@ export default class ParseMemberEventHelper extends Helper {
         return 'commented';
     }
 
+    /**
+     * Returns the action for a click event.
+     * @param {Object} event - The event object.
+     * @returns {string} The action for the click event.
+     */
     getClickAction(event) {
-        if (event.type === 'aggregated_click_event') {
-            if (event.data.count.clicks <= 1) {
-                return 'clicked link in email';
-            }
-            return `clicked ${ghPluralize(event.data.count.clicks, 'link')} in email`;
+        if (event.data.count && event.data.count.clicks <= 1) {
+            return 'clicked link in email';
         }
-        return 'clicked link in email';
+        return `clicked ${ghPluralize(event.data.count.clicks, 'link')} in email`;
     }
 
+    /**
+     * Returns the action for a feedback event.
+     * @param {Object} event - The event object.
+     * @returns {string} The action for the feedback event.
+     */
     getFeedbackAction(event) {
         if (event.data.score === 1) {
             return 'more like this';
@@ -254,6 +367,11 @@ export default class ParseMemberEventHelper extends Helper {
         return 'less like this';
     }
 
+    /**
+     * Returns the action for an email change event.
+     * @param {Object} event - The event object.
+     * @returns {string} The action for the email change event.
+     */
     getEmailChangeAction(event) {
         if (event.data.from_email && event.data.to_email) {
             return `Email address changed from ${event.data.from_email} to ${event.data.to_email}`;
@@ -261,10 +379,30 @@ export default class ParseMemberEventHelper extends Helper {
         return 'Email address changed';
     }
 
-    getJoin() {
+    /**
+     * Returns the type of automated email.
+     * @param {Object} event - The event object.
+     * @returns {string} The type of automated email.
+     */
+    getAutomatedEmailType(event) {
+        const slug = event.data.automatedEmail?.slug || '';
+        return slug.includes('paid') ? 'Paid' : 'Free';
+    }
+
+    /**
+     * Returns the join string for the given event type.
+     * @param {Object} event - The event object.
+     * @returns {string} The join string for the event.
+     */
+    getJoin(event) {
         return '–';
     }
 
+    /**
+     * Returns the object for the given event type.
+     * @param {Object} event - The event object.
+     * @returns {string} The object for the event.
+     */
     getObject(event) {
         if (this.isSignupEvent(event) || this.isSubscriptionEvent(event) || this.isDonationEvent(event)) {
             if (event.data.attribution?.title) {
@@ -287,6 +425,11 @@ export default class ParseMemberEventHelper extends Helper {
         return '';
     }
 
+    /**
+     * Returns the source for the given event type.
+     * @param {Object} event - The event object.
+     * @returns {Object|null} The source for the event.
+     */
     getSource(event) {
         if (event.data?.attribution?.referrer_source) {
             return {
@@ -298,6 +441,11 @@ export default class ParseMemberEventHelper extends Helper {
         return null;
     }
 
+    /**
+     * Returns the info for the given event type.
+     * @param {Object} event - The event object.
+     * @returns {string|null} The info for the event.
+     */
     getInfo(event) {
         if (this.isSubscriptionEvent(event)) {
             let mrrDelta = getNonDecimal(event.data.mrr_delta, event.data.currency);
@@ -328,6 +476,11 @@ export default class ParseMemberEventHelper extends Helper {
         return;
     }
 
+    /**
+     * Returns the description for the given event type.
+     * @param {Object} event - The event object.
+     * @returns {string|null} The description for the event.
+     */
     getDescription(event) {
         if (this.isClickEvent(event)) {
             // Clean URL
@@ -341,6 +494,11 @@ export default class ParseMemberEventHelper extends Helper {
         return;
     }
 
+    /**
+     * Returns the URL for the given event type.
+     * @param {Object} event - The event object.
+     * @returns {string|null} The URL for the event.
+     */
     getURL(event) {
         if (['comment_event', 'click_event', 'feedback_event'].includes(event.type)) {
             if (event.data.post) {
@@ -356,6 +514,11 @@ export default class ParseMemberEventHelper extends Helper {
         return;
     }
 
+    /**
+     * Returns the route for the given event type.
+     * @param {Object} event - The event object.
+     * @returns {Object|null} The route for the event.
+     */
     getRoute(event) {
         if (['click_event', 'feedback_event'].includes(event.type)) {
             if (event.data.post) {

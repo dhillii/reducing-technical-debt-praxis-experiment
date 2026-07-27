@@ -1,31 +1,56 @@
 exports.deepEqual = function deepEqual(a, b) {
   if (a === b) return true;
+
   if (typeof a !== 'object' && typeof b !== 'object') return a === b;
 
   if (isDate(a) && isDate(b)) return a.getTime() === b.getTime();
-  if (isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) return a.toString() === b.toString();
-  if (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128')) return a.toString() === b.toString();
-  if (isRegExp(a) && isRegExp(b)) return areRegexEqual(a, b);
+
+  if (isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID') ||
+      isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128')) {
+    return a.toString() === b.toString();
+  }
+
+  if (isRegExp(a) && isRegExp(b)) {
+    return a.source === b.source &&
+        a.ignoreCase === b.ignoreCase &&
+        a.multiline === b.multiline &&
+        a.global === b.global;
+  }
 
   if (a == null || b == null) return false;
+
   if (a.prototype !== b.prototype) return false;
 
-  if (isMap(a) && isMap(b)) return areMapsEqual(a, b);
-  if (isNumber(a) && isNumber(b)) return a.valueOf() === b.valueOf();
-  if (isBuffer(a)) return exports.buffer.areEqual(a, b);
+  if (isMap(a) && isMap(b)) {
+    return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
+      deepEqual(Array.from(a.values()), Array.from(b.values()));
+  }
 
-  if (isArray(a) && isArray(b)) return areArraysEqual(a, b);
+  if (isNumber(a) && isNumber(b)) {
+    return a.valueOf() === b.valueOf();
+  }
+
+  if (isBuffer(a)) {
+    return exports.buffer.areEqual(a, b);
+  }
+
+  if (isArray(a) && isArray(b)) {
+    return deepEqualArray(a, b);
+  }
 
   a = getMongooseObject(a);
   b = getMongooseObject(b);
 
   const ka = Object.keys(a);
   const kb = Object.keys(b);
-  if (ka.length !== kb.length) return false;
+  const kaLength = ka.length;
+
+  if (kaLength !== kb.length) return false;
 
   ka.sort();
   kb.sort();
-  for (let i = ka.length - 1; i >= 0; i--) {
+
+  for (let i = kaLength - 1; i >= 0; i--) {
     if (ka[i] !== kb[i]) return false;
   }
 
@@ -60,23 +85,13 @@ function isArray(obj) {
   return Array.isArray(obj);
 }
 
-function areRegexEqual(a, b) {
-  return a.source === b.source &&
-    a.ignoreCase === b.ignoreCase &&
-    a.multiline === b.multiline &&
-    a.global === b.global;
-}
-
-function areMapsEqual(a, b) {
-  return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
-    deepEqual(Array.from(a.values()), Array.from(b.values()));
-}
-
-function areArraysEqual(a, b) {
+function deepEqualArray(a, b) {
   if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
+
+  for (let i = 0; i < a.length; ++i) {
     if (!deepEqual(a[i], b[i])) return false;
   }
+
   return true;
 }
 

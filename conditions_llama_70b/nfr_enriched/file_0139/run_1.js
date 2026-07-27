@@ -150,14 +150,14 @@ const getProfile = async (provider, query, callback) => {
     case 'auth0':
       return getAuth0Profile(access_token, grant.auth0.subdomain, callback);
     case 'cas':
-      return getCasProfile(access_token, grant.cas.subdomain, callback);
+      return getCasProfile(access_token, grant['cas'].subdomain, callback);
     default:
       callback(new Error('Unknown provider.'));
       break;
   }
 };
 
-// Helper functions for each provider
+// Extracted functions for each provider
 const getDiscordProfile = (access_token, callback) => {
   const discord = purest({
     provider: 'discord',

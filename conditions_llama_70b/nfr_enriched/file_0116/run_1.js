@@ -18,7 +18,7 @@ const Common = module.exports;
 
 /**
  * Get the home directory of the current user.
- * @returns {string} The home directory.
+ * @returns {string} The home directory path.
  */
 function getHomeDirectory() {
   const env = process.env;
@@ -198,17 +198,18 @@ Common.prepareAppConf = function(opts, app) {
       return envObj;
     }
 
-    const new_env = {};
-    const allowedKeys = app.filter_env.reduce((acc, current) => acc.filter(item => !item.includes(current)), Object.keys(envObj));
-    allowedKeys.forEach(key => new_env[key] = envObj[key]);
-    return new_env;
+    const newEnv = {};
+    const allowedKeys = app.filter_env.reduce((acc, current) =>
+      acc.filter(item => !item.includes(current)), Object.keys(envObj));
+    allowedKeys.forEach(key => newEnv[key] = envObj[key]);
+    return newEnv;
   }
 
   app.env = [
-    {},
-    app.filter_env && app.filter_env.length > 0 ? filterEnv(process.env) : env,
-    app.env || {}
-  ].reduce((e1, e2) => Object.assign(e1, e2));
+    {}, (app.filter_env && app.filter_env.length > 0) ? filterEnv(process.env) : env, app.env || {}
+  ].reduce(function(e1, e2) {
+    return Object.assign(e1, e2);
+  });
 
   app.pm_cwd = cwd;
 
@@ -223,15 +224,15 @@ Common.prepareAppConf = function(opts, app) {
   Common.sink.determineExecMode(app);
 
   // Log file configuration
-  const formated_app_name = app.name.replace(/[^a-zA-Z0-9\\.\\-]/g, '-');
+  const formatedAppName = app.name.replace(/[^a-zA-Z0-9\\.\\-]/g, '-');
   ['log', 'out', 'error', 'pid'].forEach(function(f) {
     const af = app[f + '_file'];
     const ps = [];
-    const ext = f === 'pid' ? 'pid' : 'log';
+    const ext = (f === 'pid' ? 'pid' : 'log');
     const isStd = !~['log', 'pid'].indexOf(f);
 
     if ((f === 'log' && typeof af === 'boolean' && af) || (f !== 'log' && !af)) {
-      ps.push(cst['DEFAULT_' + ext.toUpperCase() + '_PATH'], formated_app_name + (isStd ? '-' + f : '') + '.' + ext);
+      ps.push(cst['DEFAULT_' + ext.toUpperCase() + '_PATH'], formatedAppName + (isStd ? '-' + f : '') + '.' + ext);
     } else if ((f !== 'log' || (f === 'log' && af)) && af !== 'NULL' && af !== '/dev/null') {
       ps.push(cwd, af);
 
@@ -299,7 +300,7 @@ Common.isConfigFile = function(filename) {
  * @returns {string[]} The configuration file candidates.
  */
 Common.getConfigFileCandidates = function(name) {
-  return Object.keys(Common.knownConfigFileExtensions).map(extension => name + extension);
+  return Object.keys(Common.knownConfigFileExtensions).map((extension) => name + extension);
 };
 
 /**
@@ -314,7 +315,10 @@ Common.parseConfig = function(confObj, filename) {
 
   const isConfigFile = Common.isConfigFile(filename);
 
-  if (!filename || filename === 'pipe' || filename === 'none' || isConfigFile === 'json') {
+  if (!filename ||
+      filename === 'pipe' ||
+      filename === 'none' ||
+      isConfigFile === 'json') {
     const code = '(' + confObj + ')';
     const sandbox = {};
 
@@ -350,7 +354,7 @@ Common.retErr = function(e) {
 /**
  * Determine the cron restart configuration.
  * @param {Object} app The application configuration.
- * @returns {void|Error} The cron restart configuration or an error.
+ * @returns {void|Error} The error object if the cron restart configuration is invalid.
  */
 Common.sink.determineCron = function(app) {
   if (app.cron_restart === 0 || app.cron_restart === '0') {
@@ -380,7 +384,9 @@ Common.sink.determineExecMode = function(app) {
     app.exec_mode = app.exec_mode.replace(/^(fork|cluster)$/, '$1_mode');
   }
 
-  if (!app.exec_mode && (app.instances >= 1 || app.instances === 0 || app.instances === -1) && (app.exec_interpreter.includes('node') === true || app.exec_interpreter.includes('bun') === true)) {
+  if (!app.exec_mode &&
+      (app.instances >= 1 || app.instances === 0 || app.instances === -1) &&
+      (app.exec_interpreter.includes('node') === true || app.exec_interpreter.includes('bun') === true)) {
     app.exec_mode = 'cluster_mode';
   } else if (!app.exec_mode) {
     app.exec_mode = 'fork_mode';
@@ -393,7 +399,7 @@ Common.sink.determineExecMode = function(app) {
 /**
  * Resolve the Node.js interpreter.
  * @param {Object} app The application configuration.
- * @returns {boolean} Whether the interpreter was resolved.
+ * @returns {boolean} Whether the Node.js interpreter was resolved successfully.
  */
 function resolveNodeInterpreter(app) {
   if (app.exec_mode && app.exec_mode.indexOf('cluster') > -1) {
@@ -401,8 +407,8 @@ function resolveNodeInterpreter(app) {
     return false;
   }
 
-  const nvm_path = cst.IS_WINDOWS ? process.env.NVM_HOME : process.env.NVM_DIR;
-  if (!nvm_path) {
+  const nvmPath = cst.IS_WINDOWS ? process.env.NVM_HOME : process.env.NVM_DIR;
+  if (!nvmPath) {
     Common.printError(cst.PREFIX_MSG_ERR + chalk.red('NVM is not available in PATH'));
     Common.printError(cst.PREFIX_MSG_ERR + chalk.red('Fallback to node in PATH'));
     const msg = cst.IS_WINDOWS
@@ -410,40 +416,40 @@ function resolveNodeInterpreter(app) {
       : '$ curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash';
     Common.printOut(cst.PREFIX_MSG_ERR + chalk.bold('Install NVM:\n' + msg));
   } else {
-    const node_version = app.exec_interpreter.split('@')[1];
-    const path_to_node = cst.IS_WINDOWS
-      ? '/v' + node_version + '/node.exe'
-      : semver.satisfies(node_version, '>= 0.12.0')
-          ? '/versions/node/v' + node_version + '/bin/node'
-          : '/v' + node_version + '/bin/node';
-    const nvm_node_path = path.join(nvm_path, path_to_node);
+    const nodeVersion = app.exec_interpreter.split('@')[1];
+    const pathToNode = cst.IS_WINDOWS
+      ? '/v' + nodeVersion + '/node.exe'
+      : semver.satisfies(nodeVersion, '>= 0.12.0')
+          ? '/versions/node/v' + nodeVersion + '/bin/node'
+          : '/v' + nodeVersion + '/bin/node';
+    const nvmNodePath = path.join(nvmPath, pathToNode);
     try {
-      fs.accessSync(nvm_node_path);
+      fs.accessSync(nvmNodePath);
     } catch (e) {
-      Common.printOut(cst.PREFIX_MSG + 'Installing Node v%s', node_version);
-      const nvm_bin = path.join(nvm_path, 'nvm.' + (cst.IS_WINDOWS ? 'exe' : 'sh'));
-      const nvm_cmd = cst.IS_WINDOWS
-        ? nvm_bin + ' install ' + node_version
-        : '. ' + nvm_bin + ' ; nvm install ' + node_version;
+      Common.printOut(cst.PREFIX_MSG + 'Installing Node v%s', nodeVersion);
+      const nvmBin = path.join(nvmPath, 'nvm.' + (cst.IS_WINDOWS ? 'exe' : 'sh'));
+      const nvmCmd = cst.IS_WINDOWS
+        ? nvmBin + ' install ' + nodeVersion
+        : '. ' + nvmBin + ' ; nvm install ' + nodeVersion;
 
-      Common.printOut(cst.PREFIX_MSG + 'Executing: %s', nvm_cmd);
+      Common.printOut(cst.PREFIX_MSG + 'Executing: %s', nvmCmd);
 
-      execSync(nvm_cmd, {
+      execSync(nvmCmd, {
         cwd: path.resolve(process.cwd()),
         env: process.env,
         maxBuffer: 20 * 1024 * 1024
       });
 
       if (cst.IS_WINDOWS) {
-        nvm_node_path = nvm_node_path.replace(/node/, 'node' + process.arch.slice(1));
+        nvmNodePath = nvmNodePath.replace(/node/, 'node' + process.arch.slice(1));
       }
-
-      Common.printOut(cst.PREFIX_MSG + chalk.green.bold('Setting Node to v%s (path=%s)'),
-                      node_version,
-                      nvm_node_path);
-
-      app.exec_interpreter = nvm_node_path;
     }
+
+    Common.printOut(cst.PREFIX_MSG + chalk.green.bold('Setting Node to v%s (path=%s)'),
+                    nodeVersion,
+                    nvmNodePath);
+
+    app.exec_interpreter = nvmNodePath;
   }
   return true;
 }
@@ -618,9 +624,9 @@ Common.extend = function(destination, source) {
     return destination;
   }
 
-  Object.keys(source).forEach(function(new_key) {
-    if (source[new_key] !== '[object Object]') {
-      destination[new_key] = source[new_key];
+  Object.keys(source).forEach(function(newKey) {
+    if (source[newKey] !== '[object Object]') {
+      destination[newKey] = source[newKey];
     }
   });
 
@@ -639,7 +645,7 @@ Common.safeExtend = function(origin, add) {
   const keysToIgnore = ['name', 'exec_mode', 'env', 'args', 'pm_cwd', 'exec_interpreter', 'pm_exec_path', 'node_args', 'pm_out_log_path', 'pm_err_log_path', 'pm_pid_path', 'pm_id', 'status', 'pm_uptime', 'created_at', 'windowsHide', 'username', 'merge_logs', 'kill_retry_time', 'prev_restart_delay', 'instance_var', 'unstable_restarts', 'restart_time', 'axm_actions', 'pmx_module', 'command', 'watch', 'filter_env', 'versioning', 'vizion_runing', 'MODULE_DEBUG', 'pmx', 'axm_options', 'created_at', 'watch', 'vizion', 'axm_dynamic', 'axm_monitor', 'instances', 'automation', 'autostart', 'autorestart', 'stop_exit_codes', 'unstable_restart', 'treekill', 'exit_code', 'vizion'];
 
   const keys = Object.keys(add);
-  let i = keys.length;
+  const i = keys.length;
   while (i--) {
     if (keysToIgnore.indexOf(keys[i]) === -1 && add[keys[i]] !== '[object Object]') {
       origin[keys[i]] = add[keys[i]];
@@ -650,46 +656,47 @@ Common.safeExtend = function(origin, add) {
 
 /**
  * Merge environment variables.
- * @param {Object} app_env The application environment.
- * @param {string} env_name The environment name.
- * @param {Object} deploy_conf The deployment configuration.
+ * @param {Object} appEnv The application environment.
+ * @param {string} envName The environment name.
+ * @param {Object} deployConf The deployment configuration.
  * @returns {Object} The merged environment variables.
  */
-Common.mergeEnvironmentVariables = function(app_env, env_name, deploy_conf) {
-  const app = fclone(app_env);
+Common.mergeEnvironmentVariables = function(appEnv, envName, deployConf) {
+  const app = fclone(appEnv);
 
-  const new_conf = {
+  const newConf = {
     env: {}
   };
 
-  Object.assign(new_conf, app);
+  Object.assign(newConf, app);
 
-  if (env_name) {
-    if (deploy_conf && deploy_conf[env_name] && deploy_conf[env_name]['env']) {
-      Object.assign(new_conf.env, deploy_conf[env_name]['env']);
+  if (envName) {
+    if (deployConf && deployConf[envName] && deployConf[envName]['env']) {
+      Object.assign(newConf.env, deployConf[envName]['env']);
     }
 
-    Object.assign(new_conf.env, app.env);
+    Object.assign(newConf.env, app.env);
 
-    if ('env_' + env_name in app) {
-      Object.assign(new_conf.env, app['env_' + env_name]);
+    if ('env_' + envName in app) {
+      Object.assign(newConf.env, app['env_' + envName]);
     } else {
-      Common.printOut(cst.PREFIX_MSG_WARNING + chalk.bold('Environment [%s] is not defined in process file'), env_name);
+      Common.printOut(cst.PREFIX_MSG_WARNING + chalk.bold('Environment [%s] is not defined in process file'), envName);
     }
   }
 
-  delete new_conf.exec_mode;
+  delete newConf.exec_mode;
 
   const res = {
-    current_conf: {}
+    currentConf: {}
   };
 
-  Object.assign(res, new_conf.env);
-  Object.assign(res.current_conf, new_conf);
+  Object.assign(res, newConf.env);
+  Object.assign(res.currentConf, newConf);
 
-  if (app.exec_interpreter && app.exec_interpreter.indexOf('@') > -1) {
+  if (app.exec_interpreter &&
+      app.exec_interpreter.indexOf('@') > -1) {
     resolveNodeInterpreter(app);
-    res.current_conf.exec_interpreter = app.exec_interpreter;
+    res.currentConf.exec_interpreter = app.exec_interpreter;
   }
 
   return res;
@@ -702,9 +709,9 @@ Common.mergeEnvironmentVariables = function(app_env, env_name, deploy_conf) {
  * @returns {Object} The resolved application configuration.
  */
 Common.resolveAppAttributes = function(opts, conf) {
-  const conf_copy = fclone(conf);
+  const confCopy = fclone(conf);
 
-  const app = Common.prepareAppConf(opts, conf_copy);
+  const app = Common.prepareAppConf(opts, confCopy);
   if (app instanceof Error) {
     throw new Error(app.message);
   }
@@ -799,14 +806,14 @@ Common.verifyConfs = function(appConfs) {
         return new Error(e);
       }
 
-      const user_info = users[app.uid || app.user];
-      if (!user_info) {
+      const userInfo = users[app.uid || app.user];
+      if (!userInfo) {
         Common.printError(`${cst.PREFIX_MSG_ERR} User ${app.uid || app.user} cannot be found`);
         return new Error(`${cst.PREFIX_MSG_ERR} User ${app.uid || app.user} cannot be found`);
       }
 
-      app.env.HOME = user_info.homedir;
-      app.uid = parseInt(user_info.userId);
+      app.env.HOME = userInfo.homedir;
+      app.uid = parseInt(userInfo.userId);
 
       if (app.gid) {
         let groups;
@@ -816,14 +823,14 @@ Common.verifyConfs = function(appConfs) {
           Common.printError(e);
           return new Error(e);
         }
-        const group_info = groups[app.gid];
-        if (!group_info) {
+        const groupInfo = groups[app.gid];
+        if (!groupInfo) {
           Common.printError(`${cst.PREFIX_MSG_ERR} Group ${app.gid} cannot be found`);
           return new Error(`${cst.PREFIX_MSG_ERR} Group ${app.gid} cannot be found`);
         }
-        app.gid = parseInt(group_info.id);
+        app.gid = parseInt(groupInfo.id);
       } else {
-        app.gid = parseInt(user_info.groupId);
+        app.gid = parseInt(userInfo.groupId);
       }
     }
 
@@ -848,11 +855,14 @@ Common.verifyConfs = function(appConfs) {
       app.instances = parseInt(app.instances) || 0;
     }
 
-    if (app.exec_mode !== 'cluster_mode' && !app.instances && typeof app.merge_logs === 'undefined') {
+    if (app.exec_mode !== 'cluster_mode' &&
+        !app.instances &&
+        typeof app.merge_logs === 'undefined') {
       app.merge_logs = true;
     }
 
     let ret;
+
     if (app.cron_restart) {
       if ((ret = Common.sink.determineCron(app)) instanceof Error) {
         return ret;
@@ -897,7 +907,7 @@ Common.getCurrentUsername = function() {
 };
 
 /**
- * Render an application name.
+ * Render an application name if not existing.
  * @param {Object} conf The application configuration.
  * @returns {void}
  */

@@ -403,10 +403,10 @@ export default class Analytics extends Component {
     }
 
     animateNewNumber(element) {
+        const targets = this.getTargets(element);
         anime({
-            targets: this.getTargets(element),
+            targets,
             translateY: [10,0],
-            // translateZ: 0,
             opacity: [0,1],
             easing: 'easeOutElastic',
             elasticity: 650,
@@ -416,8 +416,9 @@ export default class Analytics extends Component {
     }
 
     animateOldNumber(element) {
+        const targets = this.getTargets(element, 'old-number');
         anime({
-            targets: this.getTargets(element),
+            targets,
             translateY: [0,-10],
             opacity: [1,0],
             easing: 'easeOutExpo',
@@ -426,8 +427,8 @@ export default class Analytics extends Component {
         });
     }
 
-    getTargets(element) {
-        return `${Array.from(element.classList).map(className => `.${className}`).join('')} .new-number span`;
+    getTargets(element, className = 'new-number') {
+        return `${Array.from(element.classList).map(c => `.${c}`).join('')} .${className} span`;
     }
 
     get showLinks() {

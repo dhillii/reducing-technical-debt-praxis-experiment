@@ -51,24 +51,18 @@ export const AccountPlanPageStyles = `
     }
 `;
 
-// Get confirmation page title based on confirmation type
 function getConfirmationPageTitle({confirmationType}) {
-    // Determine the title based on the confirmation type
-    switch (confirmationType) {
-        case 'changePlan':
-            return t('Confirm subscription');
-        case 'cancel':
-            return t('Cancel subscription');
-        case 'subscribe':
-            return t('Subscribe');
-        case 'offerRetention':
-            return 'Before you go';
-        default:
-            return '';
+    if (confirmationType === 'changePlan') {
+        return t('Confirm subscription');
+    } else if (confirmationType === 'cancel') {
+        return t('Cancel subscription');
+    } else if (confirmationType === 'subscribe') {
+        return t('Subscribe');
+    } else if (confirmationType === 'offerRetention') {
+        return 'Before you go';
     }
 }
 
-// Header component
 const Header = ({showConfirmation, confirmationType}) => {
     const {member} = useContext(AppContext);
     let title = isPaidMember({member}) ? t('Change plan') : t('Choose a plan');
@@ -82,7 +76,6 @@ const Header = ({showConfirmation, confirmationType}) => {
     );
 };
 
-// Cancel subscription button component
 const CancelSubscriptionButton = ({member, onCancelSubscription, action, brandColor}) => {
     const {site} = useContext(AppContext);
     if (!member.paid) {
@@ -128,7 +121,7 @@ const CancelSubscriptionButton = ({member, onCancelSubscription, action, brandCo
     );
 };
 
-// Plan confirmation section component
+// For confirmation flows
 const PlanConfirmationSection = ({plan, type, onConfirm}) => {
     const {site, action, member, brandColor} = useContext(AppContext);
     const [reason, setReason] = useState('');
@@ -222,7 +215,7 @@ const PlanConfirmationSection = ({plan, type, onConfirm}) => {
     }
 };
 
-// Change plan section component
+// For paid members
 const ChangePlanSection = ({plans, selectedPlan, onPlanSelect, onCancelSubscription}) => {
     const {member, action, brandColor} = useContext(AppContext);
     return (
@@ -241,7 +234,6 @@ const ChangePlanSection = ({plans, selectedPlan, onPlanSelect, onCancelSubscript
     );
 };
 
-// Plans or product section component
 function PlansOrProductSection({selectedPlan, onPlanSelect, onPlanCheckout, changePlan = false}) {
     const {site, member} = useContext(AppContext);
     const products = getUpgradeProducts({site, member});
@@ -258,32 +250,35 @@ function PlansOrProductSection({selectedPlan, onPlanSelect, onPlanCheckout, chan
     );
 }
 
-// Get offer message
+// TODO: Add i18n once copy is finalized
 function getOfferMessage(offer, originalPrice, currency, amountOff) {
-    // Determine the offer message based on the offer type
-    switch (offer.type) {
-        case 'free_months':
-            const months = offer.amount;
-            const monthLabel = months === 1 ? '1 month' : `${months} months`;
-            const dayLabel = months * 30;
+    if (offer.type === 'free_months') {
+        const months = offer.amount;
+        const monthLabel = months === 1 ? '1 month' : `${months} months`;
+        const dayLabel = months * 30;
 
-            return `Enjoy ${monthLabel} on us. Your next billing date will be pushed back by ${dayLabel} days.`;
-        case 'forever':
-            return `Enjoy ${amountOff} off forever.`;
-        case 'once':
-            return `Save ${amountOff} on your next billing cycle. Then ${currency}${originalPrice}/${offer.cadence}.`;
-        case 'repeating':
-            if (offer.duration_in_months === 1) {
-                return `Save ${amountOff} on your next billing cycle. Then ${currency}${originalPrice}/${offer.cadence}.`;
-            } else {
-                return `Save ${amountOff} on your next ${offer.duration_in_months} billing cycles. Then ${currency}${originalPrice}/${offer.cadence}.`;
-            }
-        default:
-            return '';
+        return `Enjoy ${monthLabel} on us. Your next billing date will be pushed back by ${dayLabel} days.`;
     }
+
+    if (offer.duration === 'forever') {
+        return `Enjoy ${amountOff} off forever.`;
+    }
+
+    if (offer.duration === 'once') {
+        return `Save ${amountOff} on your next billing cycle. Then ${currency}${originalPrice}/${offer.cadence}.`;
+    }
+
+    if (offer.duration === 'repeating' && offer.duration_in_months === 1) {
+        return `Save ${amountOff} on your next billing cycle. Then ${currency}${originalPrice}/${offer.cadence}.`;
+    }
+
+    if (offer.duration === 'repeating' && offer.duration_in_months > 1) {
+        return `Save ${amountOff} on your next ${offer.duration_in_months} billing cycles. Then ${currency}${originalPrice}/${offer.cadence}.`;
+    }
+
+    return '';
 }
 
-// Retention offer section component
 const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineOffer}) => {
     const {brandColor, action} = useContext(AppContext);
     const isAcceptingOffer = action === 'applyOffer:running';
@@ -296,6 +291,7 @@ const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineO
 
     const offerMessage = getOfferMessage(offer, originalPrice, currency, amountOff);
 
+    // TODO: Add i18n once copy is finalized
     return (
         <div className="gh-portal-logged-out-form-container gh-portal-offer gh-portal-retention-offer">
             <p className="gh-portal-text-center">
@@ -359,12 +355,15 @@ const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineO
             />
         </div>
     );
+    /* eslint-enable i18next/no-literal-string */
 };
 
-// Upgrade plan section component
+// For free members
 const UpgradePlanSection = ({
     plans, selectedPlan, onPlanSelect, onPlanCheckout
 }) => {
+    // const {action, brandColor} = useContext(AppContext);
+    // const isRunning = ['checkoutPlan:running'].includes(action);
     let singlePlanClass = '';
     if (plans.length === 1) {
         singlePlanClass = 'singleplan';
@@ -380,11 +379,18 @@ const UpgradePlanSection = ({
                     onPlanCheckout={onPlanCheckout}
                 />
             </div>
+            {/* <ActionButton
+                onClick={e => onPlanCheckout(e)}
+                isRunning={isRunning}
+                isPrimary={true}
+                brandColor={brandColor}
+                label={'Continue'}
+                style={{height: '40px', width: '100%', marginTop: '24px'}}
+            /> */}
         </section>
     );
 };
 
-// Plans container component
 const PlansContainer = ({
     plans, selectedPlan, confirmationPlan, confirmationType, showConfirmation = false,
     pendingOffer, onPlanSelect, onPlanCheckout, onConfirm, onCancelSubscription,

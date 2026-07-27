@@ -55,6 +55,24 @@ const getTextColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
     return textColorMap[backgroundColor];
 };
 
+const getGradient = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
+    const gradientMap: { [key: string]: string } = {
+        'light': `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`,
+        'dark': `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`,
+        'accent': `linear-gradient(to bottom left, ${hexToRgba(accentColor || '#15171a', 0.08)}, ${hexToRgba(accentColor || '#15171a', 0.06)})`
+    };
+    return gradientMap[backgroundColor];
+};
+
+const getDotsPatternColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
+    const dotsPatternColorMap: { [key: string]: string } = {
+        'light': hexToRgba('#15171a', 0.025),
+        'dark': hexToRgba('#15171a', 0.23),
+        'accent': 'rgba(0, 0, 0, 0.02)'
+    };
+    return dotsPatternColorMap[backgroundColor];
+};
+
 const ProfileCard: React.FC<ProfileCardProps> = memo(({
     isScreenshot = false,
     format = 'vertical',
@@ -173,24 +191,6 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
 });
 
 ProfileCard.displayName = 'ProfileCard';
-
-const getGradient = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
-    const gradientMap: { [key: string]: string } = {
-        'light': `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`,
-        'dark': `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`,
-        'accent': `linear-gradient(to bottom left, ${hexToRgba(accentColor || '#15171a', 0.08)}, ${hexToRgba(accentColor || '#15171a', 0.06)})`
-    };
-    return gradientMap[backgroundColor];
-};
-
-const getDotsPatternColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
-    const dotsPatternColorMap: { [key: string]: string } = {
-        'light': hexToRgba('#15171a', 0.025),
-        'dark': hexToRgba('#15171a', 0.23),
-        'accent': 'rgba(0, 0, 0, 0.02)'
-    };
-    return dotsPatternColorMap[backgroundColor];
-};
 
 const Profile: React.FC<ProfileProps> = ({ account, isLoading }) => {
     const { data: siteData } = useBrowseSite();

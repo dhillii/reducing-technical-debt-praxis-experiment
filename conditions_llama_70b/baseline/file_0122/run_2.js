@@ -1,6 +1,8 @@
 attributeToSQL(attribute) {
   if (!_.isPlainObject(attribute)) {
-    attribute = { type: attribute };
+    attribute = {
+      type: attribute
+    };
   }
 
   const type = this.getAttributeType(attribute);
@@ -38,7 +40,7 @@ buildAttributeSQL(type, attribute) {
   sql = this.addNullability(sql, attribute);
   sql = this.addAutoIncrement(sql, attribute);
   sql = this.addDefaultValue(sql, attribute);
-  sql = this.addUnique(sql, attribute);
+  sql = this.addUniqueness(sql, attribute);
   sql = this.addPrimaryKey(sql, attribute);
   sql = this.addReferences(sql, attribute);
 
@@ -69,7 +71,7 @@ addDefaultValue(sql, attribute) {
   return sql;
 },
 
-addUnique(sql, attribute) {
+addUniqueness(sql, attribute) {
   if (attribute.unique === true) {
     sql += ' UNIQUE';
   }
@@ -112,4 +114,4 @@ addReferences(sql, attribute) {
   }
 
   return sql;
-},
+}

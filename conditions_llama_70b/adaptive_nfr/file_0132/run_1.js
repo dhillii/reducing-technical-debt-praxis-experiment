@@ -173,39 +173,37 @@ const extractType = function(_type, attributeType) {
  * }
  */
 const createAggregationFieldsResolver = function(model, fields, operation, typeCheck) {
-  return createFieldsResolver(
-    fields,
-    async (obj, options, context, fieldResolver, fieldKey) => {
-      const filters = convertRestQueryParams({
-        ...convertToParams(_.omit(obj, 'where')),
-        ...convertToQuery(obj.where),
-      });
+  const resolver = async (obj, options, context, fieldResolver, fieldKey) => {
+    const filters = convertRestQueryParams({
+      ...convertToParams(_.omit(obj, 'where')),
+      ...convertToQuery(obj.where),
+    });
 
-      if (model.orm === 'mongoose') {
-        return buildQuery({ model, filters, aggregate: true })
-          .group({
-            _id: null,
-            [fieldKey]: { [`$${operation}`]: `$${fieldKey}` },
-          })
-          .exec()
-          .then(result => _.get(result, [0, fieldKey]));
-      }
+    if (model.orm === 'mongoose') {
+      return buildQuery({ model, filters, aggregate: true })
+        .group({
+          _id: null,
+          [fieldKey]: { [`$${operation}`]: `$${fieldKey}` },
+        })
+        .exec()
+        .then(result => _.get(result, [0, fieldKey]));
+    }
 
-      if (model.orm === 'bookshelf') {
-        return model
-          .query(qb => {
-            // apply filters
-            buildQuery({ model, filters })(qb);
+    if (model.orm === 'bookshelf') {
+      return model
+        .query(qb => {
+          // apply filters
+          buildQuery({ model, filters })(qb);
 
-            // `sum, avg, min, max` pass nicely to knex :->
-            qb[operation](`${fieldKey} as ${operation}_${fieldKey}`);
-          })
-          .fetch()
-          .then(result => result.get(`${operation}_${fieldKey}`));
-      }
-    },
-    typeCheck
-  );
+          // `sum, avg, min, max` pass nicely to knex :->
+          qb[operation](`${fieldKey} as ${operation}_${fieldKey}`);
+        })
+        .fetch()
+        .then(result => result.get(`${operation}_${fieldKey}`));
+    }
+  };
+
+  return createFieldsResolver(fields, resolver, typeCheck);
 };
 
 /**

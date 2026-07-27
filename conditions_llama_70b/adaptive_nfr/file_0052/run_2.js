@@ -183,20 +183,16 @@ file.mkdir = (dirpath, mode) => {
 };
 
 // Recurse into a directory, executing callback for each file.
-const recurse = (rootdir, callback, subdir) => {
+file.recurse = (rootdir, callback, subdir) => {
   const abspath = subdir ? path.join(rootdir, subdir) : rootdir;
   fs.readdirSync(abspath).forEach((filename) => {
     const filepath = path.join(abspath, filename);
     if (fs.statSync(filepath).isDirectory()) {
-      recurse(rootdir, callback, unixifyPath(path.join(subdir || '', filename || '')));
+      file.recurse(rootdir, callback, unixifyPath(path.join(subdir || '', filename || '')));
     } else {
       callback(unixifyPath(filepath), rootdir, subdir, filename);
     }
   });
-};
-
-file.recurse = (rootdir, callback, subdir) => {
-  recurse(rootdir, callback, subdir);
 };
 
 // The default file encoding to use.

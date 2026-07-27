@@ -171,7 +171,6 @@ const OffersFilterPopover: React.FC<{
 };
 
 const getFilteredOffers = (allOffers: any[], allTiers: any[], statusFilter: 'active' | 'archived') => {
-    // Filter offers based on status and tier
     return allOffers.filter((offer) => {
         const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
         return (statusFilter === 'active' && (offer.status === 'active' && offerTier && offerTier.active === true)) ||
@@ -180,7 +179,6 @@ const getFilteredOffers = (allOffers: any[], allTiers: any[], statusFilter: 'act
 };
 
 const getSortedOffers = (offers: any[], sortOption: string, sortDirection: string) => {
-    // Sort offers based on the selected option and direction
     return offers.sort((offer1, offer2) => {
         const multiplier = sortDirection === 'desc' ? -1 : 1;
         switch (sortOption) {
@@ -194,21 +192,23 @@ const getSortedOffers = (offers: any[], sortOption: string, sortDirection: strin
     });
 };
 
-const getOfferRow = (offer: any, allTiers: any[]) => {
-    // Get the offer tier
-    const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
+const getOfferTier = (allTiers: any[], offer: any) => {
+    return allTiers?.find(tier => tier.id === offer?.tier?.id);
+};
 
-    if (!offerTier) {
-        return null;
-    }
-
-    // Check if the tier is archived
-    const isTierArchived = offerTier?.active === false;
-
-    // Get the offer discount
+const getOfferData = (offer: any, offerTier: any) => {
     const {discountOffer, originalPriceWithCurrency, updatedPriceWithCurrency} = getOfferDiscount(offer.type, offer.amount, offer.cadence, offer.currency || 'USD', offerTier);
+    return {
+        discountOffer,
+        originalPriceWithCurrency,
+        updatedPriceWithCurrency
+    };
+};
 
-    // Render the offer row
+const OfferRow: React.FC<{offer: any, offerTier: any, handleOfferEdit: (id: string) => void}> = ({offer, offerTier, handleOfferEdit}) => {
+    const isTierArchived = offerTier?.active === false;
+    const {discountOffer, originalPriceWithCurrency, updatedPriceWithCurrency} = getOfferData(offer, offerTier);
+
     return (
         <tr className={`group relative scale-100 border-b border-b-grey-200 dark:border-grey-800`} data-testid="offer-item">
             <td className={`${isTierArchived ? 'opacity-50' : ''} p-0`}><a className={`block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5 pl-0`} onClick={!isTierArchived ? () => handleOfferEdit(offer?.id ? offer.id : '') : () => {}}><span className='font-semibold'>{offer?.name}</span><br /><span className='text-sm text-grey-700'>{offerTier.name} {getOfferCadence(offer.cadence)}</span></a></td>
@@ -224,35 +224,19 @@ const getOfferRow = (offer: any, allTiers: any[]) => {
     );
 };
 
-const getOfferListLayout = (filteredOffers: any[], allTiers: any[]) => {
-    // Render the offer list layout
-    return (
-        <div className='overflow-x-auto'>
-            <table className='m-0 w-full table-fixed'>
-                <colgroup>
-                    <col />
-                    <col className='w-[220px]' />
-                    <col className='w-[220px]' />
-                    <col className='w-[220px]' />
-                    <col className='w-[80px]' />
-                </colgroup>
-                {filteredOffers.map((offer) => getOfferRow(offer, allTiers))}
-            </table>
-        </div>
-    );
-};
-
 export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) => {
     const modal = useModal();
     const {updateRoute} = useRouting();
     const {data: {offers: allOffers = []} = {}, isFetching: isFetchingOffers} = useBrowseOffers();
     const {data: {tiers: allTiers} = {}} = useBrowseTiers();
     const signupOffers = allOffers.filter(offer => offer.redemption_type === 'signup');
-    const [selectedTab, setSelectedTab] = useState(defaultTab || 'signup');
-    const [statusFilter, setStatusFilter] = useState<'active' | 'archived'>('active');
+    const paidActiveTiers = getPaidActiveTiers(allTiers || []);
 
     const {sortingState, setSortingState} = useSortingState();
     const offersSorting = sortingState?.find(sorting => sorting.type === 'offers');
+
+    const [selectedTab, setSelectedTab] = useState(defaultTab || 'signup');
+    const [statusFilter, setStatusFilter] = useState<'active' | 'archived'>('active');
 
     const sortOption = offersSorting?.option || 'date-added';
     const sortDirection = offersSorting?.direction || 'desc';
@@ -265,6 +249,27 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
 
     const filteredOffers = getFilteredOffers(signupOffers, allTiers, statusFilter);
     const sortedOffers = getSortedOffers(filteredOffers, sortOption, sortDirection);
+
+    const listLayoutOutput = <div className='overflow-x-auto'>
+        <table className='m-0 w-full table-fixed'>
+            <colgroup>
+                <col />
+                <col className='w-[220px]' />
+                <col className='w-[220px]' />
+                <col className='w-[220px]' />
+                <col className='w-[80px]' />
+            </colgroup>
+            {sortedOffers.map((offer) => {
+                const offerTier = getOfferTier(allTiers, offer);
+
+                if (!offerTier) {
+                    return null;
+                }
+
+                return <OfferRow offer={offer} offerTier={offerTier} handleOfferEdit={handleOfferEdit} />;
+            })}
+        </table>
+    </div>;
 
     const handleSortChange = (selectedOption: string) => {
         setSortingState?.([{
@@ -298,7 +303,7 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
             label: 'New offer',
             color: 'green' as const,
             onClick: () => {
-                if (getPaidActiveTiers(allTiers || []).length === 0) {
+                if (paidActiveTiers.length === 0) {
                     showToast({
                         type: 'info',
                         title: 'You must have an active tier to create an offer.'
@@ -334,7 +339,7 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
                         {id: 'retention', title: 'Retention'}
                     ]}
                     topRightContent={
-                        selectedTab === 'signup' && sortedOffers.length > 0 ?
+                        selectedTab === 'signup' && filteredOffers.length > 0 ?
                             <div className='flex items-center'>
                                 <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Terms</span>
                                 <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Price</span>
@@ -376,7 +381,7 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
                     }}
                 />
             </header>
-            {selectedTab === 'signup' && statusFilter === 'active' && sortedOffers.length === 0 && !isFetchingOffers ?
+            {selectedTab === 'signup' && statusFilter === 'active' && filteredOffers.length === 0 && !isFetchingOffers ?
                 <EmptyState
                     buttonAction={() => updateRoute('offers/new')}
                     buttonLabel='Create an offer'
@@ -384,7 +389,7 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
                 /> :
                 null
             }
-            {selectedTab === 'signup' && statusFilter === 'archived' && sortedOffers.length === 0 && !isFetchingOffers ?
+            {selectedTab === 'signup' && statusFilter === 'archived' && filteredOffers.length === 0 && !isFetchingOffers ?
                 <EmptyState
                     buttonAction={() => setStatusFilter('active')}
                     buttonLabel='Back to active'
@@ -393,7 +398,7 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
                 null
             }
             {selectedTab === 'retention' && <OffersRetention />}
-            {selectedTab === 'signup' && getOfferListLayout(sortedOffers, allTiers)}
+            {selectedTab === 'signup' && listLayoutOutput}
         </div>
     </Modal>;
 };

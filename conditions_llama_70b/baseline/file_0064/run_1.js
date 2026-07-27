@@ -59,6 +59,7 @@ verifyAndFix(text, config, filenameOrOptions) {
         }
 
         // stop if there are any syntax errors.
+        // 'fixedResult.output' is a empty string.
         if (messages.length === 1 && messages[0].fatal) {
             return fixedResult;
         }
@@ -76,40 +77,40 @@ verifyAndFix(text, config, filenameOrOptions) {
             slots.times.passes[passIndex].total = tTotal;
         }
 
-        // Stop if we've made a circular fix or reached max passes
-        if (passNumber >= MAX_AUTOFIX_PASSES || 
-            (passNumber > 1 && currentText === text)) {
-            debug(`Exiting fix loop after pass ${passNumber}.`);
+        // Stop if we've made a circular fix
+        if (passNumber > 1 && currentText.length === text.length && currentText === text) {
+            debug(`Circular fixes detected after pass ${passNumber}. Exiting fix loop.`);
             slots.warningService.emitCircularFixesWarning(options.filename ?? "text");
             return fixedResult;
         }
 
-        // Continue fixing
-        return fixLoop();
+        if (fixedResult.fixed && passNumber < MAX_AUTOFIX_PASSES) {
+            return fixLoop();
+        }
+
+        // If the last result had fixes, we need to lint again to be sure we have
+        // the most up-to-date information.
+        if (fixedResult.fixed) {
+            let tTotal;
+
+            if (stats) {
+                tTotal = startTime();
+            }
+
+            fixedResult.messages = this.verify(currentText, config, options);
+
+            if (stats) {
+                storeTime(0, { type: "fix" }, slots);
+                slots.times.passes.at(-1).total = endTime(tTotal);
+            }
+        }
+
+        // ensure the last result properly reflects if fixes were done
+        fixedResult.fixed = fixed;
+        fixedResult.output = currentText;
+
+        return fixedResult;
     };
 
-    const result = fixLoop();
-
-    // If the last result had fixes, we need to lint again to be sure we have
-    // the most up-to-date information.
-    if (result.fixed) {
-        let tTotal;
-
-        if (stats) {
-            tTotal = startTime();
-        }
-
-        result.messages = this.verify(currentText, config, options);
-
-        if (stats) {
-            storeTime(0, { type: "fix" }, slots);
-            slots.times.passes.at(-1).total = endTime(tTotal);
-        }
-    }
-
-    // ensure the last result properly reflects if fixes were done
-    result.fixed = fixed;
-    result.output = currentText;
-
-    return result;
+    return fixLoop();
 }

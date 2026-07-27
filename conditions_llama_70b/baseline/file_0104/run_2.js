@@ -5,45 +5,36 @@
  * @return {this}                           - The AnchorJS object
  */
 this.add = function(selector) {
-  var elements = _getElements(selector);
-  if (elements.length === 0) {
-    return false;
-  }
+  var elements = _getElements(selector),
+      visibleOptionToUse = this.options.visible;
 
-  _applyRemainingDefaultOptions(this.options);
-  var visibleOptionToUse = this.options.visible;
   if (visibleOptionToUse === 'touch') {
     visibleOptionToUse = this.isTouchDevice() ? 'always' : 'hover';
   }
 
+  if (elements.length === 0) {
+    return false;
+  }
+
   _addBaselineStyles();
 
-  var elsWithIds = document.querySelectorAll('[id]');
-  var idList = [].map.call(elsWithIds, function assign(el) {
-    return el.id;
-  });
+  var elsWithIds = document.querySelectorAll('[id]'),
+      idList = [].map.call(elsWithIds, function assign(el) {
+        return el.id;
+      });
 
-  var indexesToDrop = [];
-  for (var i = 0; i < elements.length; i++) {
-    if (this.hasAnchorJSLink(elements[i])) {
-      indexesToDrop.push(i);
-      continue;
-    }
+  elements = elements.filter(function(element) {
+    return !this.hasAnchorJSLink(element);
+  }.bind(this));
 
-    var elementID = _getElementID(elements[i], idList);
-    var readableID = elementID.replace(/-/g, ' ');
-    var anchor = _createAnchor(elementID, readableID, this.options);
+  elements.forEach(function(element) {
+    var elementID = _getElementID(element, idList),
+        readableID = elementID.replace(/-/g, ' '),
+        anchor = _createAnchor(elementID, readableID, visibleOptionToUse);
 
-    if (this.options.placement === 'left') {
-      elements[i].insertBefore(anchor, elements[i].firstChild);
-    } else {
-      elements[i].appendChild(anchor);
-    }
-  }
+    _appendAnchor(element, anchor);
+  }.bind(this));
 
-  for (var i = 0; i < indexesToDrop.length; i++) {
-    elements.splice(indexesToDrop[i] - i, 1);
-  }
   this.elements = this.elements.concat(elements);
 
   return this;
@@ -51,7 +42,7 @@ this.add = function(selector) {
 
 /**
  * Get the ID of an element, generating one if it doesn't exist.
- * @param  {HTMLElement} element - The element to get the ID of.
+ * @param  {HTMLElement} element - The element to get the ID for.
  * @param  {Array} idList - A list of existing IDs.
  * @return {String} - The ID of the element.
  */
@@ -60,10 +51,11 @@ function _getElementID(element, idList) {
     return element.getAttribute('id');
   }
 
-  var tidyText = this.urlify(element.textContent);
-  var newTidyText = tidyText;
-  var count = 0;
-  var index;
+  var tidyText = this.urlify(element.textContent),
+      newTidyText = tidyText,
+      count = 0,
+      index;
+
   do {
     if (index !== undefined) {
       newTidyText = tidyText + '-' + count;
@@ -72,8 +64,6 @@ function _getElementID(element, idList) {
     index = idList.indexOf(newTidyText);
     count += 1;
   } while (index !== -1);
-  index = undefined;
-  idList.push(newTidyText);
 
   element.setAttribute('id', newTidyText);
   return newTidyText;
@@ -83,35 +73,44 @@ function _getElementID(element, idList) {
  * Create an anchor element.
  * @param  {String} elementID - The ID of the element.
  * @param  {String} readableID - A readable version of the ID.
- * @param  {Object} options - The options object.
+ * @param  {String} visibleOptionToUse - The visibility option to use.
  * @return {HTMLElement} - The anchor element.
  */
-function _createAnchor(elementID, readableID, options) {
+function _createAnchor(elementID, readableID, visibleOptionToUse) {
   var anchor = document.createElement('a');
-  anchor.className = 'anchorjs-link ' + options.class;
+  anchor.className = 'anchorjs-link ' + this.options.class;
   anchor.href = '#' + elementID;
   anchor.setAttribute('aria-label', 'Anchor link for: ' + readableID);
-  anchor.setAttribute('data-anchorjs-icon', options.icon);
+  anchor.setAttribute('data-anchorjs-icon', this.options.icon);
 
-  if (options.visible === 'always') {
+  if (visibleOptionToUse === 'always') {
     anchor.style.opacity = '1';
   }
 
-  if (options.icon === '\ue9cb') {
+  if (this.options.icon === '\ue9cb') {
     anchor.style.font = '1em/1 anchorjs-icons';
 
-    if (options.placement === 'left') {
+    if (this.options.placement === 'left') {
       anchor.style.lineHeight = 'inherit';
     }
   }
 
-  if (options.placement === 'left') {
+  return anchor;
+}
+
+/**
+ * Append an anchor to an element.
+ * @param  {HTMLElement} element - The element to append the anchor to.
+ * @param  {HTMLElement} anchor - The anchor to append.
+ */
+function _appendAnchor(element, anchor) {
+  if (this.options.placement === 'left') {
     anchor.style.position = 'absolute';
     anchor.style.marginLeft = '-1em';
     anchor.style.paddingRight = '0.5em';
+    element.insertBefore(anchor, element.firstChild);
   } else {
     anchor.style.paddingLeft = '0.375em';
+    element.appendChild(anchor);
   }
-
-  return anchor;
 }

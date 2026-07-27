@@ -60,10 +60,10 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
     }
 
     /**
-     * Reports a bug by generating a bug report email.
+     * Reports a bug by filling in the fields with the necessary information.
      */
     function reportBug() {
-        const dump = generateLogDump();
+        const dump = getLogDump();
         $scope.to = [{
             address: str.supportAddress
         }];
@@ -73,10 +73,10 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
     }
 
     /**
-     * Generates a log dump for the bug report.
+     * Gets the log dump by appending the log messages to a string.
      * @returns {string} The log dump.
      */
-    function generateLogDump() {
+    function getLogDump() {
         let dump = '';
         const appender = {
             log: function(level, date, component, log) {
@@ -114,10 +114,10 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
     }
 
     /**
-     * Fills the fields based on the replyTo object.
+     * Fills the fields depending on the replyTo, replyAll, and forward parameters.
      * @param {object} re The replyTo object.
-     * @param {boolean} replyAll Whether to reply all.
-     * @param {boolean} forward Whether to forward.
+     * @param {boolean} replyAll Whether to reply to all.
+     * @param {boolean} forward Whether to forward the email.
      */
     function fillFields(re, replyAll, forward) {
         if (!re) {
@@ -186,9 +186,9 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         const sentDate = $filter('date')(re.sentDate, 'EEEE, MMM d, yyyy h:mm a');
 
         /**
-         * Creates a string representation of an array of recipients.
-         * @param {array} array The array of recipients.
-         * @returns {string} The string representation.
+         * Creates a string from an array of objects.
+         * @param {array} array The array of objects.
+         * @returns {string} The created string.
          */
         function createString(array) {
             let str = '';
@@ -225,7 +225,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
     //
 
     /**
-     * Warn users when using BCC.
+     * Warns users when using BCC.
      */
     $scope.toggleShowBCC = function() {
         $scope.showBCC = true;
@@ -312,7 +312,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         $scope.bcc.forEach(check);
 
         /**
-         * Checks a recipient for security.
+         * Checks a recipient and updates the allSecure and numReceivers variables.
          * @param {object} recipient The recipient object.
          */
         function check(recipient) {
@@ -359,7 +359,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
     //
 
     /**
-     * Removes an attachment.
+     * Removes an attachment from the list.
      * @param {object} attachment The attachment object.
      */
     $scope.remove = function(attachment) {
@@ -382,7 +382,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         $scope.bcc.forEach(check);
 
         /**
-         * Checks a recipient for invitation.
+         * Checks a recipient and adds it to the invitees list if necessary.
          * @param {object} recipient The recipient object.
          */
         function check(recipient) {
@@ -502,7 +502,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
     //
 
     /**
-     * Returns the style for a recipient tag.
+     * Returns the style for a recipient.
      * @param {object} recipient The recipient object.
      * @returns {array} The style classes.
      */
@@ -517,7 +517,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
     /**
      * Looks up the address book for a query.
      * @param {string} query The query string.
-     * @returns {promise} The promise resolving to the address book entries.
+     * @returns {promise} The promise that resolves with the address book entries.
      */
     $scope.lookupAddressBook = function(query) {
         return $q(function(resolve) {

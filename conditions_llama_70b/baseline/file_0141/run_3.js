@@ -335,7 +335,10 @@ class Strapi {
     this.middleware = modules.middlewares;
     this.hook = modules.hook;
 
-    await bootstrap(this);
+    const bootstrapResult = bootstrap(this);
+    if (bootstrapResult instanceof Promise) {
+      await bootstrapResult;
+    }
 
     // init webhook runner
     this.webhookRunner = createWebhookRunner({

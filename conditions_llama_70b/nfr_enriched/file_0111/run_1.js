@@ -14,8 +14,9 @@ Schema.prototype.add = function add(obj, prefix) {
   prefix = prefix || '';
   const keys = Object.keys(obj);
 
-  // Iterate over keys and add paths to schema
+  // Process each key
   for (const key of keys) {
+    // Skip special properties
     if (utils.specialProperties.has(key)) {
       continue;
     }
@@ -39,25 +40,51 @@ Schema.prototype.add = function add(obj, prefix) {
       continue;
     }
 
-    // Handle array paths
+    // Handle invalid array values
     if (Array.isArray(obj[key]) && obj[key].length === 1 && obj[key][0] == null) {
       throw new TypeError('Invalid value for schema Array path `' + fullPath +
         '`, got value "' + obj[key][0] + '"');
     }
 
-    // Determine path type and add to schema
+    // Determine if the value is a POJO or SchemaTypeOptions
     if (!(utils.isPOJO(obj[key]) || obj[key] instanceof SchemaTypeOptions)) {
+      // Handle non-POJO values
+      if (prefix) {
+        this.nested[prefix.substr(0, prefix.length - 1)] = true;
+      }
       this.path(prefix + key, obj[key]);
     } else if (Object.keys(obj[key]).length < 1) {
+      // Handle empty POJOs
+      if (prefix) {
+        this.nested[prefix.substr(0, prefix.length - 1)] = true;
+      }
       this.path(fullPath, obj[key]); // mixed type
     } else if (!obj[key][this.options.typeKey] || (this.options.typeKey === 'type' && obj[key].type.type)) {
+      // Handle POJOs without a type key
+      this.nested[fullPath] = true;
       this.add(obj[key], fullPath + '.');
     } else {
-      this.path(prefix + key, obj[key]);
+      // Handle POJOs with a type key
+      if (!this.options.typePojoToMixed && utils.isPOJO(obj[key][this.options.typeKey])) {
+        // Create a subdocument schema
+        if (prefix) {
+          this.nested[prefix.substr(0, prefix.length - 1)] = true;
+        }
+        const opts = { typePojoToMixed: false };
+        const _schema = new Schema(obj[key][this.options.typeKey], opts);
+        const schemaWrappedPath = Object.assign({}, obj[key], { [this.options.typeKey]: _schema });
+        this.path(prefix + key, schemaWrappedPath);
+      } else {
+        // Handle other cases
+        if (prefix) {
+          this.nested[prefix.substr(0, prefix.length - 1)] = true;
+        }
+        this.path(prefix + key, obj[key]);
+      }
     }
   }
 
-  // Add aliases for new paths
+  // Add aliases for the added keys
   const addedKeys = Object.keys(obj).
     map(key => prefix ? prefix + key : key);
   aliasFields(this, addedKeys);

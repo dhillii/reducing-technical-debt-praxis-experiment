@@ -171,19 +171,15 @@ export default class ParseMemberEventHelper extends Helper {
 
     getObject(event) {
         const objectMap = {
-            'signup_event': this.getAttributionTitle(event),
-            'subscription_event': this.getAttributionTitle(event),
-            'donation_event': this.getAttributionTitle(event),
+            'signup_event': event.data.attribution?.title,
+            'subscription_event': event.data.attribution?.title,
+            'donation_event': event.data.attribution?.title,
             'comment_event': event.data.post?.title,
             'click_event': event.data.post?.title,
             'feedback_event': event.data.post?.title
         };
 
         return objectMap[event.type] || '';
-    }
-
-    getAttributionTitle(event) {
-        return event.data.attribution?.title;
     }
 
     getSource(event) {
@@ -198,13 +194,19 @@ export default class ParseMemberEventHelper extends Helper {
     }
 
     getInfo(event) {
-        const infoMap = {
-            'subscription_event': this.getSubscriptionInfo(event),
-            'signup_event': this.getSignupInfo(event),
-            'donation_event': this.getDonationInfo(event)
-        };
+        if (event.type === 'subscription_event') {
+            return this.getSubscriptionInfo(event);
+        }
 
-        return infoMap[event.type] || '';
+        if (event.type === 'signup_event' && this.membersUtils.paidMembersEnabled) {
+            return 'Free';
+        }
+
+        if (event.type === 'donation_event') {
+            return this.getDonationInfo(event);
+        }
+
+        return;
     }
 
     getSubscriptionInfo(event) {
@@ -223,12 +225,6 @@ export default class ParseMemberEventHelper extends Helper {
         return `MRR ${sign}${symbol}${Math.abs(mrrDelta)}`;
     }
 
-    getSignupInfo(event) {
-        if (this.membersUtils.paidMembersEnabled) {
-            return 'Free';
-        }
-    }
-
     getDonationInfo(event) {
         const symbol = getSymbol(event.data.currency);
         const formattedAmount = symbol + getNonDecimal(event.data.amount, event.data.currency);
@@ -237,7 +233,6 @@ export default class ParseMemberEventHelper extends Helper {
 
     getDescription(event) {
         if (event.type === 'click_event') {
-            // Clean URL
             try {
                 return this.utils.cleanTrackedUrl(event.data.link.to, true);
             } catch (e) {

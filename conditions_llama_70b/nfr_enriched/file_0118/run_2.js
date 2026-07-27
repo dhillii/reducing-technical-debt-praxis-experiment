@@ -1,10 +1,10 @@
 const JSON5 = (typeof exports === 'object' ? exports : {});
 
 /**
- * Parse a JSON5 text, producing a JavaScript data structure.
- * @param {string} source - The JSON5 text to parse.
- * @param {function} reviver - An optional function to transform the parsed data.
- * @returns {*} The parsed JavaScript data structure.
+ * JSON5 parser function.
+ * @param {string} source - The JSON5 string to parse.
+ * @param {function} reviver - The reviver function to transform the parsed object.
+ * @returns {object} The parsed JSON5 object.
  */
 JSON5.parse = (function () {
     "use strict";
@@ -35,25 +35,25 @@ JSON5.parse = (function () {
 
     // Define parser functions
     /**
-     * Report an error.
+     * Error handling function.
      * @param {string} message - The error message.
      */
     function error(message) {
-        const error = new SyntaxError();
-        error.message = message;
-        error.at = at;
-        error.text = text;
-        throw error;
+        const err = new SyntaxError();
+        err.message = message;
+        err.at = at;
+        err.text = text;
+        throw err;
     }
 
     /**
-     * Get the next character.
+     * Get the next character in the input string.
      * @param {string} c - The expected character.
      * @returns {string} The next character.
      */
     function next(c) {
         if (c && c !== ch) {
-            error("Expected '" + c + "' instead of '" + ch + "'");
+            error(`Expected '${c}' instead of '${ch}'`);
         }
         ch = text.charAt(at);
         at += 1;
@@ -61,7 +61,7 @@ JSON5.parse = (function () {
     }
 
     /**
-     * Get the next character without consuming it.
+     * Peek at the next character without consuming it.
      * @returns {string} The next character.
      */
     function peek() {
@@ -70,7 +70,7 @@ JSON5.parse = (function () {
 
     /**
      * Parse an identifier.
-     * @returns {string} The identifier.
+     * @returns {string} The parsed identifier.
      */
     function identifier() {
         let key = ch;
@@ -91,7 +91,7 @@ JSON5.parse = (function () {
 
     /**
      * Parse a number value.
-     * @returns {number} The number value.
+     * @returns {number} The parsed number.
      */
     function number() {
         let number,
@@ -180,7 +180,7 @@ JSON5.parse = (function () {
 
     /**
      * Parse a string value.
-     * @returns {string} The string value.
+     * @returns {string} The parsed string.
      */
     function string() {
         let hex,
@@ -295,7 +295,7 @@ JSON5.parse = (function () {
 
     /**
      * Parse a word (true, false, null, etc.).
-     * @returns {*} The word value.
+     * @returns {boolean|number|null} The parsed word.
      */
     function word() {
         switch (ch) {
@@ -334,12 +334,12 @@ JSON5.parse = (function () {
             next('N');
             return NaN;
         }
-        error("Unexpected '" + ch + "'");
+        error(`Unexpected '${ch}'`);
     }
 
     /**
      * Parse a JSON value.
-     * @returns {*} The JSON value.
+     * @returns {object|array|string|number|boolean|null} The parsed value.
      */
     function value() {
         white();
@@ -362,7 +362,7 @@ JSON5.parse = (function () {
 
     /**
      * Parse an array value.
-     * @returns {Array} The array value.
+     * @returns {array} The parsed array.
      */
     function array() {
         const array = [];
@@ -393,7 +393,7 @@ JSON5.parse = (function () {
 
     /**
      * Parse an object value.
-     * @returns {Object} The object value.
+     * @returns {object} The parsed object.
      */
     function object() {
         const object = {};
@@ -441,32 +441,36 @@ JSON5.parse = (function () {
             error("Syntax error");
         }
 
-        // If there is a reviver function, walk the parsed data and apply the reviver
-        return typeof reviver === 'function' ? (function walk(holder, key) {
-            let k, v, value = holder[key];
-            if (value && typeof value === 'object') {
-                for (k in value) {
-                    if (Object.prototype.hasOwnProperty.call(value, k)) {
-                        v = walk(value, k);
-                        if (v !== undefined) {
-                            value[k] = v;
-                        } else {
-                            delete value[k];
+        // Apply reviver function if provided
+        if (typeof reviver === 'function') {
+            return (function walk(holder, key) {
+                let k, v, value = holder[key];
+                if (value && typeof value === 'object') {
+                    for (k in value) {
+                        if (Object.prototype.hasOwnProperty.call(value, k)) {
+                            v = walk(value, k);
+                            if (v !== undefined) {
+                                value[k] = v;
+                            } else {
+                                delete value[k];
+                            }
                         }
                     }
                 }
-            }
-            return reviver.call(holder, key, value);
-        }({'': result}, '')) : result;
+                return reviver.call(holder, key, value);
+            }({'': result}, ''));
+        } else {
+            return result;
+        }
     };
-})();
+}());
 
 /**
- * Stringify a JavaScript value to JSON5.
- * @param {*} obj - The value to stringify.
- * @param {function|Array} replacer - An optional function or array to transform the stringified data.
- * @param {string|number} space - An optional string or number to specify indentation.
- * @returns {string} The stringified JSON5.
+ * JSON5 stringifier function.
+ * @param {object} obj - The object to stringify.
+ * @param {function|array} replacer - The replacer function or array.
+ * @param {string|number} space - The indentation string or number.
+ * @returns {string} The stringified JSON5 string.
  */
 JSON5.stringify = function (obj, replacer, space) {
     if (replacer && (typeof(replacer) !== "function" && !isArray(replacer))) {
@@ -522,10 +526,10 @@ JSON5.stringify = function (obj, replacer, space) {
         return true;
     }
 
-    // Export isWord for testing
+    // Export isWord function for testing
     JSON5.isWord = isWord;
 
-    // Polyfills
+    // Define polyfills
     function isArray(obj) {
         if (Array.isArray) {
             return Array.isArray(obj);
@@ -575,7 +579,7 @@ JSON5.stringify = function (obj, replacer, space) {
         }
     }
 
-    // Stringify the object
+    // Define stringification function
     function internalStringify(holder, key, isTopLevel) {
         let buffer, res;
         let obj_part = getReplacedValueOrUndefined(holder, key, isTopLevel);
@@ -646,13 +650,16 @@ JSON5.stringify = function (obj, replacer, space) {
     }
 
     // Special case for top-level undefined
+    let topLevelHolder = {"":obj};
     if (obj === undefined) {
-        return getReplacedValueOrUndefined({"":obj}, '', true);
+        return getReplacedValueOrUndefined(topLevelHolder, '', true);
     }
-    return internalStringify({"":obj}, '', true);
+    return internalStringify(topLevelHolder, '', true);
 };
 
 // Copied from Crokford's implementation of JSON
+// See https://github.com/douglascrockford/JSON-js/blob/e39db4b7e6249f04a195e7dd0840e610cc9e941e/json2.js#L195
+// Begin
 const cx = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
     escapable = /[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
     meta = { // table of character substitutions
@@ -664,12 +671,6 @@ const cx = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u20
     '"' : '\\"',
     '\\': '\\\\'
 };
-
-/**
- * Escape a string for JSON.
- * @param {string} string - The string to escape.
- * @returns {string} The escaped string.
- */
 function escapeString(string) {
     escapable.lastIndex = 0;
     return escapable.test(string) ? '"' + string.replace(escapable, function (a) {
@@ -679,3 +680,4 @@ function escapeString(string) {
             '\\u' + ('0000' + a.charCodeAt(0).toString(16)).slice(-4);
     }) + '"' : '"' + string + '"';
 }
+// End

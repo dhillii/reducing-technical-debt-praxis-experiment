@@ -176,9 +176,9 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
 
     const paidChangeChartData = useMemo(() => {
         if (subscriptionData && subscriptionData.length > 0) {
-            return getSubscriptionData(subscriptionData, range, aggregationStrategy);
+            return getSubscriptionChartData(subscriptionData, range, aggregationStrategy);
         } else {
-            return getMemberData(memberData, range, aggregationStrategy);
+            return getMemberChartData(memberData, range, aggregationStrategy);
         }
     }, [memberData, subscriptionData, range, aggregationStrategy, selectedResolution]);
 
@@ -401,7 +401,7 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
     );
 };
 
-const getSubscriptionData = (subscriptionData: {date: string; signups: number; cancellations: number}[], range: number, aggregationStrategy: 'none' | 'weekly' | 'monthly') => {
+const getSubscriptionChartData = (subscriptionData: {date: string; signups: number; cancellations: number}[], range: number, aggregationStrategy: 'none' | 'weekly' | 'monthly') => {
     if (range === 1) {
         const today = moment().format('YYYY-MM-DD');
         const todayData = subscriptionData.find(item => item.date === today);
@@ -457,7 +457,7 @@ const getSubscriptionData = (subscriptionData: {date: string; signups: number; c
     });
 };
 
-const getMemberData = (memberData: {date: string; paid_subscribed?: number; paid_canceled?: number}[], range: number, aggregationStrategy: 'none' | 'weekly' | 'monthly') => {
+const getMemberChartData = (memberData: {date: string; paid_subscribed?: number; paid_canceled?: number}[], range: number, aggregationStrategy: 'none' | 'weekly' | 'monthly') => {
     if (!memberData || memberData.length === 0) {
         return [];
     }

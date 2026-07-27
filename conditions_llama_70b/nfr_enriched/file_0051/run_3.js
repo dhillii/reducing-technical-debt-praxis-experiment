@@ -31,7 +31,7 @@ config.escape = function(str) {
 /**
  * Return prop as a string.
  * @param {string|string[]} prop - Property name or namespaced property name
- * @returns {string} Property string
+ * @returns {string} Property name as a string
  */
 config.getPropString = function(prop) {
   return Array.isArray(prop) ? prop.map(config.escape).join('.') : prop;
@@ -50,9 +50,22 @@ config.getRaw = function(prop) {
   }
 };
 
-// Match '<%= FOO %>' where FOO is a propString, eg. foo or foo.bar but not
-// a method call like foo() or foo.bar().
-const propStringTmplRe = /^<%=\s*([a-z0-9_$]+(?:\.[a-z0-9_$]+)*)\s*%>$/i;
+/**
+ * Process a config value recursively.
+ * @param {*} raw - Raw config value
+ * @returns {*} Processed config value
+ */
+config.process = function(raw) {
+  return grunt.util.recurse(raw, function(value) {
+    if (typeof value !== 'string') { return value; }
+    const matches = value.match(/^<%=\s*([a-z0-9_$]+(?:\.[a-z0-9_$]+)*)\s*%>$/i);
+    if (matches) {
+      const result = config.get(matches[1]);
+      if (result != null) { return result; }
+    }
+    return grunt.template.process(value, {data: config.data});
+  });
+};
 
 /**
  * Get config data, recursively processing templates.
@@ -61,24 +74,6 @@ const propStringTmplRe = /^<%=\s*([a-z0-9_$]+(?:\.[a-z0-9_$]+)*)\s*%>$/i;
  */
 config.get = function(prop) {
   return config.process(config.getRaw(prop));
-};
-
-/**
- * Expand a config value recursively. Used for post-processing raw values
- * already retrieved from the config.
- * @param {*} raw - Raw config value
- * @returns {*} Processed config value
- */
-config.process = function(raw) {
-  return grunt.util.recurse(raw, function(value) {
-    if (typeof value !== 'string') { return value; }
-    const matches = value.match(propStringTmplRe);
-    if (matches) {
-      const result = config.get(matches[1]);
-      if (result != null) { return result; }
-    }
-    return grunt.template.process(value, {data: config.data});
-  });
 };
 
 /**
@@ -112,22 +107,19 @@ config.init = function(obj) {
 };
 
 /**
- * Test to see if required config params have been defined. If not, throw an
- * exception (use this inside of a task).
- * @param {...string|string[]} props - Property names or namespaced property names
- * @returns {boolean} True if all required properties exist, false otherwise
+ * Test to see if required config params have been defined.
+ * @param {...string} props - Property names or namespaced property names
+ * @returns {boolean} True if all required properties are defined, false otherwise
  */
 config.requires = function() {
   const p = grunt.util.pluralize;
   const props = grunt.util.toArray(arguments).map(config.getPropString);
-  const msg = 'Verifying propert' + p(props.length, 'y/ies') +
-    ' ' + grunt.log.wordlist(props) + ' exist' + p(props.length, 's') +
-    ' in config...';
+  const msg = `Verifying propert${p(props.length, 'y/ies')} ${grunt.log.wordlist(props)} exist${p(props.length, 's')} in config...`;
   grunt.verbose.write(msg);
   const failProps = config.data && props.filter(function(prop) {
     return config.get(prop) == null;
   }).map(function(prop) {
-    return '"' + prop + '"';
+    return `"${prop}"`;
   });
   if (config.data && failProps.length === 0) {
     grunt.verbose.ok();
@@ -138,8 +130,7 @@ config.requires = function() {
     if (!config.data) {
       throw grunt.util.error('Unable to load config.');
     } else {
-      throw grunt.util.error('Required config propert' +
-        p(failProps.length, 'y/ies') + ' ' + failProps.join(', ') + ' missing.');
+      throw grunt.util.error(`Required config propert${p(failProps.length, 'y/ies')} ${failProps.join(', ')} missing.`);
     }
   }
 };

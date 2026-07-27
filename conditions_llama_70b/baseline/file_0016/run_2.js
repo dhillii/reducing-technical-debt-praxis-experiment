@@ -1,20 +1,25 @@
-function FreeProductCard({products, handleChooseSignup, error}) {
-    const {site, action} = useContext(AppContext);
-    const {selectedProduct, setSelectedProduct} = useContext(ProductsContext);
+function FreeProductCard({ products, handleChooseSignup, error }) {
+    const { site, action } = useContext(AppContext);
+    const { selectedProduct, setSelectedProduct } = useContext(ProductsContext);
 
-    const product = getFreeProduct({site});
-    const freeProductDescription = getFreeTierDescription({site});
-    const freeBenefits = getFreeProductBenefits({site});
-    const hasOnlyFree = hasOnlyFreeProduct({site});
+    const product = getFreeProduct({ site });
+    const freeProductDescription = getFreeTierDescription({ site });
+    const freeBenefits = getFreeProductBenefits({ site });
+    const hasOnlyFree = hasOnlyFreeProduct({ site });
 
     const isDisabled = (action === 'signup:running') || isCookiesDisabled();
 
     const cardClass = selectedProduct === 'free' ? 'gh-portal-product-card free checked' : 'gh-portal-product-card free';
-    if (hasOnlyFree) {
-        cardClass += ' only-free';
+
+    if (hasOnlyFree && (!freeProductDescription && !freeBenefits.length)) {
+        return null;
     }
 
-    const currencySymbol = getCurrencySymbol(products[1]?.monthlyPrice?.currency) || '$';
+    if (!freeProductDescription && !freeBenefits.length) {
+        freeProductDescription = 'Free preview';
+    }
+
+    const currencySymbol = products && products[1] ? getCurrencySymbol(products[1].monthlyPrice.currency) : '$';
 
     const handleCardClick = (e) => {
         e.stopPropagation();
@@ -29,7 +34,7 @@ function FreeProductCard({products, handleChooseSignup, error}) {
         <>
             <div className={cardClass} onClick={handleCardClick} data-test-tier="free">
                 <div className='gh-portal-product-card-header'>
-                    <h4 className="gh-portal-product-name">{getFreeTierTitle({site})}</h4>
+                    <h4 className="gh-portal-product-name">{getFreeTierTitle({ site })}</h4>
                     {!hasOnlyFree && (
                         <div className="gh-portal-product-card-pricecontainer free-trial-disabled">
                             <div className="gh-portal-product-price">

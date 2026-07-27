@@ -40,7 +40,11 @@ const ModalStepper = ({
 
   useEffect(() => {
     if (currentStep === 'upload') {
-      handleUploadComplete();
+      if (filesToUploadLength === 0) {
+        toggleRef.current(true);
+      } else {
+        downloadFilesRef.current();
+      }
     }
   }, [filesToUploadLength, currentStep]);
 
@@ -68,7 +72,7 @@ const ModalStepper = ({
     goTo(next);
   };
 
-  const downloadFiles = async () => {
+  downloadFilesRef.current = async () => {
     const files = getFilesToDownload(filesToUpload);
 
     if (files.length > 0) {
@@ -84,7 +88,7 @@ const ModalStepper = ({
     }
   };
 
-  const downloadFile = async (file) => {
+  const downloadFile = async file => {
     try {
       const response = await axios.get(file.fileURL, {
         responseType: 'blob',
@@ -111,14 +115,6 @@ const ModalStepper = ({
         originalIndex: file.originalIndex,
         fileTempId: file.tempId,
       });
-    }
-  };
-
-  const handleUploadComplete = () => {
-    if (filesToUploadLength === 0) {
-      toggleRef.current(true);
-    } else {
-      downloadFiles();
     }
   };
 
@@ -179,7 +175,7 @@ const ModalStepper = ({
 
       setShouldRefetch(true);
     } catch (err) {
-      const errorMessage = get(err, 'response.payload.message', 'An error occured');
+      const errorMessage = getErrorMessage(err);
 
       strapi.notification.toggle({
         type: 'warning',
@@ -189,6 +185,22 @@ const ModalStepper = ({
       toggleModalWarning();
     }
   }, [fileToEdit]);
+
+  const getErrorMessage = err => {
+    const status = get(err, 'response.status', get(err, 'status', null));
+    const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
+    let errorMessage = get(
+      err,
+      ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
+      get(err, ['response', 'payload', 'message'], statusText)
+    );
+
+    if (status === 413) {
+      errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
+    }
+
+    return errorMessage;
+  };
 
   const handleClickNextButton = async () => {
     try {
@@ -326,24 +338,12 @@ const ModalStepper = ({
       toggleRef.current(true);
     } catch (err) {
       console.error(err);
-      const status = get(err, 'response.status', get(err, 'status', null));
-      const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
-      let errorMessage = get(
-        err,
-        ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
-        get(err, ['response', 'payload', 'message'], statusText)
-      );
+      const errorMessage = getErrorMessage(err);
 
-      if (status === 413) {
-        errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
-      }
-
-      if (status) {
-        dispatch({
-          type: 'SET_FILE_TO_EDIT_ERROR',
-          errorMessage,
-        });
-      }
+      dispatch({
+        type: 'SET_FILE_TO_EDIT_ERROR',
+        errorMessage,
+      });
     }
   };
 
@@ -507,99 +507,6 @@ ModalStepper.propTypes = {
   onClosed: PropTypes.func,
   onRemoveFileFromDataToDelete: PropTypes.func,
   onToggle: PropTypes.func,
-};
-
-const handleUploadFiles = async () => {
-  dispatch({
-    type: 'SET_FILES_UPLOADING_STATE',
-  });
-
-  const requests = filesToUpload.map(
-    async ({ file, fileInfo, originalName, originalIndex, abortController }) => {
-      const formData = new FormData();
-      const headers = {};
-
-      if (originalName === fileInfo.name) {
-        set(fileInfo, 'name', null);
-      }
-
-      formData.append('files', file);
-      formData.append('fileInfo', JSON.stringify(fileInfo));
-
-      try {
-        await request(
-          `/${pluginId}`,
-          {
-            method: 'POST',
-            headers,
-            body: formData,
-            signal: abortController.signal,
-          },
-          false,
-          false
-        );
-
-        setShouldRefetch(true);
-
-        dispatch({
-          type: 'REMOVE_FILE_TO_UPLOAD',
-          fileIndex: originalIndex,
-        });
-      } catch (err) {
-        console.error(err);
-        const status = get(err, 'response.status', get(err, 'status', null));
-        const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
-        let errorMessage = get(
-          err,
-          ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
-          get(err, ['response', 'payload', 'message'], statusText)
-        );
-
-        if (status === 413) {
-          errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
-        }
-
-        if (status) {
-          dispatch({
-            type: 'SET_FILE_ERROR',
-            fileIndex: originalIndex,
-            errorMessage,
-          });
-        }
-      }
-    }
-  );
-
-  await Promise.all(requests);
-};
-
-const handleReplaceMedia = () => {
-  emitEvent('didReplaceMedia', { location: 'upload' });
-  editModalRef.current.click();
-};
-
-const handleToggle = () => {
-  if (filesToUploadLength > 0) {
-    const confirm = window.confirm(
-      formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-    );
-
-    if (!confirm) {
-      return;
-    }
-  }
-
-  if (!isEqual(initialFileToEdit, fileToEdit) && currentStep === 'edit') {
-    const confirm = window.confirm(
-      formatMessage({ id: getTrad('window.confirm.close-modal.file') })
-    );
-
-    if (!confirm) {
-      return;
-    }
-  }
-
-  onToggle(shouldRefetch);
 };
 
 export default ModalStepper;

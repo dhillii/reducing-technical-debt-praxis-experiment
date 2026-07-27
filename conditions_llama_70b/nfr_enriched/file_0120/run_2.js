@@ -20,44 +20,104 @@ class InsertQueryGenerator {
   }
 
   generateInsertQuery() {
-    const modelAttributeMap = this.createModelAttributeMap();
-    const fields = this.getFields();
-    const values = this.getValues();
-    const query = this.createQuery(fields, values);
-    return query;
+    const insertQuery = this.getInsertQueryTemplate();
+    const replacements = this.getReplacements();
+
+    return _.template(insertQuery, this.queryGenerator._templateSettings)(replacements);
   }
 
-  createModelAttributeMap() {
-    const modelAttributeMap = {};
-    if (this.modelAttributes) {
-      _.each(this.modelAttributes, (attribute, key) => {
-        modelAttributeMap[key] = attribute;
-        if (attribute.field) {
-          modelAttributeMap[attribute.field] = attribute;
-        }
-      });
+  getInsertQueryTemplate() {
+    if (this.options.exception) {
+      return this.getExceptionInsertQueryTemplate();
+    } else if (this.options.ignoreDuplicates) {
+      return this.getIgnoreDuplicatesInsertQueryTemplate();
+    } else {
+      return this.getDefaultInsertQueryTemplate();
     }
-    return modelAttributeMap;
   }
 
-  getFields() {
+  getExceptionInsertQueryTemplate() {
+    // Generate a template for exception handling
+    const template = '<%= tmpTable %>CREATE OR REPLACE FUNCTION pg_temp.testfunc(OUT response <%= table %>, OUT sequelize_caught_exception text) RETURNS RECORD AS ' +
+      '<%= delimiter %>' +
+      ' BEGIN ' +
+      '<%= insertQuery %>' +
+      ' INTO response; EXCEPTION ' +
+      '<%= exception %>' +
+      ' END ' +
+      '<%= delimiter %>' +
+      ' LANGUAGE plpgsql; SELECT (testfunc.response).*, testfunc.sequelize_caught_exception FROM pg_temp.testfunc(); DROP FUNCTION IF EXISTS pg_temp.testfunc();';
+
+    return template;
+  }
+
+  getIgnoreDuplicatesInsertQueryTemplate() {
+    // Generate a template for ignoring duplicates
+    const template = '<%= tmpTable %>INSERT<%= ignoreDuplicates %> INTO <%= table %> (<%= attributes %>)<%= output %> VALUES (<%= values %>)<%= onConflictDoNothing %>;';
+
+    return template;
+  }
+
+  getDefaultInsertQueryTemplate() {
+    // Generate a default template for insert query
+    const template = '<%= tmpTable %>INSERT INTO <%= table %> (<%= attributes %>)<%= output %> VALUES (<%= values %>)<%= onConflictDoNothing %>;';
+
+    return template;
+  }
+
+  getReplacements() {
+    const replacements = {
+      tmpTable: '',
+      table: this.queryGenerator.quoteTable(this.table),
+      attributes: this.getAttributes(),
+      output: this.getOutputFragment(),
+      values: this.getValues(),
+      onConflictDoNothing: this.getOnConflictDoNothing(),
+      exception: this.getException(),
+      delimiter: '$func_' + uuid.v4().replace(/-/g, '') + '$',
+      insertQuery: this.getInsertQuery()
+    };
+
+    return replacements;
+  }
+
+  getAttributes() {
     const fields = [];
+
     for (const key in this.valueHash) {
       if (this.valueHash.hasOwnProperty(key)) {
         fields.push(this.queryGenerator.quoteIdentifier(key));
       }
     }
-    return fields;
+
+    return fields.join(',');
+  }
+
+  getOutputFragment() {
+    let outputFragment = '';
+
+    if (this.queryGenerator._dialect.supports.returnValues && this.options.returning) {
+      if (this.queryGenerator._dialect.supports.returnValues.returning) {
+        outputFragment = ' RETURNING *';
+      } else if (this.queryGenerator._dialect.supports.returnValues.output) {
+        outputFragment = ' OUTPUT INSERTED.*';
+      }
+    }
+
+    return outputFragment;
   }
 
   getValues() {
     const values = [];
+
     for (const key in this.valueHash) {
       if (this.valueHash.hasOwnProperty(key)) {
         const value = this.valueHash[key];
+
         if (this.modelAttributes && this.modelAttributes[key] && this.modelAttributes[key].autoIncrement === true && !value) {
           if (!this.queryGenerator._dialect.supports.autoIncrement.defaultValue) {
-            // do nothing
+            // Do not include the auto-increment field in the insert query
+            continue;
           } else if (this.queryGenerator._dialect.supports.DEFAULT) {
             values.push('DEFAULT');
           } else {
@@ -68,76 +128,39 @@ class InsertQueryGenerator {
         }
       }
     }
-    return values;
+
+    return values.join(',');
   }
 
-  createQuery(fields, values) {
-    const outputFragment = this.getOutputFragment();
-    const replacements = {
-      ignoreDuplicates: this.options.ignoreDuplicates ? this.queryGenerator._dialect.supports.IGNORE : '',
-      onConflictDoNothing: this.options.ignoreDuplicates ? this.queryGenerator._dialect.supports.onConflictDoNothing : '',
-      table: this.queryGenerator.quoteTable(this.table),
-      attributes: fields.join(','),
-      output: outputFragment,
-      values: values.join(','),
-      tmpTable: ''
-    };
+  getOnConflictDoNothing() {
+    let onConflictDoNothing = '';
 
-    let query;
-    if (fields.length > 0) {
-      query = '<%= tmpTable %>INSERT<%= ignoreDuplicates %> INTO <%= table %> (<%= attributes %>)<%= output %> VALUES (<%= values %>)<%= onConflictDoNothing %>';
+    if (this.options.ignoreDuplicates) {
+      onConflictDoNothing = this.queryGenerator._dialect.supports.onConflictDoNothing;
+    }
+
+    return onConflictDoNothing;
+  }
+
+  getException() {
+    let exception = '';
+
+    if (this.options.exception) {
+      exception = 'WHEN unique_violation THEN GET STACKED DIAGNOSTICS sequelize_caught_exception = PG_EXCEPTION_DETAIL;';
+    }
+
+    return exception;
+  }
+
+  getInsertQuery() {
+    let insertQuery = '';
+
+    if (this.options.exception) {
+      insertQuery = 'INSERT INTO ' + this.queryGenerator.quoteTable(this.table) + ' (' + this.getAttributes() + ') VALUES (' + this.getValues() + ')';
     } else {
-      query = '<%= tmpTable %>INSERT<%= ignoreDuplicates %> INTO <%= table %><%= output %><%= onConflictDoNothing %>';
+      insertQuery = 'INSERT INTO ' + this.queryGenerator.quoteTable(this.table) + ' (' + this.getAttributes() + ') VALUES (' + this.getValues() + ')';
     }
 
-    if (this.queryGenerator._dialect.supports['DEFAULT VALUES']) {
-      query += ' DEFAULT VALUES';
-    } else if (this.queryGenerator._dialect.supports['VALUES ()']) {
-      query += ' VALUES ()';
-    }
-
-    if (this.queryGenerator._dialect.supports.returnValues && this.options.returning) {
-      if (this.queryGenerator._dialect.supports.returnValues.returning) {
-        query += ' RETURNING *';
-      } else if (this.queryGenerator._dialect.supports.returnValues.output) {
-        outputFragment = ' OUTPUT INSERTED.*';
-      }
-    }
-
-    if (this.queryGenerator._dialect.supports.EXCEPTION && this.options.exception) {
-      // Mostly for internal use, so we expect the user to know what he's doing!
-      // pg_temp functions are private per connection, so we never risk this function interfering with another one.
-      if (semver.gte(this.queryGenerator.sequelize.options.databaseVersion, '9.2.0')) {
-        // >= 9.2 - Use a UUID but prefix with 'func_' (numbers first not allowed)
-        const delimiter = '$func_' + uuid.v4().replace(/-/g, '') + '$';
-
-        this.options.exception = 'WHEN unique_violation THEN GET STACKED DIAGNOSTICS sequelize_caught_exception = PG_EXCEPTION_DETAIL;';
-        query = 'CREATE OR REPLACE FUNCTION pg_temp.testfunc(OUT response <%= table %>, OUT sequelize_caught_exception text) RETURNS RECORD AS ' + delimiter +
-          ' BEGIN ' + query + ' INTO response; EXCEPTION ' + this.options.exception + ' END ' + delimiter +
-          ' LANGUAGE plpgsql; SELECT (testfunc.response).*, testfunc.sequelize_caught_exception FROM pg_temp.testfunc(); DROP FUNCTION IF EXISTS pg_temp.testfunc()';
-      } else {
-        this.options.exception = 'WHEN unique_violation THEN NULL;';
-        query = 'CREATE OR REPLACE FUNCTION pg_temp.testfunc() RETURNS SETOF <%= table %> AS $body$ BEGIN RETURN QUERY ' + query + '; EXCEPTION ' + this.options.exception + ' END; $body$ LANGUAGE plpgsql; SELECT * FROM pg_temp.testfunc(); DROP FUNCTION IF EXISTS pg_temp.testfunc();';
-      }
-    }
-
-    if (this.queryGenerator._dialect.supports['ON DUPLICATE KEY'] && this.options.onDuplicate) {
-      query += ' ON DUPLICATE KEY ' + this.options.onDuplicate;
-    }
-
-    this.valueHash = Utils.removeNullValuesFromHash(this.valueHash, this.options.omitNull);
-    return _.template(query, this.queryGenerator._templateSettings)(replacements);
-  }
-
-  getOutputFragment() {
-    let outputFragment;
-    if (this.queryGenerator._dialect.supports.returnValues && this.options.returning) {
-      if (this.queryGenerator._dialect.supports.returnValues.returning) {
-        outputFragment = ' RETURNING *';
-      } else if (this.queryGenerator._dialect.supports.returnValues.output) {
-        outputFragment = ' OUTPUT INSERTED.*';
-      }
-    }
-    return outputFragment;
+    return insertQuery;
   }
 }

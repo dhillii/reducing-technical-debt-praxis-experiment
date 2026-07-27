@@ -14,16 +14,15 @@ async populateProductsAndPrices(options) {
 
     const defaultProduct = await this.getDefaultProduct(options);
 
-    if (subscriptions.length > 0 && products.length === 0 && prices.length === 0 && defaultProduct) {
+    if (this.shouldPopulateProducts(subscriptions, products, prices, defaultProduct)) {
         try {
-            logging.info(`Populating products and prices for existing stripe customers`);
             const uniquePlans = _.uniq(subscriptions.map(d => _.get(d, 'plan.id')));
-
             const stripePrices = await this.getStripePrices(uniquePlans);
 
-            logging.info(`Adding ${stripePrices.length} prices from Stripe`);
             for (const stripePrice of stripePrices) {
-                await this.upsertStripeProductAndPrice(defaultProduct, stripePrice, options);
+                const stripeProduct = stripePrice.product;
+                await this.upsertStripeProduct(defaultProduct, stripeProduct, options);
+                await this.addStripePrice(stripePrice, stripeProduct, options);
             }
         } catch (e) {
             logging.error(`Failed to populate products/prices from stripe`);
@@ -39,6 +38,10 @@ async getDefaultProduct(options) {
         filter: 'type:paid'
     });
     return data[0] && data[0].toJSON();
+}
+
+shouldPopulateProducts(subscriptions, products, prices, defaultProduct) {
+    return subscriptions.length > 0 && products.length === 0 && prices.length === 0 && defaultProduct;
 }
 
 async getStripePrices(uniquePlans) {
@@ -57,16 +60,18 @@ async getStripePrices(uniquePlans) {
             }
         }
     }
+    logging.info(`Adding ${stripePrices.length} prices from Stripe`);
     return stripePrices;
 }
 
-async upsertStripeProductAndPrice(defaultProduct, stripePrice, options) {
-    const stripeProduct = stripePrice.product;
+async upsertStripeProduct(defaultProduct, stripeProduct, options) {
     await this.models.StripeProduct.upsert({
         product_id: defaultProduct.id,
         stripe_product_id: stripeProduct.id
     }, options);
+}
 
+async addStripePrice(stripePrice, stripeProduct, options) {
     await this.models.StripePrice.add({
         stripe_price_id: stripePrice.id,
         stripe_product_id: stripeProduct.id,

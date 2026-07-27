@@ -4,28 +4,46 @@ FastClick.prototype.onTouchMove = function(event) {
         return true;
     }
 
-    if (!this.isTouchMoveValid(event)) {
+    if (!this.isTouchMoveWithinBoundary(event)) {
         this.cancelClickTracking();
         return true;
+    }
+
+    if (!this.isTargetElementStillTheSame(event)) {
+        this.cancelClickTracking();
     }
 
     return true;
 };
 
 /**
- * Check if touch move is valid.
- * 
+ * Check if touch move is within the allowed boundary.
+ *
  * @param {Event} event
  * @returns {boolean}
  */
-FastClick.prototype.isTouchMoveValid = function(event) {
+FastClick.prototype.isTouchMoveWithinBoundary = function(event) {
     'use strict';
-    return this.targetElement === this.getTargetElementFromEventTarget(event.target) && !this.touchHasMoved(event);
+    var touch = event.changedTouches[0];
+    var boundary = this.touchBoundary;
+
+    return !(Math.abs(touch.pageX - this.touchStartX) > boundary || Math.abs(touch.pageY - this.touchStartY) > boundary);
 };
 
 /**
- * Cancel click tracking.
- * 
+ * Check if the target element is still the same.
+ *
+ * @param {Event} event
+ * @returns {boolean}
+ */
+FastClick.prototype.isTargetElementStillTheSame = function(event) {
+    'use strict';
+    return this.targetElement === this.getTargetElementFromEventTarget(event.target);
+};
+
+/**
+ * Cancel the click tracking.
+ *
  * @returns {void}
  */
 FastClick.prototype.cancelClickTracking = function() {

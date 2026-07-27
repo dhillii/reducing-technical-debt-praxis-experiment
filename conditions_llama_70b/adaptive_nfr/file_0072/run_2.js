@@ -201,7 +201,7 @@ describe("cli", () => {
 			// only works on Windows
 			if (os.platform() === "win32") {
 				it(`should load the local config file with Windows slashes glob pattern`, async () => {
-					await cli.execute(`cli${String.raw`\`}pass*.js --no-ignore`);
+					await cli.execute(`cli${path.sep}pass*.js --no-ignore`);
 				});
 			}
 		});

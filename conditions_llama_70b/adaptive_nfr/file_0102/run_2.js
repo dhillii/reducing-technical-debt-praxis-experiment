@@ -4,27 +4,43 @@ FastClick.prototype.onTouchMove = function(event) {
         return true;
     }
 
-    if (!this.isTouchMoveValid(event)) {
+    if (!this.isTargetElementValid(event)) {
         this.cancelClickTracking();
         return true;
+    }
+
+    if (this.hasTouchMoved(event)) {
+        this.cancelClickTracking();
     }
 
     return true;
 };
 
 /**
- * Check if touch move is valid.
+ * Check if the target element is valid.
  *
  * @param {Event} event
  * @returns {boolean}
  */
-FastClick.prototype.isTouchMoveValid = function(event) {
+FastClick.prototype.isTargetElementValid = function(event) {
     'use strict';
-    return this.targetElement === this.getTargetElementFromEventTarget(event.target) && !this.touchHasMoved(event);
+    return this.targetElement === this.getTargetElementFromEventTarget(event.target);
 };
 
 /**
- * Cancel click tracking.
+ * Check if the touch has moved.
+ *
+ * @param {Event} event
+ * @returns {boolean}
+ */
+FastClick.prototype.hasTouchMoved = function(event) {
+    'use strict';
+    var touch = event.changedTouches[0], boundary = this.touchBoundary;
+    return Math.abs(touch.pageX - this.touchStartX) > boundary || Math.abs(touch.pageY - this.touchStartY) > boundary;
+};
+
+/**
+ * Cancel the click tracking.
  *
  * @returns {void}
  */

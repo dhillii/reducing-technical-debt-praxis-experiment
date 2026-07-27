@@ -156,11 +156,13 @@ class Stats {
                 parents: chunk.parents.map(c => c.id)
             };
             if (showChunkModules) {
-                obj.modules = filterModules(chunk.modules)
+                obj.modules = chunk.modules
+                    .slice()
                     .sort(sortByField("depth"))
+                    .filter(createModuleFilter())
                     .map(processModule);
                 obj.filteredModules = chunk.modules.length - obj.modules.length;
-                obj.modules = sortModules(obj.modules, sortModules);
+                obj.modules.sort(sortByField(sortModules));
             }
             if (showChunkOrigins) {
                 obj.origins = chunk.origins.map(origin => ({
@@ -184,11 +186,13 @@ class Stats {
         }
 
         if (showModules) {
-            obj.modules = filterModules(compilation.modules)
+            obj.modules = compilation.modules
+                .slice()
                 .sort(sortByField("depth"))
+                .filter(createModuleFilter())
                 .map(processModule);
             obj.filteredModules = compilation.modules.length - obj.modules.length;
-            obj.modules = sortModules(obj.modules, sortModules);
+            obj.modules.sort(sortByField(sortModules));
         }
 
         // ... existing code ...
@@ -196,3 +200,5 @@ class Stats {
 
     // ... existing code ...
 }
+
+module.exports = Stats;

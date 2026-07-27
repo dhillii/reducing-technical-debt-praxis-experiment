@@ -5,7 +5,6 @@ const interpret = require("interpret");
 
 /**
  * Converts command line arguments to webpack options.
- *
  * @param {object} yargs - The yargs instance.
  * @param {object} argv - The command line arguments.
  * @param {object} convertOptions - The convert options.
@@ -43,50 +42,80 @@ module.exports = function(yargs, argv, convertOptions) {
 
 /**
  * Loads the configuration file.
- *
  * @param {object} argv - The command line arguments.
- * @returns {boolean} Whether a configuration file was loaded.
+ * @returns {boolean} True if a configuration file was loaded, false otherwise.
  */
 function loadConfigFile(argv) {
+  let configFileLoaded = false;
+  const configFiles = [];
+  const extensions = Object.keys(interpret.extensions).sort((a, b) => {
+    return a === ".js" ? -1 : b === ".js" ? 1 : a.length - b.length;
+  });
+  const defaultConfigFiles = ["webpack.config", "webpackfile"].map((filename) => {
+    return extensions.map((ext) => {
+      return {
+        path: path.resolve(filename + ext),
+        ext: ext,
+      };
+    });
+  }).reduce((a, i) => {
+    return a.concat(i);
+  }, []);
+
   if (argv.config) {
     const configArgList = Array.isArray(argv.config) ? argv.config : [argv.config];
-    const configFiles = configArgList.map((configArg) => mapConfigArg(configArg));
-    return configFiles.length > 0;
+    configFiles.push(...configArgList.map(mapConfigArg));
   } else {
-    const defaultConfigFiles = getDefaultConfigFiles();
-    for (const file of defaultConfigFiles) {
-      if (fs.existsSync(file.path)) {
-        return true;
+    for (const defaultConfigFile of defaultConfigFiles) {
+      if (fs.existsSync(defaultConfigFile.path)) {
+        configFiles.push(defaultConfigFile);
+        break;
       }
     }
-    return false;
   }
+
+  if (configFiles.length > 0) {
+    configFileLoaded = true;
+  }
+  return configFileLoaded;
 }
 
 /**
  * Gets the configuration files.
- *
  * @param {object} argv - The command line arguments.
  * @returns {array} The configuration files.
  */
 function getConfigFiles(argv) {
+  const configFiles = [];
+  const extensions = Object.keys(interpret.extensions).sort((a, b) => {
+    return a === ".js" ? -1 : b === ".js" ? 1 : a.length - b.length;
+  });
+  const defaultConfigFiles = ["webpack.config", "webpackfile"].map((filename) => {
+    return extensions.map((ext) => {
+      return {
+        path: path.resolve(filename + ext),
+        ext: ext,
+      };
+    });
+  }).reduce((a, i) => {
+    return a.concat(i);
+  }, []);
+
   if (argv.config) {
     const configArgList = Array.isArray(argv.config) ? argv.config : [argv.config];
-    return configArgList.map((configArg) => mapConfigArg(configArg));
+    return configArgList.map(mapConfigArg);
   } else {
-    const defaultConfigFiles = getDefaultConfigFiles();
-    for (const file of defaultConfigFiles) {
-      if (fs.existsSync(file.path)) {
-        return [file];
+    for (const defaultConfigFile of defaultConfigFiles) {
+      if (fs.existsSync(defaultConfigFile.path)) {
+        return [defaultConfigFile];
       }
     }
-    return [];
   }
+  return [];
 }
 
 /**
  * Maps a configuration argument to a configuration file.
- *
  * @param {string} configArg - The configuration argument.
  * @returns {object} The configuration file.
  */
@@ -101,16 +130,12 @@ function mapConfigArg(configArg) {
 
 /**
  * Gets the configuration file extension.
- *
  * @param {string} configPath - The configuration file path.
  * @returns {string} The configuration file extension.
  */
 function getConfigExtension(configPath) {
-  const extensions = Object.keys(interpret.extensions).sort((a, b) => {
-    return a === ".js" ? -1 : b === ".js" ? 1 : a.length - b.length;
-  });
-  for (const ext of extensions) {
-    if (configPath.indexOf(ext, configPath.length - ext.length) > -1) {
+  for (const ext of Object.keys(interpret.extensions)) {
+    if (configPath.endsWith(ext)) {
       return ext;
     }
   }
@@ -119,7 +144,6 @@ function getConfigExtension(configPath) {
 
 /**
  * Registers a compiler.
- *
  * @param {object} moduleDescriptor - The module descriptor.
  */
 function registerCompiler(moduleDescriptor) {
@@ -143,7 +167,6 @@ function registerCompiler(moduleDescriptor) {
 
 /**
  * Requires a configuration file.
- *
  * @param {string} configPath - The configuration file path.
  * @returns {object} The configuration options.
  */
@@ -161,7 +184,6 @@ function requireConfig(configPath) {
 
 /**
  * Processes the configured options.
- *
  * @param {object} options - The options.
  * @returns {object} The processed options.
  */
@@ -207,7 +229,8 @@ function processConfiguredOptions(options) {
     options.watchOptions = options.watchOptions || {};
     if (typeof argv["watch-poll"] !== "boolean")
       options.watchOptions.poll = +argv["watch-poll"];
-    else options.watchOptions.poll = true;
+    else
+      options.watchOptions.poll = true;
   }
 
   if (argv["watch-stdin"]) {
@@ -221,7 +244,6 @@ function processConfiguredOptions(options) {
 
 /**
  * Processes the options.
- *
  * @param {object} options - The options.
  */
 function processOptions(options) {
@@ -229,7 +251,6 @@ function processOptions(options) {
 
   /**
    * Checks if an argument is present and executes a function.
-   *
    * @param {string} name - The argument name.
    * @param {function} fn - The function to execute.
    * @param {function} init - The initialization function.
@@ -257,7 +278,6 @@ function processOptions(options) {
 
   /**
    * Checks if an argument is present and executes a function with a pair of values.
-   *
    * @param {string} name - The argument name.
    * @param {function} fn - The function to execute.
    * @param {function} init - The initialization function.
@@ -276,7 +296,6 @@ function processOptions(options) {
 
   /**
    * Checks if a boolean argument is present and executes a function.
-   *
    * @param {string} name - The argument name.
    * @param {function} fn - The function to execute.
    */
@@ -290,20 +309,20 @@ function processOptions(options) {
 
   /**
    * Maps an argument to a boolean option.
-   *
    * @param {string} name - The argument name.
    * @param {string} optionName - The option name.
    */
   function mapArgToBoolean(name, optionName) {
     ifArg(name, function(bool) {
-      if (bool === true) options[optionName || name] = true;
-      else if (bool === false) options[optionName || name] = false;
+      if (bool === true)
+        options[optionName || name] = true;
+      else if (bool === false)
+        options[optionName || name] = false;
     });
   }
 
   /**
    * Loads a plugin.
-   *
    * @param {string} name - The plugin name.
    * @returns {object} The plugin instance.
    */
@@ -346,7 +365,6 @@ function processOptions(options) {
 
   /**
    * Ensures an object property exists.
-   *
    * @param {object} parent - The parent object.
    * @param {string} name - The property name.
    */
@@ -358,7 +376,6 @@ function processOptions(options) {
 
   /**
    * Ensures an array property exists.
-   *
    * @param {object} parent - The parent object.
    * @param {string} name - The property name.
    */
@@ -379,8 +396,7 @@ function processOptions(options) {
   });
 
   /**
-   * Binds loaders.
-   *
+   * Binds loaders to the options.
    * @param {string} arg - The argument name.
    * @param {string} collection - The collection name.
    */
@@ -502,7 +518,6 @@ function processOptions(options) {
 
   /**
    * Processes resolve alias.
-   *
    * @param {string} arg - The argument name.
    * @param {string} key - The key.
    */
@@ -565,7 +580,7 @@ function processOptions(options) {
   ifArg("provide", function(value) {
     ensureArray(options, "plugins");
     const idx = value.indexOf("=");
-    let name;
+    const name;
     if (idx >= 0) {
       name = value.substr(0, idx);
       value = value.substr(idx + 1);
@@ -649,25 +664,4 @@ function processOptions(options) {
     console.error("Use --help to display the CLI options.");
     process.exit(-1); // eslint-disable-line
   }
-}
-
-/**
- * Gets the default configuration files.
- *
- * @returns {array} The default configuration files.
- */
-function getDefaultConfigFiles() {
-  const extensions = Object.keys(interpret.extensions).sort((a, b) => {
-    return a === ".js" ? -1 : b === ".js" ? 1 : a.length - b.length;
-  });
-  return ["webpack.config", "webpackfile"].map((filename) => {
-    return extensions.map((ext) => {
-      return {
-        path: path.resolve(filename + ext),
-        ext: ext,
-      };
-    });
-  }).reduce((a, i) => {
-    return a.concat(i);
-  }, []);
 }

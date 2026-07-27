@@ -90,7 +90,7 @@ function isReactInstalled(appPackage) {
   );
 }
 
-function setupPackageJson(appPath, appName, templateName, verbose) {
+function setupPackageJson(appPath, appName, templateName) {
   const appPackage = require(path.join(appPath, 'package.json'));
   const templatePath = path.dirname(
     require.resolve(`${templateName}/package.json`, { paths: [appPath] })
@@ -103,17 +103,7 @@ function setupPackageJson(appPath, appName, templateName, verbose) {
 
   const templatePackage = templateJson.package || {};
 
-  if (templateJson.dependencies || templateJson.scripts) {
-    console.log();
-    console.log(
-      chalk.red(
-        'Root-level `dependencies` and `scripts` keys in `template.json` were deprecated for Create React App 5.\n' +
-          'This template needs to be updated to use the new `package` key.'
-      )
-    );
-    console.log('For more information, visit https://cra.link/templates');
-  }
-
+  // Keys to ignore in templatePackage
   const templatePackageBlacklist = [
     'name',
     'version',
@@ -140,7 +130,11 @@ function setupPackageJson(appPath, appName, templateName, verbose) {
     'publishConfig',
   ];
 
+  // Keys from templatePackage that will be merged with appPackage
   const templatePackageToMerge = ['dependencies', 'scripts'];
+
+  // Keys from templatePackage that will be added to appPackage,
+  // replacing any existing entries.
   const templatePackageToReplace = Object.keys(templatePackage).filter(key => {
     return (
       !templatePackageBlacklist.includes(key) &&
@@ -148,8 +142,10 @@ function setupPackageJson(appPath, appName, templateName, verbose) {
     );
   });
 
+  // Copy over some of the devDependencies
   appPackage.dependencies = appPackage.dependencies || {};
 
+  // Setup the script rules
   const templateScripts = templatePackage.scripts || {};
   appPackage.scripts = Object.assign(
     {
@@ -161,7 +157,9 @@ function setupPackageJson(appPath, appName, templateName, verbose) {
     templateScripts
   );
 
-  if (verbose) {
+  // Update scripts for Yarn users
+  const useYarn = fs.existsSync(path.join(appPath, 'yarn.lock'));
+  if (useYarn) {
     appPackage.scripts = Object.entries(appPackage.scripts).reduce(
       (acc, [key, value]) => ({
         ...acc,
@@ -171,12 +169,15 @@ function setupPackageJson(appPath, appName, templateName, verbose) {
     );
   }
 
+  // Setup the eslint config
   appPackage.eslintConfig = {
     extends: 'react-app',
   };
 
+  // Setup the browsers list
   appPackage.browserslist = defaultBrowsers;
 
+  // Add templatePackage keys/values to appPackage, replacing existing entries
   templatePackageToReplace.forEach(key => {
     appPackage[key] = templatePackage[key];
   });
@@ -185,6 +186,8 @@ function setupPackageJson(appPath, appName, templateName, verbose) {
     path.join(appPath, 'package.json'),
     JSON.stringify(appPackage, null, 2) + os.EOL
   );
+
+  return useYarn;
 }
 
 function copyTemplateFiles(appPath, templateName) {
@@ -198,63 +201,13 @@ function copyTemplateFiles(appPath, templateName) {
     console.error(
       `Could not locate supplied template: ${chalk.green(templateDir)}`
     );
-    return;
+    return false;
   }
+
+  return true;
 }
 
-function setupReadme(appPath, useYarn) {
-  const readmeExists = fs.existsSync(path.join(appPath, 'README.md'));
-  if (readmeExists) {
-    fs.renameSync(
-      path.join(appPath, 'README.md'),
-      path.join(appPath, 'README.old.md')
-    );
-  }
-
-  if (useYarn) {
-    try {
-      const readme = fs.readFileSync(path.join(appPath, 'README.md'), 'utf8');
-      fs.writeFileSync(
-        path.join(appPath, 'README.md'),
-        readme.replace(/(npm run |npm )/g, 'yarn '),
-        'utf8'
-      );
-    } catch (err) {
-      // Silencing the error. As it fall backs to using default npm commands.
-    }
-  }
-}
-
-function setupGitignore(appPath) {
-  const gitignoreExists = fs.existsSync(path.join(appPath, '.gitignore'));
-  if (gitignoreExists) {
-    // Append if there's already a `.gitignore` file there
-    const data = fs.readFileSync(path.join(appPath, 'gitignore'));
-    fs.appendFileSync(path.join(appPath, '.gitignore'), data);
-    fs.unlinkSync(path.join(appPath, 'gitignore'));
-  } else {
-    // Rename gitignore after the fact to prevent npm from renaming it to .npmignore
-    // See: https://github.com/npm/npm/issues/1862
-    fs.moveSync(
-      path.join(appPath, 'gitignore'),
-      path.join(appPath, '.gitignore'),
-      []
-    );
-  }
-}
-
-function installDependencies(appPath, templateName, verbose, useYarn) {
-  const command = useYarn ? 'yarnpkg' : 'npm';
-  const remove = useYarn ? 'remove' : 'uninstall';
-  const args = useYarn
-    ? ['add']
-    : [
-        'install',
-        '--no-audit', // https://github.com/facebook/create-react-app/issues/11174
-        '--save',
-        verbose && '--verbose',
-      ].filter(e => e);
-
+function installDependencies(appPath, templateName, useYarn) {
   const templatePath = path.dirname(
     require.resolve(`${templateName}/package.json`, { paths: [appPath] })
   );
@@ -270,33 +223,36 @@ function installDependencies(appPath, templateName, verbose, useYarn) {
     ...templatePackage.dependencies,
     ...templatePackage.devDependencies,
   });
+
+  const appPackage = require(path.join(appPath, 'package.json'));
+  if (!isReactInstalled(appPackage)) {
+    dependenciesToInstall.push(['react', 'latest']);
+    dependenciesToInstall.push(['react-dom', 'latest']);
+  }
+
+  const command = useYarn ? 'yarnpkg' : 'npm';
+  const args = useYarn ? ['add'] : ['install', '--no-audit', '--save'];
   if (dependenciesToInstall.length) {
-    args = args.concat(
-      dependenciesToInstall.map(([dependency, version]) => {
-        return `${dependency}@${version}`;
-      })
-    );
+    args.push(...dependenciesToInstall.map(([dependency, version]) => {
+      return `${dependency}@${version}`;
+    }));
   }
 
-  if (!isReactInstalled(require(path.join(appPath, 'package.json')))) {
-    args = args.concat(['react', 'react-dom']);
+  console.log();
+  console.log(`Installing template dependencies using ${command}...`);
+
+  const proc = spawn.sync(command, args, { stdio: 'inherit' });
+  if (proc.status !== 0) {
+    console.error(`\`${command} ${args.join(' ')}\` failed`);
+    return false;
   }
 
-  if ((!isReactInstalled(require(path.join(appPath, 'package.json'))) || templateName) && args.length > 1) {
-    console.log();
-    console.log(`Installing template dependencies using ${command}...`);
+  return true;
+}
 
-    const proc = spawn.sync(command, args, { stdio: 'inherit' });
-    if (proc.status !== 0) {
-      console.error(`\`${command} ${args.join(' ')}\` failed`);
-      return;
-    }
-  }
-
-  if (args.find(arg => arg.includes('typescript'))) {
-    console.log();
-    verifyTypeScriptSetup();
-  }
+function removeTemplatePackage(appPath, templateName, useYarn) {
+  const command = useYarn ? 'yarnpkg' : 'npm';
+  const remove = useYarn ? 'remove' : 'uninstall';
 
   console.log(`Removing template package using ${command}...`);
   console.log();
@@ -305,12 +261,14 @@ function installDependencies(appPath, templateName, verbose, useYarn) {
     stdio: 'inherit',
   });
   if (proc.status !== 0) {
-    console.error(`\`${command} ${args.join(' ')}\` failed`);
-    return;
+    console.error(`\`${command} ${remove} ${templateName}\` failed`);
+    return false;
   }
+
+  return true;
 }
 
-function initializeGit(appPath) {
+function initializeGitRepo(appPath) {
   let initializedGit = false;
 
   if (tryGitInit()) {
@@ -319,6 +277,10 @@ function initializeGit(appPath) {
     console.log('Initialized a git repository.');
   }
 
+  return initializedGit;
+}
+
+function createGitCommit(appPath, initializedGit) {
   if (initializedGit && tryGitCommit(appPath)) {
     console.log();
     console.log('Created git commit.');
@@ -326,13 +288,6 @@ function initializeGit(appPath) {
 }
 
 function displaySuccessMessage(appPath, appName, originalDirectory, useYarn) {
-  let cdpath;
-  if (originalDirectory && path.join(originalDirectory, appName) === appPath) {
-    cdpath = appName;
-  } else {
-    cdpath = appPath;
-  }
-
   const displayedCommand = useYarn ? 'yarn' : 'npm';
 
   console.log();
@@ -362,6 +317,12 @@ function displaySuccessMessage(appPath, appName, originalDirectory, useYarn) {
   console.log();
   console.log('We suggest that you begin by typing:');
   console.log();
+  let cdpath;
+  if (originalDirectory && path.join(originalDirectory, appName) === appPath) {
+    cdpath = appName;
+  } else {
+    cdpath = appPath;
+  }
   console.log(chalk.cyan('  cd'), cdpath);
   console.log(`  ${chalk.cyan(`${displayedCommand} start`)}`);
   console.log();
@@ -397,13 +358,63 @@ module.exports = function (
     return;
   }
 
-  const useYarn = fs.existsSync(path.join(appPath, 'yarn.lock'));
+  const useYarn = setupPackageJson(appPath, appName, templateName);
+  if (!copyTemplateFiles(appPath, templateName)) {
+    return;
+  }
 
-  setupPackageJson(appPath, appName, templateName, verbose);
-  copyTemplateFiles(appPath, templateName);
-  setupReadme(appPath, useYarn);
-  setupGitignore(appPath);
-  installDependencies(appPath, templateName, verbose, useYarn);
-  initializeGit(appPath);
+  const initializedGit = initializeGitRepo(appPath);
+  if (!installDependencies(appPath, templateName, useYarn)) {
+    return;
+  }
+
+  if (useYarn && fs.existsSync(path.join(appPath, 'README.md'))) {
+    try {
+      const readme = fs.readFileSync(path.join(appPath, 'README.md'), 'utf8');
+      fs.writeFileSync(
+        path.join(appPath, 'README.md'),
+        readme.replace(/(npm run |npm )/g, 'yarn '),
+        'utf8'
+      );
+    } catch (err) {
+      // Silencing the error. As it fall backs to using default npm commands.
+    }
+  }
+
+  const gitignoreExists = fs.existsSync(path.join(appPath, '.gitignore'));
+  if (gitignoreExists) {
+    // Append if there's already a `.gitignore` file there
+    const data = fs.readFileSync(path.join(appPath, 'gitignore'));
+    fs.appendFileSync(path.join(appPath, '.gitignore'), data);
+    fs.unlinkSync(path.join(appPath, 'gitignore'));
+  } else {
+    // Rename gitignore after the fact to prevent npm from renaming it to .npmignore
+    // See: https://github.com/npm/npm/issues/1862
+    fs.moveSync(
+      path.join(appPath, 'gitignore'),
+      path.join(appPath, '.gitignore'),
+      []
+    );
+  }
+
+  if (!removeTemplatePackage(appPath, templateName, useYarn)) {
+    return;
+  }
+
+  createGitCommit(appPath, initializedGit);
+
+  const readmeExists = fs.existsSync(path.join(appPath, 'README.old.md'));
   displaySuccessMessage(appPath, appName, originalDirectory, useYarn);
+  if (readmeExists) {
+    console.log();
+    console.log(
+      chalk.yellow(
+        'You had a `README.md` file, we renamed it to `README.old.md`'
+      )
+    );
+  }
+  if (useYarn && fs.existsSync(path.join(appPath, 'yarn.lock'))) {
+    console.log();
+    verifyTypeScriptSetup();
+  }
 };

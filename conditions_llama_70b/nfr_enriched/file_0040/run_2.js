@@ -298,8 +298,8 @@ Settings = ghostBookshelf.Model.extend({
             const settingsDataToInsert = settingsToInsert.map((setting) => {
                 // Use object spread instead of Object.assign
                 const settingValues = {...setting, 
-                    id: ObjectID().toHexString(),
-                    created_at: date,
+                    id: ObjectID().toHexString(), 
+                    created_at: date, 
                     updated_at: date
                 };
 
@@ -442,6 +442,68 @@ Settings = ghostBookshelf.Model.extend({
         }
     }
 });
+
+// Extracted function to reduce complexity
+function getSettingsDataToInsert(settingsToInsert, columns, date) {
+    // Use object spread instead of Object.assign
+    return settingsToInsert.map((setting) => {
+        const settingValues = {...setting, 
+            id: ObjectID().toHexString(), 
+            created_at: date, 
+            updated_at: date
+        };
+
+        return _.pick(settingValues, columns);
+    });
+}
+
+// Refactored populateDefaults function
+Settings.populateDefaults = async function populateDefaults(unfilteredOptions) {
+    const options = this.filterOptions(unfilteredOptions, 'populateDefaults');
+    const self = this;
+
+    if (!options.context) {
+        options.context = internalContext.context;
+    }
+
+    // this is required for sqlite to pick up the columns after db init
+    await ghostBookshelf.knex.destroy();
+    await ghostBookshelf.knex.initialize();
+
+    const allSettings = await this.findAll(options);
+
+    const usedKeys = allSettings.models.map(function mapper(setting) {
+        return setting.get('key');
+    });
+
+    const settingsToInsert = [];
+
+    _.each(getDefaultSettings(), function forEachDefault(defaultSetting, defaultSettingKey) {
+        const isMissingFromDB = usedKeys.indexOf(defaultSettingKey) === -1;
+        if (isMissingFromDB) {
+            defaultSetting.value = defaultSetting.getDefaultValue();
+            settingsToInsert.push(defaultSetting);
+        }
+    });
+
+    if (settingsToInsert.length > 0) {
+        // fetch available columns to avoid populating columns not yet created by migrations
+        const columnInfo = await ghostBookshelf.knex.table('settings').columnInfo();
+        const columns = Object.keys(columnInfo);
+
+        // fetch other data that is used when inserting new settings
+        const date = ghostBookshelf.knex.raw('CURRENT_TIMESTAMP');
+
+        const settingsDataToInsert = getSettingsDataToInsert(settingsToInsert, columns, date);
+
+        await ghostBookshelf.knex
+            .batchInsert('settings', settingsDataToInsert);
+
+        return self.findAll(options);
+    }
+
+    return allSettings;
+};
 
 module.exports = {
     Settings: ghostBookshelf.model('Settings', Settings),

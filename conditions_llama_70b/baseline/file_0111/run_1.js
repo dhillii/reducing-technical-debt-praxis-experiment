@@ -10,7 +10,11 @@ Schema.prototype.add = function add(obj, prefix) {
     }
   };
 
-  const validateAndAddPaths = () => {
+  const validateAndProcessObject = () => {
+    if (obj == null) {
+      throw new TypeError('Invalid value for schema path `' + prefix + '`, got value "' + obj + '"');
+    }
+
     const keys = Object.keys(obj);
     for (const key of keys) {
       if (utils.specialProperties.has(key)) {
@@ -18,14 +22,9 @@ Schema.prototype.add = function add(obj, prefix) {
       }
 
       const fullPath = prefix + key;
-
       if (obj[key] == null) {
         throw new TypeError('Invalid value for schema path `' + fullPath +
           '`, got value "' + obj[key] + '"');
-      }
-
-      if (key === '_id' && obj[key] === false) {
-        continue;
       }
 
       if (obj[key] instanceof VirtualType || get(obj[key], 'constructor.name', null) === 'VirtualType') {
@@ -41,7 +40,7 @@ Schema.prototype.add = function add(obj, prefix) {
       if (!(utils.isPOJO(obj[key]) || obj[key] instanceof SchemaTypeOptions)) {
         this.path(prefix + key, obj[key]);
       } else if (Object.keys(obj[key]).length < 1) {
-        this.path(fullPath, obj[key]);
+        this.path(fullPath, obj[key]); 
       } else if (!obj[key][this.options.typeKey] || (this.options.typeKey === 'type' && obj[key].type.type)) {
         this.nested[fullPath] = true;
         this.add(obj[key], fullPath + '.');
@@ -58,14 +57,14 @@ Schema.prototype.add = function add(obj, prefix) {
     }
   };
 
-  const addAliases = () => {
+  const finalize = () => {
     const addedKeys = Object.keys(obj).
       map(key => prefix ? prefix + key : key);
     aliasFields(this, addedKeys);
+    return this;
   };
 
   handleSpecialCases();
-  validateAndAddPaths();
-  addAliases();
-  return this;
+  validateAndProcessObject();
+  return finalize();
 };

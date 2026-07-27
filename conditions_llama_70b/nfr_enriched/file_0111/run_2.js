@@ -66,7 +66,7 @@ Schema.prototype.add = function add(obj, prefix) {
 
 // Extracted function to handle adding aliases
 function aliasFields(schema, paths) {
-  paths = paths || Object.keys(schema.paths);
+  // Iterate over paths and add aliases
   for (const path of paths) {
     const options = get(schema.paths[path], 'options');
     if (options == null) {

@@ -136,7 +136,7 @@ define([
                 if (parts.length > 1) {
                     const key  = parts.shift();
                     const val  = parts.length > 0 ? parts.join('=') : undefined;
-                    const decodedVal = val ? decodeURIComponent(val.trim()) : null;
+                    const decodedVal = val ? decodeURIComponent(val.trim()) : undefined;
                     ret[key] = decodedVal;
                 }
             });

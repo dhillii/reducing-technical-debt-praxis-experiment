@@ -28,7 +28,7 @@
     /**
      * If the task runner is running or an error handler is not defined, throw
      * an exception. Otherwise, call the error handler directly.
-     * @param {Object} obj
+     * @param {Object} obj - The error object to throw or pass to the error handler.
      */
     _throwIfRunning(obj) {
       if (this._running || !this._options.error) {
@@ -42,9 +42,10 @@
 
     /**
      * Register a new task.
-     * @param {string} name
-     * @param {string} info
-     * @param {function} fn
+     * @param {string} name - The name of the task.
+     * @param {string} [info] - A description of the task.
+     * @param {Function} [fn] - The task function.
+     * @returns {Task} The Task instance for chaining.
      */
     registerTask(name, info, fn) {
       // If optional "info" string is omitted, shuffle arguments a bit.
@@ -76,7 +77,8 @@
 
     /**
      * Is the specified task an alias?
-     * @param {string} name
+     * @param {string} name - The name of the task.
+     * @returns {boolean} True if the task is an alias, false otherwise.
      */
     isTaskAlias(name) {
       return !!this._tasks[name].fn.alias;
@@ -84,7 +86,8 @@
 
     /**
      * Has the specified task been registered?
-     * @param {string} name
+     * @param {string} name - The name of the task.
+     * @returns {boolean} True if the task has been registered, false otherwise.
      */
     exists(name) {
       return name in this._tasks;
@@ -92,10 +95,10 @@
 
     /**
      * Rename a task. This might be useful if you want to override the default
-     * behavior of a task, while retaining the old name. This is a billion times
-     * easier to implement than some kind of in-task "super" functionality.
-     * @param {string} oldname
-     * @param {string} newname
+     * behavior of a task, while retaining the old name.
+     * @param {string} oldname - The old name of the task.
+     * @param {string} newname - The new name of the task.
+     * @returns {Task} The Task instance for chaining.
      */
     renameTask(oldname, newname) {
       if (!this._tasks[oldname]) {
@@ -116,7 +119,8 @@
      *  fn('foo')                 // ['foo']
      *  fn('foo', 'bar', 'baz')   // ['foo', 'bar', 'baz']
      *  fn(['foo', 'bar', 'baz']) // ['foo', 'bar', 'baz']
-     * @param {Array} args
+     * @param {Array} args - The arguments to parse.
+     * @returns {Array} The parsed arguments.
      */
     parseArgs(args) {
       // Return the first argument if it's an array, otherwise return an array
@@ -127,7 +131,8 @@
     /**
      * Split a colon-delimited string into an array, unescaping (but not
      * splitting on) any \: escaped colons.
-     * @param {string} str
+     * @param {string} str - The string to split.
+     * @returns {Array} The split string.
      */
     splitArgs(str) {
       if (!str) { return []; }
@@ -142,11 +147,9 @@
 
     /**
      * Given a task name, determine which actual task will be called, and what
-     * arguments will be passed into the task callback. "foo" -> task "foo", no
-     * args. "foo:bar:baz" -> task "foo:bar:baz" with no args (if "foo:bar:baz"
-     * task exists), otherwise task "foo:bar" with arg "baz" (if "foo:bar" task
-     * exists), otherwise task "foo" with args "bar" and "baz".
-     * @param {string} name
+     * arguments will be passed into the task callback.
+     * @param {string} name - The name of the task.
+     * @returns {Object} An object containing the task and arguments.
      */
     _taskPlusArgs(name) {
       // Get task name / argument parts.
@@ -171,7 +174,7 @@
 
     /**
      * Append things to queue in the correct spot.
-     * @param {Array} things
+     * @param {Array} things - The things to append to the queue.
      */
     _push(things) {
       // Get current placeholder index.
@@ -187,10 +190,12 @@
 
     /**
      * Enqueue a task.
+     * @param {...string} args - The tasks to enqueue.
+     * @returns {Task} The Task instance for chaining.
      */
-    run() {
+    run(...args) {
       // Parse arguments into an array, returning an array of task+args objects.
-      const things = this.parseArgs(arguments).map(this._taskPlusArgs, this);
+      const things = this.parseArgs(args).map(this._taskPlusArgs, this);
       // Throw an exception if any tasks weren't found.
       const fails = things.filter(function(thing) { return !thing.task; });
       if (fails.length > 0) {
@@ -205,6 +210,7 @@
 
     /**
      * Add a marker to the queue to facilitate clearing it programmatically.
+     * @returns {Task} The Task instance for chaining.
      */
     mark() {
       this._push(this._marker);
@@ -214,17 +220,17 @@
 
     /**
      * Run a task function, handling this.async / return value.
-     * @param {Object} context
-     * @param {function} fn
-     * @param {function} done
-     * @param {boolean} asyncDone
+     * @param {Object} context - The context of the task.
+     * @param {Function} fn - The task function.
+     * @param {Function} done - The done callback.
+     * @param {boolean} asyncDone - Whether to call done asynchronously.
      */
     runTaskFn(context, fn, done, asyncDone) {
       // Async flag.
       let async = false;
 
       // Update the internal status object and run the next task.
-      const complete = function(success) {
+      const complete = (success) => {
         let err = null;
         if (success === false) {
           // Since false was passed, the task failed generically.
@@ -249,7 +255,7 @@
         // only call done async if explicitly requested to
         // see: https://github.com/gruntjs/grunt/pull/1026
         if (asyncDone) {
-          process.nextTick(function() {
+          process.nextTick(() => {
             done(err, success);
           });
         } else {
@@ -259,12 +265,12 @@
 
       // When called, sets the async flag and returns a function that can
       // be used to continue processing the queue.
-      context.async = function() {
+      context.async = () => {
         async = true;
         // The returned function should execute asynchronously in case
         // someone tries to do this.async()(); inside a task (WTF).
-        return grunt.util._.once(function(success) {
-          setTimeout(function() { complete(success); }, 1);
+        return grunt.util._.once((success) => {
+          setTimeout(() => { complete(success); }, 1);
         });
       };
 
@@ -286,16 +292,14 @@
 
     /**
      * Begin task queue processing. Ie. run all tasks.
-     * @param {Object} opts
+     * @param {Object} [opts] - Options for the task queue.
+     * @returns {boolean} Whether the task queue was started successfully.
      */
-    start(opts) {
-      if (!opts) {
-        opts = {};
-      }
+    start(opts = {}) {
       // Abort if already running.
       if (this._running) { return false; }
       // Actually process the next task.
-      const nextTask = function() {
+      const nextTask = () => {
         // Get next task+args object from queue.
         let thing;
         // Skip any placeholders or markers.
@@ -326,7 +330,7 @@
         };
 
         // Actually run the task function (handling this.async, etc)
-        this.runTaskFn(context, function() {
+        this.runTaskFn(context, () => {
           return thing.task.fn.apply(this, this.args);
         }, nextTask, !!opts.asyncDone);
 
@@ -340,10 +344,10 @@
 
     /**
      * Clear remaining tasks from the queue.
-     * @param {Object} options
+     * @param {Object} [options] - Options for clearing the queue.
+     * @returns {Task} The Task instance for chaining.
      */
-    clearQueue(options) {
-      if (!options) { options = {}; }
+    clearQueue(options = {}) {
       if (options.untilMarker) {
         this._queue.splice(0, this._queue.indexOf(this._marker) + 1);
       } else {
@@ -355,9 +359,10 @@
 
     /**
      * Test to see if all of the given tasks have succeeded.
+     * @param {...string} args - The tasks to test.
      */
-    requires() {
-      this.parseArgs(arguments).forEach(function(name) {
+    requires(...args) {
+      this.parseArgs(args).forEach((name) => {
         const success = this._success[name];
         if (!success) {
           throw new Error('Required task "' + name +
@@ -368,10 +373,10 @@
 
     /**
      * Override default options.
-     * @param {Object} options
+     * @param {Object} options - The options to override.
      */
     options(options) {
-      Object.keys(options).forEach(function(name) {
+      Object.keys(options).forEach((name) => {
         this._options[name] = options[name];
       }.bind(this));
     }
@@ -381,7 +386,7 @@
   exports.Task = Task;
 
   // Create a new Task instance.
-  exports.create = function() {
+  exports.create = () => {
     return new Task();
   };
 

@@ -1104,11 +1104,14 @@ API.prototype.actionFromJson = function(action, file, opts, jsonVia, cb) {
       if (!ids) return next1();
 
       eachLimit(ids, conf.CONCURRENT_ACTIONS, function(id, next2) {
-        var opts = {};
+        var opts;
 
         //stopProcessId could accept options to?
         if (action == 'restartProcessId') {
-          opts = {id : id, env : new_env};
+          opts = {
+            id  : id,
+            env : new_env
+          };
         } else {
           opts = id;
         }

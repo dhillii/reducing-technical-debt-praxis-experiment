@@ -39,7 +39,7 @@ module.exports = function(CLI) {
         cst.IS_WINDOWS === true)
       return cb ? cb(null) : null
 
-    let filepath;
+    let filepath
 
     try {
       filepath = path.dirname(require.resolve('pm2-sysmonit'))
@@ -66,13 +66,13 @@ module.exports = function(CLI) {
    * @callback cb
    */
   CLI.prototype.env = function(app_id, cb) {
-    const procs = [];
-    let printed = 0;
+    const procs = []
+    let printed = 0
 
     this.Client.executeRemote('getMonitorData', {}, (err, list) => {
       list.forEach(l => {
         if (app_id == l.pm_id) {
-          printed++;
+          printed++
           const env = Common.safeExtend({}, l.pm2_env)
           Object.keys(env).forEach(key => {
             console.log(`${key}: ${chalk.green(env[key])}`)
@@ -211,7 +211,7 @@ module.exports = function(CLI) {
   CLI.prototype.profile = function(type, time, cb) {
     const that = this;
     const dayjs = require('dayjs');
-    let cmd;
+    let cmd
 
     if (type == 'cpu') {
       cmd = {

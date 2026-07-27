@@ -719,9 +719,13 @@ module.exports = {
         }
       }
 
-      checkFirstNodeLineIndent(node, nodeIndent);
-
-      elementsIndent = nodeIndent + indentSize * options[node.type];
+      if (options[node.type] === "first") {
+        elementsIndent = elements.length
+          ? elements[0].loc.start.column
+          : 0;
+      } else {
+        elementsIndent = nodeIndent + indentSize * options[node.type];
+      }
 
       if (isNodeInVarOnTop(node, parentVarNode)) {
         elementsIndent +=
@@ -955,8 +959,7 @@ module.exports = {
         }
 
         const propertyIndent =
-          getNodeIndent(node).goodChar +
-          indentSize * options.MemberExpression;
+          getNodeIndent(node).goodChar + indentSize * options.MemberExpression;
 
         const checkNodes = [node.property];
 
