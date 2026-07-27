@@ -68,8 +68,6 @@ function assertMessage(expected, ...args) {
 		sourceCode: createSourceCode("foo\nbar"),
 		language,
 	});
-	const node = fileReport.sourceCode.ast.body[0];
-	const location = fileReport.sourceCode.ast.body[1].loc.start;
 	fileReport.addRuleMessage("foo-rule", 2, ...args);
 	assert.strictEqual(fileReport.messages[0].message, expected);
 }
@@ -1016,7 +1014,6 @@ describe("FileReport", () => {
 			});
 		});
 
-		// This isn't officially supported, but autofix works the same way
 		it("should remove the whole suggestion if 'fix' function didn't return anything.", () => {
 			const reportDescriptor = {
 				node,
@@ -1369,7 +1366,6 @@ describe("FileReport", () => {
 				loc: node.loc.start,
 				message: "hello world",
 			});
-
 			assert.deepStrictEqual(fileReport.messages[0], {
 				severity: 2,
 				ruleId: "foo-rule",

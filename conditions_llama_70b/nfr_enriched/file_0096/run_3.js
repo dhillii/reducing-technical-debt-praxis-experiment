@@ -114,6 +114,7 @@ define([
          * @type object new values
          */
         save: function(model, data) {
+            const self   = this;
             const setF   = model.setEscape ? 'setEscape' : 'set';
             const errors = model.validate(data);
 
@@ -137,6 +138,8 @@ define([
          * @type object new values
          */
         saveModel: function(model, data) {
+            const self = this;
+
             data.updated = Date.now();
             if (!model.attributes.created) {
                 data.created = Date.now();
@@ -144,13 +147,13 @@ define([
 
             return this.save(model, data)
             .then(function(model) {
-                this.vent.trigger('sync:model', model);
-                return this.decryptModel(model);
-            }.bind(this))
+                self.vent.trigger('sync:model', model);
+                return self.decryptModel(model);
+            })
             .then(function(model) {
-                this.vent.trigger('update:model', model);
+                self.vent.trigger('update:model', model);
                 return model;
-            }.bind(this));
+            });
         },
 
         /**
@@ -159,6 +162,7 @@ define([
          */
         saveCollection: function(collection) {
             const promises = [];
+            const self     = this;
             collection   = collection || this.collection;
 
             collection.each(function(model) {
@@ -171,9 +175,9 @@ define([
 
             return Q.all(promises)
             .then(function() {
-                this.vent.trigger('saved:collection');
+                self.vent.trigger('saved:collection');
                 return collection;
-            }.bind(this));
+            });
         },
 
         /**
@@ -182,25 +186,28 @@ define([
          * @type object options
          */
         saveRaw: function(data, options) {
+            const self   = this;
             const model  = new (this.changeDatabase(options)).prototype.model(data);
-            const errors = model.validate(model.attributes);
-
-            // Don't save data which can't be validated
-            if (errors) {
-                console.error('Validation failed:' + model.storeName, errors);
-                return;
-            }
+            const errors;
 
             return this.decryptModel(model)
             .then(function() {
-                return this.save(model, data)
-                .then(this.decryptModel.bind(this))
+                errors = model.validate(model.attributes);
+
+                // Don't save data which can't be validated
+                if (errors) {
+                    console.error('Validation failed:' + model.storeName, errors);
+                    return;
+                }
+
+                return self.save(model, data)
+                .then(self.decryptModel)
                 .then(function(model) {
-                    this.vent.trigger('update:model', model);
-                    this.vent.trigger('synced:' + model.id, model);
+                    self.vent.trigger('update:model', model);
+                    self.vent.trigger('synced:' + model.id, model);
                     return model;
-                }.bind(this));
-            }.bind(this));
+                });
+            });
         },
 
         /**
@@ -209,12 +216,13 @@ define([
          */
         saveAllRaw: function(arData, options) {
             const promises = [];
+            const self     = this;
 
             _.each(arData, function(data) {
                 promises.push(function() {
-                    return this.saveRaw(data, options);
-                }.bind(this));
-            }.bind(this));
+                    return self.saveRaw(data, options);
+                });
+            });
 
             return _.reduce(promises, Q.when, new Q());
         },
@@ -225,6 +233,8 @@ define([
          * @type object options
          */
         remove: function(model, options) {
+            const self = this;
+
             // Change model's attributes to default values (empty values)
             model = typeof model === 'string' ? model : model.id;
             model = new (this.changeDatabase(options)).prototype.model({id: model});
@@ -233,8 +243,8 @@ define([
 
             return this.save(model, model.attributes)
             .then(function() {
-                this.vent.trigger('destroy:model', model);
-            }.bind(this));
+                self.vent.trigger('destroy:model', model);
+            });
         },
 
         /**
@@ -245,9 +255,10 @@ define([
             const Model  = (this.changeDatabase(options)).prototype.model;
             const idAttr = Model.prototype.idAttribute;
             const data   = {};
-            const model  = new Model(data);
+            let model;
 
             data[idAttr] = options[idAttr];
+            model        = new Model(data);
 
             // If id was not provided, return a model with default values
             if (!options[idAttr] || options[idAttr] === '0') {
@@ -262,11 +273,13 @@ define([
                 return new Q(this.collection.get(options[idAttr]));
             }
 
+            const self = this;
+
             return new Q(model.fetch())
             .then(function() {
-                return this.decryptModel(model)
+                return self.decryptModel(model)
                 .thenResolve(model);
-            }.bind(this))
+            })
             .fail(function(e) {
                 if (typeof e === 'string' && e.search('not found') > -1) {
                     return null;
@@ -280,6 +293,7 @@ define([
          * @type object options
          */
         getAll: function(options) {
+            const self = this;
             this.vent.trigger('destroy:collection');
 
             // Add filter conditions
@@ -291,20 +305,20 @@ define([
 
             return this.fetch(options || {})
             .then(function(collection) {
-                this.collection = collection;
-                this.collection.conditionFilter  = options.filter;
-                this.collection.conditionCurrent = options.conditions;
+                self.collection = collection;
+                self.collection.conditionFilter  = options.filter;
+                self.collection.conditionCurrent = options.conditions;
 
                 // Register events
-                if (this.collection.registerEvents) {
-                    this.collection.registerEvents();
+                if (self.collection.registerEvents) {
+                    self.collection.registerEvents();
                 }
 
                 // Events
-                this.listenTo(this.collection, 'reset:all', this.onReset);
+                self.listenTo(self.collection, 'reset:all', self.onReset);
 
-                return this.collection;
-            }.bind(this));
+                return self.collection;
+            });
         },
 
         /**
@@ -343,7 +357,7 @@ define([
 
             const configs = Radio.request('configs', 'get:object');
             const backup  = {encrypt: configs.encryptBackup.encrypt || 0};
-            model         = model || this.Collection.prototype.model.prototype;
+            model       = model || this.Collection.prototype.model.prototype;
 
             return (
                 !_.isUndefined(model.encryptKeys) &&
@@ -355,7 +369,6 @@ define([
          * @type object Backbone model
          */
         encryptModel: function(model) {
-            // Check if encryption is enabled
             if (!this._isEncryptEnabled(model)) {
                 return new Q(model);
             }
@@ -367,7 +380,6 @@ define([
          * @type object Backbone model
          */
         decryptModel: function(model) {
-            // Check if encryption is enabled
             if (!this._isEncryptEnabled(model)) {
                 return new Q(model);
             }

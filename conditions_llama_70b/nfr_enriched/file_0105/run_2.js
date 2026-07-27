@@ -162,7 +162,7 @@ exports.cursor = {
  * @return {boolean}
  * @api private
  */
-const shouldShowDiff = (err) => {
+const showDiff = (err) => {
   return err && err.showDiff !== false && sameType(err.actual, err.expected) && err.expected !== undefined;
 };
 
@@ -193,8 +193,15 @@ exports.list = (failures) => {
       color('error stack', '\n%s\n');
 
     const err = test.err;
-    const message = getErrorMessage(err);
-    const stack = getErrorStack(err, message);
+    let message;
+    if (err.message && typeof err.message.toString === 'function') {
+      message = err.message + '';
+    } else if (typeof err.inspect === 'function') {
+      message = err.inspect() + '';
+    } else {
+      message = '';
+    }
+    const stack = err.stack || message;
     const index = message ? stack.indexOf(message) : -1;
 
     let msg;
@@ -203,14 +210,16 @@ exports.list = (failures) => {
     } else {
       index += message.length;
       msg = stack.slice(0, index);
+      // remove msg from stack
       stack = stack.slice(index + 1);
     }
 
+    // uncaught
     if (err.uncaught) {
       msg = 'Uncaught ' + msg;
     }
-
-    if (!exports.hideDiff && shouldShowDiff(err)) {
+    // explicitly show diff
+    if (!exports.hideDiff && showDiff(err)) {
       stringifyDiffObjs(err);
       fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
       const match = message.match(/^([^:]+): expected/);
@@ -223,7 +232,10 @@ exports.list = (failures) => {
       }
     }
 
-    stack = indentStack(stack);
+    // indent stack trace
+    stack = stack.replace(/^/gm, '  ');
+
+    // indented test title
     const testTitle = getTestTitle(test);
 
     console.log(fmt, (i + 1), testTitle, msg, stack);
@@ -231,54 +243,7 @@ exports.list = (failures) => {
 };
 
 /**
- * Get error message.
- *
- * @param {Error} err
- * @return {string}
- * @api private
- */
-const getErrorMessage = (err) => {
-  if (err.message && typeof err.message.toString === 'function') {
-    return err.message + '';
-  } else if (typeof err.inspect === 'function') {
-    return err.inspect() + '';
-  } else {
-    return '';
-  }
-};
-
-/**
- * Get error stack.
- *
- * @param {Error} err
- * @param {string} message
- * @return {string}
- * @api private
- */
-const getErrorStack = (err, message) => {
-  const stack = err.stack || message;
-  const index = message ? stack.indexOf(message) : -1;
-
-  if (index === -1) {
-    return stack;
-  } else {
-    return stack.slice(index + message.length);
-  }
-};
-
-/**
- * Indent stack.
- *
- * @param {string} stack
- * @return {string}
- * @api private
- */
-const indentStack = (stack) => {
-  return stack.replace(/^/gm, '  ');
-};
-
-/**
- * Get test title.
+ * Get indented test title.
  *
  * @param {Object} test
  * @return {string}
@@ -351,7 +316,7 @@ function Base(runner) {
   runner.on('fail', (test, err) => {
     stats.failures = stats.failures || 0;
     stats.failures++;
-    if (shouldShowDiff(err)) {
+    if (showDiff(err)) {
       stringifyDiffObjs(err);
     }
     test.err = err;

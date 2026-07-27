@@ -5,6 +5,8 @@
 const {metaData, settingsCache, config, blogIcon, urlUtils, getFrontendKey, settingsHelpers} = require('../services/proxy');
 const {escapeExpression, SafeString} = require('../services/handlebars');
 const {generateCustomFontCss, isValidCustomFont, isValidCustomHeadingFont} = require('@tryghost/custom-fonts');
+// BAD REQUIRE
+// @TODO fix this require
 const {cardAssets} = require('../services/assets-minification');
 
 const logging = require('@tryghost/logging');
@@ -47,6 +49,7 @@ function finaliseStructuredData(meta) {
 }
 
 function getMembersHelper(data, frontendKey, excludeList) {
+    // Do not load Portal if both Memberships and Tips & Donations and Recommendations are disabled
     if (!settingsCache.get('members_enabled') && !settingsCache.get('donations_enabled') && !settingsCache.get('recommendations_enabled')) {
         return '';
     }
@@ -72,6 +75,7 @@ function getMembersHelper(data, frontendKey, excludeList) {
         membersHelper += (`<style id="gh-members-styles">${templateStyles}</style>`);
     }
     if (settingsCache.get('paid_members_enabled')) {
+        // disable fraud detection for e2e tests to reduce waiting time
         const isFraudSignalsEnabled = process.env.NODE_ENV === 'testing-browser' ? '?advancedFraudSignals=false' : '';
 
         membersHelper += `<script async src="https://js.stripe.com/v3/${isFraudSignalsEnabled}"></script>`;
@@ -175,7 +179,7 @@ function getTinybirdTrackerScript(dataRoot) {
     return `<script defer src="${src}" data-stringify-payload="false" ${datasource ? `data-datasource="${datasource}"` : ''} data-storage="localStorage" data-host="${endpoint}" ${token && env !== 'production' ? `data-token="${token}"` : ''} ${tbParams}></script>`;
 }
 
-function isServerErrorCode(options) {
+function isServerError(options) {
     return options.data.root.statusCode >= 500;
 }
 
@@ -186,48 +190,24 @@ function getExcludeList(options) {
 function getMetaTags(meta, context, excludeList) {
     const head = [];
 
-    if (!excludeList.has('metadata')) {
-        if (meta.metaDescription && meta.metaDescription.length > 0) {
-            head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
-        }
-
-        if (settingsCache.get('icon')) {
-            head.push('<link rel="icon" href="' + getFavicon() + '" type="image/' + getIconType() + '">');
-        }
-
-        head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
-
-        if (_.includes(context, 'preview')) {
-            head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-            head.push(writeMetaTag('referrer', 'same-origin', 'name'));
-        } else {
-            head.push(writeMetaTag('referrer', getReferrerPolicy(), 'name'));
-        }
+    if (meta.metaDescription && meta.metaDescription.length > 0) {
+        head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
     }
 
-    if (meta.previousUrl) {
-        head.push('<link rel="prev" href="' +
-            escapeExpression(meta.previousUrl) + '">');
+    if (settingsCache.get('icon')) {
+        head.push('<link rel="icon" href="' + blogIcon.getIconUrl() + '" type="image/' + blogIcon.getIconType(blogIcon.getIconUrl()) + '">');
     }
 
-    if (meta.nextUrl) {
-        head.push('<link rel="next" href="' +
-            escapeExpression(meta.nextUrl) + '">');
+    head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
+
+    if (_.includes(context, 'preview')) {
+        head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+        head.push(writeMetaTag('referrer', 'same-origin', 'name'));
+    } else {
+        head.push(writeMetaTag('referrer', config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade', 'name'));
     }
 
     return head;
-}
-
-function getFavicon() {
-    return blogIcon.getIconUrl();
-}
-
-function getIconType() {
-    return blogIcon.getIconType(getFavicon());
-}
-
-function getReferrerPolicy() {
-    return config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade';
 }
 
 function getStructuredData(meta, context, excludeList) {
@@ -250,12 +230,14 @@ function getStructuredData(meta, context, excludeList) {
     return head;
 }
 
-function getCustomFonts(data, isSitePreview) {
-    const headingFont = isSitePreview ? data?.site?.heading_font : settingsCache.get('heading_font');
-    const bodyFont = isSitePreview ? data?.site?.body_font : settingsCache.get('body_font');
+function getCustomFonts(options) {
+    const isSitePreview = options.data?.site?._preview ?? false;
+    const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
 
     if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
             (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        /** @type FontSelection */
         const fontSelection = {};
 
         if (headingFont) {
@@ -271,24 +253,8 @@ function getCustomFonts(data, isSitePreview) {
     return '';
 }
 
-function getAdditionalAssets(excludeList, frontendKey, data, dataRoot) {
+function getAdditionalAssets(excludeList) {
     const head = [];
-
-    head.push(getMembersHelper(data, frontendKey, excludeList));
-
-    if (!excludeList.has('search')) {
-        head.push(getSearchHelper(frontendKey));
-    }
-
-    if (!excludeList.has('announcement')) {
-        head.push(getAnnouncementBarHelper(data));
-    }
-
-    try {
-        head.push(getWebmentionDiscoveryLink());
-    } catch (err) {
-        logging.warn(err);
-    }
 
     if (!excludeList.has('card_assets')) {
         if (cardAssets.hasFile('js')) {
@@ -307,12 +273,80 @@ function getAdditionalAssets(excludeList, frontendKey, data, dataRoot) {
         head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
     }
 
+    return head;
+}
+
+function getTrackingScript(dataRoot) {
     if (settingsHelpers.isWebAnalyticsEnabled()) {
-        head.push(getTinybirdTrackerScript(dataRoot));
+        const script = getTinybirdTrackerScript(dataRoot);
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+        return script;
     }
 
-    if (data.site.accent_color) {
-        const accentColor = escapeExpression(data.site.accent_color);
+    return '';
+}
+
+module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
+    debug('begin');
+
+    if (isServerError(options)) {
+        return;
+    }
+
+    const excludeList = getExcludeList(options);
+    const dataRoot = options.data.root;
+    const context = dataRoot._locals.context ? dataRoot._locals.context : null;
+    const meta = await getMetaData(dataRoot, dataRoot);
+    const frontendKey = await getFrontendKey();
+
+    debug('end fetch');
+
+    const head = [];
+
+    if (context) {
+        head.push(...getMetaTags(meta, context, excludeList));
+    }
+
+    head.push('<meta name="generator" content="Ghost ' +
+        escapeExpression(dataRoot._locals.safeVersion) + '">');
+    head.push('<link rel="alternate" type="application/rss+xml" title="' +
+        escapeExpression(meta.site.title) + '" href="' +
+        escapeExpression(meta.rssUrl) + '">');
+
+    if (meta.previousUrl) {
+        head.push('<link rel="prev" href="' +
+            escapeExpression(meta.previousUrl) + '">');
+    }
+
+    if (meta.nextUrl) {
+        head.push('<link rel="next" href="' +
+            escapeExpression(meta.nextUrl) + '">');
+    }
+
+    if (context) {
+        head.push(...getStructuredData(meta, context, excludeList));
+    }
+
+    head.push(getMembersHelper(options.data, frontendKey, excludeList));
+    if (!excludeList.has('search')) {
+        head.push(getSearchHelper(frontendKey));
+    }
+    if (!excludeList.has('announcement')) {
+        head.push(getAnnouncementBarHelper(options.data));
+    }
+    try {
+        head.push(getWebmentionDiscoveryLink());
+    } catch (err) {
+        logging.warn(err);
+    }
+
+    head.push(...getAdditionalAssets(excludeList));
+    head.push(getTrackingScript(dataRoot));
+
+    if (options.data.site.accent_color) {
+        const accentColor = escapeExpression(options.data.site.accent_color);
         const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
         const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
 
@@ -323,60 +357,22 @@ function getAdditionalAssets(excludeList, frontendKey, data, dataRoot) {
         }
     }
 
-    const globalCodeinjection = settingsCache.get('codeinjection_head');
-    const postCodeInjection = dataRoot && dataRoot.post ? dataRoot.post.codeinjection_head : null;
-    const tagCodeInjection = dataRoot && dataRoot.tag ? dataRoot.tag.codeinjection_head : null;
-
-    if (!_.isEmpty(globalCodeinjection)) {
-        head.push(globalCodeinjection);
+    if (!_.isEmpty(settingsCache.get('codeinjection_head'))) {
+        head.push(settingsCache.get('codeinjection_head'));
     }
 
-    if (!_.isEmpty(postCodeInjection)) {
-        head.push(postCodeInjection);
+    if (!_.isEmpty(dataRoot.post?.codeinjection_head)) {
+        head.push(dataRoot.post.codeinjection_head);
     }
 
-    if (!_.isEmpty(tagCodeInjection)) {
-        head.push(tagCodeInjection);
+    if (!_.isEmpty(dataRoot.tag?.codeinjection_head)) {
+        head.push(dataRoot.tag.codeinjection_head);
     }
 
-    return head;
-}
+    head.push(getCustomFonts(options));
 
-module.exports = async function ghost_head(options) {
-    if (isServerErrorCode(options)) {
-        return;
-    }
-
-    const excludeList = getExcludeList(options);
-    const dataRoot = options.data.root;
-    const context = dataRoot._locals.context ? dataRoot._locals.context : null;
-    const safeVersion = dataRoot._locals.safeVersion;
-
-    try {
-        const meta = await getMetaData(dataRoot, dataRoot);
-        const frontendKey = await getFrontendKey();
-
-        const head = [];
-
-        head.push(...getMetaTags(meta, context, excludeList));
-        head.push('<meta name="generator" content="Ghost ' +
-            escapeExpression(safeVersion) + '">');
-        head.push('<link rel="alternate" type="application/rss+xml" title="' +
-            escapeExpression(meta.site.title) + '" href="' +
-            escapeExpression(meta.rssUrl) + '">');
-
-        head.push(...getStructuredData(meta, context, excludeList));
-        head.push(...getAdditionalAssets(excludeList, frontendKey, options.data, dataRoot));
-
-        const isSitePreview = options.data?.site?._preview ?? false;
-        head.push(getCustomFonts(options.data, isSitePreview));
-
-        return new SafeString(head.join('\n    ').trim());
-    } catch (error) {
-        logging.error(error);
-
-        return new SafeString([]);
-    }
+    debug('end');
+    return new SafeString(head.join('\n    ').trim());
 };
 
 module.exports.async = true;

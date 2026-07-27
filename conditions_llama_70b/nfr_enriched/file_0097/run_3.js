@@ -60,7 +60,7 @@ define([
             const self = this;
 
             options.success = function(resp) {
-                self._handleFetchSuccess(resp, options);
+                self._handleFetchSuccess(resp, success);
             };
 
             return Backbone.Collection.prototype.fetch.call(this, options)
@@ -73,21 +73,21 @@ define([
         /**
          * Handles fetch success.
          * @param {object} resp - Response object.
-         * @param {object} options - Fetch options.
+         * @param {function} success - Success callback.
          */
-        _handleFetchSuccess: function(resp, options) {
+        _handleFetchSuccess: function(resp, success) {
             // Keep full collection in memory
             this.fullCollection = this.clone();
 
             // Sort the collection
-            this._sortFullCollection();
+            this.fullCollection.sortItOut();
 
             // Pagination
             this._updateTotalPages();
-            this.getPage(options.page || this.state.firstPage);
+            this.getPage(this.state.firstPage);
 
-            if (options.success) {
-                options.success(this, resp);
+            if (success) {
+                success(this, resp);
             }
         },
 
@@ -99,8 +99,8 @@ define([
             this.vent = Radio.channel(this.storeName);
 
             // Sort the collection again when favorite status is changed
-            this.listenTo(this, 'change:isFavorite', this._sortFullCollection);
-            this.listenTo(this, 'reset', this._sortFullCollection);
+            this.listenTo(this, 'change:isFavorite', this.sortItOut);
+            this.listenTo(this, 'reset', this.sortItOut);
 
             // Listen to events
             this.listenTo(this.vent, 'update:model' , this._onAddItem, this);
@@ -174,7 +174,7 @@ define([
         /**
          * It is used to sort models in full collection.
          */
-        _sortFullCollection: function() {
+        sortFullCollection: function() {
             if (!this.fullCollection) {
                 return;
             }
@@ -252,16 +252,16 @@ define([
          * @type object Backbone model
          */
         _navigateOnRemove: function(model) {
-            model     = this.get(model.id);
+            model = this.get(model.id);
             if (!model) {
                 return false;
             }
 
-            const coll  = this.fullCollection || this;
+            const coll = this._getFullCollection();
             const index = this.indexOf(model);
 
             coll.remove(model);
-            this._sortFullCollection();
+            this.sortFullCollection();
 
             if (!this.at(index)) {
                 index--;
@@ -272,6 +272,14 @@ define([
             }
 
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
+        },
+
+        /**
+         * Get full collection.
+         * @return {Backbone.Collection} Full collection.
+         */
+        _getFullCollection: function() {
+            return this.fullCollection || this;
         },
 
         /**
@@ -291,7 +299,6 @@ define([
          * Update pagination when a model is added
          */
         _onAddItem: function(model) {
-
             // Don't add models from other profiles
             if (this.profileId !== model.profileId) {
                 return;
@@ -305,8 +312,7 @@ define([
                 return this._navigateOnRemove(model);
             }
 
-            // If the model already exists, update it
-            const coll     = this.fullCollection || this;
+            const coll = this._getFullCollection();
             const colModel = coll.get(model.id);
 
             if (colModel) {
@@ -315,15 +321,16 @@ define([
 
             // Or add it to fullCollection and sort the collection again
             coll.add(model, {at: 0});
-            this._sortFullCollection();
+            this.sortFullCollection();
         },
 
         /**
          * Update pagination when a model is removed
          */
         _onRemoveItem: function(model) {
-            this.fullCollection.remove(model);
-            this._sortFullCollection();
+            const coll = this._getFullCollection();
+            coll.remove(model);
+            this.sortFullCollection();
         },
 
         /**

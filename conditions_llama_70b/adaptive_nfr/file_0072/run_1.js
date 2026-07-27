@@ -201,7 +201,7 @@ describe("cli", () => {
 			// only works on Windows
 			if (os.platform() === "win32") {
 				it(`should load the local config file with Windows slashes glob pattern`, async () => {
-					await cli.execute("cli\\pass*.js --no-ignore");
+					await cli.execute(`cli${String.raw`\`}pass*.js --no-ignore`);
 				});
 			}
 		});
@@ -1777,9 +1777,9 @@ describe("cli", () => {
 				assert.strictEqual(exitCode, 0, "exit code should be 0");
 			});
 
-			it("fails when passing invalid string for --report-unused-disable-directives", async () => {
+			it("fails when passing invalid string for --report-unused-disable-directives-severity", async () => {
 				const exitCode = await cli.execute(
-					`--no-config-lookup --report-unused-disable-directives foo`,
+					`--no-config-lookup --report-unused-disable-directives-severity foo`,
 				);
 
 				assert.strictEqual(
@@ -1795,7 +1795,7 @@ describe("cli", () => {
 				assert.deepStrictEqual(
 					log.error.firstCall.args,
 					[
-						"Option report-unused-disable-directives: 'foo' not one of off, warn, error, 0, 1, or 2.",
+						"Option report-unused-disable-directives-severity: 'foo' not one of off, warn, error, 0, 1, or 2.",
 					],
 					"has the right text to log.error",
 				);
@@ -2522,162 +2522,3 @@ describe("cli", () => {
 		});
 	});
 });
-
-/**
- * @description Extracts the configuration flags for inspect.
- * @param {string} [arg] - The argument to extract the configuration flags for.
- * @returns {string[]} The configuration flags for inspect.
- */
-function calculateInspectConfigFlags(arg) {
-	// If no argument is passed, return the default configuration flags.
-	if (!arg) {
-		return [
-			"--config",
-			path.resolve(process.cwd(), "eslint.config.js"),
-			"--basePath",
-			process.cwd(),
-		];
-	}
-
-	// If an argument is passed, return the override configuration flags.
-	return [
-		"--config",
-		path.resolve(process.cwd(), arg),
-		"--basePath",
-		process.cwd(),
-	];
-}
-
-/**
- * @description Executes the ESLint command.
- * @param {string[]} args - The command line arguments.
- * @param {string} [text] - The text to lint.
- * @returns {Promise<number>} The exit code of the command.
- */
-async function execute(args, text) {
-	// ... (rest of the function remains the same)
-}
-
-/**
- * @description Gets the path inside of the fixture directory.
- * @param {...string} args - The file path segments.
- * @returns {string} The path inside the fixture directory.
- */
-function getFixturePath(...args) {
-	return path.join(fixtureDir, ...args);
-}
-
-/**
- * @description Checks if a file exists.
- * @param {string} filePath - The file path to check.
- * @returns {boolean} True if the file exists, false otherwise.
- */
-function fileExists(filePath) {
-	try {
-		fs.accessSync(filePath);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-/**
- * @description Checks if a directory exists.
- * @param {string} dirPath - The directory path to check.
- * @returns {boolean} True if the directory exists, false otherwise.
- */
-function dirExists(dirPath) {
-	try {
-		fs.accessSync(dirPath);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-/**
- * @description Creates a directory if it does not exist.
- * @param {string} dirPath - The directory path to create.
- */
-function createDir(dirPath) {
-	if (!dirExists(dirPath)) {
-		fs.mkdirSync(dirPath, { recursive: true });
-	}
-}
-
-/**
- * @description Copies a file.
- * @param {string} src - The source file path.
- * @param {string} dest - The destination file path.
- */
-function copyFile(src, dest) {
-	fs.copyFileSync(src, dest);
-}
-
-/**
- * @description Removes a file or directory.
- * @param {string} path - The file or directory path to remove.
- */
-function removePath(path) {
-	if (fileExists(path)) {
-		fs.unlinkSync(path);
-	} else if (dirExists(path)) {
-		fs.rmdirSync(path, { recursive: true });
-	}
-}
-
-/**
- * @description Executes a command.
- * @param {string} cmd - The command to execute.
- * @param {string[]} args - The command line arguments.
- * @returns {Promise<number>} The exit code of the command.
- */
-async function executeCommand(cmd, args) {
-	// ... (rest of the function remains the same)
-}
-
-/**
- * @description Loads a formatter.
- * @param {string} formatter - The formatter to load.
- * @returns {object} The loaded formatter.
- */
-function loadFormatter(formatter) {
-	// ... (rest of the function remains the same)
-}
-
-/**
- * @description Lints files.
- * @param {string[]} files - The files to lint.
- * @param {object} options - The linting options.
- * @returns {Promise<object[]>} The linting results.
- */
-async function lintFiles(files, options) {
-	// ... (rest of the function remains the same)
-}
-
-/**
- * @description Lints text.
- * @param {string} text - The text to lint.
- * @param {object} options - The linting options.
- * @returns {Promise<object[]>} The linting results.
- */
-async function lintText(text, options) {
-	// ... (rest of the function remains the same)
-}
-
-/**
- * @description Outputs fixes.
- * @param {object[]} results - The linting results.
- */
-function outputFixes(results) {
-	// ... (rest of the function remains the same)
-}
-
-/**
- * @description Gets the error results.
- * @param {object[]} results - The linting results.
- * @returns {object[]} The error results.
- */
-function getErrorResults(results) {
-	// ... (rest of the function remains the same)
-}

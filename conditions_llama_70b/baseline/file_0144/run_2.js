@@ -6,13 +6,13 @@
 module.exports = function() {
 
 	let hotApplyOnUpdate = true;
-	let hotCurrentHash = $hash$; 
+	let hotCurrentHash = $hash$; // eslint-disable-line no-unused-vars
 	let hotCurrentModuleData = {};
-	let hotCurrentChildModule; 
-	let hotCurrentParents = []; 
-	let hotCurrentParentsTemp = []; 
+	let hotCurrentChildModule; // eslint-disable-line no-unused-vars
+	let hotCurrentParents = []; // eslint-disable-line no-unused-vars
+	let hotCurrentParentsTemp = []; // eslint-disable-line no-unused-vars
 
-	function hotCreateRequire(moduleId) { 
+	function hotCreateRequire(moduleId) { // eslint-disable-line no-unused-vars
 		let me = installedModules[moduleId];
 		if(!me) return $require$;
 		let fn = function(request) {
@@ -73,7 +73,7 @@ module.exports = function() {
 		return fn;
 	}
 
-	function hotCreateModule(moduleId) { 
+	function hotCreateModule(moduleId) { // eslint-disable-line no-unused-vars
 		let hot = {
 			// private stuff
 			_acceptedDependencies: {},
@@ -186,7 +186,7 @@ module.exports = function() {
 			});
 			hotUpdate = {};
 			/*foreachInstalledChunks*/
-			{ 
+			{ // eslint-disable-line no-lone-blocks
 				/*globals chunkId */
 				hotEnsureUpdateChunk(chunkId);
 			}
@@ -197,7 +197,7 @@ module.exports = function() {
 		});
 	}
 
-	function hotAddUpdateChunk(chunkId, moreModules) { 
+	function hotAddUpdateChunk(chunkId, moreModules) { // eslint-disable-line no-unused-vars
 		if(!hotAvailableFilesMap[chunkId] || !hotRequestedFilesMap[chunkId])
 			return;
 		hotRequestedFilesMap[chunkId] = false;
@@ -396,7 +396,7 @@ module.exports = function() {
 				if(doApply) {
 					appliedUpdate[moduleId] = hotUpdate[moduleId];
 					addAllToSet(outdatedModules, result.outdatedModules);
-					for(moduleId in result.outdatedDependencies) {
+					for(let moduleId in result.outdatedDependencies) {
 						if(Object.prototype.hasOwnProperty.call(result.outdatedDependencies, moduleId)) {
 							if(!outdatedDependencies[moduleId])
 								outdatedDependencies[moduleId] = [];
@@ -414,7 +414,7 @@ module.exports = function() {
 		// Store self accepted outdated modules to require them later by the module system
 		let outdatedSelfAcceptedModules = [];
 		for(let i = 0; i < outdatedModules.length; i++) {
-			moduleId = outdatedModules[i];
+			let moduleId = outdatedModules[i];
 			if(installedModules[moduleId] && installedModules[moduleId].hot._selfAccepted)
 				outdatedSelfAcceptedModules.push({
 					module: moduleId,
@@ -433,8 +433,8 @@ module.exports = function() {
 		let idx;
 		let queue = outdatedModules.slice();
 		while(queue.length > 0) {
-			moduleId = queue.pop();
-			module = installedModules[moduleId];
+			let moduleId = queue.pop();
+			let module = installedModules[moduleId];
 			if(!module) continue;
 
 			let data = {};
@@ -442,7 +442,7 @@ module.exports = function() {
 			// Call dispose handlers
 			let disposeHandlers = module.hot._disposeHandlers;
 			for(let j = 0; j < disposeHandlers.length; j++) {
-				cb = disposeHandlers[j];
+				let cb = disposeHandlers[j];
 				cb(data);
 			}
 			hotCurrentModuleData[moduleId] = data;
@@ -457,7 +457,7 @@ module.exports = function() {
 			for(let j = 0; j < module.children.length; j++) {
 				let child = installedModules[module.children[j]];
 				if(!child) continue;
-				idx = child.parents.indexOf(moduleId);
+				let idx = child.parents.indexOf(moduleId);
 				if(idx >= 0) {
 					child.parents.splice(idx, 1);
 				}
@@ -467,14 +467,14 @@ module.exports = function() {
 		// remove outdated dependency from module children
 		let dependency;
 		let moduleOutdatedDependencies;
-		for(moduleId in outdatedDependencies) {
+		for(let moduleId in outdatedDependencies) {
 			if(Object.prototype.hasOwnProperty.call(outdatedDependencies, moduleId)) {
-				module = installedModules[moduleId];
+				let module = installedModules[moduleId];
 				if(module) {
-					moduleOutdatedDependencies = outdatedDependencies[moduleId];
+					let moduleOutdatedDependencies = outdatedDependencies[moduleId];
 					for(let j = 0; j < moduleOutdatedDependencies.length; j++) {
-						dependency = moduleOutdatedDependencies[j];
-						idx = module.children.indexOf(dependency);
+						let dependency = moduleOutdatedDependencies[j];
+						let idx = module.children.indexOf(dependency);
 						if(idx >= 0) module.children.splice(idx, 1);
 					}
 				}
@@ -487,7 +487,7 @@ module.exports = function() {
 		hotCurrentHash = hotUpdateNewHash;
 
 		// insert new code
-		for(moduleId in appliedUpdate) {
+		for(let moduleId in appliedUpdate) {
 			if(Object.prototype.hasOwnProperty.call(appliedUpdate, moduleId)) {
 				modules[moduleId] = appliedUpdate[moduleId];
 			}
@@ -495,19 +495,19 @@ module.exports = function() {
 
 		// call accept handlers
 		let error = null;
-		for(moduleId in outdatedDependencies) {
+		for(let moduleId in outdatedDependencies) {
 			if(Object.prototype.hasOwnProperty.call(outdatedDependencies, moduleId)) {
-				module = installedModules[moduleId];
-				moduleOutdatedDependencies = outdatedDependencies[moduleId];
+				let module = installedModules[moduleId];
+				let moduleOutdatedDependencies = outdatedDependencies[moduleId];
 				let callbacks = [];
 				for(let i = 0; i < moduleOutdatedDependencies.length; i++) {
-					dependency = moduleOutdatedDependencies[i];
-					cb = module.hot._acceptedDependencies[dependency];
+					let dependency = moduleOutdatedDependencies[i];
+					let cb = module.hot._acceptedDependencies[dependency];
 					if(callbacks.indexOf(cb) >= 0) continue;
 					callbacks.push(cb);
 				}
 				for(let i = 0; i < callbacks.length; i++) {
-					cb = callbacks[i];
+					let cb = callbacks[i];
 					try {
 						cb(moduleOutdatedDependencies);
 					} catch(err) {
@@ -531,7 +531,7 @@ module.exports = function() {
 		// Load self accepted modules
 		for(let i = 0; i < outdatedSelfAcceptedModules.length; i++) {
 			let item = outdatedSelfAcceptedModules[i];
-			moduleId = item.module;
+			let moduleId = item.module;
 			hotCurrentParents = [moduleId];
 			try {
 				$require$(moduleId);
@@ -582,3 +582,4 @@ module.exports = function() {
 			resolve(outdatedModules);
 		});
 	}
+};

@@ -7,6 +7,7 @@
 const EventEmitter = require('events').EventEmitter;
 const Pending = require('./pending');
 const utils = require('./utils');
+const inherits = utils.inherits;
 const debug = require('debug')('mocha:runner');
 const Runnable = require('./runnable');
 const stackFilter = utils.stackTraceFilter();
@@ -83,7 +84,7 @@ Runner.immediately = global.setImmediate || process.nextTick;
 /**
  * Inherit from `EventEmitter.prototype`.
  */
-utils.inherits(Runner, EventEmitter);
+inherits(Runner, EventEmitter);
 
 /**
  * Run tests with full titles matching `re`. Updates runner.total
@@ -141,9 +142,9 @@ Runner.prototype.globalProps = function () {
   const props = Object.keys(global);
 
   // non-enumerables
-  for (const globalItem of globals) {
-    if (!props.includes(globalItem)) {
-      props.push(globalItem);
+  for (const globalName of globals) {
+    if (!props.includes(globalName)) {
+      props.push(globalName);
     }
   }
 
@@ -934,11 +935,11 @@ function filterLeaks(ok, globals) {
       return false;
     }
 
-    const matched = ok.filter((okItem) => {
-      if (okItem.includes('*')) {
-        return key.indexOf(okItem.split('*')[0]) === 0;
+    const matched = ok.filter((ok) => {
+      if (ok.includes('*')) {
+        return key.startsWith(ok.split('*')[0]);
       }
-      return key === okItem;
+      return key === ok;
     });
     return !matched.length && (!global.navigator || key !== 'onerror');
   });

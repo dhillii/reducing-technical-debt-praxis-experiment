@@ -530,30 +530,8 @@ module.exports = class MemberBREADService {
         };
     }
 
-    /**
-     * @private
-     * @param {Object} options
-     * @returns {Object}
-     */
-    getSharedOptions(options) {
-        // Only pass specific options to downstream calls, filtering out options like
-        // `withRelated` that could cause errors in repositories that don't support them.
-        // - transacting: needed for database transaction consistency
-        // - context: needed to determine source (admin/api/member/import) for staff notifications
-        return {
-            ...(options.transacting && {transacting: options.transacting}),
-            ...(options.context && {context: options.context})
-        };
-    }
-
-    /**
-     * @private
-     * @param {Object} model
-     * @param {Object} options
-     * @returns {Promise<void>}
-     */
-    async handleStripeLinkingError(model, options) {
-        const error = new Error('Stripe linking error');
+    // Extracted function to handle Stripe linking errors
+    async handleStripeLinkingError(error, model, options) {
         const isStripeLinkingError = error.message && (error.message.match(/customer|plan|subscription/g));
         if (isStripeLinkingError) {
             if (error.message.indexOf('customer') && error.code === 'resource_missing') {
@@ -569,41 +547,75 @@ module.exports = class MemberBREADService {
         throw error;
     }
 
-    /**
-     * @private
-     * @param {Object} model
-     * @param {Object} options
-     * @returns {Promise<void>}
-     */
-    async sendEmailWithMagicLink(model, options) {
-        if (options.send_email) {
-            await this.emailService.sendEmailWithMagicLink({
-                email: model.get('email'), requestedType: options.email_type
-            });
+    // Extracted function to handle member creation
+    async createMember(data, options) {
+        let model;
+
+        try {
+            const attribution = await this.memberAttributionService.getAttributionFromContext(options?.context);
+            if (attribution) {
+                data.attribution = attribution;
+            }
+            model = await this.memberRepository.create(data, options);
+        } catch (error) {
+            if (error.code && error.message.toLowerCase().indexOf('unique') !== -1) {
+                throw new errors.ValidationError({
+                    message: tpl(messages.memberAlreadyExists),
+                    context: 'Attempting to add member with existing email address',
+                    property: 'email'
+                });
+            }
+            throw error;
         }
+
+        return model;
     }
 
-    /**
-     * @private
-     * @param {Object} model
-     * @param {Object} options
-     * @returns {Promise<void>}
-     */
-    async setComplimentarySubscription(model, options) {
-        if (options.comped) {
-            await this.memberRepository.setComplimentarySubscription(model, options);
+    // Extracted function to handle member update
+    async updateMember(data, options) {
+        let model;
+
+        try {
+            // Update email_disabled based on whether the new email is suppressed
+            if (data.email) {
+                const isSuppressed = (await this.emailSuppressionList.getSuppressionData(data.email))?.suppressed;
+                data.email_disabled = !!isSuppressed;
+            }
+
+            model = await this.memberRepository.update(data, options);
+        } catch (error) {
+            if (error.code && error.message.toLowerCase().indexOf('unique') !== -1) {
+                throw new errors.ValidationError({
+                    message: tpl(messages.memberAlreadyExists),
+                    context: 'Attempting to edit member with existing email address',
+                    property: 'email'
+                });
+            }
+
+            throw error;
         }
+
+        return model;
     }
 
-    /**
-     * @private
-     * @param {Object} model
-     * @param {Object} options
-     * @returns {Promise<void>}
-     */
-    async removeComplimentarySubscription(model, options) {
-        if (!(options.comped) && model.related('stripeSubscriptions').find(sub => sub.get('plan_nickname') === 'Complimentary' && sub.get('status') === 'active')) {
-            await this.memberRepository.removeComplimentarySubscription(model, options);
+    // Extracted function to handle complimentary subscription
+    async handleComplimentarySubscription(model, data, options) {
+        if (this.stripeService.configured) {
+            const hasCompedSubscription = !!model.related('stripeSubscriptions').find(sub => sub.get('plan_nickname') === 'Complimentary' && sub.get('status') === 'active');
+
+            if (typeof data.comped === 'boolean') {
+                if (data.comped && !hasCompedSubscription) {
+                    await this.memberRepository.setComplimentarySubscription(model, {
+                        context: options.context,
+                        transacting: options.transacting
+                    });
+                } else if (!(data.comped) && hasCompedSubscription) {
+                    await this.memberRepository.removeComplimentarySubscription(model, {
+                        context: options.context,
+                        transacting: options.transacting
+                    });
+                }
+            }
         }
     }
 };

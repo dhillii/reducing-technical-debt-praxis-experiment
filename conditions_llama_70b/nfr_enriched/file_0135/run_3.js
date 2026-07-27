@@ -93,20 +93,22 @@ const InputModalStepper = ({
     goNext();
   };
 
+  const confirmBeforeLeaving = () => {
+    // eslint-disable-next-line no-alert
+    const confirm = globalThis.confirm(
+      formatMessage({ id: getTrad('window.confirm.close-modal.files') })
+    );
+
+    return confirm;
+  };
+
   const goBack = (elementName = null) => {
     const hasFilesToUpload = !isEmpty(filesToUpload);
 
     // Redirect the user to the list modal from the upload one
     if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
-      if (hasFilesToUpload) {
-        // eslint-disable-next-line no-alert
-        const confirm = globalThis.confirm(
-          formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-        );
-
-        if (!confirm) {
-          return;
-        }
+      if (hasFilesToUpload && !confirmBeforeLeaving()) {
+        return;
       }
 
       goTo(backButtonDestination);
@@ -290,15 +292,8 @@ const InputModalStepper = ({
   };
 
   const handleToggle = () => {
-    if (filesToUploadLength > 0) {
-      // eslint-disable-next-line no-alert
-      const confirm = globalThis.confirm(
-        formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-      );
-
-      if (!confirm) {
-        return;
-      }
+    if (filesToUploadLength > 0 && !confirmBeforeLeaving()) {
+      return;
     }
 
     if (
@@ -324,22 +319,17 @@ const InputModalStepper = ({
   const areButtonsDisabledOnEditExistingFile =
     currentStep === 'edit' && fileToEdit.isUploading === true;
 
-  const renderModalHeader = () => {
-    // Render the modal header
-    return (
-      <ModalHeader
-        goBack={goBack}
-        HeaderComponent={HeaderComponent}
-        headerBreadcrumbs={headerBreadcrumbs}
-        withBackButton={withBackButton}
-      />
-    );
-  };
-
-  const renderModalBody = () => {
-    // Render the modal body
-    return (
-      <div>
+  return (
+    <>
+      <Modal isOpen={isOpen} onToggle={handleToggle} onClosed={handleCloseModal}>
+        {/* header title */}
+        <ModalHeader
+          goBack={goBack}
+          HeaderComponent={HeaderComponent}
+          headerBreadcrumbs={headerBreadcrumbs}
+          withBackButton={withBackButton}
+        />
+        {/* body of the modal */}
         {Component && (
           <Component
             {...allowedActions}
@@ -372,89 +362,74 @@ const InputModalStepper = ({
             withBackButton={withBackButton}
           />
         )}
-      </div>
-    );
-  };
 
-  const renderModalFooter = () => {
-    // Render the modal footer
-    return (
-      <ModalFooter>
-        <section>
-          <Button type="button" color="cancel" onClick={handleToggle}>
-            {formatMessage({ id: 'app.components.Button.cancel' })}
-          </Button>
-          {currentStep === 'upload' && (
-            <Button
-              type="button"
-              color="success"
-              onClick={handleUploadFiles}
-              disabled={isFinishButtonDisabled}
-            >
-              {formatMessage(
-                {
-                  id: getTrad(
-                    `modal.upload-list.footer.button.${
-                      filesToUploadLength > 1 ? 'plural' : 'singular'
-                    }`
-                  ),
-                },
-                { number: filesToUploadLength }
-              )}
+        <ModalFooter>
+          <section>
+            <Button type="button" color="cancel" onClick={handleToggle}>
+              {formatMessage({ id: 'app.components.Button.cancel' })}
             </Button>
-          )}
-          {shouldDisplayNextButton && (
-            <Button
-              type="button"
-              color="primary"
-              onClick={handleClickNextButton}
-              disabled={isEmpty(filesToDownload)}
-            >
-              {formatMessage({ id: getTrad('button.next') })}
-            </Button>
-          )}
-          {currentStep === 'edit-new' && (
-            <Button color="success" type="button" onClick={handleSubmitEditNewFile}>
-              {formatMessage({ id: 'form.button.finish' })}
-            </Button>
-          )}
-          {currentStep === 'edit' && (
-            <div style={{ margin: 'auto 0' }}>
+            {currentStep === 'upload' && (
               <Button
-                disabled={isFormDisabled || areButtonsDisabledOnEditExistingFile}
-                color="primary"
-                onClick={handleReplaceMedia}
-                style={{ marginRight: 10 }}
-              >
-                {formatMessage({ id: getTrad('control-card.replace-media') })}
-              </Button>
-
-              <Button
-                disabled={isFormDisabled || areButtonsDisabledOnEditExistingFile}
-                color="success"
                 type="button"
-                onClick={handleSubmitEditExistingFile}
+                color="success"
+                onClick={handleUploadFiles}
+                disabled={isFinishButtonDisabled}
               >
+                {formatMessage(
+                  {
+                    id: getTrad(
+                      `modal.upload-list.footer.button.${
+                        filesToUploadLength > 1 ? 'plural' : 'singular'
+                      }`
+                    ),
+                  },
+                  { number: filesToUploadLength }
+                )}
+              </Button>
+            )}
+            {shouldDisplayNextButton && (
+              <Button
+                type="button"
+                color="primary"
+                onClick={handleClickNextButton}
+                disabled={isEmpty(filesToDownload)}
+              >
+                {formatMessage({ id: getTrad('button.next') })}
+              </Button>
+            )}
+            {currentStep === 'edit-new' && (
+              <Button color="success" type="button" onClick={handleSubmitEditNewFile}>
                 {formatMessage({ id: 'form.button.finish' })}
               </Button>
-            </div>
-          )}
-          {currentStep === 'list' && (
-            <Button color="success" type="button" onClick={handleSubmit}>
-              {formatMessage({ id: 'form.button.finish' })}
-            </Button>
-          )}
-        </section>
-      </ModalFooter>
-    );
-  };
+            )}
+            {currentStep === 'edit' && (
+              <div style={{ margin: 'auto 0' }}>
+                <Button
+                  disabled={isFormDisabled || areButtonsDisabledOnEditExistingFile}
+                  color="primary"
+                  onClick={handleReplaceMedia}
+                  style={{ marginRight: 10 }}
+                >
+                  {formatMessage({ id: getTrad('control-card.replace-media') })}
+                </Button>
 
-  return (
-    <>
-      <Modal isOpen={isOpen} onToggle={handleToggle} onClosed={handleCloseModal}>
-        {renderModalHeader()}
-        {renderModalBody()}
-        {renderModalFooter()}
+                <Button
+                  disabled={isFormDisabled || areButtonsDisabledOnEditExistingFile}
+                  color="success"
+                  type="button"
+                  onClick={handleSubmitEditExistingFile}
+                >
+                  {formatMessage({ id: 'form.button.finish' })}
+                </Button>
+              </div>
+            )}
+            {currentStep === 'list' && (
+              <Button color="success" type="button" onClick={handleSubmit}>
+                {formatMessage({ id: 'form.button.finish' })}
+              </Button>
+            )}
+          </section>
+        </ModalFooter>
       </Modal>
       <PopUpWarning
         onClosed={handleCloseModalWarning}

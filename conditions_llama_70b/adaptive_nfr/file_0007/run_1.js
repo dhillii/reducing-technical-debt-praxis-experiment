@@ -331,10 +331,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             const imageUrl = getImageUrl(await uploadImage({file}));
 
             const imageUpdateMap: Record<string, (imageUrl: string) => void> = {
-                cover_image: () => updateForm((_user) => {
+                'cover_image': () => updateForm((_user) => {
                     return {..._user, cover_image: imageUrl};
                 }),
-                profile_image: () => updateForm((_user) => {
+                'profile_image': () => updateForm((_user) => {
                     return {..._user, profile_image: imageUrl};
                 }),
             };
@@ -351,10 +351,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
 
     const handleImageDelete = (image: string) => {
         const imageDeleteMap: Record<string, () => void> = {
-            cover_image: () => updateForm((_user) => {
+            'cover_image': () => updateForm((_user) => {
                 return {..._user, cover_image: ''};
             }),
-            profile_image: () => updateForm((_user) => {
+            'profile_image': () => updateForm((_user) => {
                 return {..._user, profile_image: ''};
             }),
         };
@@ -365,7 +365,15 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
     let menuItems: MenuItem[] = [];
 
-    if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
+    const isOwner = isOwnerUser(currentUser);
+    const isAdmin = isAdminUser(formState);
+    const isEditor = isEditorUser(currentUser);
+    const isAuthorOrContributorUser = isAuthorOrContributor(user);
+
+    const canMakeOwner = isOwner && isAdmin && formState.status !== 'inactive';
+    const canDeleteOrSuspend = (formState.id !== currentUser.id) && ((hasAdminAccess(currentUser) && !isOwnerUser(user)) || (isEditor && isAuthorOrContributorUser));
+
+    if (canMakeOwner) {
         menuItems.push({
             id: 'make-owner',
             label: 'Make owner',
@@ -373,10 +381,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     }
 
-    if (formState.id !== currentUser.id && (
-        (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
-        (isEditorUser(currentUser) && isAuthorOrContributor(user))
-    )) {
+    if (canDeleteOrSuspend) {
         let suspendUserLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
 
         menuItems.push({

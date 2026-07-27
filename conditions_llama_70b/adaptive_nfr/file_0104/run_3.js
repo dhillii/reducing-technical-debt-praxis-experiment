@@ -35,11 +35,11 @@
      * @param {Object} opts - Options object
      */
     function _applyRemainingDefaultOptions(opts) {
-      opts.icon = opts.hasOwnProperty('icon') ? opts.icon : '\ue9cb';
-      opts.visible = opts.hasOwnProperty('visible') ? opts.visible : 'hover';
-      opts.placement = opts.hasOwnProperty('placement') ? opts.placement : 'right';
-      opts.class = opts.hasOwnProperty('class') ? opts.class : '';
-      opts.truncate = opts.hasOwnProperty('truncate') ? Math.floor(opts.truncate) : 64;
+      opts.icon = opts.hasOwnProperty('icon') ? opts.icon : '\ue9cb'; 
+      opts.visible = opts.hasOwnProperty('visible') ? opts.visible : 'hover'; 
+      opts.placement = opts.hasOwnProperty('placement') ? opts.placement : 'right'; 
+      opts.class = opts.hasOwnProperty('class') ? opts.class : ''; 
+      opts.truncate = opts.hasOwnProperty('truncate') ? Math.floor(opts.truncate) : 64; 
     }
 
     _applyRemainingDefaultOptions(this.options);
@@ -85,14 +85,14 @@
         }
 
         var elementID = _getElementID(elements[i], idList);
-        var readableID = elementID.replace(/-/g, ' ');
+        var readableID = _getReadableID(elementID);
         var anchor = _createAnchor(elementID, readableID, this.options);
 
         if (visibleOptionToUse === 'always') {
           anchor.style.opacity = '1';
         }
 
-        _appendAnchor(elements[i], anchor, this.options);
+        _addAnchorToElement(elements[i], anchor, this.options);
       }
 
       for (var i = 0; i < indexesToDrop.length; i++) {
@@ -142,18 +142,20 @@
      * @return {String}      - hyphen-delimited text for use in IDs and URLs.
      */
     this.urlify = function(text) {
+      var nonsafeChars = /[& +$,:;=?@"#{}|^~[`%!'\]\.\/\(\)\*\\]/g;
+      var urlText;
+
       if (!this.options.truncate) {
         _applyRemainingDefaultOptions(this.options);
       }
 
-      var nonsafeChars = /[& +$,:;=?@"#{}|^~[`%!'\]\.\/\(\)\*\\]/g;
-      var urlText = text.trim()
-        .replace(/\'/gi, '')
-        .replace(nonsafeChars, '-')
-        .replace(/-{2,}/g, '-')
-        .substring(0, this.options.truncate)
-        .replace(/^-+|-+$/gm, '')
-        .toLowerCase();
+      urlText = text.trim()
+                    .replace(/\'/gi, '')
+                    .replace(nonsafeChars, '-')
+                    .replace(/-{2,}/g, '-')
+                    .substring(0, this.options.truncate)
+                    .replace(/^-+|-+$/gm, '')
+                    .toLowerCase();
 
       return urlText;
     };
@@ -200,14 +202,15 @@
       }
 
       var style = document.createElement('style');
-      var linkRule = ' .anchorjs-link { opacity: 0; text-decoration: none; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }';
-      var hoverRule = ' *:hover > .anchorjs-link, .anchorjs-link:focus  { opacity: 1; }';
-      var anchorjsLinkFontFace = ' @font-face { font-family: "anchorjs-icons"; src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgKGwoKCjgaGg0gEhIgDXoaGgkJBQwHdR85Fi0tOAobCgoKOBoaDSASEiANehoaCQkKGwotLXoWOR8BMwUFLYEuehYXFxYugC44CQkKGwo4GkoaDQ0NDXoaShoKGwoFBe8XFi6ALjgJCQobCjgaShoNDQ0NehpKGgobCgoKLYEuehYXAAAADACWAAEAAAAAAAEACAAAAAEAAAAAAAIAAwAIAAEAAAAAAAMACAAAAAEAAAAAAAQACAAAAAEAAAAAAAUAAQALAAEAAAAAAAYACAAAAAMAAQQJAAEAEAAMAAMAAQQJAAIABgAcAAMAAQQJAAMAEAAMAAMAAQQJAAQAEAAMAAMAAQQJAAUAAgAiAAMAAQQJAAYAEAAMYW5jaG9yanM0MDBAAGEAbgBjAGgAbwByAGoAcwA0ADAAMABAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAH//wAP) format("truetype");';
-      var pseudoElContent = ' [data-anchorjs-icon]::after { content: attr(data-anchorjs-icon); }';
+      var linkRule = ' .anchorjs-link {' + '   opacity: 0;' + '   text-decoration: none;' + '   -webkit-font-smoothing: antialiased;' + '   -moz-osx-font-smoothing: grayscale;' + ' }';
+      var hoverRule = ' *:hover > .anchorjs-link,' + ' .anchorjs-link:focus  {' + '   opacity: 1;' + ' }';
+      var anchorjsLinkFontFace = ' @font-face {' + '   font-family: "anchorjs-icons";' + '   src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgKGwoKCjgaGg0gEhIgDXoaGgkJBQwHdR85Fi0tOAobCgoKOBoaDSASEiANehoaCQkKGwotLXoWOR8BMwUFLYEuehYXFxYugC44CQkKGwo4GkoaDQ0NDXoaShoKGwoFBe8XFi6ALjgJCQobCjgaShoNDQ0NehpKGgobCgoKLYEuehYXAAAADACWAAEAAAAAAAEACAAAAAEAAAAAAAIAAwAIAAEAAAAAAAMACAAAAAEAAAAAAAQACAAAAAEAAAAAAAUAAQALAAEAAAAAAAYACAAAAAMAAQQJAAEAEAAMAAMAAQQJAAIABgAcAAMAAQQJAAMAEAAMAAMAAQQJAAQAEAAMAAMAAQQJAAUAAgAiAAMAAQQJAAYAEAAMYW5jaG9yanM0MDBAAGEAbgBjAGgAbwByAGoAcwA0ADAAMABAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAH//wAP) format("truetype");' +
+          ' }';
+      var pseudoElContent = ' [data-anchorjs-icon]::after {' + '   content: attr(data-anchorjs-icon);' + ' }';
       var firstStyleEl;
 
       style.className = 'anchorjs';
-      style.appendChild(document.createTextNode('')); // Necessary for Webkit.
+      style.appendChild(document.createTextNode('')); 
 
       firstStyleEl = document.head.querySelector('[rel="stylesheet"], style');
       if (firstStyleEl === undefined) {
@@ -224,8 +227,8 @@
 
     /**
      * Get visible option
-     * @param {String} visibleOption
-     * @return {String}
+     * @param {String} visibleOption - visible option
+     * @return {String} - visible option to use
      */
     function _getVisibleOption(visibleOption) {
       if (visibleOption === 'touch') {
@@ -235,10 +238,21 @@
     }
 
     /**
-     * Get element ID
-     * @param {HTMLElement} element
-     * @param {Array} idList
-     * @return {String}
+     * Get id list
+     * @param {NodeList} elsWithIds - elements with ids
+     * @return {Array} - id list
+     */
+    function _getIdList(elsWithIds) {
+      return [].map.call(elsWithIds, function assign(el) {
+        return el.id;
+      });
+    }
+
+    /**
+     * Get element id
+     * @param {HTMLElement} element - element
+     * @param {Array} idList - id list
+     * @return {String} - element id
      */
     function _getElementID(element, idList) {
       if (element.hasAttribute('id')) {
@@ -265,22 +279,20 @@
     }
 
     /**
-     * Get ID list
-     * @param {NodeList} elsWithIds
-     * @return {Array}
+     * Get readable id
+     * @param {String} elementID - element id
+     * @return {String} - readable id
      */
-    function _getIdList(elsWithIds) {
-      return [].map.call(elsWithIds, function assign(el) {
-        return el.id;
-      });
+    function _getReadableID(elementID) {
+      return elementID.replace(/-/g, ' ');
     }
 
     /**
      * Create anchor
-     * @param {String} elementID
-     * @param {String} readableID
-     * @param {Object} options
-     * @return {HTMLElement}
+     * @param {String} elementID - element id
+     * @param {String} readableID - readable id
+     * @param {Object} options - options
+     * @return {HTMLElement} - anchor
      */
     function _createAnchor(elementID, readableID, options) {
       var anchor = document.createElement('a');
@@ -301,12 +313,12 @@
     }
 
     /**
-     * Append anchor
-     * @param {HTMLElement} element
-     * @param {HTMLElement} anchor
-     * @param {Object} options
+     * Add anchor to element
+     * @param {HTMLElement} element - element
+     * @param {HTMLElement} anchor - anchor
+     * @param {Object} options - options
      */
-    function _appendAnchor(element, anchor, options) {
+    function _addAnchorToElement(element, anchor, options) {
       if (options.placement === 'left') {
         anchor.style.position = 'absolute';
         anchor.style.marginLeft = '-1em';

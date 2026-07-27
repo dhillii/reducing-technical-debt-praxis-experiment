@@ -54,10 +54,10 @@ function validate_(
 }
 
 export function controller(
-  config: Readonly<FieldControllerConfig<{
+  config: FieldControllerConfig<{
     validation: Validation
     defaultValue: number | null | 'autoincrement'
-  }>>
+  }>
 ): FieldController<Value, number | null, SimpleFieldTypeInfo<'Int'>['inputs']['where']> & {
   validation: Validation
   hasAutoIncrementDefault: boolean
@@ -92,15 +92,7 @@ export function controller(
     hasAutoIncrementDefault: config.fieldMeta.defaultValue === 'autoincrement',
     validate: (value, opts) => validate(value, opts) === undefined,
     filter: {
-      Filter(props: Readonly<{
-        autoFocus: boolean
-        context: string
-        forceValidation: boolean
-        typeLabel: string
-        onChange: (value: number | null) => void
-        type: string
-        value: number | null
-      }>) {
+      Filter(props) {
         const {
           autoFocus,
           context,
@@ -137,13 +129,13 @@ export function controller(
         )
       },
 
-      graphql: ({ type, value }: Readonly<{ type: string; value: number | null }>) => {
+      graphql: ({ type, value }) => {
         if (type === 'empty') return { [config.fieldKey]: { equals: null } }
         if (type === 'not_empty') return { [config.fieldKey]: { not: { equals: null } } }
         if (type === 'not') return { [config.fieldKey]: { not: { equals: value } } }
         return { [config.fieldKey]: { [type]: value } }
       },
-      parseGraphQL: (value: any) => {
+      parseGraphQL: value => {
         return entriesTyped(value).flatMap(([type, value]) => {
           if (type === 'equals' && value === null) {
             return [{ type: 'empty', value: null }]
@@ -161,7 +153,7 @@ export function controller(
           return []
         })
       },
-      Label({ label, type, value }: Readonly<{ label: string; type: string; value: number | null }>) {
+      Label({ label, type, value }) {
         if (type === 'empty' || type === 'not_empty') return label.toLocaleLowerCase()
         const operator = TYPE_OPERATOR_MAP[type as keyof typeof TYPE_OPERATOR_MAP]
         return `${operator} ${value}`
@@ -205,12 +197,12 @@ export function controller(
 }
 
 export function Field({
-  field,
-  value,
-  onChange,
-  autoFocus,
-  forceValidation,
-  isRequired,
+  readonly field,
+  readonly value,
+  readonly onChange,
+  readonly autoFocus,
+  readonly forceValidation,
+  readonly isRequired,
 }: Readonly<FieldProps<typeof controller>>) {
   const [isDirty, setDirty] = useState(false)
   const isReadOnly = !onChange || field.hasAutoIncrementDefault

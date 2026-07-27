@@ -310,41 +310,46 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
     return styles;
   };
 
+  const getButtons = () => {
+    const buttons: ButtonProps[] = [];
+
+    if (cancelLabel) {
+      buttons.push({
+        key: 'cancel-modal',
+        label: cancelLabel,
+        color: 'outline',
+        onClick: (onCancel ? onCancel : () => {
+          confirmIfDirty(dirty, () => {
+            modal.remove();
+            afterClose?.();
+          });
+        }),
+        disabled: buttonsDisabled
+      });
+    }
+
+    if (okLabel) {
+      buttons.push({
+        key: 'ok-modal',
+        label: okLabel,
+        color: okColor,
+        className: 'min-w-[80px]',
+        onClick: onOk,
+        disabled: buttonsDisabled || okDisabled,
+        loading: okLoading
+      });
+    }
+
+    return buttons;
+  };
+
   const getFooterContent = () => {
     if (footer) {
       return footer;
     } else if (footer === false) {
       return null;
     } else {
-      const buttons: ButtonProps[] = [];
-
-      if (cancelLabel) {
-        buttons.push({
-          key: 'cancel-modal',
-          label: cancelLabel,
-          color: 'outline',
-          onClick: (onCancel ? onCancel : () => {
-            confirmIfDirty(dirty, () => {
-              modal.remove();
-              afterClose?.();
-            });
-          }),
-          disabled: buttonsDisabled
-        });
-      }
-
-      if (okLabel) {
-        buttons.push({
-          key: 'ok-modal',
-          label: okLabel,
-          color: okColor,
-          className: 'min-w-[80px]',
-          onClick: onOk,
-          disabled: buttonsDisabled || okDisabled,
-          loading: okLoading
-        });
-      }
-
+      const buttons = getButtons();
       return (
         <div className={getFooterClasses()}>
           <div>
@@ -374,26 +379,27 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         (backDrop && !formSheet) && topLevelBackdropClasses,
         formSheet && 'bg-[rgba(98,109,121,0.08)]'
       )}></div>
-      <section ref={ref} className={getModalClasses()} data-testid={testId} style={getModalStyles()}>
-        {header === false ? '' : (
-          <header className={getHeaderClasses()}>
+      <section ref={ref} className={clsx(
+        getModalClasses(),
+        allowBackgroundInteraction && 'pointer-events-auto'
+      )} data-testid={testId} style={getModalStyles()}>
+        {header === false ? '' : (!topRightContent || topRightContent === 'close' ?
+          (<header className={getHeaderClasses()}>
             {title && <Heading level={3}>{title}</Heading>}
-            {topRightContent === 'close' ? (
-              <div className={`${hideXOnMobile && 'hidden'} absolute right-6 top-6`}>
-                <Button className='-m-2 cursor-pointer p-2 opacity-50 hover:opacity-100' icon='close' iconColorClass='text-black dark:text-white' size='sm' testId='close-modal' unstyled onClick={() => {
-                  confirmIfDirty(dirty, () => {
-                    modal.remove();
-                    afterClose?.();
-                  });
-                }} />
-              </div>
-            ) : (
-              <div>
-                {topRightContent}
-              </div>
-            )}
-          </header>
-        )}
+            <div className={`${topRightContent !== 'close' && 'md:!invisible md:!hidden'} ${hideXOnMobile && 'hidden'} absolute right-6 top-6`}>
+              <Button className='-m-2 cursor-pointer p-2 opacity-50 hover:opacity-100' icon='close' iconColorClass='text-black dark:text-white' size='sm' testId='close-modal' unstyled onClick={() => {
+                confirmIfDirty(dirty, () => {
+                  modal.remove();
+                  afterClose?.();
+                });
+              }} />
+            </div>
+          </header>)
+          :
+          (<header className={getHeaderClasses()}>
+            {title && <Heading level={3}>{title}</Heading>}
+            {topRightContent}
+          </header>))}
         <div className={getContentClasses()}>
           {children}
         </div>

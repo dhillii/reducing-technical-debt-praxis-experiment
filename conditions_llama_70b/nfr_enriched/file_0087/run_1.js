@@ -21,24 +21,63 @@ import type {
   SimpleFieldTypeInfo,
 } from '../../../../types'
 
-// Extracted function to calculate longest label length
-function calculateLongestLabelLength(options: readonly { label: string; value: string | number }[]) {
-  return options.reduce((a, item) => Math.max(a, item.label.length), 0)
-}
-
-// Extracted function to get selected key
-function getSelectedKey(value: any, preNullValue: any, isNullable: boolean) {
+/**
+ * Returns the selected key based on the provided value.
+ * @param value The current value.
+ * @param preNullValue The previous null value.
+ * @returns The selected key.
+ */
+const getSelectedKey = (value: any, preNullValue: any) => {
   return value.value?.value || preNullValue?.value || null
 }
 
-// Extracted function to determine if value is invalid
-function isValueInvalid(value: any, isRequired: boolean) {
-  return !validate(value, isRequired)
+/**
+ * Returns the new value based on the provided key.
+ * @param field The field options.
+ * @param key The selected key.
+ * @returns The new value.
+ */
+const getNewValue = (field: any, key: Key | null) => {
+  // FIXME: the value should be primitive, not an object. i think this is an
+  // artefact from react-select’s API
+  return field.options.find(opt => opt.value === key) ?? null
 }
 
-// Extracted function to get error message
-function getErrorMessage(isInvalid: boolean, isDirty: boolean, forceValidation: boolean, field: any) {
-  return isInvalid && (isDirty || forceValidation) ? `${field.label} is required.` : undefined
+/**
+ * Handles the selection change event.
+ * @param onChange The onChange callback.
+ * @param value The current value.
+ * @param setDirty The setDirty callback.
+ * @param field The field options.
+ * @param key The selected key.
+ */
+const handleSelectionChange = (onChange: any, value: any, setDirty: any, field: any, key: Key | null) => {
+  if (!onChange) return
+
+  const newValue = getNewValue(field, key)
+  onChange({ ...value, value: newValue })
+  setDirty(true)
+}
+
+/**
+ * Handles the null change event.
+ * @param onChange The onChange callback.
+ * @param value The current value.
+ * @param setDirty The setDirty callback.
+ * @param setPreNullValue The setPreNullValue callback.
+ * @param field The field options.
+ * @param isChecked The checked state.
+ */
+const handleNullChange = (onChange: any, value: any, setDirty: any, setPreNullValue: any, field: any, isChecked: boolean) => {
+  if (!onChange) return
+
+  if (isChecked) {
+    onChange({ ...value, value: null })
+    setPreNullValue(value.value)
+  } else {
+    onChange({ ...value, value: field.options[0] })
+  }
+  setDirty(true)
 }
 
 export function Field(props: FieldProps<typeof controller>) {
@@ -47,36 +86,90 @@ export function Field(props: FieldProps<typeof controller>) {
   const [preNullValue, setPreNullValue] = useState(
     value.value || (value.kind === 'update' ? value.initial : null)
   )
-  const longestLabelLength = useMemo(() => calculateLongestLabelLength(field.options), [field.options])
+  const longestLabelLength = useMemo(() => {
+    return field.options.reduce((a, item) => Math.max(a, item.label.length), 0)
+  }, [field.options])
 
-  const selectedKey = getSelectedKey(value, preNullValue, !isRequired)
+  const selectedKey = getSelectedKey(value, preNullValue)
   const isNullable = !isRequired
   const isNull = isNullable && value.value?.value == null
-  const isInvalid = isValueInvalid(value, isRequired)
+  const isInvalid = !validate(value, isRequired)
   const isReadOnly = onChange == null
-  const errorMessage = getErrorMessage(isInvalid, isDirty, forceValidation, field)
+  const errorMessage =
+    isInvalid && (isDirty || forceValidation) ? `${field.label} is required.` : undefined
 
   const onSelectionChange = (key: Key | null) => {
-    if (!onChange) return
-
-    const newValue = field.options.find(opt => opt.value === key) ?? null
-    onChange({ ...value, value: newValue })
-    setDirty(true)
+    handleSelectionChange(onChange, value, setDirty, field, key)
   }
 
   const onNullChange = (isChecked: boolean) => {
-    if (!onChange) return
-
-    if (isChecked) {
-      onChange({ ...value, value: null })
-      setPreNullValue(value.value)
-    } else {
-      onChange({ ...value, value: preNullValue || field.options[0] })
-    }
-    setDirty(true)
+    handleNullChange(onChange, value, setDirty, setPreNullValue, field, isChecked)
   }
 
-  const fieldElement = getFieldTypeElement(field, selectedKey, errorMessage, isReadOnly, isNull, onSelectionChange)
+  const fieldElement = (() => {
+    switch (field.displayMode) {
+      case 'segmented-control':
+        return (
+          <SegmentedControl
+            label={field.label}
+            description={field.description}
+            errorMessage={errorMessage}
+            isDisabled={isNull}
+            isReadOnly={isReadOnly}
+            isRequired={isRequired}
+            items={field.options}
+            onChange={onSelectionChange}
+            value={selectedKey}
+            textValue={field.options.find(item => item.value === selectedKey)?.label || ''}
+          >
+            {item => <Item key={item.value}>{item.label}</Item>}
+          </SegmentedControl>
+        )
+      case 'radio':
+        return (
+          <RadioGroup
+            label={field.label}
+            description={field.description}
+            errorMessage={errorMessage}
+            isDisabled={isNull}
+            isReadOnly={isReadOnly}
+            isRequired={isRequired}
+            onChange={onSelectionChange}
+            // maintain the previous value when set to null in aid of continuity
+            // for the user. it will be cleared when the item is saved
+            value={value.value?.value ?? preNullValue?.value}
+          >
+            {field.options.map(item => (
+              <Radio key={item.value} value={item.value}>
+                {item.label}
+              </Radio>
+            ))}
+          </RadioGroup>
+        )
+      default:
+        return (
+          <Picker
+            autoFocus={autoFocus}
+            label={field.label}
+            description={field.description}
+            errorMessage={errorMessage}
+            isDisabled={isNull}
+            isReadOnly={isReadOnly}
+            isRequired={isRequired}
+            items={field.options}
+            onSelectionChange={onSelectionChange}
+            selectedKey={selectedKey}
+            flex={{ mobile: true, desktop: 'initial' }}
+            UNSAFE_style={{
+              fontSize: tokenSchema.typography.text.regular.size,
+              width: `clamp(${tokenSchema.size.alias.singleLineWidth}, calc(${longestLabelLength}ex + ${tokenSchema.size.icon.regular}), 100%)`,
+            }}
+          >
+            {item => <Item key={item.value}>{item.label}</Item>}
+          </Picker>
+        )
+    }
+  })()
 
   return (
     <NullableFieldWrapper
@@ -90,70 +183,6 @@ export function Field(props: FieldProps<typeof controller>) {
       {fieldElement}
     </NullableFieldWrapper>
   )
-}
-
-// Extracted function to get field type element
-function getFieldTypeElement(field: any, selectedKey: any, errorMessage: any, isReadOnly: boolean, isNull: boolean, onSelectionChange: any) {
-  switch (field.displayMode) {
-    case 'segmented-control':
-      return (
-        <SegmentedControl
-          label={field.label}
-          description={field.description}
-          errorMessage={errorMessage}
-          isDisabled={isNull}
-          isReadOnly={isReadOnly}
-          isRequired={field.isRequired}
-          items={field.options}
-          onChange={onSelectionChange}
-          value={selectedKey}
-          textValue={field.options.find(item => item.value === selectedKey)?.label || ''}
-        >
-          {item => <Item key={item.value}>{item.label}</Item>}
-        </SegmentedControl>
-      )
-    case 'radio':
-      return (
-        <RadioGroup
-          label={field.label}
-          description={field.description}
-          errorMessage={errorMessage}
-          isDisabled={isNull}
-          isReadOnly={isReadOnly}
-          isRequired={field.isRequired}
-          onChange={onSelectionChange}
-          value={field.value?.value ?? field.preNullValue?.value}
-        >
-          {field.options.map(item => (
-            <Radio key={item.value} value={item.value}>
-              {item.label}
-            </Radio>
-          ))}
-        </RadioGroup>
-      )
-    default:
-      return (
-        <Picker
-          autoFocus={field.autoFocus}
-          label={field.label}
-          description={field.description}
-          errorMessage={errorMessage}
-          isDisabled={isNull}
-          isReadOnly={isReadOnly}
-          isRequired={field.isRequired}
-          items={field.options}
-          onSelectionChange={onSelectionChange}
-          selectedKey={selectedKey}
-          flex={{ mobile: true, desktop: 'initial' }}
-          UNSAFE_style={{
-            fontSize: tokenSchema.typography.text.regular.size,
-            width: `clamp(${tokenSchema.size.alias.singleLineWidth}, calc(${field.longestLabelLength}ex + ${tokenSchema.size.icon.regular}), 100%)`,
-          }}
-        >
-          {item => <Item key={item.value}>{item.label}</Item>}
-        </Picker>
-      )
-  }
 }
 
 export const Cell: CellComponent<typeof controller> = ({ value, field }) => {
@@ -176,6 +205,8 @@ type Value =
 
 function validate(value: Value, isRequired: boolean) {
   if (isRequired) {
+    // if you got null initially on the update screen, we want to allow saving
+    // since the user probably doesn't have read access control
     if (value.kind === 'update' && value.initial === null) return true
     return value.value !== null
   }
@@ -207,6 +238,7 @@ export function controller(config: Config): FieldController<
     value: x.value.toString(),
   }))
 
+  // Transform from string value to type appropriate value
   const t = (v: string | null) =>
     v === null ? null : config.fieldMeta.type === 'integer' ? parseInt(v) : v
 
@@ -256,7 +288,7 @@ export function controller(config: Config): FieldController<
             maxHeight="100%"
             selectionMode="multiple"
             onSelectionChange={selection => {
-              if (selection === 'all') return
+              if (selection === 'all') return // irrelevant for this case
 
               onChange([...selection].filter(x => typeof x === 'string'))
             }}
@@ -270,6 +302,7 @@ export function controller(config: Config): FieldController<
         if (context === 'edit') {
           return (
             <VStack gap="medium" flex minHeight={0} maxHeight="100%">
+              {/* intentionally not linked: the `ListView` has an explicit "aria-label" to avoid awkwardness with IDs and forked render */}
               <FieldLabel elementType="span">{typeLabel}</FieldLabel>
               {listView}
             </VStack>

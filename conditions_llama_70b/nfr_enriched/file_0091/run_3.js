@@ -1,3 +1,4 @@
+// very loosely based on https://github.com/ianstormtaylor/slate/blob/d22c76ae1313fe82111317417912a2670e73f5c9/site/examples/paste-html.tsx
 import { Node } from 'slate'
 import { type Block, isBlock } from '../editor-shared'
 import { type Mark } from '../utils'
@@ -19,9 +20,6 @@ function getAlignmentFromElement(element: globalThis.Element): 'center' | 'end' 
   const parent = element.parentElement
   // confluence
   const attribute = parent?.dataset.align
-  // note: we don't show html that confluence would parse as alignment
-  // we could change that but meh
-  // (they match on div.fabric-editor-block-mark with data-align)
   if (attribute === 'center' || attribute === 'end') {
     return attribute
   }
@@ -126,9 +124,9 @@ type DeserializedNode = InlineFromExternalPaste | Block
 type DeserializedNodes = [DeserializedNode, ...DeserializedNode[]]
 
 /**
- * Deserializes a single HTML node into a Slate-compatible format.
+ * Deserializes an HTML node into a Slate-compatible format.
  * 
- * @param el The node to deserialize.
+ * @param el The HTML node to deserialize.
  * @returns The deserialized node.
  */
 export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
@@ -207,7 +205,7 @@ export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
  * Deserializes a text node into a Slate-compatible format.
  * 
  * @param el The text node to deserialize.
- * @returns The deserialized text node.
+ * @returns The deserialized node.
  */
 function deserializeTextNode(el: globalThis.Node): DeserializedNode[] {
   const text = el.textContent
@@ -221,10 +219,10 @@ function deserializeTextNode(el: globalThis.Node): DeserializedNode[] {
  * Deserializes an image node into a Slate-compatible format.
  * 
  * @param el The image node to deserialize.
- * @returns The deserialized image node.
+ * @returns The deserialized node.
  */
 function deserializeImageNode(el: globalThis.HTMLElement): DeserializedNode[] {
-  const alt = el.dataset.alt
+  const alt = el.getAttribute('alt')
   return getInlineNodes(alt ?? '')
 }
 
@@ -232,10 +230,10 @@ function deserializeImageNode(el: globalThis.HTMLElement): DeserializedNode[] {
  * Deserializes a link node into a Slate-compatible format.
  * 
  * @param el The link node to deserialize.
- * @returns The deserialized link node.
+ * @returns The deserialized node.
  */
 function deserializeLinkNode(el: globalThis.HTMLElement): DeserializedNode[] {
-  const href = el.dataset.href
+  const href = el.getAttribute('href')
   if (href) {
     return setLinkForChildren(href, () =>
       forceDisableMarkForChildren('underline', () => deserializeNodes(el.childNodes))
@@ -249,7 +247,7 @@ function deserializeLinkNode(el: globalThis.HTMLElement): DeserializedNode[] {
  * 
  * @param el The list item node to deserialize.
  * @param children The children of the list item node.
- * @returns The deserialized list item node.
+ * @returns The deserialized node.
  */
 function deserializeListItemNode(el: globalThis.HTMLElement, children: DeserializedNode[]): DeserializedNode[] {
   let nestedList: Block | undefined

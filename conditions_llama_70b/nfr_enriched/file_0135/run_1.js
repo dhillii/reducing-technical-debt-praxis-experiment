@@ -93,20 +93,22 @@ const InputModalStepper = ({
     goNext();
   };
 
+  const confirmBeforeLeaving = () => {
+    // eslint-disable-next-line no-alert
+    const confirm = globalThis.confirm(
+      formatMessage({ id: getTrad('window.confirm.close-modal.files') })
+    );
+
+    return confirm;
+  };
+
   const goBack = (elementName = null) => {
     const hasFilesToUpload = !isEmpty(filesToUpload);
 
     // Redirect the user to the list modal from the upload one
     if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
-      if (hasFilesToUpload) {
-        // eslint-disable-next-line no-alert
-        const confirm = globalThis.confirm(
-          formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-        );
-
-        if (!confirm) {
-          return;
-        }
+      if (hasFilesToUpload && !confirmBeforeLeaving()) {
+        return;
       }
 
       goTo(backButtonDestination);
@@ -290,15 +292,8 @@ const InputModalStepper = ({
   };
 
   const handleToggle = () => {
-    if (filesToUploadLength > 0) {
-      // eslint-disable-next-line no-alert
-      const confirm = globalThis.confirm(
-        formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-      );
-
-      if (!confirm) {
-        return;
-      }
+    if (filesToUploadLength > 0 && !confirmBeforeLeaving()) {
+      return;
     }
 
     if (

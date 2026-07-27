@@ -9,38 +9,35 @@ export default class ParseMemberEventHelper extends Helper {
     @service utils;
     @service membersUtils;
 
-    /**
-     * Trim a string and convert to null if empty.
-     * @param {string} value
-     * @returns {string|null}
-     */
     trimString(value) {
+        // Always convert to null if the value is empty/null/undefined
         if (!value && value !== 0) {
             return null;
         }
-        return String(value).trim() || null;
+
+        // Force to string and trim
+        const trimmed = String(value).trim();
+
+        // Convert empty strings or pure whitespace to null
+        return trimmed || null;
     }
 
-    /**
-     * Compute the parsed member event data.
-     * @param {Array} params - [event, hasMultipleNewsletters]
-     * @returns {Object}
-     */
     compute([event, hasMultipleNewsletters]) {
-        const memberName = this.trimString(event.data.member?.name);
+        const memberName = this.getMemberName(event);
         const subject = this.getSubject(event, memberName);
         const icon = this.getIcon(event);
         const action = this.getAction(event, hasMultipleNewsletters);
         const info = this.getInfo(event);
         const description = this.getDescription(event);
 
-        const join = this.getJoin();
+        const join = this.getJoin(event);
         const object = this.getObject(event);
         const url = this.getURL(event);
         const route = this.getRoute(event);
         const timestamp = moment(event.data.created_at);
         const source = this.getSource(event);
 
+        // Also ensure the member object has the transformed name
         const member = event.data.member ? {
             ...event.data.member,
             name: memberName
@@ -65,21 +62,15 @@ export default class ParseMemberEventHelper extends Helper {
         };
     }
 
-    /**
-     * Get the subject of the event.
-     * @param {Object} event
-     * @param {string} memberName
-     * @returns {string}
-     */
+    getMemberName(event) {
+        let memberName = event.data.member?.name;
+        return this.trimString(memberName);
+    }
+
     getSubject(event, memberName) {
         return event.data.member ? (memberName || event.data.member.email) : (event.data.name || event.data.email || '');
     }
 
-    /**
-     * Get the icon for the event.
-     * @param {Object} event
-     * @returns {string}
-     */
     getIcon(event) {
         const iconMap = {
             'login_event': 'logged-in',
@@ -104,55 +95,80 @@ export default class ParseMemberEventHelper extends Helper {
         return 'event-' + (iconMap[event.type] || '');
     }
 
-    /**
-     * Get the action for the event.
-     * @param {Object} event
-     * @param {boolean} hasMultipleNewsletters
-     * @returns {string}
-     */
     getAction(event, hasMultipleNewsletters) {
         const actionMap = {
             'signup_event': 'signed up',
             'login_event': 'logged in',
             'payment_event': 'made payment',
-            'newsletter_event': event.data.subscribed ? `subscribed to ${hasMultipleNewsletters && event.data.newsletter && event.data.newsletter.name ? event.data.newsletter.name : 'newsletter'}` : `unsubscribed from ${hasMultipleNewsletters && event.data.newsletter && event.data.newsletter.name ? event.data.newsletter.name : 'newsletter'}`,
-            'subscription_event': {
-                'created': 'started paid subscription',
-                'updated': 'changed paid subscription',
-                'canceled': 'canceled paid subscription',
-                'reactivated': 'reactivated paid subscription',
-                'expired': 'ended paid subscription'
-            },
+            'newsletter_event': event.data.subscribed ? `subscribed to ${this.getNewsletterName(event, hasMultipleNewsletters)}` : `unsubscribed from ${this.getNewsletterName(event, hasMultipleNewsletters)}`,
+            'subscription_event': this.getSubscriptionAction(event),
             'email_opened_event': 'opened email',
             'email_sent_event': 'sent email',
-            'automated_email_sent_event': (event.data.automatedEmail?.slug || '').includes('paid') ? 'received welcome email (Paid)' : 'received welcome email (Free)',
+            'automated_email_sent_event': this.getAutomatedEmailAction(event),
             'email_delivered_event': 'received email',
             'email_failed_event': 'bounced email',
             'email_complaint_event': 'email flagged as spam',
-            'comment_event': event.data.parent ? 'replied to comment' : 'commented',
+            'comment_event': this.getCommentAction(event),
             'click_event': 'clicked link in email',
-            'aggregated_click_event': event.data.count.clicks <= 1 ? 'clicked link in email' : `clicked ${ghPluralize(event.data.count.clicks, 'link')} in email`,
+            'aggregated_click_event': this.getAggregatedClickAction(event),
             'feedback_event': event.data.score === 1 ? 'more like this' : 'less like this',
-            'email_change_event': event.data.from_email && event.data.to_email ? `Email address changed from ${event.data.from_email} to ${event.data.to_email}` : 'Email address changed',
+            'email_change_event': this.getEmailChangeAction(event),
             'donation_event': 'Made a one-time payment'
         };
 
         return actionMap[event.type] || '';
     }
 
-    /**
-     * Get the join string for the event.
-     * @returns {string}
-     */
+    getNewsletterName(event, hasMultipleNewsletters) {
+        if (hasMultipleNewsletters && event.data.newsletter && event.data.newsletter.name) {
+            return event.data.newsletter.name;
+        }
+        return 'newsletter';
+    }
+
+    getSubscriptionAction(event) {
+        const actions = {
+            'created': 'started paid subscription',
+            'updated': 'changed paid subscription',
+            'canceled': 'canceled paid subscription',
+            'reactivated': 'reactivated paid subscription',
+            'expired': 'ended paid subscription'
+        };
+
+        return actions[event.data.type] || 'changed paid subscription';
+    }
+
+    getAutomatedEmailAction(event) {
+        const slug = event.data.automatedEmail?.slug || '';
+        const emailType = slug.includes('paid') ? 'Paid' : 'Free';
+        return `received welcome email (${emailType})`;
+    }
+
+    getCommentAction(event) {
+        if (event.data.parent) {
+            return 'replied to comment';
+        }
+        return 'commented';
+    }
+
+    getAggregatedClickAction(event) {
+        if (event.data.count.clicks <= 1) {
+            return 'clicked link in email';
+        }
+        return `clicked ${ghPluralize(event.data.count.clicks, 'link')} in email`;
+    }
+
+    getEmailChangeAction(event) {
+        if (event.data.from_email && event.data.to_email) {
+            return `Email address changed from ${event.data.from_email} to ${event.data.to_email}`;
+        }
+        return 'Email address changed';
+    }
+
     getJoin() {
         return '–';
     }
 
-    /**
-     * Get the object for the event.
-     * @param {Object} event
-     * @returns {string}
-     */
     getObject(event) {
         if (['signup_event', 'subscription_event', 'donation_event'].includes(event.type)) {
             return event.data.attribution?.title || '';
@@ -165,11 +181,6 @@ export default class ParseMemberEventHelper extends Helper {
         return '';
     }
 
-    /**
-     * Get the source for the event.
-     * @param {Object} event
-     * @returns {Object|null}
-     */
     getSource(event) {
         if (event.data?.attribution?.referrer_source) {
             return {
@@ -181,26 +192,9 @@ export default class ParseMemberEventHelper extends Helper {
         return null;
     }
 
-    /**
-     * Get the info for the event.
-     * @param {Object} event
-     * @returns {string}
-     */
     getInfo(event) {
         if (event.type === 'subscription_event') {
-            const mrrDelta = getNonDecimal(event.data.mrr_delta, event.data.currency);
-            if (mrrDelta === 0) {
-                return;
-            }
-            const symbol = getSymbol(event.data.currency);
-
-            if (event.data.type === 'created') {
-                const sign = mrrDelta > 0 ? '' : '-';
-                const tierName = this.membersUtils.hasMultipleTiers ? (event.data.tierName ?? 'Paid') : 'Paid';
-                return `${tierName} ${sign}${symbol}${Math.abs(mrrDelta)}/month`;
-            }
-            const sign = mrrDelta > 0 ? '+' : '-';
-            return `MRR ${sign}${symbol}${Math.abs(mrrDelta)}`;
+            return this.getSubscriptionInfo(event);
         }
 
         if (event.type === 'signup_event' && this.membersUtils.paidMembersEnabled) {
@@ -208,19 +202,34 @@ export default class ParseMemberEventHelper extends Helper {
         }
 
         if (event.type === 'donation_event') {
-            const symbol = getSymbol(event.data.currency);
-            const formattedAmount = symbol + getNonDecimal(event.data.amount, event.data.currency);
-            return formattedAmount;
+            return this.getDonationInfo(event);
         }
 
         return;
     }
 
-    /**
-     * Get the description for the event.
-     * @param {Object} event
-     * @returns {string}
-     */
+    getSubscriptionInfo(event) {
+        let mrrDelta = getNonDecimal(event.data.mrr_delta, event.data.currency);
+        if (mrrDelta === 0) {
+            return;
+        }
+        const symbol = getSymbol(event.data.currency);
+
+        if (event.data.type === 'created') {
+            const sign = mrrDelta > 0 ? '' : '-';
+            const tierName = this.membersUtils.hasMultipleTiers ? (event.data.tierName ?? 'Paid') : 'Paid';
+            return `${tierName} ${sign}${symbol}${Math.abs(mrrDelta)}/month`;
+        }
+        const sign = mrrDelta > 0 ? '+' : '-';
+        return `MRR ${sign}${symbol}${Math.abs(mrrDelta)}`;
+    }
+
+    getDonationInfo(event) {
+        const symbol = getSymbol(event.data.currency);
+        const formattedAmount = symbol + getNonDecimal(event.data.amount, event.data.currency);
+        return formattedAmount;
+    }
+
     getDescription(event) {
         if (event.type === 'click_event') {
             try {
@@ -233,11 +242,6 @@ export default class ParseMemberEventHelper extends Helper {
         return;
     }
 
-    /**
-     * Get the URL for the event.
-     * @param {Object} event
-     * @returns {string}
-     */
     getURL(event) {
         if (['comment_event', 'click_event', 'feedback_event'].includes(event.type)) {
             return event.data.post?.url || '';
@@ -249,11 +253,6 @@ export default class ParseMemberEventHelper extends Helper {
         return;
     }
 
-    /**
-     * Get the route for the event.
-     * @param {Object} event
-     * @returns {Object}
-     */
     getRoute(event) {
         if (['click_event', 'feedback_event'].includes(event.type)) {
             if (event.data.post) {

@@ -144,14 +144,15 @@ const NewsletterPreviewContent: React.FC<{
                                     showExcerpt={showExcerpt}
                                     excerptClasses={excerptClasses}
                                     postTitleColor={postTitleColor}
-                                    secondaryHeaderTextColor={secondaryHeaderTextColor}
                                     authorPlaceholder={authorPlaceholder}
                                     currentDate={currentDate}
+                                    secondaryHeaderTextColor={secondaryHeaderTextColor}
                                 />
                             )}
                             {showFeatureImage && (
                                 <FeatureImage
                                     imageCorners={imageCorners}
+                                    CoverImage={CoverImage}
                                     secondaryHeaderTextColor={secondaryHeaderTextColor}
                                 />
                             )}
@@ -159,23 +160,21 @@ const NewsletterPreviewContent: React.FC<{
 
                         <div className={clsx('px-[7rem]', headerBackgroundColor !== 'transparent' && 'pt-10')}>
                             <EmailContent
-                                bodyFontCategory={bodyFontCategory}
                                 dividerStyle={dividerStyle}
                                 dividerColor={dividerColor}
+                                bodyFontCategory={bodyFontCategory}
                                 textColor={textColor}
                                 sectionTitleColor={sectionTitleColor}
-                                accentColor={accentColor}
                                 linkColor={linkColor}
-                                linkStyle={linkStyle}
+                                accentColor={accentColor}
                                 buttonColor={buttonColor}
                                 buttonTextColor={buttonTextColor}
                                 buttonCorners={buttonCorners}
                                 buttonStyle={buttonStyle}
+                                linkStyle={linkStyle}
                             />
-                            {showFeedback || showCommentCta && (
+                            {showFeedback && (
                                 <Feedback
-                                    showFeedback={showFeedback}
-                                    showCommentCta={showCommentCta}
                                     dividerStyle={dividerStyle}
                                     dividerColor={dividerColor}
                                     textColor={textColor}
@@ -187,24 +186,25 @@ const NewsletterPreviewContent: React.FC<{
                                     titleFontWeight={titleFontWeight}
                                     sectionTitleColor={sectionTitleColor}
                                     secondaryTextColor={secondaryTextColor}
-                                    dividerStyle={dividerStyle}
-                                    dividerColor={dividerColor}
                                     imageCorners={imageCorners}
+                                    LatestPosts1={LatestPosts1}
+                                    LatestPosts2={LatestPosts2}
+                                    LatestPosts3={LatestPosts3}
                                 />
                             )}
                             {showSubscriptionDetails && (
                                 <SubscriptionDetails
-                                    siteTitle={siteTitle}
                                     dividerStyle={dividerStyle}
                                     dividerColor={dividerColor}
                                     textColor={textColor}
+                                    siteTitle={siteTitle}
                                 />
                             )}
                             <Footer
-                                siteTitle={siteTitle}
-                                currentYear={currentYear}
                                 processedFooterContent={processedFooterContent}
                                 secondaryTextColor={secondaryTextColor}
+                                siteTitle={siteTitle}
+                                currentYear={currentYear}
                                 showBadge={showBadge}
                                 textColor={textColor}
                             />
@@ -216,13 +216,13 @@ const NewsletterPreviewContent: React.FC<{
     );
 };
 
-const processFooterContent = (footerContent: string | null): string => {
-    // Process footer content to add target and rel attributes to links
+// Process footer content to add target and rel attributes to links
+const processFooterContent = (footerContent?: string | null) => {
     return footerContent ? footerContent.replace(/<a/g, '<a target="_blank" rel="noopener noreferrer"') : '';
 };
 
-const getEmailHeader = (senderName: string | undefined, senderEmail: string | null, senderReplyTo: string | null, config: any) => {
-    // Email header
+// Get email header based on sender information and config
+const getEmailHeader = (senderName?: string, senderEmail: string | null, senderReplyTo: string | null, config: any) => {
     if (isManagedEmail(config)) {
         return (
             <>
@@ -242,7 +242,8 @@ const getEmailHeader = (senderName: string | undefined, senderEmail: string | nu
     }
 };
 
-const getExcerptClasses = (titleFontCategory: string | undefined, bodyFontCategory: string | undefined, titleAlignment: string | undefined) => {
+// Get excerpt classes based on title font category, body font category, and title alignment
+const getExcerptClasses = (titleFontCategory?: string, bodyFontCategory?: string, titleAlignment?: string) => {
     let excerptClasses = 'mb-5 text-pretty leading-[1.7] text-black';
 
     if (titleFontCategory === 'serif' && bodyFontCategory === 'serif') {
@@ -265,6 +266,7 @@ const getExcerptClasses = (titleFontCategory: string | undefined, bodyFontCatego
     return excerptClasses;
 };
 
+// Post title section component
 const PostTitleSection = ({
     titleAlignment,
     titleFontCategory,
@@ -272,19 +274,9 @@ const PostTitleSection = ({
     showExcerpt,
     excerptClasses,
     postTitleColor,
-    secondaryHeaderTextColor,
     authorPlaceholder,
     currentDate,
-}: {
-    titleAlignment: string | undefined;
-    titleFontCategory: string | undefined;
-    titleFontWeight: string | undefined;
-    showExcerpt: boolean;
-    excerptClasses: string;
-    postTitleColor: string | undefined;
-    secondaryHeaderTextColor: string | undefined;
-    authorPlaceholder: string | undefined;
-    currentDate: string;
+    secondaryHeaderTextColor,
 }) => {
     return (
         <div className={clsx('flex flex-col py-8', titleAlignment === 'center' ? 'items-center' : 'items-start')}>
@@ -315,18 +307,16 @@ const PostTitleSection = ({
     );
 };
 
+// Feature image component
 const FeatureImage = ({
     imageCorners,
+    CoverImage,
     secondaryHeaderTextColor,
-}: {
-    imageCorners: string | undefined;
-    secondaryHeaderTextColor: string | undefined;
 }) => {
     return (
         <>
             <div className={clsx(
                 'h-[unset] w-full max-w-[600px] bg-cover bg-no-repeat',
-                'pt-6'
             )}>
                 <img alt="Feature" className={clsx(
                     'min-h-full min-w-full shrink-0',
@@ -339,32 +329,20 @@ const FeatureImage = ({
     );
 };
 
+// Email content component
 const EmailContent = ({
-    bodyFontCategory,
     dividerStyle,
     dividerColor,
+    bodyFontCategory,
     textColor,
     sectionTitleColor,
-    accentColor,
     linkColor,
-    linkStyle,
+    accentColor,
     buttonColor,
     buttonTextColor,
     buttonCorners,
     buttonStyle,
-}: {
-    bodyFontCategory: string | undefined;
-    dividerStyle: string | undefined;
-    dividerColor: string | undefined;
-    textColor: string | undefined;
-    sectionTitleColor: string | undefined;
-    accentColor: string | undefined;
-    linkColor: string | undefined;
-    linkStyle: string | undefined;
-    buttonColor: string | undefined;
-    buttonTextColor: string | undefined;
-    buttonCorners: string | undefined;
-    buttonStyle: string | undefined;
+    linkStyle,
 }) => {
     return (
         <div className={clsx(
@@ -417,67 +395,42 @@ const EmailContent = ({
     );
 };
 
+// Feedback component
 const Feedback = ({
-    showFeedback,
-    showCommentCta,
     dividerStyle,
     dividerColor,
     textColor,
-}: {
-    showFeedback: boolean;
-    showCommentCta: boolean;
-    dividerStyle: string | undefined;
-    dividerColor: string | undefined;
-    textColor: string | undefined;
 }) => {
     return (
         <div className={clsx('grid gap-5 border-b border-grey-200 px-6 py-5', dividerStyle === 'dashed' && 'border-dashed', dividerStyle === 'dotted' && 'border-b-2 border-dotted')} style={{borderColor: dividerColor}}>
             <div className="flex justify-center gap-3">
-                {showFeedback && (
-                    <>
-                        <button className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold" type="button">
-                            <span className="inline-flex items-center gap-2 px-[18px] py-[7px]" style={{color: textColor}}>
-                                <Icon colorClass='' name="thumbs-up" size="md" />
-                                <span>More like this</span>
-                            </span>
-                        </button>
-                        <button className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold" type="button">
-                            <span className="inline-flex items-center gap-2 px-[18px] py-[7px]" style={{color: textColor}}>
-                                <Icon colorClass='' name="thumbs-down" />
-                                <span>Less like this</span>
-                            </span>
-                        </button>
-                    </>
-                )}
-                {showCommentCta && (
-                    <button className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold" type="button">
-                        <span className="inline-flex items-center gap-2 px-[18px] py-[7px]" style={{color: textColor}}>
-                            <Icon colorClass='' name="comment" />
-                            <span>Comment</span>
-                        </span>
-                    </button>
-                )}
+                <button className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold" type="button">
+                    <span className="inline-flex items-center gap-2 px-[18px] py-[7px]" style={{color: textColor}}>
+                        <Icon colorClass='' name="thumbs-up" size="md" />
+                        <span>More like this</span>
+                    </span>
+                </button>
+                <button className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold" type="button">
+                    <span className="inline-flex items-center gap-2 px-[18px] py-[7px]" style={{color: textColor}}>
+                        <Icon colorClass='' name="thumbs-down" />
+                        <span>Less like this</span>
+                    </span>
+                </button>
             </div>
         </div>
     );
 };
 
+// Latest posts component
 const LatestPosts = ({
     titleFontCategory,
     titleFontWeight,
     sectionTitleColor,
     secondaryTextColor,
-    dividerStyle,
-    dividerColor,
     imageCorners,
-}: {
-    titleFontCategory: string | undefined;
-    titleFontWeight: string | undefined;
-    sectionTitleColor: string | undefined;
-    secondaryTextColor: string | undefined;
-    dividerStyle: string | undefined;
-    dividerColor: string | undefined;
-    imageCorners: string | undefined;
+    LatestPosts1,
+    LatestPosts2,
+    LatestPosts3,
 }) => {
     return (
         <div className={clsx('border-b border-grey-200 py-6', dividerStyle === 'dashed' && 'border-dashed', dividerStyle === 'dotted' && 'border-b-2 border-dotted')} style={{borderColor: dividerColor}}>
@@ -547,16 +500,12 @@ const LatestPosts = ({
     );
 };
 
+// Subscription details component
 const SubscriptionDetails = ({
-    siteTitle,
     dividerStyle,
     dividerColor,
     textColor,
-}: {
-    siteTitle: string | undefined;
-    dividerStyle: string | undefined;
-    dividerColor: string | undefined;
-    textColor: string | undefined;
+    siteTitle,
 }) => {
     return (
         <div className={clsx('border-b border-grey-200 py-8', dividerStyle === 'dashed' && 'border-dashed', dividerStyle === 'dotted' && 'border-b-2 border-dotted')} style={{borderColor: dividerColor}}>
@@ -568,7 +517,7 @@ const SubscriptionDetails = ({
                     <p style={{color: textColor}}>Email: jamie@example.com</p>
                     <p style={{color: textColor}}>Member since: 17 July 2023</p>
                 </div>
-                <span className={clsx('w-full self-end whitespace-nowrap text-right text-base', 'underline')} style={{color: textColor}}>
+                <span className={clsx('w-full self-end whitespace-nowrap text-right text-base', linkStyle === 'underline' && 'underline', linkStyle === 'bold' && 'font-bold')} style={{color: linkColor || accentColor}}>
                     Manage subscription
                 </span>
             </div>
@@ -576,20 +525,14 @@ const SubscriptionDetails = ({
     );
 };
 
+// Footer component
 const Footer = ({
-    siteTitle,
-    currentYear,
     processedFooterContent,
     secondaryTextColor,
+    siteTitle,
+    currentYear,
     showBadge,
     textColor,
-}: {
-    siteTitle: string | undefined;
-    currentYear: number;
-    processedFooterContent: string;
-    secondaryTextColor: string | undefined;
-    showBadge: boolean;
-    textColor: string | undefined;
 }) => {
     return (
         <div className="flex flex-col items-center pt-10">

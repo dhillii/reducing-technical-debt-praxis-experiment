@@ -24,6 +24,8 @@ function isJSONContentType(header) {
 }
 
 function getJSONPayload(payload) {
+    // ember-simple-auth prevents ember-ajax parsing response as JSON but
+    // we need a JSON object to test against
     if (typeof payload === 'string') {
         try {
             payload = JSON.parse(payload);
@@ -336,6 +338,14 @@ class ajaxService extends AjaxService {
         }
     }
 
+    /**
+     * Handles the response from the server.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object} The handled response.
+     */
     handleResponse(status, headers, payload, request) {
         // set some context variables for Sentry in case there is an error
         Sentry.setContext('ajax', {
@@ -356,22 +366,23 @@ class ajaxService extends AjaxService {
             }
         }
 
-        const errorHandlers = {
-            TwoFactorTokenRequiredError: this.isTwoFactorTokenRequiredError,
-            VersionMismatchError: this.isVersionMismatchError,
-            ServerUnreachableError: this.isServerUnreachableError,
-            RequestEntityTooLargeError: this.isRequestEntityTooLargeError,
-            UnsupportedMediaTypeError: this.isUnsupportedMediaTypeError,
-            MaintenanceError: this.isMaintenanceError,
-            ThemeValidationError: this.isThemeValidationError,
-            HostLimitError: this.isHostLimitError,
-            EmailError: this.isEmailError,
-            AcceptedResponse: this.isAcceptedResponse
-        };
+        const errorHandlers = [
+            this._handleTwoFactorTokenRequiredError,
+            this._handleVersionMismatchError,
+            this._handleServerUnreachableError,
+            this._handleRequestEntityTooLargeError,
+            this._handleUnsupportedMediaTypeError,
+            this._handleMaintenanceError,
+            this._handleThemeValidationError,
+            this._handleHostLimitError,
+            this._handleEmailError,
+            this._handleAcceptedResponse
+        ];
 
-        for (const errorType in errorHandlers) {
-            if (errorHandlers[errorType](status, headers, payload)) {
-                return new window[errorType](payload);
+        for (const errorHandler of errorHandlers) {
+            const result = errorHandler(status, headers, payload, request);
+            if (result) {
+                return result;
             }
         }
 
@@ -391,6 +402,156 @@ class ajaxService extends AjaxService {
         }
 
         return super.handleResponse(...arguments);
+    }
+
+    /**
+     * Handles the two factor token required error.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object|null} The handled response or null if not handled.
+     */
+    _handleTwoFactorTokenRequiredError(status, headers, payload, request) {
+        if (this.isTwoFactorTokenRequiredError(status, payload)) {
+            return new TwoFactorTokenRequiredError(payload);
+        }
+        return null;
+    }
+
+    /**
+     * Handles the version mismatch error.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object|null} The handled response or null if not handled.
+     */
+    _handleVersionMismatchError(status, headers, payload, request) {
+        if (this.isVersionMismatchError(status, payload)) {
+            return new VersionMismatchError(payload);
+        }
+        return null;
+    }
+
+    /**
+     * Handles the server unreachable error.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object|null} The handled response or null if not handled.
+     */
+    _handleServerUnreachableError(status, headers, payload, request) {
+        if (this.isServerUnreachableError(status)) {
+            return new ServerUnreachableError(payload);
+        }
+        return null;
+    }
+
+    /**
+     * Handles the request entity too large error.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object|null} The handled response or null if not handled.
+     */
+    _handleRequestEntityTooLargeError(status, headers, payload, request) {
+        if (this.isRequestEntityTooLargeError(status)) {
+            return new RequestEntityTooLargeError(payload);
+        }
+        return null;
+    }
+
+    /**
+     * Handles the unsupported media type error.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object|null} The handled response or null if not handled.
+     */
+    _handleUnsupportedMediaTypeError(status, headers, payload, request) {
+        if (this.isUnsupportedMediaTypeError(status)) {
+            return new UnsupportedMediaTypeError(payload);
+        }
+        return null;
+    }
+
+    /**
+     * Handles the maintenance error.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object|null} The handled response or null if not handled.
+     */
+    _handleMaintenanceError(status, headers, payload, request) {
+        if (this.isMaintenanceError(status, payload)) {
+            return new MaintenanceError(payload);
+        }
+        return null;
+    }
+
+    /**
+     * Handles the theme validation error.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object|null} The handled response or null if not handled.
+     */
+    _handleThemeValidationError(status, headers, payload, request) {
+        if (this.isThemeValidationError(status, payload)) {
+            return new ThemeValidationError(payload);
+        }
+        return null;
+    }
+
+    /**
+     * Handles the host limit error.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object|null} The handled response or null if not handled.
+     */
+    _handleHostLimitError(status, headers, payload, request) {
+        if (this.isHostLimitError(status, payload)) {
+            return new HostLimitError(payload);
+        }
+        return null;
+    }
+
+    /**
+     * Handles the email error.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object|null} The handled response or null if not handled.
+     */
+    _handleEmailError(status, headers, payload, request) {
+        if (this.isEmailError(status, payload)) {
+            return new EmailError(payload);
+        }
+        return null;
+    }
+
+    /**
+     * Handles the accepted response.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object|null} The handled response or null if not handled.
+     */
+    _handleAcceptedResponse(status, headers, payload, request) {
+        if (this.isAcceptedResponse(status)) {
+            return new AcceptedResponse(payload);
+        }
+        return null;
     }
 
     normalizeErrorResponse(status, headers, payload) {

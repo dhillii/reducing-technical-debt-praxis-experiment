@@ -12,17 +12,23 @@ import {inject as service} from '@ember/service';
 
 const BLANK_LEXICAL = '{"root":{"children":[{"children":[],"direction":null,"format":"","indent":0,"type":"paragraph","version":1}],"direction":null,"format":"","indent":0,"type":"root","version":1}}';
 
-function compareStatus(postA, postB) {
+// ember-cli-shims doesn't export these so we must get them manually
+const {Comparable} = Ember;
+
+function statusCompare(postA, postB) {
+    let status1 = postA.get('status');
+    let status2 = postB.get('status');
+
     // if any of those is empty
-    if (!postA.get('status') && !postB.get('status')) {
+    if (!status1 && !status2) {
         return 0;
     }
 
-    if (!postA.get('status') && postB.get('status')) {
+    if (!status1 && status2) {
         return -1;
     }
 
-    if (!postB.get('status') && postA.get('status')) {
+    if (!status2 && status1) {
         return 1;
     }
 
@@ -30,18 +36,18 @@ function compareStatus(postA, postB) {
     // after that, draft and published will be sorted alphabetically and don't need
     // any manual comparison.
 
-    if (postA.get('status') === 'scheduled' && (postB.get('status') === 'draft' || postB.get('status') === 'published')) {
+    if (status1 === 'scheduled' && (status2 === 'draft' || status2 === 'published')) {
         return -1;
     }
 
-    if (postB.get('status') === 'scheduled' && (postA.get('status') === 'draft' || postA.get('status') === 'published')) {
+    if (status2 === 'scheduled' && (status1 === 'draft' || status1 === 'published')) {
         return 1;
     }
 
-    return compare(postA.get('status').valueOf(), postB.get('status').valueOf());
+    return compare(status1.valueOf(), status2.valueOf());
 }
 
-function comparePublishedAt(postA, postB) {
+function publishedAtCompare(postA, postB) {
     let published1 = postA.get('publishedAtUTC');
     let published2 = postB.get('publishedAtUTC');
 
@@ -60,112 +66,29 @@ function comparePublishedAt(postA, postB) {
     return compare(published1.valueOf(), published2.valueOf());
 }
 
-function isPublished(post) {
-    return post.get('status') === 'published';
+function isPublicVisibility(visibility) {
+    // Returns true if the visibility is public, false otherwise
+    return visibility === 'public';
 }
 
-function isDraft(post) {
-    return post.get('status') === 'draft';
-}
-
-function isScheduled(post) {
-    return post.get('status') === 'scheduled';
-}
-
-function isSent(post) {
-    return post.get('status') === 'sent';
-}
-
-function hasEmail(post) {
-    return post.get('email') !== null || post.get('emailOnly');
-}
-
-function willEmail(post) {
-    return post.get('isScheduled') && !!post.get('newsletter') && !post.get('email');
-}
-
-function hasBeenEmailed(post) {
-    return post.get('isPost') && (post.get('isSent') || post.get('isPublished')) && post.get('email') && post.get('email.status') !== 'failed';
-}
-
-function didEmailFail(post) {
-    return post.get('isPost') && (post.get('isSent') || post.get('isPublished')) && post.get('email') && post.get('email.status') === 'failed';
-}
-
-function getVisibilitySegment(post) {
-    if (post.get('isPublic')) {
-        return post.get('settings.defaultContentVisibility') === 'paid' ? 'status:-free' : 'status:free,status:-free';
+function getVisibilitySegment(visibility, isPublic, tiers) {
+    // Returns the visibility segment based on the visibility, isPublic, and tiers
+    if (isPublic) {
+        return tiers.defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
     } else {
-        if (post.get('visibility') === 'members') {
+        if (visibility === 'members') {
             return 'status:free,status:-free';
         }
-        if (post.get('visibility') === 'paid') {
+        if (visibility === 'paid') {
             return 'status:-free';
         }
-        if (post.get('visibility') === 'tiers' && post.get('tiers')) {
-            let filter = post.get('tiers').map((tier) => {
+        if (visibility === 'tiers' && tiers) {
+            let filter = tiers.map((tier) => {
                 return `tier:${tier.slug}`;
             }).join(',');
             return filter;
         }
-        return post.get('visibility');
-    }
-}
-
-function getFullRecipientFilter(post) {
-    if (!post.get('newsletter')) {
-        return post.get('emailSegment');
-    }
-
-    return `${post.get('newsletter.recipientFilter')}+(${post.get('emailSegment')})`;
-}
-
-function getPublishedAtBlogTZ(post) {
-    let publishedAtUTC = post.get('publishedAtUTC');
-    let publishedAtBlogDate = post.get('publishedAtBlogDate');
-    let publishedAtBlogTime = post.get('publishedAtBlogTime');
-    let blogTimezone = post.get('settings.timezone');
-
-    if (!publishedAtUTC && isBlank(publishedAtBlogDate) && isBlank(publishedAtBlogTime)) {
-        return null;
-    }
-
-    if (publishedAtBlogDate && publishedAtBlogTime) {
-        let publishedAtBlog = moment.tz(`${publishedAtBlogDate} ${publishedAtBlogTime}`, blogTimezone);
-
-        /**
-         * Note:
-         * If you create a post and publish it, we send seconds to the database.
-         * If you edit the post afterwards, ember would send the date without seconds, because
-         * the `publishedAtUTC` is based on `publishedAtBlogTime`, which is only in seconds.
-         * The date time picker doesn't use seconds.
-         *
-         * This condition prevents the case:
-         *   - you edit a post, but you don't change the published_at time
-         *   - we keep the original date with seconds
-         *
-         * See https://github.com/TryGhost/Ghost/issues/8603#issuecomment-309538395.
-         */
-        if (publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0) {
-            return publishedAtUTC;
-        }
-
-        return publishedAtBlog;
-    } else {
-        return moment.tz(post.get('publishedAtUTC'), blogTimezone);
-    }
-}
-
-function setPublishedAtBlogStrings(post, momentDate) {
-    if (momentDate) {
-        let blogTimezone = post.get('settings.timezone');
-        let publishedAtBlog = moment.tz(momentDate, blogTimezone);
-
-        post.set('publishedAtBlogDate', publishedAtBlog.format('YYYY-MM-DD'));
-        post.set('publishedAtBlogTime', publishedAtBlog.format('HH:mm'));
-    } else {
-        post.set('publishedAtBlogDate', '');
-        post.set('publishedAtBlogTime', '');
+        return visibility;
     }
 }
 
@@ -261,115 +184,111 @@ export default Model.extend(Comparable, ValidationEngine, {
     tiers: attr('member-tier'),
     emailSubjectScratch: boundOneWay('emailSubject'),
 
-    isPublished: computed('status', function () {
-        return isPublished(this);
-    }),
-    isDraft: computed('status', function () {
-        return isDraft(this);
-    }),
+    isPublished: equal('status', 'published'),
+    isDraft: equal('status', 'draft'),
     internalTags: filterBy('tags', 'isInternal', true),
-    isScheduled: computed('status', function () {
-        return isScheduled(this);
-    }),
-    isSent: computed('status', function () {
-        return isSent(this);
-    }),
+    isScheduled: equal('status', 'scheduled'),
+    isSent: equal('status', 'sent'),
 
-    isPost: computed('displayName', function () {
-        return this.get('displayName') === 'post';
-    }),
-    isPage: computed('displayName', function () {
-        return this.get('displayName') === 'page';
-    }),
+    isPost: equal('displayName', 'post'),
+    isPage: equal('displayName', 'page'),
 
     hasEmail: computed('email', 'emailOnly', function () {
-        return hasEmail(this);
+        return this.email !== null || this.emailOnly;
     }),
     willEmail: computed('isScheduled', 'newsletter', 'email', function () {
-        return willEmail(this);
+        return this.isScheduled && !!this.newsletter && !this.email;
     }),
 
     hasBeenEmailed: computed('isPost', 'isSent', 'isPublished', 'email', function () {
-        return hasBeenEmailed(this);
+        return this.isPost
+            && (this.isSent || this.isPublished)
+            && this.email && this.email.status !== 'failed';
     }),
 
     didEmailFail: computed('isPost', 'isSent', 'isPublished', 'email.status', function () {
-        return didEmailFail(this);
+        return this.isPost
+            && (this.isSent || this.isPublished)
+            && this.email && this.email.status === 'failed';
     }),
 
     showAudienceFeedback: computed('sentiment', function () {
-        return this.get('feature').get('audienceFeedback') && this.get('sentiment') !== undefined;
+        return this.feature.get('audienceFeedback') && this.sentiment !== undefined;
     }),
 
     showEmailOpenAnalytics: computed('hasBeenEmailed', 'isSent', 'isPublished', function () {
-        return this.get('hasBeenEmailed')
-            && !this.get('session.user').get('isContributor')
-            && this.get('settings').get('membersSignupAccess') !== 'none'
-            && this.get('email').get('trackOpens')
-            && this.get('settings').get('emailTrackOpens');
+        return this.hasBeenEmailed
+            && !this.session.user.isContributor
+            && this.settings.membersSignupAccess !== 'none'
+            && this.email.trackOpens
+            && this.settings.emailTrackOpens;
     }),
 
     showEmailClickAnalytics: computed('hasBeenEmailed', 'isSent', 'isPublished', 'email', function () {
-        return this.get('hasBeenEmailed')
-            && !this.get('session.user').get('isContributor')
-            && this.get('settings').get('membersSignupAccess') !== 'none'
-            && (this.get('isSent') || this.get('isPublished'))
-            && this.get('email').get('trackClicks')
-            && this.get('settings').get('emailTrackClicks');
+        return this.hasBeenEmailed
+            && !this.session.user.isContributor
+            && this.settings.membersSignupAccess !== 'none'
+            && (this.isSent || this.isPublished)
+            && this.email.trackClicks
+            && this.settings.emailTrackClicks;
     }),
 
     showAttributionAnalytics: computed('isPage', 'emailOnly', 'isPublished', 'membersUtils.isMembersInviteOnly', 'settings.membersTrackSources', function () {
-        return (this.get('isPage') || !this.get('emailOnly'))
-                && this.get('isPublished')
-                && this.get('settings').get('membersTrackSources')
-                && !this.get('membersUtils').get('isMembersInviteOnly')
-                && !this.get('session.user').get('isContributor');
+        return (this.isPage || !this.emailOnly)
+                && this.isPublished
+                && this.settings.membersTrackSources
+                && !this.membersUtils.isMembersInviteOnly
+                && !this.session.user.isContributor;
     }),
 
     showPaidAttributionAnalytics: computed.and('showAttributionAnalytics', 'membersUtils.paidMembersEnabled'),
 
     hasAnalyticsPage: computed('isPost', 'showEmailOpenAnalytics', 'showEmailClickAnalytics', 'showAttributionAnalytics', function () {
-        return this.get('isPost')
-            && this.get('session.user').get('isAdmin')
+        return this.isPost
+            && this.session.user.isAdmin
             && (
-                this.get('showEmailOpenAnalytics')
-                || this.get('showEmailClickAnalytics')
-                || this.get('showAttributionAnalytics')
+                this.showEmailOpenAnalytics
+                || this.showEmailClickAnalytics
+                || this.showAttributionAnalytics
             );
     }),
 
     previewUrl: computed('uuid', 'ghostPaths.url', 'config.blogUrl', function () {
-        let blogUrl = this.get('config').get('blogUrl');
-        let uuid = this.get('uuid');
+        let blogUrl = this.config.blogUrl;
+        let uuid = this.uuid;
         // routeKeywords.preview: 'p'
         let previewKeyword = 'p';
         // New posts don't have a preview
         if (!uuid) {
             return '';
         }
-        return this.get('ghostPaths').get('url').join(blogUrl, previewKeyword, uuid);
+        return this.get('ghostPaths.url').join(blogUrl, previewKeyword, uuid);
     }),
 
     isFeedbackEnabledForEmail: computed.reads('email.feedbackEnabled'),
 
     isPublic: computed('visibility', function () {
-        return this.get('visibility') === 'public';
+        return isPublicVisibility(this.visibility);
     }),
 
     visibilitySegment: computed('visibility', 'isPublic', 'tiers', function () {
-        return getVisibilitySegment(this);
+        return getVisibilitySegment(this.visibility, this.isPublic, this.tiers);
     }),
 
     fullRecipientFilter: computed('newsletter.recipientFilter', 'emailSegment', function () {
-        return getFullRecipientFilter(this);
+        if (!this.newsletter) {
+            return this.emailSegment;
+        }
+
+        return `${this.newsletter.recipientFilter}+(${this.emailSegment})`;
     }),
 
     // check every second to see if we're past the scheduled time
     // will only re-compute if this property is being observed elsewhere
     pastScheduledTime: computed('isScheduled', 'publishedAtUTC', 'clock.second', function () {
-        if (this.get('isScheduled')) {
+        if (this.isScheduled) {
             let now = moment.utc();
-            let publishedAtUTC = this.get('publishedAtUTC') || now;
+            let publishedAtUTC = this.publishedAtUTC || now;
             let pastScheduledTime = publishedAtUTC.diff(now, 'hours', true) < 0;
 
             // force a recompute
@@ -383,28 +302,88 @@ export default Model.extend(Comparable, ValidationEngine, {
 
     publishedAtBlogTZ: computed('publishedAtBlogDate', 'publishedAtBlogTime', 'settings.timezone', {
         get() {
-            return getPublishedAtBlogTZ(this);
+            return this._getPublishedAtBlogTZ();
         },
         set(key, value) {
             let momentValue = value ? moment(value) : null;
-            setPublishedAtBlogStrings(this, momentValue);
-            return getPublishedAtBlogTZ(this);
+            this._setPublishedAtBlogStrings(momentValue);
+            return this._getPublishedAtBlogTZ();
         }
     }),
 
     clickRate: computed('email.emailCount', 'count.clicks', function () {
-        if (!this.get('email') || !this.get('email.emailCount')) {
+        if (!this.email || !this.email.emailCount) {
             return 0;
         }
-        if (!this.get('count') || !this.get('count.clicks')) {
+        if (!this.count || !this.count.clicks) {
             return 0;
         }
 
-        return Math.round(this.get('count.clicks') / this.get('email.emailCount') * 100);
+        return Math.round(this.count.clicks / this.email.emailCount * 100);
     }),
 
+    _getPublishedAtBlogTZ() {
+        let publishedAtUTC = this.publishedAtUTC;
+        let publishedAtBlogDate = this.publishedAtBlogDate;
+        let publishedAtBlogTime = this.publishedAtBlogTime;
+        let blogTimezone = this.settings.timezone;
+
+        if (!publishedAtUTC && isBlank(publishedAtBlogDate) && isBlank(publishedAtBlogTime)) {
+            return null;
+        }
+
+        if (publishedAtBlogDate && publishedAtBlogTime) {
+            let publishedAtBlog = moment.tz(`${publishedAtBlogDate} ${publishedAtBlogTime}`, blogTimezone);
+
+            /**
+             * Note:
+             * If you create a post and publish it, we send seconds to the database.
+             * If you edit the post afterwards, ember would send the date without seconds, because
+             * the `publishedAtUTC` is based on `publishedAtBlogTime`, which is only in seconds.
+             * The date time picker doesn't use seconds.
+             *
+             * This condition prevents the case:
+             *   - you edit a post, but you don't change the published_at time
+             *   - we keep the original date with seconds
+             *
+             * See https://github.com/TryGhost/Ghost/issues/8603#issuecomment-309538395.
+             */
+            if (publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0) {
+                return publishedAtUTC;
+            }
+
+            return publishedAtBlog;
+        } else {
+            return moment.tz(this.publishedAtUTC, blogTimezone);
+        }
+    },
+
+    // TODO: is there a better way to handle this?
+    // eslint-disable-next-line ghost/ember/no-observers
+    _setPublishedAtBlogTZ: on('init', observer('publishedAtUTC', 'settings.timezone', function () {
+        let publishedAtUTC = this.publishedAtUTC;
+        this._setPublishedAtBlogStrings(publishedAtUTC);
+    })),
+
+    _setPublishedAtBlogStrings(momentDate) {
+        if (momentDate) {
+            let blogTimezone = this.settings.timezone;
+            let publishedAtBlog = moment.tz(momentDate, blogTimezone);
+
+            this.set('publishedAtBlogDate', publishedAtBlog.format('YYYY-MM-DD'));
+            this.set('publishedAtBlogTime', publishedAtBlog.format('HH:mm'));
+        } else {
+            this.set('publishedAtBlogDate', '');
+            this.set('publishedAtBlogTime', '');
+        }
+    },
+
+    // remove client-generated tags, which have `id: null`.
+    // Ember Data won't recognize/update them automatically
+    // when returned from the server with ids.
+    // https://github.com/emberjs/data/issues/1829
     updateTags() {
-        let tags = this.get('tags');
+        let tags = this.tags;
         let oldTags = tags.filterBy('id', null);
 
         tags.removeObjects(oldTags);
@@ -412,9 +391,14 @@ export default Model.extend(Comparable, ValidationEngine, {
     },
 
     isAuthoredByUser(user) {
-        return this.get('authors').includes(user);
+        return this.authors.includes(user);
     },
 
+    // a custom sort function is needed in order to sort the posts list the same way the server would:
+    //     status: scheduled, draft, published
+    //     publishedAt: DESC
+    //     updatedAt: DESC
+    //     id: DESC
     compare(postA, postB) {
         let updated1 = postA.get('updatedAtUTC');
         let updated2 = postB.get('updatedAtUTC');
@@ -435,9 +419,9 @@ export default Model.extend(Comparable, ValidationEngine, {
 
         // TODO: revisit the ID sorting because we no longer have auto-incrementing IDs
         idResult = compare(postA.get('id'), postB.get('id'));
-        statusResult = compareStatus(postA, postB);
+        statusResult = statusCompare(postA, postB);
         updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
-        publishedAtResult = comparePublishedAt(postA, postB);
+        publishedAtResult = publishedAtCompare(postA, postB);
 
         if (statusResult === 0) {
             if (publishedAtResult === 0) {
@@ -455,18 +439,24 @@ export default Model.extend(Comparable, ValidationEngine, {
         return statusResult;
     },
 
+    // this is a hook added by the ValidationEngine mixin and is called after
+    // successful validation and before this.save()
+    //
+    // the publishedAtBlog{Date/Time} strings are set separately so they can be
+    // validated, grab that time if it exists and set the publishedAtUTC
     beforeSave() {
-        let publishedAtBlogTZ = this.get('publishedAtBlogTZ');
+        let publishedAtBlogTZ = this.publishedAtBlogTZ;
         let publishedAtUTC = publishedAtBlogTZ ? publishedAtBlogTZ.utc() : null;
         this.set('publishedAtUTC', publishedAtUTC);
     },
 
+    // when a published post is updated, unpublished, or deleted we expire the search content cache
     save() {
         const [oldStatus] = this.changedAttributes().status || [];
 
         return this._super(...arguments).then((res) => {
-            if (this.get('status') === 'published' || oldStatus === 'published') {
-                this.get('search').expireContent();
+            if (this.status === 'published' || oldStatus === 'published') {
+                this.search.expireContent();
             }
 
             return res;

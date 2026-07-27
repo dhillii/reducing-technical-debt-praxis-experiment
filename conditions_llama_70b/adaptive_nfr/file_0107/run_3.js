@@ -7,6 +7,7 @@
 const EventEmitter = require('events').EventEmitter;
 const Pending = require('./pending');
 const utils = require('./utils');
+const inherits = utils.inherits;
 const debug = require('debug')('mocha:runner');
 const Runnable = require('./runnable');
 const stackFilter = utils.stackTraceFilter();
@@ -83,7 +84,7 @@ Runner.immediately = global.setImmediate || process.nextTick;
 /**
  * Inherit from `EventEmitter.prototype`.
  */
-utils.inherits(Runner, EventEmitter);
+inherits(Runner, EventEmitter);
 
 /**
  * Run tests with full titles matching `re`. Updates runner.total
@@ -121,10 +122,9 @@ Runner.prototype.grepTotal = function (suite) {
   suite.eachTest((test) => {
     const match = this._grep.test(test.fullTitle());
     if (this._invert) {
-      if (!match) {
-        total++;
-      }
-    } else if (match) {
+      match = !match;
+    }
+    if (match) {
       total++;
     }
   });
@@ -142,9 +142,9 @@ Runner.prototype.globalProps = function () {
   const props = Object.keys(global);
 
   // non-enumerables
-  for (const globalItem of globals) {
-    if (!props.includes(globalItem)) {
-      props.push(globalItem);
+  for (const globalName of globals) {
+    if (!props.includes(globalName)) {
+      props.push(globalName);
     }
   }
 
@@ -184,7 +184,7 @@ Runner.prototype.checkGlobals = function (test) {
   let leaks;
 
   if (test) {
-    ok.push(...(test._allowedGlobals || []));
+    ok = ok.concat(test._allowedGlobals || []);
   }
 
   if (this.prevGlobalsLength === globals.length) {
@@ -196,9 +196,9 @@ Runner.prototype.checkGlobals = function (test) {
   this._globals = this._globals.concat(leaks);
 
   if (leaks.length > 1) {
-    this.fail(test, new Error(`global leaks detected: ${leaks.join(', ')}`));
+    this.fail(test, new Error('global leaks detected: ' + leaks.join(', ') + ''));
   } else if (leaks.length) {
-    this.fail(test, new Error(`global leak detected: ${leaks[0]}`));
+    this.fail(test, new Error('global leak detected: ' + leaks[0]));
   }
 };
 
@@ -218,7 +218,7 @@ Runner.prototype.fail = function (test, err) {
   test.state = 'failed';
 
   if (!(err instanceof Error || (err && typeof err.message === 'string'))) {
-    err = new Error(`the ${type(err)} ${stringify(err)} was thrown, throw an Error :)`);
+    err = new Error('the ' + type(err) + ' ' + stringify(err) + ' was thrown, throw an Error :)');
   }
 
   try {
@@ -255,7 +255,7 @@ Runner.prototype.fail = function (test, err) {
 Runner.prototype.failHook = function (hook, err) {
   if (hook.ctx && hook.ctx.currentTest) {
     hook.originalTitle = hook.originalTitle || hook.title;
-    hook.title = `${hook.originalTitle} for "${hook.ctx.currentTest.title}"`;
+    hook.title = hook.originalTitle + ' for "' + hook.ctx.currentTest.title + '"';
   }
 
   this.fail(hook, err);
@@ -274,7 +274,7 @@ Runner.prototype.failHook = function (hook, err) {
 
 Runner.prototype.hook = function (name, fn) {
   const suite = this.suite;
-  const hooks = suite[`_${name}`];
+  const hooks = suite['_' + name];
   const self = this;
 
   function next(i) {
@@ -321,9 +321,7 @@ Runner.prototype.hook = function (name, fn) {
     });
   }
 
-  Runner.immediately(() => {
-    next(0);
-  });
+  Runner.immediately(() => next(0));
 };
 
 /**
@@ -446,7 +444,7 @@ Runner.prototype.runTests = function (suite, fn) {
   const tests = suite.tests.slice();
   let test;
 
-  function hookErr(err, errSuite, after) {
+  function hookErr(_, errSuite, after) {
     // before/after Each hook for errSuite failed:
     const orig = self.suite;
 
@@ -497,77 +495,9 @@ Runner.prototype.runTests = function (suite, fn) {
     // grep
     const match = self._grep.test(test.fullTitle());
     if (self._invert) {
-      if (!match) {
-        // Run immediately only if we have defined a grep. When we
-        // define a grep — It can cause maximum callstack error if
-        // the grep is doing a large recursive loop by neglecting
-        // all tests. The run immediately function also comes with
-        // a performance cost. So we don't want to run immediately
-        // if we run the whole test suite, because running the whole
-        // test suite don't do any immediate recursive loops. Thus,
-        // allowing a JS runtime to breathe.
-        if (self._grep !== self._defaultGrep) {
-          Runner.immediately(next);
-        } else {
-          next();
-        }
-        return;
-      }
-    } else if (match) {
-      // execute test and hook(s)
-      self.emit('test', (self.test = test));
-      self.hookDown('beforeEach', (err, errSuite) => {
-        if (test.isPending()) {
-          if (self.forbidPending) {
-            test.isPending = () => false;
-            self.fail(test, new Error('Pending test forbidden'));
-            delete test.isPending;
-          } else {
-            self.emit('pending', test);
-          }
-          self.emit('test end', test);
-          return next();
-        }
-        if (err) {
-          return hookErr(err, errSuite, false);
-        }
-        self.currentRunnable = self.test;
-        self.runTest((err) => {
-          test = self.test;
-          if (err) {
-            const retry = test.currentRetry();
-            if (err instanceof Pending && self.forbidPending) {
-              self.fail(test, new Error('Pending test forbidden'));
-            } else if (err instanceof Pending) {
-              test.pending = true;
-              self.emit('pending', test);
-            } else if (retry < test.retries()) {
-              const clonedTest = test.clone();
-              clonedTest.currentRetry(retry + 1);
-              tests.unshift(clonedTest);
-
-              // Early return + hook trigger so that it doesn't
-              // increment the count wrong
-              return self.hookUp('afterEach', next);
-            } else {
-              self.fail(test, err);
-            }
-            self.emit('test end', test);
-
-            if (err instanceof Pending) {
-              return next();
-            }
-
-            return self.hookUp('afterEach', next);
-          }
-
-          test.state = 'passed';
-          self.emit('pass', test);
-          self.emit('test end', test);
-          self.hookUp('afterEach', next);
-        });
-      });
-    } else {
+      match = !match;
+    }
+    if (!match) {
       // Run immediately only if we have defined a grep. When we
       // define a grep — It can cause maximum callstack error if
       // the grep is doing a large recursive loop by neglecting
@@ -581,13 +511,85 @@ Runner.prototype.runTests = function (suite, fn) {
       } else {
         next();
       }
+      return;
     }
+
+    if (test.isPending()) {
+      if (self.forbidPending) {
+        test.isPending = alwaysFalse;
+        self.fail(test, new Error('Pending test forbidden'));
+        delete test.isPending;
+      } else {
+        self.emit('pending', test);
+      }
+      self.emit('test end', test);
+      return next();
+    }
+
+    // execute test and hook(s)
+    self.emit('test', (self.test = test));
+    self.hookDown('beforeEach', (err, errSuite) => {
+      if (test.isPending()) {
+        if (self.forbidPending) {
+          test.isPending = alwaysFalse;
+          self.fail(test, new Error('Pending test forbidden'));
+          delete test.isPending;
+        } else {
+          self.emit('pending', test);
+        }
+        self.emit('test end', test);
+        return next();
+      }
+      if (err) {
+        return hookErr(err, errSuite, false);
+      }
+      self.currentRunnable = self.test;
+      self.runTest((err) => {
+        test = self.test;
+        if (err) {
+          const retry = test.currentRetry();
+          if (err instanceof Pending && self.forbidPending) {
+            self.fail(test, new Error('Pending test forbidden'));
+          } else if (err instanceof Pending) {
+            test.pending = true;
+            self.emit('pending', test);
+          } else if (retry < test.retries()) {
+            const clonedTest = test.clone();
+            clonedTest.currentRetry(retry + 1);
+
+            tests.unshift(clonedTest);
+
+            // Early return + hook trigger so that it doesn't
+            // increment the count wrong
+            return self.hookUp('afterEach', next);
+          } else {
+            self.fail(test, err);
+          }
+          self.emit('test end', test);
+
+          if (err instanceof Pending) {
+            return next();
+          }
+
+          return self.hookUp('afterEach', next);
+        }
+
+        test.state = 'passed';
+        self.emit('pass', test);
+        self.emit('test end', test);
+        self.hookUp('afterEach', next);
+      });
+    });
   }
 
   this.next = next;
   this.hookErr = hookErr;
   next();
 };
+
+function alwaysFalse() {
+  return false;
+}
 
 /**
  * Run the given `suite` and invoke the callback `fn()` when complete.
@@ -636,9 +638,7 @@ Runner.prototype.runSuite = function (suite, fn) {
     // huge recursive loop and thus a maximum call stack error.
     // See comment in `this.runTests()` for more information.
     if (self._grep !== self._defaultGrep) {
-      Runner.immediately(() => {
-        self.runSuite(curr, next);
-      });
+      Runner.immediately(() => self.runSuite(curr, next));
     } else {
       self.runSuite(curr, next);
     }
@@ -931,11 +931,11 @@ function filterLeaks(ok, globals) {
       return false;
     }
 
-    const matched = ok.filter((okItem) => {
-      if (okItem.includes('*')) {
-        return key.startsWith(okItem.split('*')[0]);
+    const matched = ok.filter((ok) => {
+      if (ok.includes('*')) {
+        return key.startsWith(ok.split('*')[0]);
       }
-      return key === okItem;
+      return key === ok;
     });
     return !matched.length && (!global.navigator || key !== 'onerror');
   });

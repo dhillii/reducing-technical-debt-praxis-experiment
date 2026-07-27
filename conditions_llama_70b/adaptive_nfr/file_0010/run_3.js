@@ -13,27 +13,31 @@ export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
     trial_days: string;
 };
 
-const getLeftButtonProps = (tier: Tier | undefined): ButtonProps => {
-    if (!tier) {
-        return {};
+const getTierTitle = (tier?: Tier) => {
+    if (tier) {
+        return tier.active ? 'Edit tier' : 'Edit archived tier';
     }
+    return 'New tier';
+};
 
-    if (tier.active && tier.type !== 'free') {
-        return {
-            label: 'Archive tier',
-            color: 'red',
-            link: true,
-            onClick: () => confirmTierStatusChange(tier)
-        };
-    } else if (!tier.active) {
-        return {
-            label: 'Reactivate tier',
-            color: 'green',
-            link: true,
-            onClick: () => confirmTierStatusChange(tier)
-        };
+const getLeftButtonProps = (tier?: Tier) => {
+    if (tier) {
+        if (tier.active && tier.type !== 'free') {
+            return {
+                label: 'Archive tier',
+                color: 'red',
+                link: true,
+                onClick: () => confirmTierStatusChange(tier)
+            };
+        } else if (!tier.active) {
+            return {
+                label: 'Reactivate tier',
+                color: 'green',
+                link: true,
+                onClick: () => confirmTierStatusChange(tier)
+            };
+        }
     }
-
     return {};
 };
 
@@ -68,26 +72,6 @@ const confirmTierStatusChange = (tier: Tier) => {
     });
 };
 
-const validateForm = (formState: TierFormState, isFreeTier: boolean): ErrorMessages => {
-    const errors: ErrorMessages = {};
-
-    if (!formState.name) {
-        errors.name = 'Enter a name for the tier';
-    }
-
-    if (formState.type !== 'free') {
-        if (!validateCurrencyAmount(formState.monthly_price || 0, formState.currency, {allowZero: false})) {
-            errors.monthly_price = 'Invalid monthly price';
-        }
-
-        if (!validateCurrencyAmount(formState.yearly_price || 0, formState.currency, {allowZero: false})) {
-            errors.yearly_price = 'Invalid yearly price';
-        }
-    }
-
-    return errors;
-};
-
 const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
     const isFreeTier = tier?.type === 'free';
 
@@ -101,6 +85,12 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
     const [portalPlansJson] = getSettingValues(localSettings, ['portal_plans']) as string[];
     const portalPlans = JSON.parse(portalPlansJson?.toString() || '[]') as string[];
 
+    const validators: {[key in keyof Tier]?: () => string | undefined} = {
+        name: () => (formState.name ? undefined : 'Enter a name for the tier'),
+        monthly_price: () => (formState.type !== 'free' ? validateCurrencyAmount(formState.monthly_price || 0, formState.currency, {allowZero: false}) : undefined),
+        yearly_price: () => (formState.type !== 'free' ? validateCurrencyAmount(formState.yearly_price || 0, formState.currency, {allowZero: false}) : undefined)
+    };
+
     const {formState, saveState, updateForm, handleSave, errors, clearError, okProps} = useForm<TierFormState>({
         initialState: {
             ...(tier || {}),
@@ -111,7 +101,15 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         },
         savingDelay: 500,
         savedDelay: 500,
-        onValidate: () => validateForm(formState, isFreeTier),
+        onValidate: () => {
+            const newErrors: ErrorMessages = {};
+
+            Object.entries(validators).forEach(([key, validator]) => {
+                newErrors[key as keyof Tier] = validator?.();
+            });
+
+            return newErrors;
+        },
         onSave: async () => {
             const {trial_days: trialDays, currency, ...rest} = formState;
             const values: Partial<Tier> = rest;
@@ -178,7 +176,8 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
     const didInitialRender = useRef(false);
     useEffect(() => {
         if (didInitialRender.current) {
-            validateForm(formState, isFreeTier);
+            validators.monthly_price?.();
+            validators.yearly_price?.();
         }
 
         didInitialRender.current = true;
@@ -196,7 +195,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         okLabel={okProps.label || 'Save'}
         size='lg'
         testId='tier-detail-modal'
-        title={(tier ? (tier.active ? 'Edit tier' : 'Edit archived tier') : 'New tier')}
+        title={getTierTitle(tier)}
         stickyFooter
         onOk={async () => {
             await handleSave({fakeWhenUnchanged: true});

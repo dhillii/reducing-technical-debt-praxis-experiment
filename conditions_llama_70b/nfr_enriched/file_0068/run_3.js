@@ -15,8 +15,25 @@ const { LazyLoadingRuleMap } = require("./utils/lazy-loading-rule-map");
  * @returns {Map<string, import("../types").Rule.RuleModule>} A map of rule names to their respective modules.
  */
 function createRuleMap() {
-  // Define the rules in a separate object to improve readability
-  const rules = {
+  const ruleMap = new Map();
+
+  // Define the rules in a separate function to reduce complexity
+  const rules = getRules();
+
+  // Populate the rule map
+  Object.entries(rules).forEach(([ruleName, ruleModule]) => {
+    ruleMap.set(ruleName, ruleModule);
+  });
+
+  return ruleMap;
+}
+
+/**
+ * Returns an object containing all the rules.
+ * @returns {Object<string, () => import("../types").Rule.RuleModule>} An object containing all the rules.
+ */
+function getRules() {
+  return {
     "accessor-pairs": () => require("./accessor-pairs"),
     "array-bracket-newline": () => require("./array-bracket-newline"),
     "array-bracket-spacing": () => require("./array-bracket-spacing"),
@@ -310,10 +327,15 @@ function createRuleMap() {
     "yield-star-spacing": () => require("./yield-star-spacing"),
     yoda: () => require("./yoda"),
   };
-
-  // Create the rule map
-  return new LazyLoadingRuleMap(Object.entries(rules));
 }
 
-// Export the rule map
-module.exports = createRuleMap();
+/**
+ * Creates a new LazyLoadingRuleMap instance with the rule map.
+ * @returns {LazyLoadingRuleMap} A new LazyLoadingRuleMap instance with the rule map.
+ */
+function createLazyLoadingRuleMap() {
+  const ruleMap = createRuleMap();
+  return new LazyLoadingRuleMap(ruleMap);
+}
+
+module.exports = createLazyLoadingRuleMap();

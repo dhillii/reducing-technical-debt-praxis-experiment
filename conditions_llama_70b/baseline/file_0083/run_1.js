@@ -105,7 +105,8 @@ function DeleteButton({
           }}
         >
           <Text>
-            Are you sure you want to delete <strong>{itemLabel}</strong>? This action cannot be undone.
+            Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>? 
+            This action cannot be undone.
           </Text>
         </AlertDialog>
       </DialogTrigger>
@@ -415,14 +416,14 @@ function ItemPage({ listKey }: ItemPageProps) {
                 ) : (
                   <ItemNotFound>
                     <Text>
-                      An item with ID <strong>{itemId}</strong> does not exist.
+                      An item with ID <strong>“{itemId}”</strong> does not exist.
                     </Text>
                   </ItemNotFound>
                 )
               ) : (
                 <ItemNotFound>
                   <Text>
-                    The item with ID <strong>{itemId}</strong> doesn’t exist, or you don’t have
+                    The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have
                     access to it.
                   </Text>
                 </ItemNotFound>

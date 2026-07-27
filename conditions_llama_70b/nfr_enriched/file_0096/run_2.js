@@ -72,7 +72,7 @@ define([
             this.vent.reply(_.extend(defReply(), this.reply()), this);
 
             // Listen to events
-            this.listenTo(this.vent, 'destroy:collection', this.onReset);
+            this.listenTo(this.vent, 'destroy:collection', this.onReset, this);
         },
 
         /**
@@ -80,15 +80,11 @@ define([
          * @type object
          */
         changeDatabase: function(options) {
-            const profile  = options && options.profile ? options.profile : this.defaultDB,
-                model,
-                collection;
-
-            model  = this.Collection.prototype.model.extend({
+            const profile  = options && options.profile ? options.profile : this.defaultDB;
+            const model    = this.Collection.prototype.model.extend({
                 profileId : profile
             });
-
-            collection = this.Collection.extend({
+            const collection = this.Collection.extend({
                 profileId : profile,
                 model     : model
             });
@@ -118,9 +114,9 @@ define([
          * @type object new values
          */
         save: function(model, data) {
-            const self   = this,
-                setF   = model.setEscape ? 'setEscape' : 'set',
-                errors = model.validate(data);
+            const self   = this;
+            const setF   = model.setEscape ? 'setEscape' : 'set';
+            const errors = model.validate(data);
 
             if (errors) {
                 model.trigger('invalid', model, errors);
@@ -165,8 +161,8 @@ define([
          * @type object Backbone collection
          */
         saveCollection: function(collection) {
-            const promises = [],
-                self     = this;
+            const promises = [];
+            const self     = this;
             collection   = collection || this.collection;
 
             collection.each(function(model) {
@@ -190,27 +186,22 @@ define([
          * @type object options
          */
         saveRaw: function(data, options) {
-            const self   = this,
-                model  = new (this.changeDatabase(options)).prototype.model(data),
-                errors;
+            const self   = this;
+            const model  = new (this.changeDatabase(options)).prototype.model(data);
+            const errors = model.validate(model.attributes);
 
-            return this.decryptModel(model)
-            .then(function() {
-                errors = model.validate(model.attributes);
+            // Don't save data which can't be validated
+            if (errors) {
+                console.error('Validation failed:' + model.storeName, errors);
+                return;
+            }
 
-                // Don't save data which can't be validated
-                if (errors) {
-                    console.error('Validation failed:' + model.storeName, errors);
-                    return;
-                }
-
-                return self.save(model, data)
-                .then(self.decryptModel)
-                .then(function(model) {
-                    self.vent.trigger('update:model', model);
-                    self.vent.trigger('synced:' + model.id, model);
-                    return model;
-                });
+            return self.save(model, data)
+            .then(self.decryptModel)
+            .then(function(model) {
+                self.vent.trigger('update:model', model);
+                self.vent.trigger('synced:' + model.id, model);
+                return model;
             });
         },
 
@@ -219,8 +210,8 @@ define([
          * @type array
          */
         saveAllRaw: function(arData, options) {
-            const promises = [],
-                self     = this;
+            const promises = [];
+            const self     = this;
 
             _.each(arData, function(data) {
                 promises.push(function() {
@@ -256,10 +247,10 @@ define([
          * @type object options
          */
         getModel: function(options) {
-            const Model  = (this.changeDatabase(options)).prototype.model,
-                idAttr = Model.prototype.idAttribute,
-                data   = {},
-                model;
+            const Model  = (this.changeDatabase(options)).prototype.model;
+            const idAttr = Model.prototype.idAttribute;
+            const data   = {};
+            let model;
 
             data[idAttr] = options[idAttr];
             model        = new Model(data);
@@ -330,8 +321,8 @@ define([
          * @type object options
          */
         fetch: function(options) {
-            const collection = new (this.changeDatabase(options))(),
-                self       = this;
+            const collection = new (this.changeDatabase(options))();
+            const self       = this;
 
             return new Q(collection.fetch(options))
             .then(function() {
@@ -359,8 +350,8 @@ define([
                 return false;
             }
 
-            const configs = Radio.request('configs', 'get:object'),
-                backup  = {encrypt: configs.encryptBackup.encrypt || 0};
+            const configs = Radio.request('configs', 'get:object');
+            const backup  = {encrypt: configs.encryptBackup.encrypt || 0};
             model       = model || this.Collection.prototype.model.prototype;
 
             return (

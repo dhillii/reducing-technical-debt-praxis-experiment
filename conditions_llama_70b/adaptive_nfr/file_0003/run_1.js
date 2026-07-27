@@ -38,21 +38,21 @@ const hexToRgba = (hex: string, alpha: number) => {
 };
 
 const getBackgroundColor = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
-    const backgroundColorMap: { [key: string]: string } = {
+    const backgroundColors: { [key: string]: string } = {
         'light': '#fff',
         'dark': '#15171a',
         'accent': accentColor || '#15171a'
     };
-    return backgroundColorMap[backgroundColor];
+    return backgroundColors[backgroundColor] || '#fff';
 };
 
 const getTextColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
-    const textColorMap: { [key: string]: string } = {
+    const textColors: { [key: string]: string } = {
         'light': '#15171a',
         'dark': '#fff',
         'accent': '#fff'
     };
-    return textColorMap[backgroundColor];
+    return textColors[backgroundColor] || '#15171a';
 };
 
 const ProfileCard: React.FC<ProfileCardProps> = memo(({
@@ -175,21 +175,21 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
 ProfileCard.displayName = 'ProfileCard';
 
 const getGradient = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
-    const gradientMap: { [key: string]: string } = {
+    const gradients: { [key: string]: string } = {
         'light': `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`,
         'dark': `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`,
         'accent': `linear-gradient(to bottom left, ${hexToRgba(accentColor || '#15171a', 0.08)}, ${hexToRgba(accentColor || '#15171a', 0.06)})`
     };
-    return gradientMap[backgroundColor];
+    return gradients[backgroundColor] || `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`;
 };
 
 const getDotsPatternColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
-    const dotsPatternColorMap: { [key: string]: string } = {
+    const dotsPatternColors: { [key: string]: string } = {
         'light': hexToRgba('#15171a', 0.025),
         'dark': hexToRgba('#15171a', 0.23),
         'accent': 'rgba(0, 0, 0, 0.02)'
     };
-    return dotsPatternColorMap[backgroundColor];
+    return dotsPatternColors[backgroundColor] || hexToRgba('#15171a', 0.025);
 };
 
 const Profile: React.FC<ProfileProps> = ({ account, isLoading }) => {

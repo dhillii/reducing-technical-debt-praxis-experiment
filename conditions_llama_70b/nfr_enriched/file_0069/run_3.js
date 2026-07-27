@@ -964,8 +964,7 @@ module.exports = {
         return node.parent.type === "NewExpression" &&
           node.parent.callee === node
           ? true
-          : node.parent.object === node &&
-              isMemberExpInNewCallee(node.parent);
+          : node.parent.object === node && isMemberExpInNewCallee(node.parent);
       }
       return false;
     }
@@ -1278,7 +1277,10 @@ module.exports = {
         if (reportsBuffer.reports.length) {
           reportsBuffer.inExpressionNodes.forEach(
             inExpressionNode => {
-              const path = pathToDescendant(node, inExpressionNode);
+              const path = pathToDescendant(
+                node,
+                inExpressionNode,
+              );
               let nodeToExclude;
 
               for (let i = 0; i < path.length; i++) {
@@ -1288,7 +1290,10 @@ module.exports = {
                   const nextPathNode = path[i + 1];
 
                   if (
-                    isSafelyEnclosingInExpression(pathNode, nextPathNode)
+                    isSafelyEnclosingInExpression(
+                      pathNode,
+                      nextPathNode,
+                    )
                   ) {
                     // The 'in' expression in safely enclosed by the syntax of its ancestor nodes (e.g. by '{}' or '[]').
                     return;
@@ -1361,7 +1366,9 @@ module.exports = {
           ? hasDoubleExcessParens(node.object)
           : hasExcessParens(node.object) &&
             !(
-              isImmediateFunctionPrototypeMethodCall(node.parent) &&
+              isImmediateFunctionPrototypeMethodCall(
+                node.parent,
+              ) &&
               node.parent.callee === node &&
               IGNORE_FUNCTION_PROTOTYPE_METHODS
             );

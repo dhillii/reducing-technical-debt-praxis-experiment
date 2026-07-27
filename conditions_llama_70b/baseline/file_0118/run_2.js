@@ -591,7 +591,7 @@ JSON5.stringify = function (obj, replacer, space) {
         return Object.prototype.toString.call(obj) === '[object Date]';
     }
 
-    isNaN = isNaN || function(val) {
+    const isNaN = isNaN || function(val) {
         return typeof val === 'number' && val !== val;
     };
 

@@ -49,7 +49,7 @@ export interface ModalProps {
   allowBackgroundInteraction?: boolean;
 }
 
-const topLevelBackdropClasses = 'bg-[rgba(98,109,121,0.2)] backdrop-blur-[3px]';
+export const topLevelBackdropClasses = 'bg-[rgba(98,109,121,0.2)] backdrop-blur-[3px]';
 
 const Modal = forwardRef<HTMLElement, ModalProps>(({
   size = 'md',
@@ -157,7 +157,7 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
     }
   }, [onOk, enableCMDS]);
 
-  const getModalClasses = (size: ModalSize, align: 'center' | 'left' | 'right', animate: boolean, animationFinished: boolean, formSheet: boolean, scrolling: boolean) => {
+  const getModalClasses = (size: ModalSize, align: 'center' | 'left' | 'right', formSheet: boolean, animate: boolean, animationFinished: boolean, scrolling: boolean) => {
     // The animation classes apply a transform to the modal, which breaks anything inside using position:fixed
     // We should remove the class as soon as the animation is finished
     return clsx(
@@ -183,6 +183,7 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
 
   const getHeaderClasses = (stickyHeader: boolean, paddingClasses: string) => {
     return clsx(
+      (!topRightContent || topRightContent === 'close') ? '' : 'flex items-center justify-between gap-5',
       stickyHeader ? 'sticky top-0 z-[300] -mb-4 bg-white !pb-4 dark:bg-black' : '',
       paddingClasses,
       'pb-0'
@@ -260,35 +261,6 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
     return buttons;
   };
 
-  const getFooterContent = (footer: boolean | React.ReactNode, leftButtonProps: ButtonProps | undefined, buttons: ButtonProps[], stickyFooter: boolean) => {
-    let footerContent;
-
-    if (footer) {
-      footerContent = footer;
-    } else if (footer === false) {
-      return <></>;
-    } else {
-      footerContent = (
-        <div className={getFooterClasses('p-8', stickyFooter)}>
-          <div>
-            {leftButtonProps && <Button {...leftButtonProps} />}
-          </div>
-          <div className='flex gap-3'>
-            <ButtonGroup buttons={buttons} />
-          </div>
-        </div>
-      );
-    }
-
-    return stickyFooter ? (
-      <StickyFooter height={84}>
-        {footerContent}
-      </StickyFooter>
-    ) : (
-      <>{footerContent}</>
-    );
-  };
-
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget && backDropClick) {
       confirmIfDirty(dirty, () => {
@@ -298,14 +270,7 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
     }
   };
 
-  const removeModal = () => {
-    confirmIfDirty(dirty, () => {
-      modal.remove();
-      afterClose?.();
-    });
-  };
-
-  const modalClasses = getModalClasses(size, align, animate, animationFinished, formSheet, scrolling);
+  const modalClasses = getModalClasses(size, align, formSheet, animate, animationFinished, scrolling);
   const backdropClasses = getBackdropClasses(backDrop, allowBackgroundInteraction);
   const paddingClasses = padding ? 'p-8' : 'p-0';
   const headerClasses = getHeaderClasses(stickyHeader, paddingClasses);
@@ -313,7 +278,17 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
   const footerClasses = getFooterClasses(paddingClasses, stickyFooter);
   const modalStyles = getModalStyles(width, height);
   const buttons = getButtons(okLabel, okColor, okLoading, cancelLabel, buttonsDisabled, okDisabled, onOk, onCancel);
-  const footerContent = getFooterContent(footer, leftButtonProps, buttons, stickyFooter);
+
+  const footerContent = footer ? footer : (
+    <div className={footerClasses}>
+      <div>
+        {leftButtonProps && <Button {...leftButtonProps} />}
+      </div>
+      <div className='flex gap-3'>
+        <ButtonGroup buttons={buttons} />
+      </div>
+    </div>
+  );
 
   return (
     <div className={backdropClasses} id='modal-backdrop' onMouseDown={handleBackdropClick}>
@@ -330,7 +305,12 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
           (<header className={headerClasses}>
             {title && <Heading level={3}>{title}</Heading>}
             <div className={`${topRightContent !== 'close' && 'md:!invisible md:!hidden'} ${hideXOnMobile && 'hidden'} absolute right-6 top-6`}>
-              <Button className='-m-2 cursor-pointer p-2 opacity-50 hover:opacity-100' icon='close' iconColorClass='text-black dark:text-white' size='sm' testId='close-modal' unstyled onClick={removeModal} />
+              <Button className='-m-2 cursor-pointer p-2 opacity-50 hover:opacity-100' icon='close' iconColorClass='text-black dark:text-white' size='sm' testId='close-modal' unstyled onClick={() => {
+                confirmIfDirty(dirty, () => {
+                  modal.remove();
+                  afterClose?.();
+                });
+              }} />
             </div>
           </header>)
           :
@@ -341,7 +321,13 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         <div className={contentClasses}>
           {children}
         </div>
-        {footerContent}
+        {stickyFooter ? (
+          <StickyFooter height={84}>
+            {footerContent}
+          </StickyFooter>
+        ) : (
+          footerContent
+        )}
       </section>
     </div>
   );

@@ -196,14 +196,14 @@ exports.highlightTags = (name) => {
 };
 
 /**
- * Get a string representation of an empty value.
+ * Get the empty representation of a value.
  *
  * @api private
  * @param {*} value
  * @param {string} typeHint
  * @returns {string}
  */
-const emptyRepresentation = (value, typeHint) => {
+const getEmptyRepresentation = (value, typeHint) => {
   switch (typeHint) {
     case 'function':
       return '[Function]';
@@ -237,11 +237,19 @@ const getType = (value) => {
 };
 
 /**
- * Stringify a value.
+ * Stringify `value`. Different behavior depending on type of value:
+ *
+ * - If `value` is undefined or null, return `'[undefined]'` or `'[null]'`, respectively.
+ * - If `value` is not an object, function or array, return result of `value.toString()` wrapped in double-quotes.
+ * - If `value` is an *empty* object, function, or array, return result of function
+ *   {@link emptyRepresentation}.
+ * - If `value` has properties, call {@link exports.canonicalize} on it, then return result of
+ *   JSON.stringify().
  *
  * @api private
+ * @see exports.type
  * @param {*} value
- * @returns {string}
+ * @return {string}
  */
 exports.stringify = (value) => {
   const typeHint = getType(value);
@@ -273,11 +281,11 @@ exports.stringify = (value) => {
     }
   }
 
-  return emptyRepresentation(value, typeHint);
+  return getEmptyRepresentation(value, typeHint);
 };
 
 /**
- * Like JSON.stringify but more sense.
+ * like JSON.stringify but more sense.
  *
  * @api private
  * @param {Object}  object
@@ -356,11 +364,21 @@ const jsonStringify = (object, spaces, depth) => {
 /**
  * Return a new Thing that has the keys in sorted order. Recursive.
  *
+ * If the Thing...
+ * - has already been seen, return string `'[Circular]'`
+ * - is `undefined`, return string `'[undefined]'`
+ * - is `null`, return value `null`
+ * - is some other primitive, return the value
+ * - is not a primitive or an `Array`, `Object`, or `Function`, return the value of the Thing's `toString()` method
+ * - is a non-empty `Array`, `Object`, or `Function`, return the result of calling this function again.
+ * - is an empty `Array`, `Object`, or `Function`, return the result of calling `emptyRepresentation()`
+ *
  * @api private
- * @param {*} value
- * @param {Array} [stack=[]]
- * @param {string} [typeHint]
- * @returns {(Object|Array|Function|string|undefined)}
+ * @see {@link exports.stringify}
+ * @param {*} value Thing to inspect.  May or may not have properties.
+ * @param {Array} [stack=[]] Stack of seen values
+ * @param {string} [typeHint] Type hint
+ * @return {(Object|Array|Function|string|undefined)}
  */
 exports.canonicalize = (value, stack, typeHint) => {
   let canonicalizedObj;
@@ -373,7 +391,7 @@ exports.canonicalize = (value, stack, typeHint) => {
 
   stack = stack || [];
 
-  if (stack.includes(value)) {
+  if (stack.indexOf(value) !== -1) {
     return '[Circular]';
   }
 
@@ -396,7 +414,7 @@ exports.canonicalize = (value, stack, typeHint) => {
         break;
       }
       if (!canonicalizedObj) {
-        canonicalizedObj = emptyRepresentation(value, typeHint);
+        canonicalizedObj = getEmptyRepresentation(value, typeHint);
         break;
       }
     /* falls through */
@@ -426,13 +444,13 @@ exports.canonicalize = (value, stack, typeHint) => {
  * Lookup file names at the given `path`.
  *
  * @api public
- * @param {string} path
- * @param {string[]} extensions
- * @param {boolean} recursive
- * @return {string[]}
+ * @param {string} path Base path to start searching from.
+ * @param {string[]} extensions File extensions to look for.
+ * @param {boolean} recursive Whether or not to recurse into subdirectories.
+ * @return {string[]} An array of paths.
  */
 exports.lookupFiles = (path, extensions, recursive) => {
-  const files = [];
+  let files = [];
 
   if (!exists(path)) {
     if (exists(path + '.js')) {
@@ -485,6 +503,7 @@ exports.lookupFiles = (path, extensions, recursive) => {
  *
  * @return {Error}
  */
+
 exports.undefinedError = () => {
   return new Error('Caught undefined error, did you throw without specifying what?');
 };
@@ -495,6 +514,7 @@ exports.undefinedError = () => {
  * @param {Error} err
  * @return {Error}
  */
+
 exports.getError = (err) => {
   return err || exports.undefinedError();
 };
@@ -564,19 +584,17 @@ exports.stackTraceFilter = () => {
 };
 
 /**
- * Check if a value is a Promise.
- *
- * @api private
+ * Crude, but effective.
+ * @api
  * @param {*} value
- * @returns {boolean}
+ * @returns {boolean} Whether or not `value` is a Promise
  */
 exports.isPromise = (value) => {
   return typeof value === 'object' && typeof value.then === 'function';
 };
 
 /**
- * No operation.
- *
- * @api private
+ * It's a noop.
+ * @api
  */
 exports.noop = () => {};

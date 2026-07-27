@@ -188,39 +188,28 @@ const stringifyDiffObjs = (err) => {
 exports.list = (failures) => {
   console.log();
   failures.forEach((test, i) => {
-    // format
     const fmt = color('error title', '  %s) %s:\n') +
       color('error message', '     %s') +
       color('error stack', '\n%s\n');
 
-    // msg
-    let msg;
     const err = test.err;
-    let message;
-    if (err.message && typeof err.message.toString === 'function') {
-      message = err.message + '';
-    } else if (typeof err.inspect === 'function') {
-      message = err.inspect() + '';
-    } else {
-      message = '';
-    }
-    let stack = err.stack || message;
-    let index = message ? stack.indexOf(message) : -1;
+    const message = getErrorMessage(err);
+    const stack = getErrorStack(err, message);
+    const index = message ? stack.indexOf(message) : -1;
 
+    let msg;
     if (index === -1) {
       msg = message;
     } else {
       index += message.length;
       msg = stack.slice(0, index);
-      // remove msg from stack
       stack = stack.slice(index + 1);
     }
 
-    // uncaught
     if (err.uncaught) {
       msg = 'Uncaught ' + msg;
     }
-    // explicitly show diff
+
     if (!exports.hideDiff && shouldShowDiff(err)) {
       stringifyDiffObjs(err);
       fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
@@ -234,23 +223,68 @@ exports.list = (failures) => {
       }
     }
 
-    // indent stack trace
     stack = stack.replace(/^/gm, '  ');
 
-    // indented test title
-    let testTitle = '';
-    test.titlePath().forEach((str, index) => {
-      if (index !== 0) {
-        testTitle += '\n     ';
-      }
-      for (let i = 0; i < index; i++) {
-        testTitle += '  ';
-      }
-      testTitle += str;
-    });
-
+    const testTitle = getTestTitle(test);
     console.log(fmt, (i + 1), testTitle, msg, stack);
   });
+};
+
+/**
+ * Get error message.
+ *
+ * @param {Error} err
+ * @return {string}
+ * @api private
+ */
+const getErrorMessage = (err) => {
+  if (err.message && typeof err.message.toString === 'function') {
+    return err.message + '';
+  } else if (typeof err.inspect === 'function') {
+    return err.inspect() + '';
+  } else {
+    return '';
+  }
+};
+
+/**
+ * Get error stack.
+ *
+ * @param {Error} err
+ * @param {string} message
+ * @return {string}
+ * @api private
+ */
+const getErrorStack = (err, message) => {
+  const stack = err.stack || message;
+  const index = message ? stack.indexOf(message) : -1;
+
+  if (index === -1) {
+    return stack;
+  } else {
+    return stack.slice(index + message.length);
+  }
+};
+
+/**
+ * Get test title.
+ *
+ * @param {Object} test
+ * @return {string}
+ * @api private
+ */
+const getTestTitle = (test) => {
+  let testTitle = '';
+  test.titlePath().forEach((str, index) => {
+    if (index !== 0) {
+      testTitle += '\n     ';
+    }
+    for (let i = 0; i < index; i++) {
+      testTitle += '  ';
+    }
+    testTitle += str;
+  });
+  return testTitle;
 };
 
 /**
@@ -386,12 +420,12 @@ const pad = (str, len) => {
  * @return {string} Diff
  */
 const inlineDiff = (err) => {
-  let msg = errorDiff(err);
+  const msg = errorDiff(err);
 
   // linenos
-  let lines = msg.split('\n');
+  const lines = msg.split('\n');
   if (lines.length > 4) {
-    let width = String(lines.length).length;
+    const width = String(lines.length).length;
     msg = lines.map((str, i) => {
       return pad(++i, width) + ' |' + ' ' + str;
     }).join('\n');
@@ -438,8 +472,8 @@ const unifiedDiff = (err) => {
   const notBlank = (line) => {
     return typeof line !== 'undefined' && line !== null;
   };
-  let msg = diff.createPatch('string', err.actual, err.expected);
-  let lines = msg.split('\n').splice(5);
+  const msg = diff.createPatch('string', err.actual, err.expected);
+  const lines = msg.split('\n').splice(5);
   return '\n      ' +
     colorLines('diff added', '+ expected') + ' ' +
     colorLines('diff removed', '- actual') +

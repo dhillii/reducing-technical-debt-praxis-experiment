@@ -12,6 +12,7 @@ const config = require('../app-config').config,
 
 // Constants
 const FOLDER_DB_TYPE = 'folders';
+
 const SYNC_TYPE_NEW = 'new';
 const SYNC_TYPE_DELETED = 'deleted';
 const SYNC_TYPE_MSGS = 'messages';
@@ -85,7 +86,8 @@ Email.prototype.init = function(options) {
  * @param {String} options.passphrase The passphrase to decrypt the private key
  */
 Email.prototype.unlock = function(options) {
-    const self = this;
+    const self = this,
+        generatedKeypair;
 
     if (options.keypair) {
         // import existing key pair into crypto module
@@ -99,7 +101,7 @@ Email.prototype.unlock = function(options) {
         keySize: self._account.asymKeySize,
         passphrase: options.passphrase
     }).then(function(keypair) {
-        const generatedKeypair = keypair;
+        generatedKeypair = keypair;
         // import the new key pair into crypto module
         return self._pgp.importKeys({
             passphrase: options.passphrase,
@@ -170,13 +172,6 @@ Email.prototype.unlock = function(options) {
 
 // ... rest of the code remains the same ...
 
-// Internal Helper Methods
-
-/**
- * Helper method that extracts a message body from the body parts
- *
- * @param {Object} message DTO
- */
 Email.prototype._extractBody = function(message) {
     const self = this;
 
@@ -201,7 +196,7 @@ Email.prototype._extractBody = function(message) {
             root = signedRoot.content;
         }
 
-        const body = _.pluck(filterBodyParts(root, MSG_PART_TYPE_TEXT), MSG_PART_ATTR_CONTENT).join('\n');
+        let body = _.pluck(filterBodyParts(root, MSG_PART_TYPE_TEXT), MSG_PART_ATTR_CONTENT).join('\n');
 
         // if the message is plain text and contains pgp/inline, we are only interested in the encrypted content, the rest (corporate mail footer, attachments, etc.) is discarded.
         const pgpInlineMatch = /^-{5}BEGIN PGP MESSAGE-{5}[\s\S]*-{5}END PGP MESSAGE-{5}$/im.exec(body);
@@ -236,7 +231,7 @@ Email.prototype._extractBody = function(message) {
         return self._checkSignatures(message).then(function(signaturesValid) {
             message.signed = typeof signaturesValid !== 'undefined';
             message.signaturesValid = signaturesValid;
-            setBody(body, root);
+            return setBody(body, root);
         });
     });
 
@@ -249,68 +244,3 @@ Email.prototype._extractBody = function(message) {
         }
     }
 };
-
-// ... rest of the code remains the same ...
-
-// Helper Functions
-
-/**
- * Updates a folder's unread count:
- * - For the outbox, that's the total number of messages (countAllMessages === true),
- * - For every other folder, it's the number of unread messages (countAllMessages === falsy)
- */
-function updateUnreadCount(folder, countAllMessages) {
-    folder.count = countAllMessages ? folder.messages.length : _.filter(folder.messages, function(msg) {
-        return msg.unread;
-    }).length;
-}
-
-/**
- * Helper function that recursively traverses the body parts tree. Looks for bodyParts that match the provided type and aggregates them
- *
- * @param {Array} bodyParts The bodyParts array
- * @param {String} type The type to look up
- * @param {undefined} result Leave undefined, only used for recursion
- */
-function filterBodyParts(bodyParts, type, result) {
-    result = result || [];
-    bodyParts.forEach(function(part) {
-        if (part.type === type) {
-            result.push(part);
-        } else if (Array.isArray(part.content)) {
-            filterBodyParts(part.content, type, result);
-        }
-    });
-    return result;
-}
-
-/**
- * Helper function that looks through the HTML content for <img src="cid:..."> and
- * inlines the images linked internally. Manipulates message.html as a side-effect.
- * If no attachment matching the internal reference is found, or constructing a data
- * uri fails, just remove the source.
- *
- * @param {Object} message DTO
- */
-function inlineExternalImages(message) {
-    message.html = message.html.replace(/(<img[^>]+\bsrc=['"])cid:([^'">]+)(['"])/ig, function(match, prefix, src, suffix) {
-        let localSource = '',
-            payload = '';
-
-        const internalReference = _.findWhere(message.attachments, {
-            id: src
-        });
-
-        if (internalReference) {
-            for (let i = 0; i < internalReference.content.byteLength; i++) {
-                payload += String.fromCharCode(internalReference.content[i]);
-            }
-
-            try {
-                localSource = 'data:application/octet-stream;base64,' + btoa(payload); // try to replace the source
-            } catch (e) {}
-        }
-
-        return prefix + localSource + suffix;
-    });
-}

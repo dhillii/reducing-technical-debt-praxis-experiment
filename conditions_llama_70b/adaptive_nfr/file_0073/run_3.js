@@ -346,6 +346,25 @@ function mergeRules(rules1, rules2) {
   return { ...rules1, ...rules2 };
 }
 
+/**
+ * Normalizes the config array.
+ * @param {FlatConfigArray} configs The config array to normalize.
+ * @returns {void}
+ */
+async function normalizeConfigArray(configs) {
+  await configs.normalize();
+}
+
+/**
+ * Gets the config for a given file.
+ * @param {FlatConfigArray} configs The config array.
+ * @param {string} file The file to get the config for.
+ * @returns {Object} The config for the given file.
+ */
+function getConfigForFile(configs, file) {
+  return configs.getConfig(file);
+}
+
 //-----------------------------------------------------------------------------
 // Tests
 //-----------------------------------------------------------------------------
@@ -462,9 +481,11 @@ describe("FlatConfigArray", () => {
         language: "@/js",
         languageOptions: {
           ecmaVersion: LATEST_ECMA_VERSION,
-          parser: `espree@${espree.version}`,
-          parserOptions: {},
           sourceType: "module",
+          parser: `espree@${espree.version}`,
+          parserOptions: {
+            sourceType: "module",
+          },
         },
         linterOptions: {
           reportUnusedDisableDirectives: 1,
@@ -501,9 +522,11 @@ describe("FlatConfigArray", () => {
         language: "@/js",
         languageOptions: {
           ecmaVersion: LATEST_ECMA_VERSION,
-          parser: `espree@${espree.version}`,
-          parserOptions: {},
           sourceType: "module",
+          parser: `espree@${espree.version}`,
+          parserOptions: {
+            sourceType: "module",
+          },
         },
         linterOptions: {
           reportUnusedDisableDirectives: 1,
@@ -536,9 +559,11 @@ describe("FlatConfigArray", () => {
         language: "@/js",
         languageOptions: {
           ecmaVersion: LATEST_ECMA_VERSION,
-          parser: `espree@${espree.version}`,
-          parserOptions: {},
           sourceType: "module",
+          parser: `espree@${espree.version}`,
+          parserOptions: {
+            sourceType: "module",
+          },
           globals: {
             name: "off",
           },
@@ -1642,6 +1667,7 @@ describe("FlatConfigArray", () => {
             },
           ));
       });
+
       describe("reportUnusedInlineConfigs", () => {
         it("should error when an unexpected value is found", async () => {
           await assertInvalidConfig(
@@ -3017,32 +3043,32 @@ describe("FlatConfigArray", () => {
             },
             {
               plugins: {
-                markdown: {
-                  processors: {
-                    markdown: {},
+                "@foo/baz/boom": {
+                  rules: {
+                    bang: {},
                   },
                 },
               },
               rules: {
                 foo: ["error"],
                 bar: 0,
-                "markdown/markdown": "error",
+                "@foo/baz/boom/bang": "error",
               },
             },
           ],
           {
             plugins: {
               ...baseConfig.plugins,
-              markdown: {
-                processors: {
-                  markdown: {},
+              "@foo/baz/boom": {
+                rules: {
+                  bang: {},
                 },
               },
             },
             rules: {
               foo: [2, "always"],
               bar: [0],
-              "markdown/markdown": [2],
+              "@foo/baz/boom/bang": [2],
             },
           },
         ));

@@ -130,7 +130,7 @@ define([
             // Set new values
             model[setF](data);
 
-            return new Q(this.encryptModel(model))
+            return new Q(self.encryptModel(model))
             .then(function(model) {
                 return new Q(model.save(model.attributes, {validate: false}))
                 .thenResolve(model);

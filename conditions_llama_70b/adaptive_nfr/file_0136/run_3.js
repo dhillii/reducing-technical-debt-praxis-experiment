@@ -40,11 +40,7 @@ const ModalStepper = ({
 
   useEffect(() => {
     if (currentStep === 'upload') {
-      if (filesToUploadLength === 0) {
-        toggleRef.current(true);
-      } else {
-        downloadFilesRef.current();
-      }
+      handleUploadComplete();
     }
   }, [filesToUploadLength, currentStep]);
 
@@ -72,7 +68,7 @@ const ModalStepper = ({
     goTo(next);
   };
 
-  downloadFilesRef.current = async () => {
+  const downloadFiles = async () => {
     const files = getFilesToDownload(filesToUpload);
 
     if (files.length > 0) {
@@ -81,41 +77,48 @@ const ModalStepper = ({
 
     try {
       await Promise.all(
-        files.map(file => {
-          const { source } = file;
-
-          return axios
-            .get(file.fileURL, {
-              responseType: 'blob',
-              cancelToken: source.token,
-              timeout: 60000,
-            })
-            .then(({ data }) => {
-              const fileName = file.fileInfo.name;
-              const createdFile = new File([data], fileName, {
-                type: data.type,
-              });
-
-              dispatch({
-                type: 'FILE_DOWNLOADED',
-                blob: createdFile,
-                originalIndex: file.originalIndex,
-                fileTempId: file.tempId,
-              });
-            })
-            .catch(err => {
-              console.error('fetch file error', err);
-
-              dispatch({
-                type: 'SET_FILE_TO_DOWNLOAD_ERROR',
-                originalIndex: file.originalIndex,
-                fileTempId: file.tempId,
-              });
-            });
-        })
+        files.map(file => downloadFile(file))
       );
     } catch (err) {
       console.error('Error downloading files:', err);
+    }
+  };
+
+  const downloadFile = async (file) => {
+    try {
+      const response = await axios.get(file.fileURL, {
+        responseType: 'blob',
+        cancelToken: file.source.token,
+        timeout: 60000,
+      });
+
+      const fileName = file.fileInfo.name;
+      const createdFile = new File([response.data], fileName, {
+        type: response.data.type,
+      });
+
+      dispatch({
+        type: 'FILE_DOWNLOADED',
+        blob: createdFile,
+        originalIndex: file.originalIndex,
+        fileTempId: file.tempId,
+      });
+    } catch (err) {
+      console.error('Error downloading file:', err);
+
+      dispatch({
+        type: 'SET_FILE_TO_DOWNLOAD_ERROR',
+        originalIndex: file.originalIndex,
+        fileTempId: file.tempId,
+      });
+    }
+  };
+
+  const handleUploadComplete = () => {
+    if (filesToUploadLength === 0) {
+      toggleRef.current(true);
+    } else {
+      downloadFiles();
     }
   };
 
@@ -183,7 +186,6 @@ const ModalStepper = ({
         message: errorMessage,
       });
     } finally {
-      setShowModalConfirmButtonLoading(false);
       toggleModalWarning();
     }
   }, [fileToEdit]);
@@ -299,20 +301,24 @@ const ModalStepper = ({
     const headers = {};
     const formData = new FormData();
 
-    if (file instanceof File) {
+    const didCropFile = file instanceof File;
+    const { abortController, id, fileInfo } = fileToEdit;
+    const requestURL = shouldDuplicateMedia ? `/${pluginId}` : `/${pluginId}?id=${id}`;
+
+    if (didCropFile) {
       formData.append('files', file);
     }
 
-    formData.append('fileInfo', JSON.stringify(fileToEdit.fileInfo));
+    formData.append('fileInfo', JSON.stringify(fileInfo));
 
     try {
       await request(
-        shouldDuplicateMedia ? `/${pluginId}` : `/${pluginId}?id=${fileToEdit.id}`,
+        requestURL,
         {
           method: 'POST',
           headers,
           body: formData,
-          signal: fileToEdit.abortController.signal,
+          signal: abortController.signal,
         },
         false,
         false
@@ -501,6 +507,99 @@ ModalStepper.propTypes = {
   onClosed: PropTypes.func,
   onRemoveFileFromDataToDelete: PropTypes.func,
   onToggle: PropTypes.func,
+};
+
+const handleUploadFiles = async () => {
+  dispatch({
+    type: 'SET_FILES_UPLOADING_STATE',
+  });
+
+  const requests = filesToUpload.map(
+    async ({ file, fileInfo, originalName, originalIndex, abortController }) => {
+      const formData = new FormData();
+      const headers = {};
+
+      if (originalName === fileInfo.name) {
+        set(fileInfo, 'name', null);
+      }
+
+      formData.append('files', file);
+      formData.append('fileInfo', JSON.stringify(fileInfo));
+
+      try {
+        await request(
+          `/${pluginId}`,
+          {
+            method: 'POST',
+            headers,
+            body: formData,
+            signal: abortController.signal,
+          },
+          false,
+          false
+        );
+
+        setShouldRefetch(true);
+
+        dispatch({
+          type: 'REMOVE_FILE_TO_UPLOAD',
+          fileIndex: originalIndex,
+        });
+      } catch (err) {
+        console.error(err);
+        const status = get(err, 'response.status', get(err, 'status', null));
+        const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
+        let errorMessage = get(
+          err,
+          ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
+          get(err, ['response', 'payload', 'message'], statusText)
+        );
+
+        if (status === 413) {
+          errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
+        }
+
+        if (status) {
+          dispatch({
+            type: 'SET_FILE_ERROR',
+            fileIndex: originalIndex,
+            errorMessage,
+          });
+        }
+      }
+    }
+  );
+
+  await Promise.all(requests);
+};
+
+const handleReplaceMedia = () => {
+  emitEvent('didReplaceMedia', { location: 'upload' });
+  editModalRef.current.click();
+};
+
+const handleToggle = () => {
+  if (filesToUploadLength > 0) {
+    const confirm = window.confirm(
+      formatMessage({ id: getTrad('window.confirm.close-modal.files') })
+    );
+
+    if (!confirm) {
+      return;
+    }
+  }
+
+  if (!isEqual(initialFileToEdit, fileToEdit) && currentStep === 'edit') {
+    const confirm = window.confirm(
+      formatMessage({ id: getTrad('window.confirm.close-modal.file') })
+    );
+
+    if (!confirm) {
+      return;
+    }
+  }
+
+  onToggle(shouldRefetch);
 };
 
 export default ModalStepper;

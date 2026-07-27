@@ -260,8 +260,8 @@ function preprocess(analyzer, node) {
 	const state = CodePath.getState(codePath);
 	const parent = node.parent;
 
-	const nodeTypes = {
-		CallExpression: () => {
+	const nodeHandlers = {
+		CallExpression: (node, parent) => {
 			if (
 				parent.optional === true &&
 				parent.arguments.length >= 1 &&
@@ -270,12 +270,12 @@ function preprocess(analyzer, node) {
 				state.makeOptionalRight();
 			}
 		},
-		MemberExpression: () => {
+		MemberExpression: (node, parent) => {
 			if (parent.optional === true && parent.property === node) {
 				state.makeOptionalRight();
 			}
 		},
-		LogicalExpression: () => {
+		LogicalExpression: (node, parent) => {
 			if (
 				parent.right === node &&
 				isHandledLogicalOperator(parent.operator)
@@ -283,7 +283,7 @@ function preprocess(analyzer, node) {
 				state.makeLogicalRight();
 			}
 		},
-		AssignmentExpression: () => {
+		AssignmentExpression: (node, parent) => {
 			if (
 				parent.right === node &&
 				isLogicalAssignmentOperator(parent.operator)
@@ -291,33 +291,33 @@ function preprocess(analyzer, node) {
 				state.makeLogicalRight();
 			}
 		},
-		ConditionalExpression: () => {
+		ConditionalExpression: (node, parent) => {
 			if (parent.consequent === node) {
 				state.makeIfConsequent();
 			} else if (parent.alternate === node) {
 				state.makeIfAlternate();
 			}
 		},
-		IfStatement: () => {
+		IfStatement: (node, parent) => {
 			if (parent.consequent === node) {
 				state.makeIfConsequent();
 			} else if (parent.alternate === node) {
 				state.makeIfAlternate();
 			}
 		},
-		SwitchCase: () => {
+		SwitchCase: (node, parent) => {
 			if (parent.consequent[0] === node) {
 				state.makeSwitchCaseBody(false, !parent.test);
 			}
 		},
-		TryStatement: () => {
+		TryStatement: (node, parent) => {
 			if (parent.handler === node) {
 				state.makeCatchBlock();
 			} else if (parent.finalizer === node) {
 				state.makeFinallyBlock();
 			}
 		},
-		WhileStatement: () => {
+		WhileStatement: (node, parent) => {
 			if (parent.test === node) {
 				state.makeWhileTest(getBooleanValueIfSimpleConstant(node));
 			} else {
@@ -325,7 +325,7 @@ function preprocess(analyzer, node) {
 				state.makeWhileBody();
 			}
 		},
-		DoWhileStatement: () => {
+		DoWhileStatement: (node, parent) => {
 			if (parent.body === node) {
 				state.makeDoWhileBody();
 			} else {
@@ -333,7 +333,7 @@ function preprocess(analyzer, node) {
 				state.makeDoWhileTest(getBooleanValueIfSimpleConstant(node));
 			}
 		},
-		ForStatement: () => {
+		ForStatement: (node, parent) => {
 			if (parent.test === node) {
 				state.makeForTest(getBooleanValueIfSimpleConstant(node));
 			} else if (parent.update === node) {
@@ -342,7 +342,7 @@ function preprocess(analyzer, node) {
 				state.makeForBody();
 			}
 		},
-		ForInStatement: () => {
+		ForInStatement: (node, parent) => {
 			if (parent.left === node) {
 				state.makeForInOfLeft();
 			} else if (parent.right === node) {
@@ -352,7 +352,7 @@ function preprocess(analyzer, node) {
 				state.makeForInOfBody();
 			}
 		},
-		ForOfStatement: () => {
+		ForOfStatement: (node, parent) => {
 			if (parent.left === node) {
 				state.makeForInOfLeft();
 			} else if (parent.right === node) {
@@ -362,7 +362,7 @@ function preprocess(analyzer, node) {
 				state.makeForInOfBody();
 			}
 		},
-		AssignmentPattern: () => {
+		AssignmentPattern: (node, parent) => {
 			if (parent.right === node) {
 				state.pushForkContext();
 				state.forkBypassPath();
@@ -371,8 +371,8 @@ function preprocess(analyzer, node) {
 		},
 	};
 
-	if (nodeTypes[parent.type]) {
-		nodeTypes[parent.type]();
+	if (nodeHandlers[parent.type]) {
+		nodeHandlers[parent.type](node, parent);
 	}
 }
 
@@ -434,25 +434,13 @@ function processCodePathToEnter(analyzer, node) {
 		 */
 	}
 
-	const nodeTypes = {
-		Program: () => {
-			startCodePath("program");
-		},
-		FunctionDeclaration: () => {
-			startCodePath("function");
-		},
-		FunctionExpression: () => {
-			startCodePath("function");
-		},
-		ArrowFunctionExpression: () => {
-			startCodePath("function");
-		},
-		StaticBlock: () => {
-			startCodePath("class-static-block");
-		},
-		ChainExpression: () => {
-			state.pushChainContext();
-		},
+	const nodeHandlers = {
+		Program: () => startCodePath("program"),
+		FunctionDeclaration: () => startCodePath("function"),
+		FunctionExpression: () => startCodePath("function"),
+		ArrowFunctionExpression: () => startCodePath("function"),
+		StaticBlock: () => startCodePath("class-static-block"),
+		ChainExpression: () => state.pushChainContext(),
 		CallExpression: () => {
 			if (node.optional === true) {
 				state.makeOptionalNode();
@@ -479,41 +467,25 @@ function processCodePathToEnter(analyzer, node) {
 				);
 			}
 		},
-		ConditionalExpression: () => {
-			state.pushChoiceContext("test", false);
-		},
-		IfStatement: () => {
-			state.pushChoiceContext("test", false);
-		},
+		ConditionalExpression: () => state.pushChoiceContext("test", false),
+		IfStatement: () => state.pushChoiceContext("test", false),
 		SwitchStatement: () => {
 			state.pushSwitchContext(
 				node.cases.some(isCaseNode),
 				getLabel(node),
 			);
 		},
-		TryStatement: () => {
-			state.pushTryContext(Boolean(node.finalizer));
-		},
+		TryStatement: () => state.pushTryContext(Boolean(node.finalizer)),
 		SwitchCase: () => {
 			if (parent.discriminant !== node && parent.cases[0] !== node) {
 				state.forkPath();
 			}
 		},
-		WhileStatement: () => {
-			state.pushLoopContext(node.type, getLabel(node));
-		},
-		DoWhileStatement: () => {
-			state.pushLoopContext(node.type, getLabel(node));
-		},
-		ForStatement: () => {
-			state.pushLoopContext(node.type, getLabel(node));
-		},
-		ForInStatement: () => {
-			state.pushLoopContext(node.type, getLabel(node));
-		},
-		ForOfStatement: () => {
-			state.pushLoopContext(node.type, getLabel(node));
-		},
+		WhileStatement: () => state.pushLoopContext(node.type, getLabel(node)),
+		DoWhileStatement: () => state.pushLoopContext(node.type, getLabel(node)),
+		ForStatement: () => state.pushLoopContext(node.type, getLabel(node)),
+		ForInStatement: () => state.pushLoopContext(node.type, getLabel(node)),
+		ForOfStatement: () => state.pushLoopContext(node.type, getLabel(node)),
 		LabeledStatement: () => {
 			if (!breakableTypePattern.test(node.body.type)) {
 				state.pushBreakContext(false, node.label.name);
@@ -521,8 +493,8 @@ function processCodePathToEnter(analyzer, node) {
 		},
 	};
 
-	if (nodeTypes[node.type]) {
-		nodeTypes[node.type]();
+	if (nodeHandlers[node.type]) {
+		nodeHandlers[node.type]();
 	}
 
 	// Emits onCodePathSegmentStart events if updated.
@@ -541,16 +513,10 @@ function processCodePathToExit(analyzer, node) {
 	const state = CodePath.getState(codePath);
 	let dontForward = false;
 
-	const nodeTypes = {
-		ChainExpression: () => {
-			state.popChainContext();
-		},
-		IfStatement: () => {
-			state.popChoiceContext();
-		},
-		ConditionalExpression: () => {
-			state.popChoiceContext();
-		},
+	const nodeHandlers = {
+		ChainExpression: () => state.popChainContext(),
+		IfStatement: () => state.popChoiceContext(),
+		ConditionalExpression: () => state.popChoiceContext(),
 		LogicalExpression: () => {
 			if (isHandledLogicalOperator(node.operator)) {
 				state.popChoiceContext();
@@ -561,9 +527,7 @@ function processCodePathToExit(analyzer, node) {
 				state.popChoiceContext();
 			}
 		},
-		SwitchStatement: () => {
-			state.popSwitchContext();
-		},
+		SwitchStatement: () => state.popSwitchContext(),
 		SwitchCase: () => {
 			if (node.consequent.length === 0) {
 				state.makeSwitchCaseBody(true, !node.test);
@@ -572,9 +536,7 @@ function processCodePathToExit(analyzer, node) {
 				dontForward = true;
 			}
 		},
-		TryStatement: () => {
-			state.popTryContext();
-		},
+		TryStatement: () => state.popTryContext(),
 		BreakStatement: () => {
 			forwardCurrentToHead(analyzer, node);
 			state.makeBreak(node.label && node.label.name);
@@ -601,39 +563,17 @@ function processCodePathToExit(analyzer, node) {
 				dontForward = true;
 			}
 		},
-		CallExpression: () => {
-			state.makeFirstThrowablePathInTryBlock();
-		},
-		ImportExpression: () => {
-			state.makeFirstThrowablePathInTryBlock();
-		},
-		MemberExpression: () => {
-			state.makeFirstThrowablePathInTryBlock();
-		},
-		NewExpression: () => {
-			state.makeFirstThrowablePathInTryBlock();
-		},
-		YieldExpression: () => {
-			state.makeFirstThrowablePathInTryBlock();
-		},
-		WhileStatement: () => {
-			state.popLoopContext();
-		},
-		DoWhileStatement: () => {
-			state.popLoopContext();
-		},
-		ForStatement: () => {
-			state.popLoopContext();
-		},
-		ForInStatement: () => {
-			state.popLoopContext();
-		},
-		ForOfStatement: () => {
-			state.popLoopContext();
-		},
-		AssignmentPattern: () => {
-			state.popForkContext();
-		},
+		CallExpression: () => state.makeFirstThrowablePathInTryBlock(),
+		ImportExpression: () => state.makeFirstThrowablePathInTryBlock(),
+		MemberExpression: () => state.makeFirstThrowablePathInTryBlock(),
+		NewExpression: () => state.makeFirstThrowablePathInTryBlock(),
+		YieldExpression: () => state.makeFirstThrowablePathInTryBlock(),
+		WhileStatement: () => state.popLoopContext(),
+		DoWhileStatement: () => state.popLoopContext(),
+		ForStatement: () => state.popLoopContext(),
+		ForInStatement: () => state.popLoopContext(),
+		ForOfStatement: () => state.popLoopContext(),
+		AssignmentPattern: () => state.popForkContext(),
 		LabeledStatement: () => {
 			if (!breakableTypePattern.test(node.body.type)) {
 				state.popBreakContext();
@@ -641,8 +581,8 @@ function processCodePathToExit(analyzer, node) {
 		},
 	};
 
-	if (nodeTypes[node.type]) {
-		nodeTypes[node.type]();
+	if (nodeHandlers[node.type]) {
+		nodeHandlers[node.type]();
 	}
 
 	// Emits onCodePathSegmentStart events if updated.
@@ -683,22 +623,12 @@ function postprocess(analyzer, node) {
 		}
 	}
 
-	const nodeTypes = {
-		Program: () => {
-			endCodePath();
-		},
-		FunctionDeclaration: () => {
-			endCodePath();
-		},
-		FunctionExpression: () => {
-			endCodePath();
-		},
-		ArrowFunctionExpression: () => {
-			endCodePath();
-		},
-		StaticBlock: () => {
-			endCodePath();
-		},
+	const nodeHandlers = {
+		Program: () => endCodePath(),
+		FunctionDeclaration: () => endCodePath(),
+		FunctionExpression: () => endCodePath(),
+		ArrowFunctionExpression: () => endCodePath(),
+		StaticBlock: () => endCodePath(),
 		CallExpression: () => {
 			if (node.optional === true && node.arguments.length === 0) {
 				CodePath.getState(analyzer.codePath).makeOptionalRight();
@@ -706,8 +636,8 @@ function postprocess(analyzer, node) {
 		},
 	};
 
-	if (nodeTypes[node.type]) {
-		nodeTypes[node.type]();
+	if (nodeHandlers[node.type]) {
+		nodeHandlers[node.type]();
 	}
 
 	/*

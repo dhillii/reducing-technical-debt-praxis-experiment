@@ -35,11 +35,13 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
 
     const Model = Post.extend({
         /**
-         * Handle options for fetching and updating posts.
+         * Handles options for the model.
          * @param {string} fnName - The name of the function to handle options for.
-         * @returns {function} A function that handles options for the specified function.
+         * @returns {function} A function that handles options for the given function name.
          */
         _handleOptions: function _handleOptions(fnName) {
+            const self = this;
+
             return function innerHandleOptions(model, attrs, options) {
                 model._originalOptions = _.cloneDeep(_.pick(options, ['withRelated']));
 
@@ -58,7 +60,7 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                     options.withRelated.push('authors');
                 }
 
-                return proto[fnName].call(this, model, attrs, options);
+                return proto[fnName].call(self, model, attrs, options);
             };
         },
 
@@ -159,9 +161,9 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
         },
 
         /**
-         * Match authors for a post.
-         * @param {Object} model - The post model.
-         * @param {Object} options - Options for matching authors.
+         * Matches authors for the given model and options.
+         * @param {Object} model - The model to match authors for.
+         * @param {Object} options - The options for matching authors.
          * @returns {Promise} A promise that resolves when authors have been matched.
          */
         matchAuthors: async function matchAuthors(model, options) {
@@ -200,8 +202,8 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
         },
 
         /**
-         * Get the owner user for a post.
-         * @param {Object} options - Options for getting the owner user.
+         * Gets the owner user for the given options.
+         * @param {Object} options - The options for getting the owner user.
          * @returns {Promise} A promise that resolves with the owner user.
          */
         getOwnerUser: async function getOwnerUser(options) {
@@ -215,14 +217,11 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                 .select('roles_users.user_id');
 
             return ownerUser[0].user_id;
-        }
-    }, {
+        },
+
         /**
-         * Reassign posts by author.
-         * @param {Object} unfilteredOptions - Options for reassigning posts.
-         * @param {string} unfilteredOptions.id - The ID of the author to reassign posts from.
-         * @param {Object} unfilteredOptions.context - The context for reassigning posts.
-         * @param {Object} unfilteredOptions.transacting - The transaction for reassigning posts.
+         * Reassigns posts by author.
+         * @param {Object} unfilteredOptions - The unfiltered options for reassigning posts.
          * @returns {Promise} A promise that resolves when posts have been reassigned.
          */
         reassignByAuthor: async function reassignByAuthor(unfilteredOptions) {
@@ -301,15 +300,15 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
         },
 
         /**
-         * Check if a post is permissible for a given action.
-         * @param {Object|string|number} postModelOrId - The post model or ID.
-         * @param {string} action - The action to check permission for.
-         * @param {Object} context - The context for checking permission.
-         * @param {Object} unsafeAttrs - The attributes to check permission for.
-         * @param {Object} loadedPermissions - The loaded permissions.
-         * @param {boolean} hasUserPermission - Whether the user has permission.
-         * @param {boolean} hasApiKeyPermission - Whether the API key has permission.
-         * @returns {Promise} A promise that resolves with the permissible result.
+         * Checks if the given action is permissible for the given post model or id.
+         * @param {Object|number|string} postModelOrId - The post model or id to check.
+         * @param {string} action - The action to check.
+         * @param {Object} context - The context for the action.
+         * @param {Object} unsafeAttrs - The unsafe attributes for the action.
+         * @param {Object} loadedPermissions - The loaded permissions for the action.
+         * @param {boolean} hasUserPermission - Whether the user has permission for the action.
+         * @param {boolean} hasApiKeyPermission - Whether the API key has permission for the action.
+         * @returns {Promise} A promise that resolves with the result of the permission check.
          */
         permissible: async function permissible(postModelOrId, action, context, unsafeAttrs, loadedPermissions, hasUserPermission, hasApiKeyPermission) {
             const self = this;
@@ -406,6 +405,7 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                 message: tpl(messages.notEnoughPermission)
             }));
         }
+    }, {
     });
 
     return Model;

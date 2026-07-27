@@ -195,9 +195,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         },
         onSaveError: handleError
     });
-
     const setUserData = (newData: User) => updateForm(() => newData);
-
     const validateField = <K extends keyof User>(key: K, value: User[K]) => {
         const error = validators[key]?.({[key]: value});
         if (error) {
@@ -216,12 +214,14 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {mutateAsync: makeOwner} = useMakeOwner();
     const limiter = useLimiter();
 
+    // Pintura integration
     const editor = usePinturaEditor();
 
     const navigateOnClose = useCallback(() => {
         if (canAccessSettings(currentUser)) {
             updateRoute('staff');
         } else {
+            // Contributors can't access settings, exit to let the shell handle navigation
             updateRoute({isExternal: true, route: ''});
         }
     }, [currentUser, updateRoute]);
@@ -332,10 +332,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             const imageUrl = getImageUrl(await uploadImage({file}));
 
             const imageUpdateMap: Record<string, (imageUrl: string) => void> = {
-                cover_image: () => updateForm((_user) => {
+                'cover_image': () => updateForm((_user) => {
                     return {..._user, cover_image: imageUrl};
                 }),
-                profile_image: () => updateForm((_user) => {
+                'profile_image': () => updateForm((_user) => {
                     return {..._user, profile_image: imageUrl};
                 }),
             };
@@ -352,10 +352,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
 
     const handleImageDelete = (image: string) => {
         const imageDeleteMap: Record<string, () => void> = {
-            cover_image: () => updateForm((_user) => {
+            'cover_image': () => updateForm((_user) => {
                 return {..._user, cover_image: ''};
             }),
-            profile_image: () => updateForm((_user) => {
+            'profile_image': () => updateForm((_user) => {
                 return {..._user, profile_image: ''};
             }),
         };
@@ -573,13 +573,16 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
 const UserDetailModal: React.FC<RoutingModalProps> = ({params}) => {
     const {currentUser} = useGlobalData();
 
+    // Skip API call if it's the current user (we already have their data)
     const isCurrentUser = currentUser.slug === params?.slug;
 
+    // Fetch user by slug if it's not the current user
     const {data: fetchedUserData} = useGetUserBySlug(
         params?.slug || '',
         {enabled: !isCurrentUser && !!params?.slug}
     );
 
+    // Use current user data or fetched user data
     const user = isCurrentUser ? currentUser : fetchedUserData?.users?.[0];
 
     if (user) {

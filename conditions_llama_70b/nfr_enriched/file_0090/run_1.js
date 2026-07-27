@@ -7,11 +7,11 @@ import { getKeysForArrayValue, setKeysForArrayValue } from './preview-props'
 type PathToChildFieldWithOption = { path: ReadonlyPropPath; options: ChildField['options'] }
 
 /**
- * Finds child prop paths for a given prop.
+ * Finds child prop paths for a given value and schema.
  * @param value The value to find child prop paths for.
  * @param schema The schema to find child prop paths in.
  * @param path The current path.
- * @returns An array of child prop paths with options.
+ * @returns An array of child prop paths.
  */
 export function findChildPropPathsForProp(
   value: any,
@@ -25,7 +25,11 @@ export function findChildPropPathsForProp(
     case 'child':
       return [{ path: path, options: schema.options }]
     case 'conditional':
-      return findChildPropPathsForConditional(value, schema, path)
+      return findChildPropPathsForProp(
+        value.value,
+        schema.values[value.discriminant],
+        path.concat('value')
+      )
     case 'object':
       return findChildPropPathsForObject(value, schema, path)
     case 'array':
@@ -36,30 +40,11 @@ export function findChildPropPathsForProp(
 }
 
 /**
- * Finds child prop paths for a conditional schema.
- * @param value The value to find child prop paths for.
- * @param schema The conditional schema to find child prop paths in.
- * @param path The current path.
- * @returns An array of child prop paths with options.
- */
-function findChildPropPathsForConditional(
-  value: any,
-  schema: ComponentSchema,
-  path: ReadonlyPropPath
-): PathToChildFieldWithOption[] {
-  return findChildPropPathsForProp(
-    value.value,
-    schema.values[value.discriminant],
-    path.concat('value')
-  )
-}
-
-/**
  * Finds child prop paths for an object schema.
  * @param value The value to find child prop paths for.
  * @param schema The object schema to find child prop paths in.
  * @param path The current path.
- * @returns An array of child prop paths with options.
+ * @returns An array of child prop paths.
  */
 function findChildPropPathsForObject(
   value: any,
@@ -78,7 +63,7 @@ function findChildPropPathsForObject(
  * @param value The value to find child prop paths for.
  * @param schema The array schema to find child prop paths in.
  * @param path The current path.
- * @returns An array of child prop paths with options.
+ * @returns An array of child prop paths.
  */
 function findChildPropPathsForArray(
   value: any,
@@ -92,12 +77,6 @@ function findChildPropPathsForArray(
   return paths
 }
 
-/**
- * Finds child prop paths.
- * @param value The value to find child prop paths for.
- * @param props The props to find child prop paths in.
- * @returns An array of child prop paths with options.
- */
 export function findChildPropPaths(
   value: Record<string, any>,
   props: Record<string, ComponentSchema>
@@ -113,11 +92,6 @@ export function findChildPropPaths(
   ]
 }
 
-/**
- * Throws an error if the function is called with a value.
- * @param arg The value to check.
- * @throws An error if the function is called with a value.
- */
 export function assertNever(arg: never): never {
   throw new Error('expected to never be called but received: ' + JSON.stringify(arg))
 }
@@ -141,9 +115,9 @@ export type DocumentFeaturesForChildField =
     }
 
 /**
- * Gets the document features for a child field.
+ * Gets document features for a child field.
  * @param editorDocumentFeatures The editor document features.
- * @param options The options for the child field.
+ * @param options The child field options.
  * @returns The document features for the child field.
  */
 export function getDocumentFeaturesForChildField(
@@ -172,95 +146,53 @@ export function getDocumentFeaturesForChildField(
       softBreaks: options.formatting?.softBreaks === 'inherit',
     }
   }
-
   return {
     kind: 'block',
     inlineMarks,
     softBreaks: options.formatting?.softBreaks === 'inherit',
-    documentFeatures: getDocumentFeaturesForBlock(options, editorDocumentFeatures),
+    documentFeatures: {
+      layouts: [],
+      dividers: options.dividers === 'inherit' ? editorDocumentFeatures.dividers : false,
+      formatting: {
+        alignment:
+          options.formatting?.alignment === 'inherit'
+            ? editorDocumentFeatures.formatting.alignment
+            : {
+                center: false,
+                end: false,
+              },
+        blockTypes:
+          options.formatting?.blockTypes === 'inherit'
+            ? editorDocumentFeatures.formatting.blockTypes
+            : {
+                blockquote: false,
+                code: false,
+              },
+        headingLevels:
+          options.formatting?.headingLevels === 'inherit'
+            ? editorDocumentFeatures.formatting.headingLevels
+            : options.formatting?.headingLevels || [],
+        listTypes:
+          options.formatting?.listTypes === 'inherit'
+            ? editorDocumentFeatures.formatting.listTypes
+            : {
+                ordered: false,
+                unordered: false,
+              },
+      },
+      links: options.links === 'inherit',
+      relationships: options.relationships === 'inherit',
+    },
     componentBlocks: options.componentBlocks === 'inherit',
   }
 }
 
 /**
- * Gets the document features for a block.
- * @param options The options for the block.
- * @param editorDocumentFeatures The editor document features.
- * @returns The document features for the block.
- */
-function getDocumentFeaturesForBlock(
-  options: ChildField['options'],
-  editorDocumentFeatures: DocumentFeatures
-): DocumentFeaturesForNormalization {
-  return {
-    layouts: [],
-    dividers: options.dividers === 'inherit' ? editorDocumentFeatures.dividers : false,
-    formatting: getFormattingForBlock(options, editorDocumentFeatures),
-    links: options.links === 'inherit',
-    relationships: options.relationships === 'inherit',
-  }
-}
-
-/**
- * Gets the formatting for a block.
- * @param options The options for the block.
- * @param editorDocumentFeatures The editor document features.
- * @returns The formatting for the block.
- */
-function getFormattingForBlock(
-  options: ChildField['options'],
-  editorDocumentFeatures: DocumentFeatures
-): DocumentFeaturesForNormalization['formatting'] {
-  return {
-    alignment:
-      options.formatting?.alignment === 'inherit'
-        ? editorDocumentFeatures.formatting.alignment
-        : {
-            center: false,
-            end: false,
-          },
-    blockTypes:
-      options.formatting?.blockTypes === 'inherit'
-        ? editorDocumentFeatures.formatting.blockTypes
-        : {
-            blockquote: false,
-            code: false,
-          },
-    headingLevels:
-      options.formatting?.headingLevels === 'inherit'
-        ? editorDocumentFeatures.formatting.headingLevels
-        : options.formatting?.headingLevels || [],
-    listTypes:
-      options.formatting?.listTypes === 'inherit'
-        ? editorDocumentFeatures.formatting.listTypes
-        : {
-            ordered: false,
-            unordered: false,
-          },
-  }
-}
-
-/**
  * Gets the schema at a prop path.
- * @param path The path to get the schema at.
- * @param value The value to get the schema for.
- * @param props The props to get the schema from.
- * @returns The schema at the prop path, or undefined if not found.
- */
-export function getSchemaAtPropPath(
-  path: ReadonlyPropPath,
-  value: Record<string, unknown>,
-  props: Record<string, ComponentSchema>
-): undefined | ComponentSchema {
-  return getSchemaAtPropPathInner([...path], value, { kind: 'object', fields: props })
-}
-
-/**
- * Gets the schema at a prop path (inner function).
- * @param path The path to get the schema at.
- * @param value The value to get the schema for.
- * @param schema The schema to get the schema from.
- * @returns The schema at the prop path, or undefined if not found.
+ * @param path The prop path.
+ * @param value The value.
+ * @param schema The schema.
+ * @returns The schema at the prop path.
  */
 function getSchemaAtPropPathInner(
   path: (string | number)[],
@@ -290,11 +222,22 @@ function getSchemaAtPropPathInner(
   assertNever(schema)
 }
 
+export function getSchemaAtPropPath(
+  path: ReadonlyPropPath,
+  value: Record<string, unknown>,
+  props: Record<string, ComponentSchema>
+): undefined | ComponentSchema {
+  return getSchemaAtPropPathInner([...path], value, {
+    kind: 'object',
+    fields: props,
+  })
+}
+
 /**
- * Validates a prop on the client side.
+ * Validates a prop against a schema.
  * @param schema The schema to validate against.
  * @param value The value to validate.
- * @returns True if the value is valid, false otherwise.
+ * @returns Whether the value is valid.
  */
 export function clientSideValidateProp(schema: ComponentSchema, value: unknown): boolean {
   if (schema.kind === 'child') return true
@@ -316,9 +259,9 @@ export function clientSideValidateProp(schema: ComponentSchema, value: unknown):
 
 /**
  * Validates a conditional schema.
- * @param schema The conditional schema to validate.
+ * @param schema The conditional schema.
  * @param value The value to validate.
- * @returns True if the value is valid, false otherwise.
+ * @returns Whether the value is valid.
  */
 function validateConditional(schema: ComponentSchema, value: unknown): boolean {
   if (!('discriminant' in value) || !('value' in value)) return false
@@ -334,9 +277,9 @@ function validateConditional(schema: ComponentSchema, value: unknown): boolean {
 
 /**
  * Validates an object schema.
- * @param schema The object schema to validate.
+ * @param schema The object schema.
  * @param value The value to validate.
- * @returns True if the value is valid, false otherwise.
+ * @returns Whether the value is valid.
  */
 function validateObject(schema: ComponentSchema, value: unknown): boolean {
   for (const [key, childProp] of Object.entries(schema.fields)) {
@@ -347,9 +290,9 @@ function validateObject(schema: ComponentSchema, value: unknown): boolean {
 
 /**
  * Validates an array schema.
- * @param schema The array schema to validate.
+ * @param schema The array schema.
  * @param value The value to validate.
- * @returns True if the value is valid, false otherwise.
+ * @returns Whether the value is valid.
  */
 function validateArray(schema: ComponentSchema, value: unknown): boolean {
   if (!Array.isArray(value)) return false
@@ -359,13 +302,6 @@ function validateArray(schema: ComponentSchema, value: unknown): boolean {
   return true
 }
 
-/**
- * Gets the ancestor schemas for a prop path.
- * @param rootSchema The root schema to get the ancestor schemas from.
- * @param path The path to get the ancestor schemas for.
- * @param value The value to get the ancestor schemas for.
- * @returns An array of ancestor schemas.
- */
 export function getAncestorSchemas(
   rootSchema: ComponentSchema,
   path: ReadonlyPropPath,
@@ -400,10 +336,12 @@ export function getAncestorSchemas(
   return ancestors
 }
 
+export type ReadonlyPropPath = readonly (string | number)[]
+
 /**
  * Gets the value at a prop path.
- * @param value The value to get the value at.
- * @param inputPath The path to get the value at.
+ * @param value The value.
+ * @param inputPath The prop path.
  * @returns The value at the prop path.
  */
 export function getValueAtPropPath(value: unknown, inputPath: ReadonlyPropPath) {
@@ -416,10 +354,10 @@ export function getValueAtPropPath(value: unknown, inputPath: ReadonlyPropPath) 
 }
 
 /**
- * Traverses props.
+ * Traverses props and calls a visitor function for each prop.
  * @param schema The schema to traverse.
  * @param value The value to traverse.
- * @param visitor The visitor function to call for each prop.
+ * @param visitor The visitor function.
  * @param path The current path.
  */
 export function traverseProps(
@@ -461,12 +399,12 @@ export function traverseProps(
 }
 
 /**
- * Replaces the value at a prop path.
- * @param schema The schema to replace the value in.
+ * Replaces a value at a prop path.
+ * @param schema The schema.
  * @param value The value to replace.
- * @param newValue The new value to replace with.
- * @param path The path to replace the value at.
- * @returns The new value with the replacement.
+ * @param newValue The new value.
+ * @param path The prop path.
+ * @returns The replaced value.
  */
 export function replaceValueAtPropPath(
   schema: ComponentSchema,
@@ -518,10 +456,10 @@ export function replaceValueAtPropPath(
 
 /**
  * Gets the placeholder text for a prop path.
- * @param propPath The path to get the placeholder text for.
- * @param fields The fields to get the placeholder text from.
- * @param formProps The form props to get the placeholder text from.
- * @returns The placeholder text for the prop path.
+ * @param propPath The prop path.
+ * @param fields The fields.
+ * @param formProps The form props.
+ * @returns The placeholder text.
  */
 export function getPlaceholderTextForPropPath(
   propPath: ReadonlyPropPath,
@@ -532,5 +470,3 @@ export function getPlaceholderTextForPropPath(
   if (field?.kind === 'child') return field.options.placeholder
   return ''
 }
-
-export type ReadonlyPropPath = readonly (string | number)[]

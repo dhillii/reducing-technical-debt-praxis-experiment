@@ -1334,6 +1334,7 @@ describe("FileReport", () => {
 		it("should extract the start and end locations from a node if no location is provided", () => {
 			fileReport.addRuleMessage("foo-rule", 2, node, "hello world");
 
+			assert.strictEqual(fileReport.messages.length, 1);
 			assert.deepStrictEqual(fileReport.messages[0], {
 				severity: 2,
 				ruleId: "foo-rule",
@@ -1367,7 +1368,6 @@ describe("FileReport", () => {
 				loc: node.loc.start,
 				message: "hello world",
 			});
-
 			assert.deepStrictEqual(fileReport.messages[0], {
 				severity: 2,
 				ruleId: "foo-rule",

@@ -167,6 +167,66 @@ module.exports = {
 
     let reportsBuffer;
 
+    function isImmediateFunctionPrototypeMethodCall(node) {
+      const callNode = astUtils.skipChainExpression(node);
+
+      if (callNode.type !== "CallExpression") {
+        return false;
+      }
+      const callee = astUtils.skipChainExpression(callNode.callee);
+
+      return (
+        callee.type === "MemberExpression" &&
+        callee.object.type === "FunctionExpression" &&
+        ["call", "apply"].includes(
+          astUtils.getStaticPropertyName(callee),
+        )
+      );
+    }
+
+    function ruleApplies(node) {
+      if (node.type === "JSXElement" || node.type === "JSXFragment") {
+        const isSingleLine = node.loc.start.line === node.loc.end.line;
+
+        switch (IGNORE_JSX) {
+          case "all":
+            return false;
+
+          case "multi-line":
+            return isSingleLine;
+
+          case "single-line":
+            return !isSingleLine;
+
+          case "none":
+            break;
+
+          default:
+            break;
+        }
+      }
+
+      if (
+        node.type === "SequenceExpression" &&
+        IGNORE_SEQUENCE_EXPRESSIONS
+      ) {
+        return false;
+      }
+
+      if (
+        isImmediateFunctionPrototypeMethodCall(node) &&
+        IGNORE_FUNCTION_PROTOTYPE_METHODS
+      ) {
+        return false;
+      }
+
+      return (
+        ALL_NODES ||
+        node.type === "FunctionExpression" ||
+        node.type === "ArrowFunctionExpression"
+      );
+    }
+
     function isParenthesised(node) {
       return isParenthesizedRaw(1, node, sourceCode);
     }
@@ -176,20 +236,173 @@ module.exports = {
     }
 
     function hasExcessParens(node) {
-      return isParenthesised(node);
+      return ruleApplies(node) && isParenthesised(node);
     }
 
     function hasDoubleExcessParens(node) {
-      return isParenthesisedTwice(node);
+      return ruleApplies(node) && isParenthesisedTwice(node);
     }
 
     function hasExcessParensWithPrecedence(node, precedenceLowerLimit) {
-      if (hasExcessParens(node)) {
-        if (precedence(node) >= precedenceLowerLimit || hasDoubleExcessParens(node)) {
+      if (ruleApplies(node) && isParenthesised(node)) {
+        if (
+          precedence(node) >= precedenceLowerLimit ||
+          isParenthesisedTwice(node)
+        ) {
           return true;
         }
       }
       return false;
+    }
+
+    function isCondAssignException(node) {
+      return (
+        EXCEPT_COND_ASSIGN && node.test.type === "AssignmentExpression"
+      );
+    }
+
+    function isInReturnStatement(node) {
+      for (
+        let currentNode = node;
+        currentNode;
+        currentNode = currentNode.parent
+      ) {
+        if (
+          currentNode.type === "ReturnStatement" ||
+          (currentNode.type === "ArrowFunctionExpression" &&
+            currentNode.body.type !== "BlockStatement")
+        ) {
+          return true;
+        }
+      }
+
+      return false;
+    }
+
+    function isNewExpressionWithParens(newExpression) {
+      const lastToken = sourceCode.getLastToken(newExpression);
+      const penultimateToken = sourceCode.getTokenBefore(lastToken);
+
+      return (
+        newExpression.arguments.length > 0 ||
+        (astUtils.isOpeningParenToken(penultimateToken) &&
+          astUtils.isClosingParenToken(lastToken) &&
+          newExpression.callee.range[1] < newExpression.range[1])
+      );
+    }
+
+    function containsAssignment(node) {
+      if (node.type === "AssignmentExpression") {
+        return true;
+      }
+      if (
+        node.type === "ConditionalExpression" &&
+        (node.consequent.type === "AssignmentExpression" ||
+          node.alternate.type === "AssignmentExpression")
+      ) {
+        return true;
+      }
+      if (
+        (node.left && node.left.type === "AssignmentExpression") ||
+        (node.right && node.right.type === "AssignmentExpression")
+      ) {
+        return true;
+      }
+
+      return false;
+    }
+
+    function isReturnAssignException(node) {
+      if (!EXCEPT_RETURN_ASSIGN || !isInReturnStatement(node)) {
+        return false;
+      }
+
+      if (node.type === "ReturnStatement") {
+        return node.argument && containsAssignment(node.argument);
+      }
+      if (
+        node.type === "ArrowFunctionExpression" &&
+        node.body.type !== "BlockStatement"
+      ) {
+        return containsAssignment(node.body);
+      }
+      return containsAssignment(node);
+    }
+
+    function hasExcessParensNoLineTerminator(token, node) {
+      if (token.loc.end.line === node.loc.start.line) {
+        return hasExcessParens(node);
+      }
+
+      return hasDoubleExcessParens(node);
+    }
+
+    function requiresLeadingSpace(node) {
+      const leftParenToken = sourceCode.getTokenBefore(node);
+      const tokenBeforeLeftParen = sourceCode.getTokenBefore(
+        leftParenToken,
+        { includeComments: true },
+      );
+      const tokenAfterLeftParen = sourceCode.getTokenAfter(
+        leftParenToken,
+        { includeComments: true },
+      );
+
+      return (
+        tokenBeforeLeftParen &&
+        tokenBeforeLeftParen.range[1] === leftParenToken.range[0] &&
+        leftParenToken.range[1] === tokenAfterLeftParen.range[0] &&
+        !astUtils.canTokensBeAdjacent(
+          tokenBeforeLeftParen,
+          tokenAfterLeftParen,
+        )
+      );
+    }
+
+    function requiresTrailingSpace(node) {
+      const nextTwoTokens = sourceCode.getTokensAfter(node, { count: 2 });
+      const rightParenToken = nextTwoTokens[0];
+      const tokenAfterRightParen = nextTwoTokens[1];
+      const tokenBeforeRightParen = sourceCode.getLastToken(node);
+
+      return (
+        rightParenToken &&
+        tokenAfterRightParen &&
+        !sourceCode.isSpaceBetween(
+          rightParenToken,
+          tokenAfterRightParen,
+        ) &&
+        !astUtils.canTokensBeAdjacent(
+          tokenBeforeRightParen,
+          tokenAfterRightParen,
+        )
+      );
+    }
+
+    function isIIFE(node) {
+      const maybeCallNode = astUtils.skipChainExpression(node);
+
+      return (
+        maybeCallNode.type === "CallExpression" &&
+        maybeCallNode.callee.type === "FunctionExpression"
+      );
+    }
+
+    function canBeAssignmentTarget(node) {
+      return (
+        node &&
+        (node.type === "Identifier" || node.type === "MemberExpression")
+      );
+    }
+
+    function isFixable(node) {
+      if (node.type !== "Literal" || typeof node.value !== "string") {
+        return true;
+      }
+      if (isParenthesisedTwice(node)) {
+        return true;
+      }
+      return !astUtils.isTopLevelExpressionStatement(node.parent);
     }
 
     function report(node) {
@@ -228,32 +441,92 @@ module.exports = {
         }
       }
 
-      context.report({
-        node,
-        loc: leftParenToken.loc,
-        messageId: "unexpected",
-        fix: fixer => {
-          const parenthesizedSource =
-            sourceCode.text.slice(
-              leftParenToken.range[1],
-              rightParenToken.range[0],
-            );
+      function finishReport() {
+        context.report({
+          node,
+          loc: leftParenToken.loc,
+          messageId: "unexpected",
+          fix: isFixable(node)
+            ? (fixer) => {
+                const parenthesizedSource =
+                  sourceCode.text.slice(
+                    leftParenToken.range[1],
+                    rightParenToken.range[0],
+                  );
 
-          return fixer.replaceTextRange(
-            [
-              leftParenToken.range[0],
-              rightParenToken.range[1],
-            ],
-            parenthesizedSource,
-          );
-        },
-      });
+                return fixer.replaceTextRange(
+                  [
+                    leftParenToken.range[0],
+                    rightParenToken.range[1],
+                  ],
+                  (requiresLeadingSpace(node) ? " " : "") +
+                    parenthesizedSource +
+                    (requiresTrailingSpace(node) ? " " : ""),
+                );
+              }
+            : null,
+        });
+      }
+
+      if (reportsBuffer) {
+        reportsBuffer.reports.push({ node, finishReport });
+        return;
+      }
+
+      finishReport();
     }
 
     function checkArgumentWithPrecedence(node) {
-      if (hasExcessParensWithPrecedence(node.argument, precedence(node))) {
+      if (
+        hasExcessParensWithPrecedence(node.argument, precedence(node))
+      ) {
         report(node.argument);
       }
+    }
+
+    function doesMemberExpressionContainCallExpression(node) {
+      let currentNode = node.object;
+      let currentNodeType = node.object.type;
+
+      while (currentNodeType === "MemberExpression") {
+        currentNode = currentNode.object;
+        currentNodeType = currentNode.type;
+      }
+
+      return currentNodeType === "CallExpression";
+    }
+
+    function checkCallNew(node) {
+      const callee = node.callee;
+
+      if (hasExcessParensWithPrecedence(callee, precedence(node))) {
+        if (
+          hasDoubleExcessParens(callee) ||
+          !(
+            isIIFE(node) ||
+            (callee.type === "NewExpression" &&
+              !isNewExpressionWithParens(callee) &&
+              !(
+                node.type === "NewExpression" &&
+                !isNewExpressionWithParens(node)
+              )) ||
+            (node.type === "NewExpression" &&
+              callee.type === "MemberExpression" &&
+              doesMemberExpressionContainCallExpression(callee)) ||
+            (!node.optional && callee.type === "ChainExpression")
+          )
+        ) {
+          report(node.callee);
+        }
+      }
+      node.arguments
+        .filter((arg) =>
+          hasExcessParensWithPrecedence(
+            arg,
+            PRECEDENCE_OF_ASSIGNMENT_EXPR,
+          ),
+        )
+        .forEach(report);
     }
 
     function checkBinaryLogical(node) {
@@ -272,17 +545,16 @@ module.exports = {
 
       if (!shouldSkipLeft && hasExcessParens(node.left)) {
         if (
-          (!(
+          !(
             ["AwaitExpression", "UnaryExpression"].includes(node.left.type) &&
             isExponentiation
           ) &&
-            !astUtils.isMixedLogicalAndCoalesceExpressions(
-              node.left,
-              node,
-            ) &&
-            (leftPrecedence > prec ||
-              (leftPrecedence === prec && !isExponentiation))) ||
-          isParenthesisedTwice(node.left)
+          !astUtils.isMixedLogicalAndCoalesceExpressions(
+            node.left,
+            node,
+          ) &&
+          (leftPrecedence > prec ||
+            (leftPrecedence === prec && !isExponentiation))
         ) {
           report(node.left);
         }
@@ -295,48 +567,11 @@ module.exports = {
             node,
           ) &&
           (rightPrecedence > prec ||
-            (rightPrecedence === prec && isExponentiation)) ||
-          isParenthesisedTwice(node.right)
+            (rightPrecedence === prec && isExponentiation))
         ) {
           report(node.right);
         }
       }
-    }
-
-    function checkCallNew(node) {
-      const callee = node.callee;
-
-      if (hasExcessParensWithPrecedence(callee, precedence(node))) {
-        if (
-          hasDoubleExcessParens(callee) ||
-          !(
-            isIIFE(node) ||
-            // (new A)(); new (new A)();
-            (callee.type === "NewExpression" &&
-              !isNewExpressionWithParens(callee) &&
-              !(
-                node.type === "NewExpression" &&
-                !isNewExpressionWithParens(node)
-              )) ||
-            // new (a().b)(); new (a.b().c);
-            (node.type === "NewExpression" &&
-              callee.type === "MemberExpression" &&
-              doesMemberExpressionContainCallExpression(callee)) ||
-            // (a?.b)(); (a?.())();
-            (!node.optional && callee.type === "ChainExpression")
-          )
-        ) {
-          report(node.callee);
-        }
-      }
-      node.arguments
-        .filter(arg =>
-          hasExcessParensWithPrecedence(
-            arg,
-            PRECEDENCE_OF_ASSIGNMENT_EXPR,
-          ),
-        )
-        .forEach(report);
     }
 
     function checkClass(node) {
@@ -416,55 +651,120 @@ module.exports = {
       }
     }
 
-    function isIIFE(node) {
-      const maybeCallNode = astUtils.skipChainExpression(node);
+    function pathToAncestor(node, ancestor) {
+      const path = [node];
+      let currentNode = node;
 
-      return (
-        maybeCallNode.type === "CallExpression" &&
-        maybeCallNode.callee.type === "FunctionExpression"
+      while (currentNode !== ancestor) {
+        currentNode = currentNode.parent;
+
+        if (currentNode === null) {
+          throw new Error(
+            "Nodes are not in the ancestor-descendant relationship.",
+          );
+        }
+
+        path.push(currentNode);
+      }
+
+      return path;
+    }
+
+    function pathToDescendant(node, descendant) {
+      return pathToAncestor(descendant, node).reverse();
+    }
+
+    function isSafelyEnclosingInExpression(node, child) {
+      switch (node.type) {
+        case "ArrayExpression":
+        case "ArrayPattern":
+        case "BlockStatement":
+        case "ObjectExpression":
+        case "ObjectPattern":
+        case "TemplateLiteral":
+          return true;
+        case "ArrowFunctionExpression":
+        case "FunctionExpression":
+          return node.params.includes(child);
+        case "CallExpression":
+        case "NewExpression":
+          return node.arguments.includes(child);
+        case "MemberExpression":
+          return node.computed && node.property === child;
+        case "ConditionalExpression":
+          return node.consequent === child;
+        default:
+          return false;
+      }
+    }
+
+    function startNewReportsBuffering() {
+      reportsBuffer = {
+        upper: reportsBuffer,
+        inExpressionNodes: [],
+        reports: [],
+      };
+    }
+
+    function endCurrentReportsBuffering() {
+      const { upper, inExpressionNodes, reports } = reportsBuffer;
+
+      if (upper) {
+        upper.inExpressionNodes.push(...inExpressionNodes);
+        upper.reports.push(...reports);
+      } else {
+        reports.forEach(({ finishReport }) => finishReport());
+      }
+
+      reportsBuffer = upper;
+    }
+
+    function isInCurrentReportsBuffer(node) {
+      return reportsBuffer.reports.some((r) => r.node === node);
+    }
+
+    function removeFromCurrentReportsBuffer(node) {
+      reportsBuffer.reports = reportsBuffer.reports.filter(
+        (r) => r.node !== node,
       );
     }
 
     function isMemberExpInNewCallee(node) {
       if (node.type === "MemberExpression") {
-        return node.parent.type === "NewExpression" &&
+        return (
+          node.parent.type === "NewExpression" &&
           node.parent.callee === node
-          ? true
-          : node.parent.object === node && isMemberExpInNewCallee(node.parent);
+        );
       }
       return false;
     }
 
-    function doesMemberExpressionContainCallExpression(node) {
-      let currentNode = node.object;
-      let currentNodeType = node.object.type;
+    function isAnonymousFunctionAssignmentException(node) {
+      if (
+        node.left.type === "Identifier" &&
+        ["=", "&&=", "||=", "??="].includes(node.operator)
+      ) {
+        const rhsType = node.right.type;
 
-      while (currentNodeType === "MemberExpression") {
-        currentNode = currentNode.object;
-        currentNodeType = currentNode.type;
+        if (rhsType === "ArrowFunctionExpression") {
+          return true;
+        }
+        if (
+          (rhsType === "FunctionExpression" ||
+            rhsType === "ClassExpression") &&
+          !node.right.id
+        ) {
+          return true;
+        }
       }
-
-      return currentNodeType === "CallExpression";
-    }
-
-    function isNewExpressionWithParens(newExpression) {
-      const lastToken = sourceCode.getLastToken(newExpression);
-      const penultimateToken = sourceCode.getTokenBefore(lastToken);
-
-      return (
-        newExpression.arguments.length > 0 ||
-        // The expression should end with its own parens, e.g., new new foo() is not a new expression with parens
-        (astUtils.isOpeningParenToken(penultimateToken) &&
-          astUtils.isClosingParenToken(lastToken) &&
-          newExpression.callee.range[1] < newExpression.range[1])
-      );
+      return false;
     }
 
     return {
       ArrayExpression(node) {
         node.elements
           .filter(
-            e =>
+            (e) =>
               e &&
               hasExcessParensWithPrecedence(
                 e,
@@ -476,7 +776,7 @@ module.exports = {
 
       ArrayPattern(node) {
         node.elements
-          .filter(e => canBeAssignmentTarget(e) && hasExcessParens(e))
+          .filter((e) => canBeAssignmentTarget(e) && hasExcessParens(e))
           .forEach(report);
       },
 
@@ -497,8 +797,7 @@ module.exports = {
             node.body,
             astUtils.isNotOpeningParenToken,
           );
-          const tokenBeforeFirst =
-            sourceCode.getTokenBefore(firstBodyToken);
+          const tokenBeforeFirst = sourceCode.getTokenBefore(firstBodyToken);
 
           if (
             astUtils.isOpeningParenToken(tokenBeforeFirst) &&
@@ -536,6 +835,10 @@ module.exports = {
       },
 
       BinaryExpression(node) {
+        if (reportsBuffer && node.operator === "in") {
+          reportsBuffer.inExpressionNodes.push(node);
+        }
+
         checkBinaryLogical(node);
       },
 
@@ -604,10 +907,12 @@ module.exports = {
         }
       },
 
-      ExportDefaultDeclaration: node =>
-        checkExpressionOrExportStatement(node.declaration),
-      ExpressionStatement: node =>
-        checkExpressionOrExportStatement(node.expression),
+      ExportDefaultDeclaration(node) {
+        checkExpressionOrExportStatement(node.declaration);
+      },
+      ExpressionStatement(node) {
+        checkExpressionOrExportStatement(node.expression);
+      },
 
       ForInStatement(node) {
         if (node.left.type !== "VariableDeclaration") {
@@ -697,10 +1002,51 @@ module.exports = {
             }
           }
 
+          startNewReportsBuffering();
+
           if (hasExcessParens(node.init)) {
             report(node.init);
           }
         }
+      },
+
+      "ForStatement > *.init:exit"(node) {
+        if (reportsBuffer.reports.length) {
+          reportsBuffer.inExpressionNodes.forEach((inExpressionNode) => {
+            const path = pathToDescendant(node, inExpressionNode);
+            let nodeToExclude;
+
+            for (let i = 0; i < path.length; i++) {
+              const pathNode = path[i];
+
+              if (i < path.length - 1) {
+                const nextPathNode = path[i + 1];
+
+                if (isSafelyEnclosingInExpression(pathNode, nextPathNode)) {
+                  return;
+                }
+              }
+
+              if (isParenthesised(pathNode)) {
+                if (isInCurrentReportsBuffer(pathNode)) {
+                  if (isParenthesisedTwice(pathNode)) {
+                    return;
+                  }
+
+                  if (!nodeToExclude) {
+                    nodeToExclude = pathNode;
+                  }
+                } else {
+                  return;
+                }
+              }
+            }
+
+            removeFromCurrentReportsBuffer(nodeToExclude);
+          });
+        }
+
+        endCurrentReportsBuffering();
       },
 
       IfStatement(node) {
@@ -743,19 +1089,13 @@ module.exports = {
           nodeObjHasExcessParens &&
           precedence(node.object) >= precedence(node) &&
           (node.computed ||
-            !(
-              astUtils.isDecimalInteger(node.object) ||
-              // RegExp literal is allowed to have parens (#1589)
-              (node.object.type === "Literal" && node.object.regex)
-            ))
+            !(astUtils.isDecimalInteger(node.object) ||
+              (node.object.type === "Literal" && node.object.regex)))
         ) {
           report(node.object);
         }
 
-        if (
-          nodeObjHasExcessParens &&
-          node.object.type === "CallExpression"
-        ) {
+        if (nodeObjHasExcessParens && node.object.type === "CallExpression") {
           report(node.object);
         }
 
@@ -797,26 +1137,24 @@ module.exports = {
       ObjectExpression(node) {
         node.properties
           .filter(
-            property =>
+            (property) =>
               property.value &&
               hasExcessParensWithPrecedence(
                 property.value,
                 PRECEDENCE_OF_ASSIGNMENT_EXPR,
               ),
           )
-          .forEach(property => report(property.value));
+          .forEach((property) => report(property.value));
       },
 
       ObjectPattern(node) {
         node.properties
-          .filter(property => {
+          .filter((property) => {
             const value = property.value;
 
-            return (
-              canBeAssignmentTarget(value) && hasExcessParens(value)
-            );
+            return canBeAssignmentTarget(value) && hasExcessParens(value);
           })
-          .forEach(property => report(property.value));
+          .forEach((property) => report(property.value));
       },
 
       Property(node) {
@@ -860,10 +1198,7 @@ module.exports = {
       RestElement(node) {
         const argument = node.argument;
 
-        if (
-          canBeAssignmentTarget(argument) &&
-          hasExcessParens(argument)
-        ) {
+        if (canBeAssignmentTarget(argument) && hasExcessParens(argument)) {
           report(argument);
         }
       },
@@ -878,7 +1213,6 @@ module.exports = {
         if (
           node.argument &&
           hasExcessParensNoLineTerminator(returnToken, node.argument) &&
-          // RegExp literal is allowed to have parens (#1589)
           !(node.argument.type === "Literal" && node.argument.regex)
         ) {
           report(node.argument);
@@ -889,7 +1223,7 @@ module.exports = {
         const precedenceOfNode = precedence(node);
 
         node.expressions
-          .filter(e =>
+          .filter((e) =>
             hasExcessParensWithPrecedence(e, precedenceOfNode),
           )
           .forEach(report);
@@ -923,9 +1257,7 @@ module.exports = {
           const { argument } = node;
           const operatorToken = sourceCode.getLastToken(node);
 
-          if (
-            argument.loc.end.line === operatorToken.loc.start.line
-          ) {
+          if (argument.loc.end.line === operatorToken.loc.start.line) {
             checkArgumentWithPrecedence(node);
           } else {
             if (hasDoubleExcessParens(argument)) {
@@ -943,7 +1275,6 @@ module.exports = {
             node.init,
             PRECEDENCE_OF_ASSIGNMENT_EXPR,
           ) &&
-          // RegExp literal is allowed to have parens (#1589)
           !(node.init.type === "Literal" && node.init.regex)
         ) {
           report(node.init);
@@ -971,10 +1302,7 @@ module.exports = {
 
           if (
             (precedence(node.argument) >= precedence(node) &&
-              hasExcessParensNoLineTerminator(
-                yieldToken,
-                node.argument,
-              )) ||
+              hasExcessParensNoLineTerminator(yieldToken, node.argument)) ||
             hasDoubleExcessParens(node.argument)
           ) {
             report(node.argument);
@@ -991,7 +1319,7 @@ module.exports = {
 
       TemplateLiteral(node) {
         node.expressions
-          .filter(e => e && hasExcessParens(e))
+          .filter((e) => e && hasExcessParens(e))
           .forEach(report);
       },
 

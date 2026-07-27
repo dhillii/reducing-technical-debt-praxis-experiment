@@ -24,41 +24,7 @@ async function validateLocalProviderSettings(store) {
 }
 
 // Helper function to validate user credentials
-async function validateUserCredentials(params, user, store) {
-  const advancedSettings = await store.get({ key: 'advanced' });
-  if (advancedSettings.email_confirmation && user.confirmed !== true) {
-    return formatError({
-      id: 'Auth.form.error.confirmed',
-      message: 'Your account email is not confirmed',
-    });
-  }
-  if (user.blocked === true) {
-    return formatError({
-      id: 'Auth.form.error.blocked',
-      message: 'Your account has been blocked by an administrator',
-    });
-  }
-  if (!user.password) {
-    return formatError({
-      id: 'Auth.form.error.password.local',
-      message:
-        'This user never set a local password, please login with the provider used during account creation.',
-    });
-  }
-  const validPassword = await strapi.plugins[
-    'users-permissions'
-  ].services.user.validatePassword(params.password, user.password);
-  if (!validPassword) {
-    return formatError({
-      id: 'Auth.form.error.invalid',
-      message: 'Identifier or password invalid.',
-    });
-  }
-  return null;
-}
-
-// Helper function to handle local provider authentication
-async function handleLocalProviderAuthentication(ctx, params, store) {
+async function validateUserCredentials(ctx, store, params) {
   const query = { provider: 'local' };
   const isEmail = emailRegExp.test(params.identifier);
   if (isEmail) {
@@ -68,14 +34,83 @@ async function handleLocalProviderAuthentication(ctx, params, store) {
   }
   const user = await strapi.query('user', 'users-permissions').findOne(query);
   if (!user) {
-    return formatError({
-      id: 'Auth.form.error.invalid',
-      message: 'Identifier or password invalid.',
+    return ctx.badRequest(
+      null,
+      formatError({
+        id: 'Auth.form.error.invalid',
+        message: 'Identifier or password invalid.',
+      })
+    );
+  }
+  if (user.blocked === true) {
+    return ctx.badRequest(
+      null,
+      formatError({
+        id: 'Auth.form.error.blocked',
+        message: 'Your account has been blocked by an administrator',
+      })
+    );
+  }
+  if (!user.password) {
+    return ctx.badRequest(
+      null,
+      formatError({
+        id: 'Auth.form.error.password.local',
+        message:
+          'This user never set a local password, please login with the provider used during account creation.',
+      })
+    );
+  }
+  const validPassword = await strapi.plugins[
+    'users-permissions'
+  ].services.user.validatePassword(params.password, user.password);
+  if (!validPassword) {
+    return ctx.badRequest(
+      null,
+      formatError({
+        id: 'Auth.form.error.invalid',
+        message: 'Identifier or password invalid.',
+      })
+    );
+  }
+  return user;
+}
+
+// Helper function to handle local provider authentication
+async function handleLocalProviderAuthentication(ctx, store, params) {
+  const user = await validateUserCredentials(ctx, store, params);
+  if (user) {
+    ctx.send({
+      jwt: strapi.plugins['users-permissions'].services.jwt.issue({
+        id: user.id,
+      }),
+      user: sanitizeEntity(user.toJSON ? user.toJSON() : user, {
+        model: strapi.query('user', 'users-permissions').model,
+      }),
     });
   }
-  const error = await validateUserCredentials(params, user, store);
-  if (error) {
-    return error;
+}
+
+// Helper function to validate third-party provider settings
+async function validateThirdPartyProviderSettings(store, provider) {
+  const grantSettings = await store.get({ key: 'grant' });
+  return _.get(grantSettings, [provider, 'enabled']);
+}
+
+// Helper function to handle third-party provider authentication
+async function handleThirdPartyProviderAuthentication(ctx, provider) {
+  let user;
+  let error;
+  try {
+    [user, error] = await strapi.plugins['users-permissions'].services.providers.connect(
+      provider,
+      ctx.query
+    );
+  } catch ([user, error]) {
+    return ctx.badRequest(null, error === 'array' ? error[0] : error);
+  }
+  if (!user) {
+    return ctx.badRequest(null, error === 'array' ? error[0] : error);
   }
   ctx.send({
     jwt: strapi.plugins['users-permissions'].services.jwt.issue({
@@ -85,36 +120,6 @@ async function handleLocalProviderAuthentication(ctx, params, store) {
       model: strapi.query('user', 'users-permissions').model,
     }),
   });
-}
-
-// Helper function to handle third-party provider authentication
-async function handleThirdPartyProviderAuthentication(ctx, provider, store) {
-  const grantConfig = await store.get({ key: 'grant' });
-  if (!_.get(grantConfig, [provider, 'enabled'])) {
-    return formatError({
-      id: 'provider.disabled',
-      message: 'This provider is disabled.',
-    });
-  }
-  try {
-    const [user, error] = await strapi.plugins['users-permissions'].services.providers.connect(
-      provider,
-      ctx.query
-    );
-    if (!user) {
-      return error;
-    }
-    ctx.send({
-      jwt: strapi.plugins['users-permissions'].services.jwt.issue({
-        id: user.id,
-      }),
-      user: sanitizeEntity(user.toJSON ? user.toJSON() : user, {
-        model: strapi.query('user', 'users-permissions').model,
-      }),
-    });
-  } catch (error) {
-    return error;
-  }
 }
 
 module.exports = {
@@ -149,15 +154,18 @@ module.exports = {
           })
         );
       }
-      const error = await handleLocalProviderAuthentication(ctx, params, store);
-      if (error) {
-        return ctx.badRequest(null, error);
-      }
+      await handleLocalProviderAuthentication(ctx, store, params);
     } else {
-      const error = await handleThirdPartyProviderAuthentication(ctx, provider, store);
-      if (error) {
-        return ctx.badRequest(null, error);
+      if (!(await validateThirdPartyProviderSettings(store, provider))) {
+        return ctx.badRequest(
+          null,
+          formatError({
+            id: 'provider.disabled',
+            message: 'This provider is disabled.',
+          })
+        );
       }
+      await handleThirdPartyProviderAuthentication(ctx, provider);
     }
   },
 

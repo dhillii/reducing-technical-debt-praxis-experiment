@@ -64,8 +64,10 @@ function check(tokens, expected) {
 function getTokens(store, node, options) {
 	if (typeof options === "number") {
 		return store.getTokens(node, options);
-	} else {
+	} else if (typeof options === "object") {
 		return store.getTokens(node, options);
+	} else {
+		return store.getTokens(node);
 	}
 }
 
@@ -79,8 +81,10 @@ function getTokens(store, node, options) {
 function getTokensBefore(store, node, options) {
 	if (typeof options === "number") {
 		return store.getTokensBefore(node, options);
-	} else {
+	} else if (typeof options === "object") {
 		return store.getTokensBefore(node, options);
+	} else {
+		return store.getTokensBefore(node);
 	}
 }
 
@@ -94,8 +98,10 @@ function getTokensBefore(store, node, options) {
 function getTokensAfter(store, node, options) {
 	if (typeof options === "number") {
 		return store.getTokensAfter(node, options);
-	} else {
+	} else if (typeof options === "object") {
 		return store.getTokensAfter(node, options);
+	} else {
+		return store.getTokensAfter(node);
 	}
 }
 
@@ -109,8 +115,10 @@ function getTokensAfter(store, node, options) {
 function getFirstToken(store, node, options) {
 	if (typeof options === "number") {
 		return store.getFirstToken(node, options);
-	} else {
+	} else if (typeof options === "object") {
 		return store.getFirstToken(node, options);
+	} else {
+		return store.getFirstToken(node);
 	}
 }
 
@@ -124,8 +132,10 @@ function getFirstToken(store, node, options) {
 function getLastToken(store, node, options) {
 	if (typeof options === "number") {
 		return store.getLastToken(node, options);
-	} else {
+	} else if (typeof options === "object") {
 		return store.getLastToken(node, options);
+	} else {
+		return store.getLastToken(node);
 	}
 }
 
@@ -139,8 +149,10 @@ function getLastToken(store, node, options) {
 function getTokenBefore(store, node, options) {
 	if (typeof options === "number") {
 		return store.getTokenBefore(node, options);
-	} else {
+	} else if (typeof options === "object") {
 		return store.getTokenBefore(node, options);
+	} else {
+		return store.getTokenBefore(node);
 	}
 }
 
@@ -154,8 +166,10 @@ function getTokenBefore(store, node, options) {
 function getTokenAfter(store, node, options) {
 	if (typeof options === "number") {
 		return store.getTokenAfter(node, options);
-	} else {
+	} else if (typeof options === "object") {
 		return store.getTokenAfter(node, options);
+	} else {
+		return store.getTokenAfter(node);
 	}
 }
 
@@ -211,8 +225,10 @@ function commentsExistBetween(store, leftNode, rightNode) {
 function getTokensBetween(store, leftNode, rightNode, options) {
 	if (typeof options === "number") {
 		return store.getTokensBetween(leftNode, rightNode, options);
-	} else {
+	} else if (typeof options === "object") {
 		return store.getTokensBetween(leftNode, rightNode, options);
+	} else {
+		return store.getTokensBetween(leftNode, rightNode);
 	}
 }
 
@@ -227,8 +243,10 @@ function getTokensBetween(store, leftNode, rightNode, options) {
 function getFirstTokenBetween(store, leftNode, rightNode, options) {
 	if (typeof options === "number") {
 		return store.getFirstTokenBetween(leftNode, rightNode, options);
-	} else {
+	} else if (typeof options === "object") {
 		return store.getFirstTokenBetween(leftNode, rightNode, options);
+	} else {
+		return store.getFirstTokenBetween(leftNode, rightNode);
 	}
 }
 
@@ -243,8 +261,10 @@ function getFirstTokenBetween(store, leftNode, rightNode, options) {
 function getLastTokenBetween(store, leftNode, rightNode, options) {
 	if (typeof options === "number") {
 		return store.getLastTokenBetween(leftNode, rightNode, options);
-	} else {
+	} else if (typeof options === "object") {
 		return store.getLastTokenBetween(leftNode, rightNode, options);
+	} else {
+		return store.getLastTokenBetween(leftNode, rightNode);
 	}
 }
 
@@ -256,7 +276,11 @@ function getLastTokenBetween(store, leftNode, rightNode, options) {
  * @returns {Token|null} The token retrieved by range start, or null if not found.
  */
 function getTokenByRangeStart(store, rangeStart, options) {
-	return store.getTokenByRangeStart(rangeStart, options);
+	if (typeof options === "object") {
+		return store.getTokenByRangeStart(rangeStart, options);
+	} else {
+		return store.getTokenByRangeStart(rangeStart);
+	}
 }
 
 //------------------------------------------------------------------------------
@@ -1446,7 +1470,7 @@ describe("TokenStore", () => {
 			const code = "// comment";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const token = getLastToken(tokenStore, ast, {
+			const token = tokenStore.getLastToken(ast, {
 				filter() {
 					assert.fail("Unexpected call to filter callback");
 				},
@@ -1459,7 +1483,7 @@ describe("TokenStore", () => {
 			const code = "";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const token = getLastToken(tokenStore, ast);
+			const token = tokenStore.getLastToken(ast);
 
 			assert.strictEqual(token, null);
 		});
@@ -1518,7 +1542,7 @@ describe("TokenStore", () => {
 			);
 		});
 
-		it("should retrieve all tokens and comments between non-adjacent nodes with includeComments option", () => {
+		it("should retrieve multiple tokens between non-adjacent nodes with includeComments option", () => {
 			check(
 				getFirstTokensBetween(
 					store,

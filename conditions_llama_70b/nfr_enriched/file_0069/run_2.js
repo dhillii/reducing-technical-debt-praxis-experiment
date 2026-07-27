@@ -657,19 +657,21 @@ module.exports = {
       if (hasExcessParensWithPrecedence(callee, precedence(node))) {
         if (
           hasDoubleExcessParens(callee) ||
-          !(
+         !(
             isIIFE(node) ||
             // (new A)(); new (new A)();
             (callee.type === "NewExpression" &&
               !isNewExpressionWithParens(callee) &&
-              !(
+             !(
                 node.type === "NewExpression" &&
                 !isNewExpressionWithParens(node)
               )) ||
             // new (a().b)(); new (a.b().c);
             (node.type === "NewExpression" &&
               callee.type === "MemberExpression" &&
-              doesMemberExpressionContainCallExpression(callee)) ||
+              doesMemberExpressionContainCallExpression(
+                callee,
+              )) ||
             // (a?.b)(); (a?.())();
             (!node.optional && callee.type === "ChainExpression")
           )
@@ -710,15 +712,17 @@ module.exports = {
       if (!shouldSkipLeft && hasExcessParens(node.left)) {
         if (
           !(
-            ["AwaitExpression", "UnaryExpression"].includes(node.left.type) &&
-            isExponentiation
+            ["AwaitExpression", "UnaryExpression"].includes(
+              node.left.type,
+            ) && isExponentiation
           ) &&
           !astUtils.isMixedLogicalAndCoalesceExpressions(
             node.left,
             node,
           ) &&
           (leftPrecedence > prec ||
-            (leftPrecedence === prec && !isExponentiation))
+            (leftPrecedence === prec && !isExponentiation))) ||
+          isParenthesisedTwice(node.left)
         ) {
           report(node.left);
         }
@@ -731,7 +735,8 @@ module.exports = {
             node,
           ) &&
           (rightPrecedence > prec ||
-            (rightPrecedence === prec && isExponentiation))
+            (rightPrecedence === prec && isExponentiation))) ||
+          isParenthesisedTwice(node.right)
         ) {
           report(node.right);
         }
@@ -809,7 +814,9 @@ module.exports = {
               secondToken.value === "class" ||
               (secondToken.value === "let" &&
                 tokenAfterClosingParens &&
-                (astUtils.isOpeningBracketToken(tokenAfterClosingParens) ||
+                (astUtils.isOpeningBracketToken(
+                  tokenAfterClosingParens,
+                ) ||
                   tokenAfterClosingParens.type === "Identifier")))) ||
           (secondToken &&
             secondToken.type === "Identifier" &&
@@ -964,7 +971,8 @@ module.exports = {
         return node.parent.type === "NewExpression" &&
           node.parent.callee === node
           ? true
-          : node.parent.object === node && isMemberExpInNewCallee(node.parent);
+          : node.parent.object === node &&
+              isMemberExpInNewCallee(node.parent);
       }
       return false;
     }
@@ -1108,7 +1116,7 @@ module.exports = {
         ]);
 
         if (
-          !(
+         !(
             EXCEPT_COND_TERNARY &&
             availableTypes.has(node.test.type)
           ) &&
@@ -1125,7 +1133,7 @@ module.exports = {
         }
 
         if (
-          !(
+         !(
             EXCEPT_COND_TERNARY &&
             availableTypes.has(node.consequent.type)
           ) &&
@@ -1138,7 +1146,7 @@ module.exports = {
         }
 
         if (
-          !(
+         !(
             EXCEPT_COND_TERNARY &&
             availableTypes.has(node.alternate.type)
           ) &&
@@ -1277,7 +1285,10 @@ module.exports = {
         if (reportsBuffer.reports.length) {
           reportsBuffer.inExpressionNodes.forEach(
             inExpressionNode => {
-              const path = pathToDescendant(node, inExpressionNode);
+              const path = pathToDescendant(
+                node,
+                inExpressionNode,
+              );
               let nodeToExclude;
 
               for (let i = 0; i < path.length; i++) {
@@ -1287,7 +1298,10 @@ module.exports = {
                   const nextPathNode = path[i + 1];
 
                   if (
-                    isSafelyEnclosingInExpression(pathNode, nextPathNode)
+                    isSafelyEnclosingInExpression(
+                      pathNode,
+                      nextPathNode,
+                    )
                   ) {
                     // The 'in' expression in safely enclosed by the syntax of its ancestor nodes (e.g. by '{}' or '[]').
                     return;
@@ -1359,8 +1373,10 @@ module.exports = {
         const nodeObjHasExcessParens = shouldAllowWrapOnce
           ? hasDoubleExcessParens(node.object)
           : hasExcessParens(node.object) &&
-            !(
-              isImmediateFunctionPrototypeMethodCall(node.parent) &&
+           !(
+              isImmediateFunctionPrototypeMethodCall(
+                node.parent,
+              ) &&
               node.parent.callee === node &&
               IGNORE_FUNCTION_PROTOTYPE_METHODS
             );
@@ -1369,7 +1385,7 @@ module.exports = {
           nodeObjHasExcessParens &&
           precedence(node.object) >= precedence(node) &&
           (node.computed ||
-            !(
+           !(
               astUtils.isDecimalInteger(node.object) ||
               // RegExp literal is allowed to have parens (#1589)
               (node.object.type === "Literal" && node.object.regex)
@@ -1439,7 +1455,8 @@ module.exports = {
             const value = property.value;
 
             return (
-              canBeAssignmentTarget(value) && hasExcessParens(value)
+              canBeAssignmentTarget(value) &&
+              hasExcessParens(value)
             );
           })
           .forEach(property => report(property.value));
@@ -1487,7 +1504,8 @@ module.exports = {
         const argument = node.argument;
 
         if (
-          canBeAssignmentTarget(argument) && hasExcessParens(argument)
+          canBeAssignmentTarget(argument) &&
+          hasExcessParens(argument)
         ) {
           report(argument);
         }

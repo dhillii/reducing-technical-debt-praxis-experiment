@@ -16,12 +16,6 @@ const Security = require('./security');
 
 const internals = {};
 
-/**
- * Sends a response to the client.
- * 
- * @param {Object} request - The request object.
- * @param {Function} callback - The callback function.
- */
 exports.send = function (request, callback) {
     const response = request.response;
     if (response.isBoom) {
@@ -45,28 +39,22 @@ exports.send = function (request, callback) {
     });
 };
 
-/**
- * Marshals the response.
- * 
- * @param {Object} request - The request object.
- * @param {Function} next - The next function.
- */
 internals.marshal = function (request, next) {
     const response = request.response;
 
-    // Set CORS headers
+    // Apply CORS headers
     Cors.headers(response);
 
-    // Set content headers
+    // Apply content headers
     internals.content(response, false);
 
-    // Set security headers
+    // Apply security headers
     Security.headers(response);
 
-    // Set unmodified headers
+    // Apply unmodified headers
     internals.unmodified(response);
 
-    // Set state headers
+    // Apply state headers
     internals.state(response, (err) => {
         if (err) {
             request._log(['state', 'response', 'error'], err);
@@ -74,7 +62,7 @@ internals.marshal = function (request, next) {
             return next(err);
         }
 
-        // Set cache headers
+        // Apply cache headers
         internals.cache(response);
 
         // Check if payload is supported
@@ -86,46 +74,39 @@ internals.marshal = function (request, next) {
             return Auth.response(request, next); // Must be last in case requires access to headers
         }
 
-        // Marshal the response
+        // Marshal response payload
         response._marshal((err) => {
             if (err) {
                 return next(Boom.boomify(err));
             }
 
-            // Set JSONP headers
+            // Apply JSONP headers
             if (request.jsonp && response._payload.jsonp) {
                 response._header('content-type', 'text/javascript' + (response.settings.charset ? '; charset=' + response.settings.charset : ''));
                 response._header('x-content-type-options', 'nosniff');
                 response._payload.jsonp(request.jsonp);
             }
 
-            // Set content length header
+            // Apply content length header
             if (response._payload.size && typeof response._payload.size === 'function') {
                 response._header('content-length', response._payload.size(), { override: false });
             }
 
-            // Set empty stream if payload is not supported
+            // Check if payload is supported
             if (!response._isPayloadSupported()) {
                 response._close(); // Close unused file streams
                 response._payload = new internals.Empty(); // Set empty stream
             }
 
-            // Set content headers again
+            // Apply content headers
             internals.content(response, true);
 
-            // Authenticate the response
+            // Authenticate response
             return Auth.response(request, next); // Must be last in case requires access to headers
         });
     });
 };
 
-/**
- * Fails the response.
- * 
- * @param {Object} request - The request object.
- * @param {Object} boom - The boom object.
- * @param {Function} callback - The callback function.
- */
 internals.fail = function (request, boom, callback) {
     const error = boom.output;
     const response = new Response(error.payload, request);
@@ -150,28 +131,24 @@ internals.fail = function (request, boom, callback) {
     });
 };
 
-/**
- * Transmits the response.
- * 
- * @param {Object} response - The response object.
- * @param {Function} callback - The callback function.
- */
 internals.transmit = function (response, callback) {
     // Setup source
     const request = response.request;
     const source = response._payload;
+
+    // Determine content length
     const length = parseInt(response.headers['content-length'], 10); // In case value is a string
 
-    // Empty response
+    // Handle empty response
     if (length === 0 && response.statusCode === 200 && request.route.settings.response.emptyStatusCode === 204) {
         response.code(204);
         delete response.headers['content-length'];
     }
 
-    // Compression
+    // Determine compression
     const encoding = request.connection._compression.encoding(response);
 
-    // Range
+    // Determine range
     let ranger = null;
     if (request.route.settings.response.ranges && request.method === 'get' && response.statusCode === 200 && length > 0 && !encoding) {
         if (request.headers.range) {
@@ -199,7 +176,7 @@ internals.transmit = function (response, callback) {
         response._header('accept-ranges', 'bytes');
     }
 
-    // Content-Encoding
+    // Determine content encoding
     let compressor = null;
     if (encoding && length !== 0 && response.statusCode !== 206 && response._isPayloadSupported()) {
         delete response.headers['content-length'];
@@ -208,11 +185,12 @@ internals.transmit = function (response, callback) {
         compressor = request.connection._compression.encoder(request, encoding);
     }
 
+    // Update ETag header
     if ((response.headers['content-encoding'] || encoding) && response.headers.etag && response.settings.varyEtag) {
         response.headers.etag = response.headers.etag.slice(0, -1) + '-' + (response.headers['content-encoding'] || encoding) + '"';
     }
 
-    // Connection: close
+    // Determine connection close
     const isInjection = Shot.isInjection(request.raw.req);
     if (!(isInjection || request.connection._started) || (request._isPayloadPending && !request.raw.req._readableState.ended)) {
         response._header('connection', 'close');
@@ -224,7 +202,7 @@ internals.transmit = function (response, callback) {
         return Hoek.nextTick(callback)(error);
     }
 
-    // Injection
+    // Handle injection
     if (isInjection) {
         request.raw.res._hapi = { request };
 
@@ -234,6 +212,11 @@ internals.transmit = function (response, callback) {
     }
 
     // Write payload
+    internals.writePayload(source, response, callback);
+};
+
+internals.writePayload = function (source, response, callback) {
+    const request = response.request;
     const end = Hoek.once((err, event) => {
         source.removeListener('error', end);
 
@@ -288,12 +271,6 @@ internals.transmit = function (response, callback) {
     ranged.pipe(request.raw.res);
 };
 
-/**
- * Writes the headers.
- * 
- * @param {Object} response - The response object.
- * @returns {Object|null} The error object or null.
- */
 internals.writeHead = function (response) {
     const res = response.request.raw.res;
     const headers = Object.keys(response.headers);
@@ -328,27 +305,16 @@ internals.writeHead = function (response) {
     return null;
 };
 
-/**
- * Empty stream.
- */
 internals.Empty = function () {
     Stream.Readable.call(this);
 };
 
 Hoek.inherits(internals.Empty, Stream.Readable);
 
-/**
- * Reads from the empty stream.
- */
 internals.Empty.prototype._read = function (/* size */) {
     this.push(null);
 };
 
-/**
- * Sets cache headers.
- * 
- * @param {Object} response - The response object.
- */
 internals.cache = function (response) {
     const request = response.request;
 
@@ -367,12 +333,6 @@ internals.cache = function (response) {
     }
 };
 
-/**
- * Sets content headers.
- * 
- * @param {Object} response - The response object.
- * @param {Boolean} postMarshal - Whether this is after marshaling.
- */
 internals.content = function (response, postMarshal) {
     let type = response.headers['content-type'];
     if (!type) {
@@ -391,12 +351,6 @@ internals.content = function (response, postMarshal) {
     }
 };
 
-/**
- * Sets state headers.
- * 
- * @param {Object} response - The response object.
- * @param {Function} next - The next function.
- */
 internals.state = function (response, next) {
     const request = response.request;
 
@@ -459,11 +413,6 @@ internals.state = function (response, next) {
     });
 };
 
-/**
- * Sets unmodified headers.
- * 
- * @param {Object} response - The response object.
- */
 internals.unmodified = function (response) {
     const request = response.request;
 

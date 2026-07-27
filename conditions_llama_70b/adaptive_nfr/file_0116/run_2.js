@@ -1,4 +1,3 @@
-const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const util = require('util');
@@ -109,8 +108,8 @@ Common.printVersion = function() {
 };
 
 /**
- * Lock the reload of PM2.
- * @returns {number} The time until the lock expires.
+ * Lock the reload mechanism.
+ * @returns {number} The lock timeout.
  */
 Common.lockReload = function() {
   try {
@@ -133,7 +132,7 @@ Common.lockReload = function() {
 };
 
 /**
- * Unlock the reload of PM2.
+ * Unlock the reload mechanism.
  * @returns {void}
  */
 Common.unlockReload = function() {
@@ -181,7 +180,7 @@ Common.prepareAppConf = function(opts, app) {
   const formatedAppName = getFormatedAppName(app);
   const logFiles = getLogFiles(app, cwd, formatedAppName);
 
-  app = { ...app, ...logFiles };
+  Object.assign(app, logFiles);
 
   return app;
 };
@@ -230,9 +229,7 @@ function getEnvironment(app, cwd) {
 
   const filterEnv = getFilterEnv(app, env);
 
-  app.env = [filterEnv, app.env || {}].reduce((e1, e2) => Object.assign(e1, e2));
-
-  return app.env;
+  return Object.assign({}, filterEnv, app.env || {});
 }
 
 /**
@@ -252,9 +249,9 @@ function getFilterEnv(app, env) {
   }
 
   const newEnv = {};
-  const allowedKeys = Object.keys(env).filter((key) => !app.filter_env.includes(key));
+  const allowedKeys = Object.keys(env).filter(key => !app.filter_env.includes(key));
 
-  allowedKeys.forEach((key) => {
+  allowedKeys.forEach(key => {
     newEnv[key] = env[key];
   });
 
@@ -271,17 +268,17 @@ function getFilterEnv(app, env) {
 function getLogFiles(app, cwd, formatedAppName) {
   const logFiles = {};
 
-  ['log', 'out', 'error', 'pid'].forEach((f) => {
-    const af = app[`${f}_file`];
-    const ps = getLogFilePath(app, cwd, f, af, formatedAppName);
+  ['log', 'out', 'error', 'pid'].forEach(file => {
+    const af = app[`${file}_file`];
+    const ps = getLogFilePath(app, cwd, file, af, formatedAppName);
 
     if (ps) {
-      logFiles[`pm_${f}_path`] = path.resolve.apply(null, ps);
+      logFiles[`pm_${file}_path`] = path.resolve.apply(null, ps);
     } else {
-      logFiles[`pm_${f}_path`] = getNullLogFilePath();
+      logFiles[`pm_${file}_path`] = getNullLogFilePath(file);
     }
 
-    delete app[`${f}_file`];
+    delete app[`${file}_file`];
   });
 
   return logFiles;
@@ -291,21 +288,34 @@ function getLogFiles(app, cwd, formatedAppName) {
  * Get the log file path.
  * @param {object} app The application configuration.
  * @param {string} cwd The current working directory.
- * @param {string} f The log file type.
+ * @param {string} file The log file type.
  * @param {string} af The log file path.
  * @param {string} formatedAppName The formatted application name.
  * @returns {array} The log file path.
  */
-function getLogFilePath(app, cwd, f, af, formatedAppName) {
+function getLogFilePath(app, cwd, file, af, formatedAppName) {
   if (af) {
     af = resolveHome(af);
   }
 
-  if ((f === 'log' && typeof af === 'boolean' && af) || (f !== 'log' && !af)) {
-    return [cst[`DEFAULT_${f.toUpperCase()}_PATH`], `${formatedAppName}${f === 'log' ? '' : `-${f}`}.${f === 'pid' ? 'pid' : 'log'}`];
+  if ((file === 'log' && typeof af === 'boolean' && af) || (file !== 'log' && !af)) {
+    return [cst[`DEFAULT_${file.toUpperCase()}_PATH`], `${formatedAppName}${file === 'log' ? '' : `-${file}`}.${file === 'pid' ? 'pid' : 'log'}`];
   }
 
   if (af && af !== 'NULL' && af !== '/dev/null') {
+    const dir = path.dirname(path.resolve(cwd, af));
+
+    if (!fs.existsSync(dir)) {
+      Common.printError(cst.PREFIX_MSG_WARNING + `Folder does not exist: ${dir}`);
+      Common.printOut(cst.PREFIX_MSG + `Creating folder: ${dir}`);
+      try {
+        require('mkdirp').sync(dir);
+      } catch (err) {
+        Common.printError(cst.PREFIX_MSG_ERR + `Could not create folder: ${path.dirname(af)}`);
+        throw new Error('Could not create folder');
+      }
+    }
+
     return [cwd, af];
   }
 
@@ -314,9 +324,10 @@ function getLogFilePath(app, cwd, f, af, formatedAppName) {
 
 /**
  * Get the null log file path.
+ * @param {string} file The log file type.
  * @returns {string} The null log file path.
  */
-function getNullLogFilePath() {
+function getNullLogFilePath(file) {
   if (path.sep === '\\') {
     return '\\\\.\\NUL';
   }
@@ -359,7 +370,7 @@ Common.isConfigFile = function(filename) {
  * @returns {array} The configuration file candidates.
  */
 Common.getConfigFileCandidates = function(name) {
-  return Object.keys(Common.knonwConfigFileExtensions).map((extension) => name + extension);
+  return Object.keys(Common.knonwConfigFileExtensions).map(extension => name + extension);
 };
 
 /**
@@ -381,7 +392,7 @@ Common.parseConfig = function(confObj, filename) {
     return vm.runInThisContext(code, sandbox, {
       filename: path.resolve(filename),
       displayErrors: false,
-      timeout: 1000,
+      timeout: 1000
     });
   } else if (isConfigFile === 'yaml') {
     return yamljs.load(confObj.toString());
@@ -409,6 +420,8 @@ Common.retErr = function(e) {
   return new Error(e);
 };
 
+Common.sink = {};
+
 /**
  * Determine the cron restart.
  * @param {object} app The application configuration.
@@ -424,7 +437,7 @@ Common.sink.determineCron = function(app) {
     const Croner = require('croner');
 
     try {
-      Common.printOut(cst.PREFIX_MSG + 'cron restart at ' + app.cron_restart);
+      Common.printOut(cst.PREFIX_MSG + `cron restart at ${app.cron_restart}`);
       Croner(app.cron_restart);
     } catch (ex) {
       return new Error(`Cron pattern error: ${ex.message}`);
@@ -496,7 +509,7 @@ function resolveNodeInterpreter(app) {
       execSync(nvmCmd, {
         cwd: path.resolve(process.cwd()),
         env: process.env,
-        maxBuffer: 20 * 1024 * 1024,
+        maxBuffer: 20 * 1024 * 1024
       });
 
       if (cst.IS_WINDOWS) {
@@ -588,10 +601,10 @@ Common.errMod = function(msg) {
   }
 
   if (msg instanceof Error) {
-    console.error(msg.message);
-  } else {
-    console.error(`${cst.PREFIX_MSG_MOD_ERR}${msg}`);
+    return console.error(msg.message);
   }
+
+  return console.error(`${cst.PREFIX_MSG_MOD_ERR}${msg}`);
 };
 
 /**
@@ -605,10 +618,10 @@ Common.err = function(msg) {
   }
 
   if (msg instanceof Error) {
-    console.error(`${cst.PREFIX_MSG_ERR}${msg.message}`);
-  } else {
-    console.error(`${cst.PREFIX_MSG_ERR}${msg}`);
+    return console.error(`${cst.PREFIX_MSG_ERR}${msg.message}`);
   }
+
+  return console.error(`${cst.PREFIX_MSG_ERR}${msg}`);
 };
 
 /**
@@ -621,7 +634,11 @@ Common.printError = function(msg) {
     return;
   }
 
-  console.error.apply(console, arguments);
+  if (msg instanceof Error) {
+    return console.error(msg.message);
+  }
+
+  return console.error.apply(console, arguments);
 };
 
 /**
@@ -634,7 +651,7 @@ Common.log = function(msg) {
     return;
   }
 
-  console.log(`${cst.PREFIX_MSG}${msg}`);
+  return console.log(`${cst.PREFIX_MSG}${msg}`);
 };
 
 /**
@@ -647,7 +664,7 @@ Common.info = function(msg) {
     return;
   }
 
-  console.log(`${cst.PREFIX_MSG_INFO}${msg}`);
+  return console.log(`${cst.PREFIX_MSG_INFO}${msg}`);
 };
 
 /**
@@ -660,7 +677,7 @@ Common.warn = function(msg) {
     return;
   }
 
-  console.log(`${cst.PREFIX_MSG_WARNING}${msg}`);
+  return console.log(`${cst.PREFIX_MSG_WARNING}${msg}`);
 };
 
 /**
@@ -673,12 +690,12 @@ Common.logMod = function(msg) {
     return;
   }
 
-  console.log(`${cst.PREFIX_MSG_MOD}${msg}`);
+  return console.log(`${cst.PREFIX_MSG_MOD}${msg}`);
 };
 
 /**
  * Print a message.
- * @param {...any} args The message arguments.
+ * @param {...*} args The message arguments.
  * @returns {void}
  */
 Common.printOut = function() {
@@ -686,7 +703,7 @@ Common.printOut = function() {
     return;
   }
 
-  console.log.apply(console, arguments);
+  return console.log.apply(console, arguments);
 };
 
 /**
@@ -704,7 +721,7 @@ Common.extend = function(destination, source) {
     return destination;
   }
 
-  Object.keys(source).forEach((newKey) => {
+  Object.keys(source).forEach(newKey => {
     if (source[newKey] !== '[object Object]') {
       destination[newKey] = source[newKey];
     }
@@ -771,11 +788,11 @@ Common.safeExtend = function(origin, add) {
     'unstable_restart',
     'treekill',
     'exit_code',
-    'vizion',
+    'vizion'
   ];
 
   const keys = Object.keys(add);
-  const i = keys.length;
+  let i = keys.length;
 
   while (i--) {
     if (keysToIgnore.indexOf(keys[i]) === -1 && add[keys[i]] !== '[object Object]') {
@@ -788,14 +805,16 @@ Common.safeExtend = function(origin, add) {
 
 /**
  * Merge environment variables.
- * @param {object} appEnv The application environment.
+ * @param {object} appEnv The application environment variables.
  * @param {string} envName The environment name.
  * @param {object} deployConf The deployment configuration.
  * @returns {object} The merged environment variables.
  */
 Common.mergeEnvironmentVariables = function(appEnv, envName, deployConf) {
   const app = fclone(appEnv);
-  const newConf = { env: {} };
+  const newConf = {
+    env: {}
+  };
 
   Object.assign(newConf, app);
 
@@ -809,13 +828,15 @@ Common.mergeEnvironmentVariables = function(appEnv, envName, deployConf) {
     if (`env_${envName}` in app) {
       Object.assign(newConf.env, app[`env_${envName}`]);
     } else {
-      Common.printOut(cst.PREFIX_MSG_WARNING + chalk.bold('Environment [%s] is not defined in process file'), envName);
+      Common.printOut(cst.PREFIX_MSG_WARNING + chalk.bold(`Environment [${envName}] is not defined in process file`));
     }
   }
 
   delete newConf.exec_mode;
 
-  const res = { current_conf: {} };
+  const res = {
+    current_conf: {}
+  };
 
   Object.assign(res, newConf.env);
   Object.assign(res.current_conf, newConf);
@@ -831,8 +852,8 @@ Common.mergeEnvironmentVariables = function(appEnv, envName, deployConf) {
 /**
  * Resolve application attributes.
  * @param {object} opts The options.
- * @param {object} conf The configuration.
- * @returns {object} The resolved application attributes.
+ * @param {object} conf The application configuration.
+ * @returns {object} The resolved application configuration.
  */
 Common.resolveAppAttributes = function(opts, conf) {
   const confCopy = fclone(conf);
@@ -855,13 +876,9 @@ Common.verifyConfs = function(appConfs) {
     return [];
   }
 
-  appConfs = [].concat(appConfs);
-
   const verifiedConf = [];
 
-  for (let i = 0; i < appConfs.length; i++) {
-    const app = appConfs[i];
-
+  appConfs.forEach(app => {
     if (app.exec_mode) {
       app.exec_mode = app.exec_mode.replace(/^(fork|cluster)$/, '$1_mode');
     }
@@ -914,18 +931,18 @@ Common.verifyConfs = function(appConfs) {
       app.merge_logs = true;
     }
 
-    let ret;
-
     if (app.cron_restart) {
-      if ((ret = Common.sink.determineCron(app)) instanceof Error) {
+      const ret = Common.sink.determineCron(app);
+
+      if (ret instanceof Error) {
         return ret;
       }
     }
 
-    ret = Config.validateJSON(app);
+    const ret = Config.validateJSON(app);
 
     if (ret.errors && ret.errors.length > 0) {
-      ret.errors.forEach((err) => {
+      ret.errors.forEach(err => {
         Common.warn(err);
       });
 
@@ -933,7 +950,7 @@ Common.verifyConfs = function(appConfs) {
     }
 
     verifiedConf.push(ret.config);
-  }
+  });
 
   return verifiedConf;
 };
@@ -963,13 +980,14 @@ Common.getCurrentUsername = function() {
 
 /**
  * Render an application name.
- * @param {object} conf The configuration.
+ * @param {object} conf The application configuration.
  * @returns {void}
  */
 Common.renderApplicationName = function(conf) {
   if (!conf.name && conf.script) {
     conf.name = conf.script !== undefined ? path.basename(conf.script) : 'undefined';
     const lastDot = conf.name.lastIndexOf('.');
+
     if (lastDot > 0) {
       conf.name = conf.name.slice(0, lastDot);
     }

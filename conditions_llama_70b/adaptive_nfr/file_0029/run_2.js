@@ -8,6 +8,10 @@ import {inject} from 'ghost-admin/decorators/inject';
 import {inject as service} from '@ember/service';
 import {tracked} from '@glimmer/tracking';
 
+/**
+ * @typedef {import('../../services/dashboard-stats').SourceAttributionCount} SourceAttributionCount
+*/
+
 const DISPLAY_OPTIONS = [{
     name: 'Free signups',
     value: 'signups'
@@ -15,10 +19,6 @@ const DISPLAY_OPTIONS = [{
     name: 'Paid conversions',
     value: 'paid'
 }];
-
-/**
- * @typedef {import('../../services/dashboard-stats').SourceAttributionCount} SourceAttributionCount
-*/
 
 export default class Analytics extends Component {
     @service ajax;
@@ -45,11 +45,11 @@ export default class Analytics extends Component {
     @tracked postCount = null;
     @tracked showPostCount = false;
     @tracked shouldAnimate = false;
-    @tracked previousSentCount = this.post?.email?.emailCount;
-    @tracked previousOpenedCount = this.post?.email?.openedCount;
-    @tracked previousClickedCount = this.post?.count?.clicks;
+    @tracked previousSentCount = this.post.email?.emailCount;
+    @tracked previousOpenedCount = this.post.email?.openedCount;
+    @tracked previousClickedCount = this.post.count.clicks;
     @tracked previousFeedbackCount = this.totalFeedback;
-    @tracked previousConversionsCount = this.post?.count?.conversions;
+    @tracked previousConversionsCount = this.post.count.conversions;
     displayOptions = DISPLAY_OPTIONS;
 
     constructor() {
@@ -149,8 +149,8 @@ export default class Analytics extends Component {
         const values = [this.post.count.positive_feedback, this.post.count.negative_feedback];
         const labels = ['More like this', 'Less like this'];
         const links = [
-            {filterParam: `(feedback.post_id:'${this.post.id}'+feedback.score:1)`},
-            {filterParam: `(feedback.post_id:'${this.post.id}'+feedback.score:0)`}
+            {filterParam: '(feedback.post_id:\'' + this.post.id + '\'+feedback.score:1)'},
+            {filterParam: '(feedback.post_id:\'' + this.post.id + '\'+feedback.score:0)'}
         ];
         const colors = ['#F080B2', '#8452f633'];
         return {values, labels, links, colors};
@@ -398,8 +398,13 @@ export default class Analytics extends Component {
             return;
         }
 
+        this.animateNewNumber(element);
+        this.animateOldNumber(element);
+    }
+
+    animateNewNumber(element) {
         anime({
-            targets: `${Array.from(element.classList).map(className => `.${className}`).join('')} .new-number span`,
+            targets: this.getTargets(element),
             translateY: [10,0],
             // translateZ: 0,
             opacity: [0,1],
@@ -408,15 +413,21 @@ export default class Analytics extends Component {
             duration: 1000,
             delay: (el, i) => 100 + 30 * i
         });
+    }
 
+    animateOldNumber(element) {
         anime({
-            targets: `${Array.from(element.classList).map(className => `.${className}`).join('')} .old-number span`,
+            targets: this.getTargets(element),
             translateY: [0,-10],
             opacity: [1,0],
             easing: 'easeOutExpo',
             duration: 400,
             delay: (el, i) => 100 + 10 * i
         });
+    }
+
+    getTargets(element) {
+        return `${Array.from(element.classList).map(className => `.${className}`).join('')} .new-number span`;
     }
 
     get showLinks() {

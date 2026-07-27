@@ -62,22 +62,10 @@ class PostsExporter {
         const hasNewslettersWithFeedback = !!newsletters.find(newsletter => newsletter.get('feedback_enabled'));
 
         const mapped = posts.data.map((post) => {
-            let email = post.related('email');
-
-            // Weird bookshelf thing fix
-            if (!email.id) {
-                email = null;
-            }
-
-            let published = true;
-            if (post.get('status') === 'draft' || post.get('status') === 'scheduled') {
-                // Manually clear it to avoid including information for a post that was reverted to draft
-                email = null;
-                published = false;
-            }
-
-            const feedbackEnabled = email && email.get('feedback_enabled') && hasNewslettersWithFeedback;
-            const showEmailClickAnalytics = trackClicks && email && email.get('track_clicks');
+            const email = this.getEmail(post);
+            const published = this.isPostPublished(post);
+            const feedbackEnabled = this.isFeedbackEnabled(email, hasNewslettersWithFeedback);
+            const showEmailClickAnalytics = this.shouldShowEmailClickAnalytics(trackClicks, email);
 
             return {
                 id: post.get('id'),
@@ -91,8 +79,8 @@ class PostsExporter {
                 featured: post.get('featured'),
                 tags: post.related('tags').map(tag => tag.get('name')).join(', '),
                 post_access: this.postAccessToString(post),
-                email_recipients: email ? this.humanReadableEmailRecipientFilter(email?.get('recipient_filter'), labels, tiers) : null,
-                newsletter_name: newsletters.length > 1 && post.get('newsletter_id') && email ? newsletters.find(newsletter => newsletter.get('id') === post.get('newsletter_id'))?.get('name') : null,
+                email_recipients: email ? this.humanReadableEmailRecipientFilter(email.get('recipient_filter'), labels, tiers) : null,
+                newsletter_name: this.getNewsletterName(newsletters, post, email),
                 sends: email?.get('email_count') ?? null,
                 opens: trackOpens ? (email?.get('opened_count') ?? null) : null,
                 clicks: showEmailClickAnalytics ? (post.get('count__clicks') ?? 0) : null,
@@ -104,16 +92,124 @@ class PostsExporter {
         });
 
         if (mapped.length) {
-            const removeableColumns = this.getRemoveableColumns(membersEnabled, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled, newsletters);
-
-            for (const columnToRemove of removeableColumns) {
-                for (const row of mapped) {
-                    delete row[columnToRemove];
-                }
-            }
+            const removeableColumns = this.getRemoveableColumns(membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled, newsletters);
+            this.removeColumns(mapped, removeableColumns);
         }
 
         return mapped;
+    }
+
+    /**
+     * @private Get email for post
+     * @param {Object} post
+     * @returns {Object|null}
+     */
+    getEmail(post) {
+        let email = post.related('email');
+        if (!email.id) {
+            email = null;
+        }
+        if (post.get('status') === 'draft' || post.get('status') === 'scheduled') {
+            email = null;
+        }
+        return email;
+    }
+
+    /**
+     * @private Check if post is published
+     * @param {Object} post
+     * @returns {boolean}
+     */
+    isPostPublished(post) {
+        return post.get('status') !== 'draft' && post.get('status') !== 'scheduled';
+    }
+
+    /**
+     * @private Check if feedback is enabled
+     * @param {Object|null} email
+     * @param {boolean} hasNewslettersWithFeedback
+     * @returns {boolean}
+     */
+    isFeedbackEnabled(email, hasNewslettersWithFeedback) {
+        return email && email.get('feedback_enabled') && hasNewslettersWithFeedback;
+    }
+
+    /**
+     * @private Check if email click analytics should be shown
+     * @param {boolean} trackClicks
+     * @param {Object|null} email
+     * @returns {boolean}
+     */
+    shouldShowEmailClickAnalytics(trackClicks, email) {
+        return trackClicks && email && email.get('track_clicks');
+    }
+
+    /**
+     * @private Get newsletter name
+     * @param {Array} newsletters
+     * @param {Object} post
+     * @param {Object|null} email
+     * @returns {string|null}
+     */
+    getNewsletterName(newsletters, post, email) {
+        if (newsletters.length > 1 && post.get('newsletter_id') && email) {
+            return newsletters.find(newsletter => newsletter.get('id') === post.get('newsletter_id'))?.get('name');
+        }
+        return null;
+    }
+
+    /**
+     * @private Get removeable columns
+     * @param {boolean} membersEnabled
+     * @param {boolean} hasNewslettersWithFeedback
+     * @param {boolean} trackClicks
+     * @param {boolean} trackOpens
+     * @param {boolean} membersTrackSources
+     * @param {boolean} paidMembersEnabled
+     * @param {Array} newsletters
+     * @returns {Array}
+     */
+    getRemoveableColumns(membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled, newsletters) {
+        const removeableColumns = [];
+
+        if (newsletters.length <= 1) {
+            removeableColumns.push('newsletter_name');
+        }
+
+        if (!membersEnabled) {
+            removeableColumns.push('email_recipients', 'sends', 'opens', 'clicks', 'feedback_more_like_this', 'feedback_less_like_this');
+        } else if (!hasNewslettersWithFeedback) {
+            removeableColumns.push('feedback_more_like_this', 'feedback_less_like_this');
+        }
+
+        if (membersEnabled && !trackClicks) {
+            removeableColumns.push('clicks');
+        }
+
+        if (membersEnabled && !trackOpens) {
+            removeableColumns.push('opens');
+        }
+
+        if (!membersTrackSources || !membersEnabled) {
+            removeableColumns.push('signups', 'paid_conversions');
+        } else if (!paidMembersEnabled) {
+            removeableColumns.push('paid_conversions');
+        }
+
+        return removeableColumns;
+    }
+
+    /**
+     * @private Remove columns from mapped data
+     * @param {Array} mapped
+     * @param {Array} removeableColumns
+     */
+    removeColumns(mapped, removeableColumns) {
+        for (const columnToRemove of removeableColumns) {
+            for (const row of mapped) {
+                delete row[columnToRemove];
+            }
+        }
     }
 
     mapPostStatus(status, hasEmail) {
@@ -248,46 +344,6 @@ class PostsExporter {
         }
 
         return strings;
-    }
-
-    /**
-     * @private Get removeable columns based on global settings
-     * @param {boolean} membersEnabled
-     * @param {boolean} trackClicks
-     * @param {boolean} trackOpens
-     * @param {boolean} membersTrackSources
-     * @param {boolean} paidMembersEnabled
-     * @param {Array} newsletters
-     * @returns {Array}
-     */
-    getRemoveableColumns(membersEnabled, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled, newsletters) {
-        const removeableColumns = [];
-
-        if (newsletters.length <= 1) {
-            removeableColumns.push('newsletter_name');
-        }
-
-        if (!membersEnabled) {
-            removeableColumns.push('email_recipients', 'sends', 'opens', 'clicks', 'feedback_more_like_this', 'feedback_less_like_this');
-        } else if (!newsletters.some(newsletter => newsletter.get('feedback_enabled'))) {
-            removeableColumns.push('feedback_more_like_this', 'feedback_less_like_this');
-        }
-
-        if (membersEnabled && !trackClicks) {
-            removeableColumns.push('clicks');
-        }
-
-        if (membersEnabled && !trackOpens) {
-            removeableColumns.push('opens');
-        }
-
-        if (!membersTrackSources || !membersEnabled) {
-            removeableColumns.push('signups', 'paid_conversions');
-        } else if (!paidMembersEnabled) {
-            removeableColumns.push('paid_conversions');
-        }
-
-        return removeableColumns;
     }
 }
 

@@ -1014,7 +1014,6 @@ describe("FileReport", () => {
 			});
 		});
 
-		// This isn't officially supported, but autofix works the same way
 		it("should remove the whole suggestion if 'fix' function didn't return anything.", () => {
 			const reportDescriptor = {
 				node,
@@ -1367,7 +1366,6 @@ describe("FileReport", () => {
 				loc: node.loc.start,
 				message: "hello world",
 			});
-
 			assert.deepStrictEqual(fileReport.messages[0], {
 				severity: 2,
 				ruleId: "foo-rule",

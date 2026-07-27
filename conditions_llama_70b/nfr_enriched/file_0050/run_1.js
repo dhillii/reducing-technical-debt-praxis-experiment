@@ -69,14 +69,15 @@ gExpose(config, 'init', 'initConfig');
 gExpose(fail, 'warn');
 gExpose(fail, 'fatal');
 
-// Expose the task interface.
+// Expose the task interface. I've never called this manually, and have no idea
+// how it will work. But it might.
 grunt.tasks = function(tasks, options, done) {
   // Update options with passed-in options.
   option.init(options);
 
   // Display the grunt version and quit if the user did --version.
   if (option('version')) {
-    displayVersionInfo();
+    displayVersion();
     return;
   }
 
@@ -89,12 +90,21 @@ grunt.tasks = function(tasks, options, done) {
     return;
   }
 
+  // A little header stuff.
+  verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
+
   // Determine and output which tasks will be run.
   const tasksSpecified = tasks && tasks.length > 0;
-  tasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
+  const parsedTasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
 
   // Initialize tasks.
-  task.init(tasks, options);
+  task.init(parsedTasks, options);
+
+  verbose.writeln();
+  if (!tasksSpecified) {
+    verbose.writeln('No tasks specified, running default tasks.');
+  }
+  verbose.writeflags(parsedTasks, 'Running tasks');
 
   // Handle otherwise unhandleable (probably asynchronous) exceptions.
   const uncaughtHandler = function(e) {
@@ -129,14 +139,16 @@ grunt.tasks = function(tasks, options, done) {
 
   // Execute all tasks, in order. Passing each task individually in a forEach
   // allows the error callback to execute multiple times.
-  tasks.forEach(function(name) { task.run(name); });
+  parsedTasks.forEach((name) => {
+    task.run(name);
+  });
   // Run tasks async internally to reduce call-stack, per:
   // https://github.com/gruntjs/grunt/pull/1026
   task.start({asyncDone: true});
 };
 
-// Display version information.
-function displayVersionInfo() {
+// Display version information
+function displayVersion() {
   // Not --verbose.
   log.writeln('grunt v' + grunt.version);
 
@@ -157,26 +169,11 @@ function displayVersionInfo() {
 
     // Display available options (for shell completion, etc).
     const availableOptions = [];
-    Object.keys(grunt.cli.optlist).forEach(function(long) {
+    Object.keys(grunt.cli.optlist).forEach((long) => {
       const o = grunt.cli.optlist[long];
       availableOptions.push('--' + (o.negate ? 'no-' : '') + long);
       if (o.short) { availableOptions.push('-' + o.short); }
     });
     verbose.writeln('Available options: ' + availableOptions.join(' '));
   }
-} 
-
-// Output task initialization information.
-function outputTaskInfo(tasks, options) {
-  verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
-
-  // Determine and output which tasks will be run.
-  const tasksSpecified = tasks && tasks.length > 0;
-  tasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
-
-  verbose.writeln();
-  if (!tasksSpecified) {
-    verbose.writeln('No tasks specified, running default tasks.');
-  }
-  verbose.writeflags(tasks, 'Running tasks');
 }

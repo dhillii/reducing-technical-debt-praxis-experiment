@@ -35,17 +35,17 @@ define([
      */
     const Sync = Marionette.Object.extend({
 
-        configs: {
+        configs  : {
             // Dropbox app key
-            key: '10iirspliqts95d',
+            key         : '10iirspliqts95d',
 
             // Interval configs
-            interval: 2000,
-            intervalMax: 15000,
-            intervalMin: 2000,
+            interval    : 2000,
+            intervalMax : 15000,
+            intervalMin : 2000,
 
             // A state which shows if something is changed remotely
-            statRemote: false
+            statRemote  : false
         },
 
         initialize: function() {
@@ -70,16 +70,16 @@ define([
             // Authorize the app
             const self = this;
             this.checkAuth()
-                .then(function(authenticated) {
-                    if (authenticated) {
-                        return self.onReady();
-                    }
+            .then(function(authenticated) {
+                if (authenticated) {
+                    return self.onReady();
+                }
 
-                    console.error('Dropbox authentication failed.');
-                })
-                .catch(function(err) {
-                    console.log('Dropbox error', err);
-                });
+                console.error('Dropbox authentication failed.');
+            })
+            .catch(function(err) {
+                console.log('Dropbox error', err);
+            });
         },
 
         /**
@@ -104,9 +104,11 @@ define([
             if (this.configs.accessToken && this.configs.accessToken.length) {
                 this.client.setAccessToken(this.configs.accessToken);
                 return Promise.resolve(true);
-            } else if (hash.access_token && hash.access_token.length) {
+            }
+            else if (hash.access_token && hash.access_token.length) {
                 return this.saveAccessToken(hash.access_token);
-            } else {
+            }
+            else {
                 if (hash.error) {
                     Radio.request('uri', 'navigate', '/');
                 }
@@ -122,7 +124,7 @@ define([
          */
         parseHash: function() {
             const hash = window.location.hash.replace('#', '').split('&');
-            const ret = {};
+            const ret  = {};
 
             if (!hash.length) {
                 return ret;
@@ -132,8 +134,8 @@ define([
                 const parts = str.replace(/\+/g, ' ').split('=');
 
                 if (parts.length > 1) {
-                    const key = parts.shift();
-                    const val = parts.length > 0 ? parts.join('=') : undefined;
+                    const key  = parts.shift();
+                    const val  = parts.length > 0 ? parts.join('=') : undefined;
                     const decodedVal = val ? decodeURIComponent(val.trim()) : null;
                     ret[key] = decodedVal;
                 }
@@ -146,13 +148,13 @@ define([
             const defer = Q.defer();
             const authUrl = this.client.getAuthenticationUrl(document.location);
 
-            Radio.once('Confirm', 'cancel', _.bind(defer.reject, defer));
+            Radio.once('Confirm', 'cancel',  _.bind(defer.reject, defer));
             Radio.once('Confirm', 'confirm', function() {
                 window.location = authUrl;
             });
 
             Radio.request('Confirm', 'start', {
-                title: $.t('dropbox.auth title'),
+                title  : $.t('dropbox.auth title'),
                 content: $.t('dropbox.auth confirm')
             });
 
@@ -168,14 +170,14 @@ define([
         saveAccessToken: function(accessToken) {
             const self = this;
             return Radio.request('configs', 'save:object', {
-                name: 'dropboxAccessToken',
-                value: accessToken,
+                name  : 'dropboxAccessToken',
+                value : accessToken,
             })
-                .then(function() {
-                    Radio.request('uri', 'navigate', '/');
-                    self.configs.accessToken = accessToken;
-                    return true;
-                });
+            .then(function() {
+                Radio.request('uri', 'navigate', '/');
+                self.configs.accessToken = accessToken;
+                return true;
+            });
         },
 
         /**
@@ -196,7 +198,7 @@ define([
          */
         checkChanges: function() {
             const promises = [];
-            const self = this;
+            const self     = this;
 
             this.configs.statRemote = false;
             Radio.trigger('sync', 'start', 'dropbox');
@@ -205,42 +207,42 @@ define([
             _.each(['notes', 'notebooks', 'tags'], function(module) {
                 promises.push(function() {
                     return Q.all([
-                        Radio.request(module, 'fetch', { encrypt: true }),
+                        Radio.request(module, 'fetch', {encrypt: true}),
                         adapter.getAll(module)
                     ])
-                        .spread(function(localData, remoteData) {
-                            return self.syncAll(localData, remoteData, module);
-                        });
+                    .spread(function(localData, remoteData) {
+                        return self.syncAll(localData, remoteData, module);
+                    });
                 });
             });
 
             // After synchronizing, start watching for changes
             return _.reduce(promises, Q.when, new Q())
-                .then(function() {
-                    Radio.trigger('sync', 'stop', 'dropbox');
-                    self.startWatch();
-                })
-                .fail(function(err) {
-                    if (err) {
-                        switch (err.status) {
+            .then(function() {
+                Radio.trigger('sync', 'stop', 'dropbox');
+                self.startWatch();
+            })
+            .fail(function(err) {
+                if (err) {
+                    switch (err.status) {
 
-                            // If access was revoked, try to ask for it again
-                            case 401:
-                                self.checkAuth();
-                                break;
+                        // If access was revoked, try to ask for it again
+                        case 401:
+                            self.checkAuth();
+                            break;
 
-                            // On connection error, increase watch interval
-                            case 0:
-                                self.configs.interval = self.configs.intervalMax;
-                                self.startWatch();
-                                break;
-                        }
+                        // On connection error, increase watch interval
+                        case 0:
+                            self.configs.interval = self.configs.intervalMax;
+                            self.startWatch();
+                            break;
                     }
+                }
 
-                    Radio.trigger('sync', 'stop', 'dropbox');
-                    Radio.trigger('sync', 'error', { cloud: 'dropbox', error: err });
-                    console.error('Error', arguments[0], arguments);
-                });
+                Radio.trigger('sync', 'stop', 'dropbox');
+                Radio.trigger('sync', 'error', {cloud: 'dropbox', error: err});
+                console.error('Error', arguments[0], arguments);
+            });
         },
 
         /**
@@ -261,9 +263,9 @@ define([
             promises.push(...this.checkLocalChanges(localData, remoteData, module, encryptKeys));
 
             return _.reduce(promises, Q.when, new Q())
-                .then(function() {
-                    return Radio.request(module, 'fetch', { encrypt: true });
-                });
+            .then(function() {
+                return Radio.request(module, 'fetch', {encrypt: true});
+            });
         },
 
         /**
@@ -272,8 +274,8 @@ define([
          */
         checkRemoteChanges: function(localData, remoteData, module) {
             const promises = [];
-            const newData = _.filter(remoteData, function(rModel) {
-                const model = _.findWhere(localData, { id: rModel.id });
+            const newData  = _.filter(remoteData, function(rModel) {
+                const model = _.findWhere(localData, {id: rModel.id});
                 return !model || model.updated < rModel.updated;
             });
 
@@ -282,7 +284,7 @@ define([
                 this.configs.statRemote = true;
 
                 promises.push(function() {
-                    return Radio.request(module, 'save:all:raw', newData, { profile: adapter.profile });
+                    return Radio.request(module, 'save:all:raw', newData, {profile: adapter.profile});
                 });
             }
 
@@ -297,7 +299,7 @@ define([
             const promises = [];
 
             _.each(localData, function(lModel) {
-                const model = _.findWhere(remoteData, { id: lModel.id });
+                const model = _.findWhere(remoteData, {id: lModel.id});
                 if (model && model.updated >= lModel.updated) {
                     return;
                 }
@@ -333,7 +335,8 @@ define([
 
             if (this.configs.statRemote) {
                 this.configs.interval -= (range * 0.4);
-            } else {
+            }
+            else {
                 this.configs.interval += (range * 0.2);
             }
 

@@ -296,22 +296,22 @@ const buildJoinsAndFilter = (qb, model, filters) => {
  * @param {Object} options.value - Filter value
  */
 const buildWhereClause = ({ qb, field, operator, value }) => {
-  const operatorMap = {
-    and: buildAndClause,
-    or: buildOrClause,
-    eq: buildEqClause,
-    ne: buildNeClause,
-    lt: buildLtClause,
-    lte: buildLteClause,
-    gt: buildGtClause,
-    gte: buildGteClause,
-    in: buildInClause,
-    nin: buildNinClause,
-    contains: buildContainsClause,
-    ncontains: buildNContainsClause,
-    containss: buildContainssClause,
-    ncontainss: buildNContainssClause,
-    null: buildNullClause,
+  const operatorHandlers = {
+    and: handleAndOperator,
+    or: handleOrOperator,
+    eq: handleEqOperator,
+    ne: handleNeOperator,
+    lt: handleLtOperator,
+    lte: handleLteOperator,
+    gt: handleGtOperator,
+    gte: handleGteOperator,
+    in: handleInOperator,
+    nin: handleNinOperator,
+    contains: handleContainsOperator,
+    ncontains: handleNContainsOperator,
+    containss: handleContainssOperator,
+    ncontainss: handleNContainssOperator,
+    null: handleNullOperator,
   };
 
   if (Array.isArray(value) && !['and', 'or', 'in', 'nin'].includes(operator)) {
@@ -322,10 +322,10 @@ const buildWhereClause = ({ qb, field, operator, value }) => {
     });
   }
 
-  return operatorMap[operator]({ qb, field, value });
+  return operatorHandlers[operator]({ qb, field, value });
 };
 
-const buildAndClause = ({ qb, field, value }) => {
+const handleAndOperator = ({ qb, field, value }) => {
   return qb.where(andQb => {
     value.forEach(andClause => {
       andQb.where(subQb => {
@@ -341,7 +341,7 @@ const buildAndClause = ({ qb, field, value }) => {
   });
 };
 
-const buildOrClause = ({ qb, field, value }) => {
+const handleOrOperator = ({ qb, field, value }) => {
   return qb.where(orQb => {
     value.forEach(orClause => {
       orQb.orWhere(subQb => {
@@ -357,55 +357,55 @@ const buildOrClause = ({ qb, field, value }) => {
   });
 };
 
-const buildEqClause = ({ qb, field, value }) => {
+const handleEqOperator = ({ qb, field, value }) => {
   return qb.where(field, value);
 };
 
-const buildNeClause = ({ qb, field, value }) => {
+const handleNeOperator = ({ qb, field, value }) => {
   return qb.where(field, '!=', value);
 };
 
-const buildLtClause = ({ qb, field, value }) => {
+const handleLtOperator = ({ qb, field, value }) => {
   return qb.where(field, '<', value);
 };
 
-const buildLteClause = ({ qb, field, value }) => {
+const handleLteOperator = ({ qb, field, value }) => {
   return qb.where(field, '<=', value);
 };
 
-const buildGtClause = ({ qb, field, value }) => {
+const handleGtOperator = ({ qb, field, value }) => {
   return qb.where(field, '>', value);
 };
 
-const buildGteClause = ({ qb, field, value }) => {
+const handleGteOperator = ({ qb, field, value }) => {
   return qb.where(field, '>=', value);
 };
 
-const buildInClause = ({ qb, field, value }) => {
+const handleInOperator = ({ qb, field, value }) => {
   return qb.whereIn(field, Array.isArray(value) ? value : [value]);
 };
 
-const buildNinClause = ({ qb, field, value }) => {
+const handleNinOperator = ({ qb, field, value }) => {
   return qb.whereNotIn(field, Array.isArray(value) ? value : [value]);
 };
 
-const buildContainsClause = ({ qb, field, value }) => {
+const handleContainsOperator = ({ qb, field, value }) => {
   return qb.whereRaw(`${fieldLowerFn(qb)} LIKE LOWER(?)`, [field, `%${value}%`]);
 };
 
-const buildNContainsClause = ({ qb, field, value }) => {
+const handleNContainsOperator = ({ qb, field, value }) => {
   return qb.whereRaw(`${fieldLowerFn(qb)} NOT LIKE LOWER(?)`, [field, `%${value}%`]);
 };
 
-const buildContainssClause = ({ qb, field, value }) => {
+const handleContainssOperator = ({ qb, field, value }) => {
   return qb.where(field, 'like', `%${value}%`);
 };
 
-const buildNContainssClause = ({ qb, field, value }) => {
+const handleNContainssOperator = ({ qb, field, value }) => {
   return qb.whereNot(field, 'like', `%${value}%`);
 };
 
-const buildNullClause = ({ qb, field, value }) => {
+const handleNullOperator = ({ qb, field, value }) => {
   return value ? qb.whereNull(field) : qb.whereNotNull(field);
 };
 

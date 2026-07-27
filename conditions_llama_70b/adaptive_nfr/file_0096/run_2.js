@@ -130,7 +130,7 @@ define([
             // Set new values
             model[setF](data);
 
-            return new Q(self.encryptModel(model))
+            return new Q(this.encryptModel(model))
             .then(function(model) {
                 return new Q(model.save(model.attributes, {validate: false}))
                 .thenResolve(model);
@@ -306,6 +306,8 @@ define([
                 const conditions = (typeof cond === 'function' ? cond(options) : cond);
                 options.conditions = conditions;
             }
+
+            // this.onReset();
 
             return this.fetch(options || {})
             .then(function(collection) {

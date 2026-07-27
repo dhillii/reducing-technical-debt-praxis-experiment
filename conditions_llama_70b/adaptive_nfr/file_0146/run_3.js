@@ -74,7 +74,7 @@ class Stats {
     const showWarnings = optionOrFallback(options.warnings, true);
     const warningsFilter = optionOrFallback(options.warningsFilter, null);
     const showPublicPath = optionOrFallback(options.publicPath, !forToString);
-    const excludeModules = [].concat(optionOrFallback(options.exclude, [])).map(str => {
+    const excludeModules = optionOrFallback(options.exclude, []).map(str => {
       if (typeof str !== "string") return str;
       return new RegExp(`[\\\\/]${str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&")}([\\\\/]|$|!|\\?)`);
     });
@@ -108,7 +108,6 @@ class Stats {
       if (!field) return 0;
 
       const fieldKey = this.normalizeFieldKey(field);
-
       const sortIsRegular = this.sortOrderRegular(field);
 
       return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
@@ -117,33 +116,59 @@ class Stats {
     const formatError = (e) => {
       let text = "";
       if (typeof e === "string") e = { message: e };
-      if (e.chunk) {
-        text += `chunk ${e.chunk.name || e.chunk.id}${e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : ""}\n`;
-      }
-      if (e.file) {
-        text += `${e.file}\n`;
-      }
-      if (e.module && e.module.readableIdentifier && typeof e.module.readableIdentifier === "function") {
-        text += `${e.module.readableIdentifier(requestShortener)}\n`;
-      }
-      text += e.message;
-      if (showErrorDetails && e.details) text += `\n${e.details}`;
-      if (showErrorDetails && e.missing) text += e.missing.map(item => `\n[${item}]`).join("");
-      if (showModuleTrace && e.dependencies && e.origin) {
-        text += `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
-        e.dependencies.forEach(dep => {
-          if (!dep.loc) return;
-          if (typeof dep.loc === "string") return;
-          const locInfo = formatLocation(dep.loc);
-          if (!locInfo) return;
-          text += ` ${locInfo}`;
-        });
-        let current = e.origin;
-        while (current.issuer) {
-          current = current.issuer;
-          text += `\n @ ${current.readableIdentifier(requestShortener)}`;
+
+      const addChunkInfo = () => {
+        if (e.chunk) {
+          text += `chunk ${e.chunk.name || e.chunk.id}${e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : ""}\n`;
         }
-      }
+      };
+
+      const addFileInfo = () => {
+        if (e.file) {
+          text += `${e.file}\n`;
+        }
+      };
+
+      const addModuleInfo = () => {
+        if (e.module && e.module.readableIdentifier && typeof e.module.readableIdentifier === "function") {
+          text += `${e.module.readableIdentifier(requestShortener)}\n`;
+        }
+      };
+
+      const addErrorMessage = () => {
+        text += e.message;
+      };
+
+      const addErrorDetails = () => {
+        if (showErrorDetails && e.details) text += `\n${e.details}`;
+        if (showErrorDetails && e.missing) text += e.missing.map(item => `\n[${item}]`).join("");
+      };
+
+      const addModuleTrace = () => {
+        if (showModuleTrace && e.dependencies && e.origin) {
+          text += `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
+          e.dependencies.forEach(dep => {
+            if (!dep.loc) return;
+            if (typeof dep.loc === "string") return;
+            const locInfo = formatLocation(dep.loc);
+            if (!locInfo) return;
+            text += ` ${locInfo}`;
+          });
+          let current = e.origin;
+          while (current.issuer) {
+            current = current.issuer;
+            text += `\n @ ${current.readableIdentifier(requestShortener)}`;
+          }
+        }
+      };
+
+      addChunkInfo();
+      addFileInfo();
+      addModuleInfo();
+      addErrorMessage();
+      addErrorDetails();
+      addModuleTrace();
+
       return text;
     };
 
@@ -386,9 +411,8 @@ class Stats {
       obj[color] = str => {
         if (useColors) {
           buf.push(
-            useColors === true || useColors[color] === undefined
-              ? defaultColors[color]
-              : useColors[color]
+            (useColors === true || useColors[color] === undefined) ?
+              defaultColors[color] : useColors[color]
           );
         }
         buf.push(str);
@@ -487,60 +511,46 @@ class Stats {
 
     if (obj.assets && obj.assets.length > 0) {
       const t = [
-        [
-          {
-            value: "Asset",
-            color: colors.bold
-          },
-          {
-            value: "Size",
-            color: colors.bold
-          },
-          {
-            value: "Chunks",
-            color: colors.bold
-          },
-          {
-            value: "",
-            color: colors.bold
-          },
-          {
-            value: "",
-            color: colors.bold
-          },
-          {
-            value: "Chunk Names",
-            color: colors.bold
-          }
-        ]
+        [{
+          value: "Asset",
+          color: colors.bold
+        }, {
+          value: "Size",
+          color: colors.bold
+        }, {
+          value: "Chunks",
+          color: colors.bold
+        }, {
+          value: "",
+          color: colors.bold
+        }, {
+          value: "",
+          color: colors.bold
+        }, {
+          value: "Chunk Names",
+          color: colors.bold
+        }]
       ];
       obj.assets.forEach(asset => {
-        t.push([
-          {
-            value: asset.name,
-            color: getAssetColor(asset, colors.green)
-          },
-          {
-            value: SizeFormatHelpers.formatSize(asset.size),
-            color: getAssetColor(asset, colors.normal)
-          },
-          {
-            value: asset.chunks.join(", "),
-            color: colors.bold
-          },
-          {
-            value: asset.emitted ? "[emitted]" : "",
-            color: colors.green
-          },
-          {
-            value: asset.isOverSizeLimit ? "[big]" : "",
-            color: getAssetColor(asset, colors.normal)
-          },
-          {
-            value: asset.chunkNames.join(", "),
-            color: colors.normal
-          }
-        ]);
+        t.push([{
+          value: asset.name,
+          color: getAssetColor(asset, colors.green)
+        }, {
+          value: SizeFormatHelpers.formatSize(asset.size),
+          color: getAssetColor(asset, colors.normal)
+        }, {
+          value: asset.chunks.join(", "),
+          color: colors.bold
+        }, {
+          value: asset.emitted ? "[emitted]" : "",
+          color: colors.green
+        }, {
+          value: asset.isOverSizeLimit ? "[big]" : "",
+          color: getAssetColor(asset, colors.normal)
+        }, {
+          value: asset.chunkNames.join(", "),
+          color: colors.normal
+        }]);
       });
       table(t, "rrrlll");
     }
@@ -816,7 +826,7 @@ class Stats {
   }
 
   static presetToOptions(name) {
-    const pn = typeof name === "string" && name.toLowerCase() || name;
+    const pn = (typeof name === "string") && name.toLowerCase() || name;
     if (pn === "none" || !pn) {
       return {
         hash: false,
@@ -869,7 +879,8 @@ class Stats {
     }
     if (typeof innerOptions === "boolean" || typeof innerOptions === "string")
       innerOptions = Stats.presetToOptions(innerOptions);
-    if (!innerOptions) return options;
+    if (!innerOptions)
+      return options;
     const childOptions = Object.assign({}, options);
     delete childOptions.children; // do not inherit children
     return Object.assign(childOptions, innerOptions);

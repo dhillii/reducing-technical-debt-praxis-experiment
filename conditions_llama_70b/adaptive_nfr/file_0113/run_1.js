@@ -25,22 +25,17 @@ let Document;
 
 exports.specialProperties = specialProperties;
 
-class CollectionNameOptions {
-  /**
-   * @param {String} name 
-   * @param {Function} pluralize 
-   */
-  constructor(name, pluralize) {
-    this.name = name;
-    this.pluralize = pluralize;
-  }
-}
-
+/**
+ * Collection name options
+ * @typedef {Object} CollectionNameOptions
+ * @property {String} name - model name
+ * @property {Function} [pluralize] - function that pluralizes the collection name
+ */
 /**
  * Produces a collection name from model `name`. By default, just returns
  * the model name
  *
- * @param {CollectionNameOptions} options 
+ * @param {CollectionNameOptions} options
  * @return {String} a collection name
  * @api private
  */
@@ -57,27 +52,22 @@ exports.toCollectionName = function(options) {
   return options.name;
 };
 
-class DeepEqualOptions {
-  /**
-   * @param {any} a 
-   * @param {any} b 
-   */
-  constructor(a, b) {
-    this.a = a;
-    this.b = b;
-  }
-}
-
+/**
+ * Deep equality options
+ * @typedef {Object} DeepEqualityOptions
+ * @property {any} a - a value to compare to `b`
+ * @property {any} b - a value to compare to `a`
+ */
 /**
  * Determines if `a` and `b` are deep equal.
  *
  * Modified from node/lib/assert.js
  *
- * @param {DeepEqualOptions} options 
+ * @param {DeepEqualityOptions} options
  * @return {Boolean}
  * @api private
  */
-exports.deepEqual = function(options) {
+exports.deepEqual = function deepEqual(options) {
   const a = options.a;
   const b = options.b;
 
@@ -114,8 +104,8 @@ exports.deepEqual = function(options) {
   }
 
   if (a instanceof Map && b instanceof Map) {
-    return exports.deepEqual({ a: Array.from(a.keys()), b: Array.from(b.keys()) }) &&
-      exports.deepEqual({ a: Array.from(a.values()), b: Array.from(b.values()) });
+    return deepEqual({ a: Array.from(a.keys()), b: Array.from(b.keys()) }) &&
+      deepEqual({ a: Array.from(a.values()), b: Array.from(b.values()) });
   }
 
   // Handle MongooseNumbers
@@ -133,7 +123,7 @@ exports.deepEqual = function(options) {
       return false;
     }
     for (let i = 0; i < len; ++i) {
-      if (!exports.deepEqual({ a: a[i], b: b[i] })) {
+      if (!deepEqual({ a: a[i], b: b[i] })) {
         return false;
       }
     }
@@ -176,7 +166,7 @@ exports.deepEqual = function(options) {
   // equivalent values for every corresponding key, and
   // ~~~possibly expensive deep test
   for (const key of ka) {
-    if (!exports.deepEqual({ a: a[key], b: b[key] })) {
+    if (!deepEqual({ a: a[key], b: b[key] })) {
       return false;
     }
   }
@@ -185,14 +175,20 @@ exports.deepEqual = function(options) {
 };
 
 /**
+ * Last element options
+ * @typedef {Object} LastElementOptions
+ * @property {Array} arr - array
+ */
+/**
  * Get the last element of an array
  *
- * @param {Array} arr 
+ * @param {LastElementOptions} options
  * @return {any}
+ * @api private
  */
-exports.last = function(arr) {
-  if (arr.length > 0) {
-    return arr[arr.length - 1];
+exports.last = function(options) {
+  if (options.arr.length > 0) {
+    return options.arr[options.arr.length - 1];
   }
   return void 0;
 };
@@ -200,31 +196,19 @@ exports.last = function(arr) {
 exports.clone = clone;
 
 /**
- * ignore
+ * Omit options
+ * @typedef {Object} OmitOptions
+ * @property {Object} obj - object
+ * @property {Array|String} [keys] - keys to omit
  */
-
-exports.promiseOrCallback = promiseOrCallback;
-
 /**
  * ignore
- */
-
-class OmitOptions {
-  /**
-   * @param {Object} obj 
-   * @param {Array} keys 
-   */
-  constructor(obj, keys) {
-    this.obj = obj;
-    this.keys = keys;
-  }
-}
-
-/**
- * @param {OmitOptions} options 
+ *
+ * @param {OmitOptions} options
  * @return {Object}
+ * @api private
  */
-exports.omit = function(options) {
+exports.omit = function omit(options) {
   if (options.keys == null) {
     return Object.assign({}, options.obj);
   }
@@ -240,61 +224,65 @@ exports.omit = function(options) {
 };
 
 /**
+ * Options merge options
+ * @typedef {Object} OptionsMergeOptions
+ * @property {Object} defaults - default options
+ * @property {Object} options - options to merge
+ */
+/**
  * Shallow copies defaults into options.
  *
- * @param {Object} defaults 
- * @param {Object} options 
+ * @param {OptionsMergeOptions} options
  * @return {Object} the merged object
  * @api private
  */
-exports.options = function(defaults, options) {
-  const keys = Object.keys(defaults);
+exports.options = function(options) {
+  const keys = Object.keys(options.defaults);
   let i = keys.length;
   let k;
 
-  options = options || {};
+  options.options = options.options || {};
 
   while (i--) {
     k = keys[i];
-    if (!(k in options)) {
-      options[k] = defaults[k];
+    if (!(k in options.options)) {
+      options.options[k] = options.defaults[k];
     }
   }
 
-  return options;
+  return options.options;
 };
 
 /**
+ * Random string options
+ * @typedef {Object} RandomStringOptions
+ */
+/**
  * Generates a random string
  *
+ * @param {RandomStringOptions} options
+ * @return {String}
  * @api private
  */
 exports.random = function() {
   return Math.random().toString().substr(3);
 };
 
-class MergeOptions {
-  /**
-   * @param {Object} to 
-   * @param {Object} from 
-   * @param {Object} options 
-   * @param {String} path 
-   */
-  constructor(to, from, options, path) {
-    this.to = to;
-    this.from = from;
-    this.options = options;
-    this.path = path;
-  }
-}
-
+/**
+ * Merge options
+ * @typedef {Object} MergeOptions
+ * @property {Object} to - object to merge into
+ * @property {Object} from - object to merge from
+ * @property {Object} [options] - merge options
+ * @property {String} [path] - current path
+ */
 /**
  * Merges `from` into `to` without overwriting existing properties.
  *
- * @param {MergeOptions} options 
+ * @param {MergeOptions} options
  * @api private
  */
-exports.merge = function(options) {
+exports.merge = function merge(options) {
   options.options = options.options || {};
 
   const keys = Object.keys(options.from);
@@ -342,7 +330,7 @@ exports.merge = function(options) {
           continue;
         }
       }
-      exports.merge(new MergeOptions(options.to[key], options.from[key], options.options, options.path ? options.path + '.' + key : key));
+      merge({ to: options.to[key], from: options.from[key], options: options.options, path: options.path ? options.path + '.' + key : key });
     } else if (options.options.overwrite) {
       options.to[key] = options.from[key];
     }
@@ -350,48 +338,53 @@ exports.merge = function(options) {
 };
 
 /**
+ * To object options
+ * @typedef {Object} ToObjectOptions
+ * @property {Document|Array|Object} obj - object to convert
+ */
+/**
  * Applies toObject recursively.
  *
- * @param {Document|Array|Object} obj 
+ * @param {ToObjectOptions} options
  * @return {Object}
  * @api private
  */
-exports.toObject = function(obj) {
+exports.toObject = function toObject(options) {
   Document || (Document = require('./document'));
   let ret;
 
-  if (obj == null) {
-    return obj;
+  if (options.obj == null) {
+    return options.obj;
   }
 
-  if (obj instanceof Document) {
-    return obj.toObject();
+  if (options.obj instanceof Document) {
+    return options.obj.toObject();
   }
 
-  if (Array.isArray(obj)) {
+  if (Array.isArray(options.obj)) {
     ret = [];
 
-    for (const doc of obj) {
-      ret.push(exports.toObject(doc));
+    for (const doc of options.obj) {
+      ret.push(toObject({ obj: doc }));
     }
 
     return ret;
   }
 
-  if (exports.isPOJO(obj)) {
+  if (exports.isPOJO(options.obj)) {
     ret = {};
 
-    for (const k of Object.keys(obj)) {
+    for (const k of Object.keys(options.obj)) {
       if (specialProperties.has(k)) {
         continue;
       }
-      ret[k] = exports.toObject(obj[k]);
+      ret[k] = toObject({ obj: options.obj[k] });
     }
 
     return ret;
   }
 
-  return obj;
+  return options.obj;
 };
 
 exports.isObject = isObject;
@@ -403,11 +396,11 @@ exports.isObject = isObject;
  *
  * `Object.getPrototypeOf()` is part of ES5: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/getPrototypeOf
  *
- * @param {Object|Array|String|Function|RegExp|any} arg 
+ * @param {Object} arg
  * @api private
  * @return {Boolean}
  */
-exports.isPOJO = function(arg) {
+exports.isPOJO = function isPOJO(arg) {
   if (arg == null || typeof arg !== 'object') {
     return false;
   }
@@ -422,7 +415,7 @@ exports.isPOJO = function(arg) {
  * Determines if `obj` is a built-in object like an array, date, boolean,
  * etc.
  *
- * @param {any} arg 
+ * @param {Object} arg
  * @return {Boolean}
  */
 exports.isNativeObject = function(arg) {
@@ -436,7 +429,7 @@ exports.isNativeObject = function(arg) {
 /**
  * Determines if `val` is an object that has no own keys
  *
- * @param {any} val 
+ * @param {Object} val
  * @return {Boolean}
  */
 exports.isEmptyObject = function(val) {
@@ -445,31 +438,21 @@ exports.isEmptyObject = function(val) {
     Object.keys(val).length === 0;
 };
 
-class HasKeyOptions {
-  /**
-   * @param {Object} obj 
-   * @param {String} key 
-   */
-  constructor(obj, key) {
-    this.obj = obj;
-    this.key = key;
-  }
-}
-
 /**
  * Search if `obj` or any POJOs nested underneath `obj` has a property named
  * `key`
  *
- * @param {HasKeyOptions} options 
+ * @param {Object} obj
+ * @param {String} key
  * @return {Boolean}
  */
-exports.hasKey = function(options) {
-  const props = Object.keys(options.obj);
+exports.hasKey = function hasKey(obj, key) {
+  const props = Object.keys(obj);
   for (const prop of props) {
-    if (prop === options.key) {
+    if (prop === key) {
       return true;
     }
-    if (exports.isPOJO(options.obj[prop]) && exports.hasKey({ obj: options.obj[prop], key: options.key })) {
+    if (exports.isPOJO(obj[prop]) && exports.hasKey(obj[prop], key)) {
       return true;
     }
   }
@@ -489,10 +472,10 @@ exports.args = sliced;
  *
  * node-mongodb-native has a habit of state corruption when an error is immediately thrown from within a collection callback.
  *
- * @param {Function} callback 
+ * @param {Function} callback
  * @api private
  */
-exports.tick = function(callback) {
+exports.tick = function tick(callback) {
   if (typeof callback !== 'function') {
     return;
   }
@@ -513,7 +496,7 @@ exports.tick = function(callback) {
  * Returns true if `v` is an object that can be serialized as a primitive in
  * MongoDB
  *
- * @param {any} v 
+ * @param {any} v
  * @return {Boolean}
  */
 exports.isMongooseType = function(v) {
@@ -525,10 +508,10 @@ exports.isMongooseObject = isMongooseObject;
 /**
  * Converts `expires` options of index objects to `expiresAfterSeconds` options for MongoDB.
  *
- * @param {Object} object 
+ * @param {Object} object
  * @api private
  */
-exports.expires = function(object) {
+exports.expires = function expires(object) {
   if (!(object && object.constructor.name === 'Object')) {
     return;
   }
@@ -546,36 +529,26 @@ exports.expires = function(object) {
   delete object.expires;
 };
 
-class PopulateOptionsObject {
-  /**
-   * @param {String} path 
-   * @param {String} select 
-   * @param {Object} model 
-   * @param {Object} match 
-   * @param {Object} options 
-   * @param {Object} subPopulate 
-   * @param {Boolean} justOne 
-   * @param {Number} count 
-   */
-  constructor(path, select, model, match, options, subPopulate, justOne, count) {
-    this.path = path;
-    this.select = select;
-    this.model = model;
-    this.match = match;
-    this.options = options;
-    this.subPopulate = subPopulate;
-    this.justOne = justOne;
-    this.count = count;
-  }
-}
-
+/**
+ * Populate options
+ * @typedef {Object} PopulateOptions
+ * @property {String} path - path to populate
+ * @property {String|Object} [select] - select options
+ * @property {Model} [model] - model to populate
+ * @property {Object} [match] - match options
+ * @property {Object} [options] - populate options
+ * @property {Object} [populate] - populate options
+ * @property {Boolean} [justOne] - just one option
+ * @property {Boolean} [count] - count option
+ */
 /**
  * populate helper
  *
- * @param {PopulateOptionsObject} options 
+ * @param {PopulateOptions} options
  * @return {Array}
+ * @api private
  */
-exports.populate = function(options) {
+exports.populate = function populate(options) {
   // might have passed an object specifying all arguments
   let obj = null;
   if (arguments.length === 1) {
@@ -607,14 +580,14 @@ exports.populate = function(options) {
       model: options.model,
       match: options.match,
       options: options.options,
-      populate: options.subPopulate,
+      populate: options.populate,
       justOne: options.justOne,
       count: options.count
     };
   }
 
   if (typeof obj.path !== 'string') {
-    throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof options.path + '`');
+    throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof obj.path + '`');
   }
 
   return _populateObj(obj);
@@ -674,85 +647,92 @@ function _populateObj(obj) {
   return ret;
 }
 
-class GetValueOptions {
-  /**
-   * @param {String} path 
-   * @param {Object} obj 
-   * @param {Object} map 
-   */
-  constructor(path, obj, map) {
-    this.path = path;
-    this.obj = obj;
-    this.map = map;
-  }
-}
-
+/**
+ * Get value options
+ * @typedef {Object} GetValueOptions
+ * @property {String} path - path to get value
+ * @property {Object} obj - object to get value from
+ * @property {Object} [map] - map options
+ */
 /**
  * Return the value of `obj` at the given `path`.
  *
- * @param {GetValueOptions} options 
+ * @param {GetValueOptions} options
  * @return {any}
  */
-exports.getValue = function(options) {
-  return mpath.get(options.path, options.obj, '_doc', options.map);
+exports.getValue = function(path, obj, map) {
+  return mpath.get(path, obj, '_doc', map);
 };
 
-class SetValueOptions {
-  /**
-   * @param {String} path 
-   * @param {any} val 
-   * @param {Object} obj 
-   * @param {Object} map 
-   * @param {Boolean} _copying 
-   */
-  constructor(path, val, obj, map, _copying) {
-    this.path = path;
-    this.val = val;
-    this.obj = obj;
-    this.map = map;
-    this._copying = _copying;
-  }
-}
-
+/**
+ * Set value options
+ * @typedef {Object} SetValueOptions
+ * @property {String} path - path to set value
+ * @property {any} val - value to set
+ * @property {Object} obj - object to set value on
+ * @property {Object} [map] - map options
+ * @property {Boolean} [_copying] - copying option
+ */
 /**
  * Sets the value of `obj` at the given `path`.
  *
- * @param {SetValueOptions} options 
+ * @param {SetValueOptions} options
+ * @return {void}
  */
-exports.setValue = function(options) {
-  mpath.set(options.path, options.val, options.obj, '_doc', options.map, options._copying);
+exports.setValue = function(path, val, obj, map, _copying) {
+  mpath.set(path, val, obj, '_doc', map, _copying);
 };
 
 /**
+ * Object values options
+ * @typedef {Object} ObjectValuesOptions
+ * @property {Object} o - object to get values from
+ */
+/**
  * Returns an array of values from object `o`.
  *
- * @param {Object} o 
+ * @param {ObjectValuesOptions} options
  * @return {Array}
  * @private
  */
 exports.object = {};
-exports.object.vals = function(o) {
-  const keys = Object.keys(o);
+exports.object.vals = function vals(options) {
+  const keys = Object.keys(options.o);
   let i = keys.length;
   const ret = [];
 
   while (i--) {
-    ret.push(o[keys[i]]);
+    ret.push(options.o[keys[i]]);
   }
 
   return ret;
 };
 
 /**
+ * Shallow copy options
+ * @typedef {Object} ShallowCopyOptions
+ * @property {Object} defaults - default options
+ * @property {Object} options - options to merge
+ */
+/**
  * @see exports.options
+ *
+ * @param {ShallowCopyOptions} options
+ * @return {Object}
  */
 exports.object.shallowCopy = exports.options;
 
 /**
+ * Has own property options
+ * @typedef {Object} HasOwnPropertyOptions
+ * @property {Object} obj - object to check
+ * @property {String} prop - property to check
+ */
+/**
  * Safer helper for hasOwnProperty checks
  *
- * @param {Object} obj 
- * @param {String} prop 
+ * @param {HasOwnPropertyOptions} options
+ * @return {Boolean}
  */
 const hop = Object.prototype.hasOwnProperty;
 exports.object.hasOwnProperty = function(obj, prop) {
@@ -760,9 +740,14 @@ exports.object.hasOwnProperty = function(obj, prop) {
 };
 
 /**
+ * Is null or undefined options
+ * @typedef {Object} IsNullOrUndefinedOptions
+ * @property {any} val - value to check
+ */
+/**
  * Determine if `val` is null or undefined
  *
- * @param {any} val 
+ * @param {IsNullOrUndefinedOptions} options
  * @return {Boolean}
  */
 exports.isNullOrUndefined = function(val) {
@@ -770,44 +755,48 @@ exports.isNullOrUndefined = function(val) {
 };
 
 /**
- * ignore
+ * Array flatten options
+ * @typedef {Object} ArrayFlattenOptions
+ * @property {Array} arr - array to flatten
+ * @property {Function} [filter] - filter function
+ * @property {Array} [ret] - return array
  */
-exports.array = {};
-
 /**
  * Flattens an array.
  *
  * [ 1, [ 2, 3, [4] ]] -> [1,2,3,4]
  *
- * @param {Array} arr 
- * @param {Function} [filter] 
+ * @param {ArrayFlattenOptions} options
  * @return {Array}
  * @private
  */
-exports.array.flatten = function(arr, filter, ret) {
-  ret || (ret = []);
+exports.array = {};
+exports.array.flatten = function flatten(options) {
+  options.ret || (options.ret = []);
 
-  arr.forEach(function(item) {
+  options.arr.forEach(function(item) {
     if (Array.isArray(item)) {
-      exports.array.flatten(item, filter, ret);
+      flatten({ arr: item, filter: options.filter, ret: options.ret });
     } else {
-      if (!filter || filter(item)) {
-        ret.push(item);
+      if (!options.filter || options.filter(item)) {
+        options.ret.push(item);
       }
     }
   });
 
-  return ret;
+  return options.ret;
 };
 
 /**
- * ignore
+ * Has user defined property options
+ * @typedef {Object} HasUserDefinedPropertyOptions
+ * @property {Object} obj - object to check
+ * @property {String|Array} key - key to check
  */
-const _hasOwnProperty = Object.prototype.hasOwnProperty;
-
 /**
- * @param {Object} obj 
- * @param {String|Array} key 
+ * ignore
+ *
+ * @param {HasUserDefinedPropertyOptions} options
  * @return {Boolean}
  */
 exports.hasUserDefinedProperty = function(obj, key) {
@@ -836,14 +825,18 @@ exports.hasUserDefinedProperty = function(obj, key) {
 };
 
 /**
+ * Is array index options
+ * @typedef {Object} IsArrayIndexOptions
+ * @property {any} val - value to check
+ */
+/**
  * ignore
+ *
+ * @param {IsArrayIndexOptions} options
+ * @return {Boolean}
  */
 const MAX_ARRAY_INDEX = Math.pow(2, 32) - 1;
 
-/**
- * @param {any} val 
- * @return {Boolean}
- */
 exports.isArrayIndex = function(val) {
   if (typeof val === 'number') {
     return val >= 0 && val <= MAX_ARRAY_INDEX;
@@ -860,13 +853,18 @@ exports.isArrayIndex = function(val) {
 };
 
 /**
+ * Array unique options
+ * @typedef {Object} ArrayUniqueOptions
+ * @property {Array} arr - array to get unique values from
+ */
+/**
  * Removes duplicate values from an array
  *
  * [1, 2, 3, 3, 5] => [1, 2, 3, 5]
  * [ ObjectId("550988ba0c19d57f697dc45e"), ObjectId("550988ba0c19d57f697dc45e") ]
  *    => [ObjectId("550988ba0c19d57f697dc45e")]
  *
- * @param {Array} arr 
+ * @param {ArrayUniqueOptions} options
  * @return {Array}
  * @private
  */
@@ -897,10 +895,16 @@ exports.array.unique = function(arr) {
 };
 
 /**
+ * Buffer are equal options
+ * @typedef {Object} BufferAreEqualOptions
+ * @property {Buffer} a - buffer to compare
+ * @property {Buffer} b - buffer to compare
+ */
+/**
  * Determines if two buffers are equal.
  *
- * @param {Buffer} a 
- * @param {Object} b 
+ * @param {BufferAreEqualOptions} options
+ * @return {Boolean}
  */
 exports.buffer = {};
 exports.buffer.areEqual = function(a, b) {
@@ -924,10 +928,16 @@ exports.buffer.areEqual = function(a, b) {
 exports.getFunctionName = getFunctionName;
 
 /**
+ * Decorate options
+ * @typedef {Object} DecorateOptions
+ * @property {Object} destination - destination object
+ * @property {Object} source - source object
+ */
+/**
  * Decorate buffers
  *
- * @param {Object} destination 
- * @param {Object} source 
+ * @param {DecorateOptions} options
+ * @return {void}
  */
 exports.decorate = function(destination, source) {
   for (const key in source) {
@@ -939,15 +949,20 @@ exports.decorate = function(destination, source) {
 };
 
 /**
+ * Merge clone options
+ * @typedef {Object} MergeCloneOptions
+ * @property {Object} to - object to merge into
+ * @property {Object} from - object to merge from
+ */
+/**
  * merges to with a copy of from
  *
- * @param {Object} to 
- * @param {Object} fromObj 
+ * @param {MergeCloneOptions} options
  * @api private
  */
-exports.mergeClone = function(to, fromObj) {
-  if (isMongooseObject(fromObj)) {
-    fromObj = fromObj.toObject({
+exports.mergeClone = function(to, from) {
+  if (isMongooseObject(from)) {
+    from = from.toObject({
       transform: false,
       virtuals: false,
       depopulate: true,
@@ -955,7 +970,7 @@ exports.mergeClone = function(to, fromObj) {
       flattenDecimals: false
     });
   }
-  const keys = Object.keys(fromObj);
+  const keys = Object.keys(from);
   const len = keys.length;
   let i = 0;
   let key;
@@ -966,7 +981,7 @@ exports.mergeClone = function(to, fromObj) {
       continue;
     }
     if (typeof to[key] === 'undefined') {
-      to[key] = exports.clone(fromObj[key], {
+      to[key] = exports.clone(from[key], {
         transform: false,
         virtuals: false,
         depopulate: true,
@@ -974,7 +989,7 @@ exports.mergeClone = function(to, fromObj) {
         flattenDecimals: false
       });
     } else {
-      let val = fromObj[key];
+      let val = from[key];
       if (val != null && val.valueOf && !(val instanceof Date)) {
         val = val.valueOf();
       }
@@ -1003,10 +1018,15 @@ exports.mergeClone = function(to, fromObj) {
 };
 
 /**
+ * Each options
+ * @typedef {Object} EachOptions
+ * @property {Array} arr - array to iterate over
+ * @property {Function} fn - function to call for each item
+ */
+/**
  * Executes a function on each element of an array (like _.each)
  *
- * @param {Array} arr 
- * @param {Function} fn 
+ * @param {EachOptions} options
  * @api private
  */
 exports.each = function(arr, fn) {
@@ -1016,28 +1036,21 @@ exports.each = function(arr, fn) {
 };
 
 /**
- * ignore
+ * Get option options
+ * @typedef {Object} GetOptionOptions
+ * @property {String} name - option name
+ * @property {Array} sources - sources to get option from
  */
-
-class GetOptionOptions {
-  /**
-   * @param {String} name 
-   * @param {Array} sources 
-   */
-  constructor(name, sources) {
-    this.name = name;
-    this.sources = sources;
-  }
-}
-
 /**
- * @param {GetOptionOptions} options 
+ * ignore
+ *
+ * @param {GetOptionOptions} options
  * @return {any}
  */
-exports.getOption = function(options) {
-  for (const source of options.sources) {
-    if (source[options.name] != null) {
-      return source[options.name];
+exports.getOption = function(name, sources) {
+  for (const source of sources) {
+    if (source[name] != null) {
+      return source[name];
     }
   }
 
@@ -1045,15 +1058,29 @@ exports.getOption = function(options) {
 };
 
 /**
+ * Noop options
+ * @typedef {Object} NoopOptions
+ */
+/**
  * ignore
+ *
+ * @param {NoopOptions} options
+ * @return {void}
  */
 exports.noop = function() {};
 
 /**
- * @param {Error} error 
+ * Error to POJO options
+ * @typedef {Object} ErrorToPOJOOptions
+ * @property {Error} error - error to convert
+ */
+/**
+ * ignore
+ *
+ * @param {ErrorToPOJOOptions} options
  * @return {Object}
  */
-exports.errorToPOJO = function(error) {
+exports.errorToPOJO = function errorToPOJO(error) {
   const isError = error instanceof Error;
   if (!isError) {
     throw new Error('`error` must be `instanceof Error`.');
@@ -1067,8 +1094,15 @@ exports.errorToPOJO = function(error) {
 };
 
 /**
+ * Node major version options
+ * @typedef {Object} NodeMajorVersionOptions
+ */
+/**
+ * ignore
+ *
+ * @param {NodeMajorVersionOptions} options
  * @return {Number}
  */
-exports.nodeMajorVersion = function() {
+exports.nodeMajorVersion = function nodeMajorVersion() {
   return parseInt(process.versions.node.split('.')[0], 10);
 };

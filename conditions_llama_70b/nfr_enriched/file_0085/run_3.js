@@ -1,37 +1,5 @@
-// @ts-expect-error
-import dumbPasswords from 'dumb-passwords'
-import { useEffect, useId, useRef, useState } from 'react'
-import { useSlotId } from '@react-aria/utils'
-
-import { ActionButton, ToggleButton } from '@keystar/ui/button'
-import { Checkbox } from '@keystar/ui/checkbox'
-import { FieldLabel, FieldMessage } from '@keystar/ui/field'
-import { Icon } from '@keystar/ui/icon'
-import { eyeIcon } from '@keystar/ui/icon/icons/eyeIcon'
-import { asteriskIcon } from '@keystar/ui/icon/icons/asteriskIcon'
-import { Flex, VStack } from '@keystar/ui/layout'
-import { containerQueries, css } from '@keystar/ui/style'
-import { TextField } from '@keystar/ui/text-field'
-import { Text, VisuallyHidden } from '@keystar/ui/typography'
-
-import type {
-  CellComponent,
-  FieldController,
-  FieldControllerConfig,
-  FieldProps,
-} from '../../../../types'
-
-/**
- * Validates the password field value based on the provided validation rules.
- * @param value The password field value to validate.
- * @param validation The validation rules to apply.
- * @param isRequired Whether the field is required.
- * @param fieldLabel The label of the field.
- * @returns An error message if the validation fails, or undefined if it succeeds.
- */
-function validate(
+function validateInitialValue(
   value: Value,
-  validation: Validation,
   isRequired: boolean,
   fieldLabel: string
 ): string | undefined {
@@ -41,48 +9,51 @@ function validate(
   if (value.kind === 'initial' && isRequired) {
     return `${fieldLabel} is required`
   }
-  if (value.kind === 'editing' && value.confirm !== value.value) {
-    return `The passwords do not match`
-  }
-  return validateEditingValue(value, validation, fieldLabel)
+  return undefined
 }
 
-/**
- * Validates the editing value of the password field.
- * @param value The password field value to validate.
- * @param validation The validation rules to apply.
- * @param fieldLabel The label of the field.
- * @returns An error message if the validation fails, or undefined if it succeeds.
- */
 function validateEditingValue(
   value: Value,
   validation: Validation,
   fieldLabel: string
 ): string | undefined {
-  const val = value.value
-  if (val.length < validation.length.min) {
-    if (validation.length.min === 1) {
-      return `${fieldLabel} must not be empty`
+  if (value.kind === 'editing' && value.confirm !== value.value) {
+    return `The passwords do not match`
+  }
+  if (value.kind === 'editing') {
+    const val = value.value
+    if (val.length < validation.length.min) {
+      if (validation.length.min === 1) {
+        return `${fieldLabel} must not be empty`
+      }
+      return `${fieldLabel} must be at least ${validation.length.min} characters long`
     }
-    return `${fieldLabel} must be at least ${validation.length.min} characters long`
-  }
-  if (validation.length.max !== null && val.length > validation.length.max) {
-    return `${fieldLabel} must be no longer than ${validation.length.max} characters`
-  }
-  if (validation.match && !validation.match.regex.test(val)) {
-    return validation.match.explanation
-  }
-  if (validation.rejectCommon && dumbPasswords.check(val)) {
-    return `${fieldLabel} is too common and is not allowed`
+    if (validation.length.max !== null && val.length > validation.length.max) {
+      return `${fieldLabel} must be no longer than ${validation.length.max} characters`
+    }
+    if (validation.match && !validation.match.regex.test(val)) {
+      return validation.match.explanation
+    }
+    if (validation.rejectCommon && dumbPasswords.check(val)) {
+      return `${fieldLabel} is too common and is not allowed`
+    }
   }
   return undefined
 }
 
-/**
- * Returns the props for a readonly checkbox.
- * @param isSet Whether the value is set.
- * @returns The props for the checkbox.
- */
+function validate(
+  value: Value,
+  validation: Validation,
+  isRequired: boolean,
+  fieldLabel: string
+): string | undefined {
+  const initialValueError = validateInitialValue(value, isRequired, fieldLabel)
+  if (initialValueError) {
+    return initialValueError
+  }
+  return validateEditingValue(value, validation, fieldLabel)
+}
+
 function readonlyCheckboxProps(isSet: null | undefined | boolean) {
   const isIndeterminate = isSet == null
   const isSelected = isSet == null ? undefined : isSet
@@ -92,30 +63,6 @@ function readonlyCheckboxProps(isSet: null | undefined | boolean) {
     isReadOnly: true,
     isSelected,
     prominence: 'low' as const,
-  }
-}
-
-/**
- * Handles the escape key press event.
- * @param e The keyboard event.
- * @param value The current value of the field.
- * @param cancelEditing The function to cancel editing.
- */
-function handleEscape(e: React.KeyboardEvent, value: Value, cancelEditing: () => void) {
-  if (e.key !== 'Escape' || value.kind !== 'editing') return
-  if (value.value === '' && value.confirm === '') {
-    cancelEditing()
-  }
-}
-
-/**
- * Resets the touched state when the value kind changes.
- * @param value The current value of the field.
- * @param setTouched The function to set the touched state.
- */
-function resetTouched(value: Value, setTouched: (touched: { value: boolean; confirm: boolean }) => void) {
-  if (value.kind === 'initial') {
-    setTouched({ value: false, confirm: false })
   }
 }
 
@@ -142,10 +89,19 @@ export function Field(props: FieldProps<typeof controller>) {
       triggerRef.current?.focus()
     }, 0)
   }
+  const onEscape = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Escape' || value.kind !== 'editing') return
+    if (value.value === '' && value.confirm === '') {
+      cancelEditing()
+    }
+  }
 
+  // reset when the user cancels, or when the form is submitted
   useEffect(() => {
-    resetTouched(value, setTouched)
-    setSecureTextEntry(true)
+    if (value.kind === 'initial') {
+      setTouched({ value: false, confirm: false })
+      setSecureTextEntry(true)
+    }
   }, [value.kind])
 
   return (
@@ -200,7 +156,7 @@ export function Field(props: FieldProps<typeof controller>) {
             isInvalid={!!validationMessage}
             onBlur={() => setTouched({ ...touched, value: true })}
             onChange={text => onChange({ ...value, value: text })}
-            onKeyDown={e => handleEscape(e, value, cancelEditing)}
+            onKeyDown={onEscape}
             placeholder="New"
             type={secureTextEntry ? 'password' : 'text'}
             value={value.value}
@@ -213,7 +169,7 @@ export function Field(props: FieldProps<typeof controller>) {
             isInvalid={!!validationMessage}
             onBlur={() => setTouched({ ...touched, confirm: true })}
             onChange={text => onChange({ ...value, confirm: text })}
-            onKeyDown={e => handleEscape(e, value, cancelEditing)}
+            onKeyDown={onEscape}
             placeholder="Confirm"
             type={secureTextEntry ? 'password' : 'text'}
             value={value.confirm}

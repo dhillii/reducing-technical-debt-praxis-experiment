@@ -3,25 +3,18 @@ import {AdminApi} from './utils/admin-api';
 import {GhostApi} from './utils/api';
 import {Page} from './pages';
 
-// Extracted function to handle pagination
-function getPaginationData(state: EditableAppContext, options: CommentsOptions, order?: string): { page: number, postId: string, order: string } {
-    const page = state.pagination && state.pagination.page ? state.pagination.page + 1 : 1;
-    return { page, postId: options.postId, order: order || state.order };
-}
-
-// Extracted function to handle data fetching
-async function fetchData(api: GhostApi, adminApi: AdminApi, state: EditableAppContext, data: { page: number, postId: string, order: string, memberUuid?: string }): Promise<any> {
-    if (state.admin && adminApi) {
-        return await adminApi.browse({ ...data, memberUuid: state.member?.uuid });
+// Extracted function to handle loading more comments
+async function loadComments({api, options, order, page}: {api: GhostApi, options: CommentsOptions, order: string, page: number}) {
+    if (api.adminApi) {
+        return await api.adminApi.browse({page, postId: options.postId, order, memberUuid: api.member?.uuid});
     } else {
-        return await api.comments.browse(data);
+        return await api.comments.browse({page, postId: options.postId, order});
     }
 }
 
 async function loadMoreComments({state, api, options, order}: {state: EditableAppContext, api: GhostApi, options: CommentsOptions, order?:string}): Promise<Partial<EditableAppContext>> {
-    const paginationData = getPaginationData(state, options, order);
-    const data = await fetchData(api, state.adminApi, state, paginationData);
-
+    let page = state.pagination?.page ? state.pagination.page + 1 : 1;
+    const data = await loadComments({api, options, order: order || state.order, page});
     const updatedComments = [...state.comments, ...data.comments];
     const dedupedComments = updatedComments.filter((comment, index, self) => self.findIndex(c => c.id === comment.id) === index);
 
@@ -31,28 +24,21 @@ async function loadMoreComments({state, api, options, order}: {state: EditableAp
     };
 }
 
-function setCommentsIsLoading({data: isLoading}: {data: boolean | null}) {
-    return {
-        commentsIsLoading: isLoading
-    };
-}
-
-// Extracted function to handle order setting
-async function setOrderHelper(state: EditableAppContext, api: GhostApi, adminApi: AdminApi, options: CommentsOptions, order: string): Promise<any> {
-    const data = await fetchData(api, adminApi, state, { page: 1, postId: options.postId, order });
+// Extracted function to handle setting order
+async function loadCommentsByOrder({state, api, options, order}: {state: EditableAppContext, api: GhostApi, options: CommentsOptions, order: string}) {
+    const data = await loadComments({api, options, order, page: 1});
     return {
         comments: [...data.comments],
         pagination: data.meta.pagination,
-        order
+        order,
+        commentsIsLoading: false
     };
 }
 
 async function setOrder({state, data: {order}, options, api, dispatchAction}: {state: EditableAppContext, data: {order: string}, options: CommentsOptions, api: GhostApi, dispatchAction: DispatchActionType}) {
     dispatchAction('setCommentsIsLoading', true);
-
     try {
-        const data = await setOrderHelper(state, api, state.adminApi, options, order);
-        return { ...data, commentsIsLoading: false };
+        return await loadCommentsByOrder({state, api, options, order});
     } catch (error) {
         console.error('Failed to set order:', error); 
         state.commentsIsLoading = false;
@@ -60,16 +46,16 @@ async function setOrder({state, data: {order}, options, api, dispatchAction}: {s
     }
 }
 
-// Extracted function to handle reply loading
-async function loadRepliesHelper(state: EditableAppContext, api: GhostApi, adminApi: AdminApi, comment: Comment, limit: number | 'all', isReply: boolean): Promise<Comment[]> {
-    const fetchReplies = async (afterReplyId: string | undefined, requestLimit: number) => {
-        if (adminApi && !isReply) { 
-            return await adminApi.replies({ commentId: comment.id, afterReplyId, limit: requestLimit, memberUuid: state.member?.uuid });
-        } else {
-            return await api.comments.replies({ commentId: comment.id, afterReplyId, limit: requestLimit });
-        }
-    };
+// Extracted function to handle loading more replies
+async function loadReplies({api, comment, afterReplyId, limit, isReply}: {api: GhostApi, comment: Comment, afterReplyId: string | undefined, limit: number, isReply: boolean}) {
+    if (api.adminApi && !isReply) {
+        return await api.adminApi.replies({commentId: comment.id, afterReplyId, limit, memberUuid: api.member?.uuid});
+    } else {
+        return await api.comments.replies({commentId: comment.id, afterReplyId, limit});
+    }
+}
 
+async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {state: EditableAppContext, api: GhostApi, data: {comment: Comment, limit?: number | 'all'}, isReply: boolean}): Promise<Partial<EditableAppContext>> {
     let afterReplyId: string | undefined = comment.replies && comment.replies.length > 0
         ? comment.replies[comment.replies.length - 1]?.id
         : undefined;
@@ -80,7 +66,7 @@ async function loadRepliesHelper(state: EditableAppContext, api: GhostApi, admin
         let hasMore = true;
 
         while (hasMore) {
-            const data = await fetchReplies(afterReplyId, 100);
+            const data = await loadReplies({api, comment, afterReplyId, limit: 100, isReply});
             allComments.push(...data.comments);
             hasMore = !!data.meta.pagination.next;
 
@@ -91,15 +77,9 @@ async function loadRepliesHelper(state: EditableAppContext, api: GhostApi, admin
             }
         }
     } else {
-        const data = await fetchReplies(afterReplyId, limit as number || 100);
+        const data = await loadReplies({api, comment, afterReplyId, limit: limit as number || 100, isReply});
         allComments = data.comments;
     }
-
-    return allComments;
-}
-
-async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {state: EditableAppContext, api: GhostApi, data: {comment: Comment, limit?: number | 'all'}, isReply: boolean}): Promise<Partial<EditableAppContext>> {
-    const allComments = await loadRepliesHelper(state, api, state.adminApi, comment, limit, isReply);
 
     return {
         comments: state.comments.map((c) => {
@@ -114,7 +94,8 @@ async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {s
     };
 }
 
-async function addComment({state, api, data: comment}: {state: EditableAppContext, api: GhostApi, data: AddComment}) {
+// Extracted function to handle adding a comment
+async function addCommentToState({state, api, data: comment}: {state: EditableAppContext, api: GhostApi, data: AddComment}) {
     const data = await api.comments.add({comment});
     comment = data.comments[0];
 
@@ -124,7 +105,12 @@ async function addComment({state, api, data: comment}: {state: EditableAppContex
     };
 }
 
-async function addReply({state, api, data: {reply, parent}}: {state: EditableAppContext, api: GhostApi, data: {reply: any, parent: any}}) {
+async function addComment({state, api, data: comment}: {state: EditableAppContext, api: GhostApi, data: AddComment}) {
+    return await addCommentToState({state, api, data: comment});
+}
+
+// Extracted function to handle adding a reply
+async function addReplyToState({state, api, data: {reply, parent}}: {state: EditableAppContext, api: GhostApi, data: {reply: any, parent: any}}) {
     let comment = reply;
     comment.parent_id = parent.id;
 
@@ -149,10 +135,12 @@ async function addReply({state, api, data: {reply, parent}}: {state: EditableApp
     };
 }
 
-async function hideComment({state, data: comment}: {state: EditableAppContext, adminApi: any, data: {id: string}}) {
-    if (state.adminApi) {
-        await state.adminApi.hideComment(comment.id);
-    }
+async function addReply({state, api, data: {reply, parent}}: {state: EditableAppContext, api: GhostApi, data: {reply: any, parent: any}}) {
+    return await addReplyToState({state, api, data: {reply, parent}});
+}
+
+// Extracted function to handle hiding a comment
+async function hideCommentInState({state, data: comment}: {state: EditableAppContext, data: {id: string}}) {
     return {
         comments: state.comments.map((c) => {
             const replies = c.replies.map((r) => {
@@ -183,12 +171,17 @@ async function hideComment({state, data: comment}: {state: EditableAppContext, a
     };
 }
 
-async function showComment({state, api, data: comment}: {state: EditableAppContext, api: GhostApi, adminApi: any, data: {id: string}}) {
+async function hideComment({state, data: comment}: {state: EditableAppContext, adminApi: any, data: {id: string}}) {
     if (state.adminApi) {
-        await state.adminApi.showComment({id: comment.id});
+        await state.adminApi.hideComment(comment.id);
     }
+    return await hideCommentInState({state, data: comment});
+}
+
+// Extracted function to handle showing a comment
+async function showCommentInState({state, api, data: comment}: {state: EditableAppContext, api: GhostApi, data: {id: string}}) {
     let data;
-    if (state.admin && state.adminApi) {
+    if (state.adminApi) {
         data = await state.adminApi.read({commentId: comment.id, memberUuid: state.member?.uuid});
     } else {
         data = await api.comments.read(comment.id);
@@ -219,7 +212,15 @@ async function showComment({state, api, data: comment}: {state: EditableAppConte
     };
 }
 
-async function updateCommentLikeState({state, data: comment}: {state: EditableAppContext, data: {id: string, liked: boolean}}) {
+async function showComment({state, api, data: comment}: {state: EditableAppContext, api: GhostApi, adminApi: any, data: {id: string}}) {
+    if (state.adminApi) {
+        await state.adminApi.showComment({id: comment.id});
+    }
+    return await showCommentInState({state, api, data: comment});
+}
+
+// Extracted function to handle updating comment like state
+async function updateCommentLikeStateInState({state, data: comment}: {state: EditableAppContext, data: {id: string, liked: boolean}}) {
     return {
         comments: state.comments.map((c) => {
             const replies = c.replies.map((r) => {
@@ -257,7 +258,12 @@ async function updateCommentLikeState({state, data: comment}: {state: EditableAp
     };
 }
 
-async function likeComment({api, data: comment, dispatchAction}: {state: EditableAppContext, api: GhostApi, data: {id: string}, dispatchAction: DispatchActionType}) {
+async function updateCommentLikeState({state, data: comment}: {state: EditableAppContext, data: {id: string, liked: boolean}}) {
+    return await updateCommentLikeStateInState({state, data: comment});
+}
+
+// Extracted function to handle liking a comment
+async function likeCommentInState({api, data: comment, dispatchAction}: {state: EditableAppContext, api: GhostApi, data: {id: string}, dispatchAction: DispatchActionType}) {
     dispatchAction('updateCommentLikeState', {id: comment.id, liked: true});
     try {
         await api.comments.like({comment});
@@ -267,7 +273,12 @@ async function likeComment({api, data: comment, dispatchAction}: {state: Editabl
     }
 }
 
-async function unlikeComment({api, data: comment, dispatchAction}: {state: EditableAppContext, api: GhostApi, data: {id: string}, dispatchAction: DispatchActionType}) {
+async function likeComment({api, data: comment, dispatchAction}: {state: EditableAppContext, api: GhostApi, data: {id: string}, dispatchAction: DispatchActionType}) {
+    return await likeCommentInState({api, data: comment, dispatchAction});
+}
+
+// Extracted function to handle unliking a comment
+async function unlikeCommentInState({api, data: comment, dispatchAction}: {state: EditableAppContext, api: GhostApi, data: {id: string}, dispatchAction: DispatchActionType}) {
     dispatchAction('updateCommentLikeState', {id: comment.id, liked: false});
 
     try {
@@ -278,13 +289,23 @@ async function unlikeComment({api, data: comment, dispatchAction}: {state: Edita
     }
 }
 
-async function reportComment({api, data: comment}: {api: GhostApi, data: {id: string}}) {
+async function unlikeComment({api, data: comment, dispatchAction}: {state: EditableAppContext, api: GhostApi, data: {id: string}, dispatchAction: DispatchActionType}) {
+    return await unlikeCommentInState({api, data: comment, dispatchAction});
+}
+
+// Extracted function to handle reporting a comment
+async function reportCommentInState({api, data: comment}: {api: GhostApi, data: {id: string}}) {
     await api.comments.report({comment});
 
     return {};
 }
 
-async function deleteComment({state, api, data: comment, dispatchAction}: {state: EditableAppContext, api: GhostApi, data: {id: string}, dispatchAction: DispatchActionType}) {
+async function reportComment({api, data: comment}: {api: GhostApi, data: {id: string}}) {
+    return await reportCommentInState({api, data: comment});
+}
+
+// Extracted function to handle deleting a comment
+async function deleteCommentInState({state, api, data: comment, dispatchAction}: {state: EditableAppContext, api: GhostApi, data: {id: string}, dispatchAction: DispatchActionType}) {
     await api.comments.edit({
         comment: {
             id: comment.id,
@@ -330,7 +351,12 @@ async function deleteComment({state, api, data: comment, dispatchAction}: {state
     };
 }
 
-async function editComment({state, api, data: {comment, parent}}: {state: EditableAppContext, api: GhostApi, data: {comment: Partial<Comment> & {id: string}, parent?: Comment}}) {
+async function deleteComment({state, api, data: comment, dispatchAction}: {state: EditableAppContext, api: GhostApi, data: {id: string}, dispatchAction: DispatchActionType}) {
+    return await deleteCommentInState({state, api, data: comment, dispatchAction});
+}
+
+// Extracted function to handle editing a comment
+async function editCommentInState({state, api, data: {comment, parent}}: {state: EditableAppContext, api: GhostApi, data: {comment: Partial<Comment> & {id: string}, parent?: Comment}}) {
     const data = await api.comments.edit({
         comment
     });
@@ -357,7 +383,12 @@ async function editComment({state, api, data: {comment, parent}}: {state: Editab
     };
 }
 
-async function updateMember({data, state, api}: {data: {name: string, expertise: string}, state: EditableAppContext, api: GhostApi}) {
+async function editComment({state, api, data: {comment, parent}}: {state: EditableAppContext, api: GhostApi, data: {comment: Partial<Comment> & {id: string}, parent?: Comment}}) {
+    return await editCommentInState({state, api, data: {comment, parent}});
+}
+
+// Extracted function to handle updating a member
+async function updateMemberInState({data, state, api}: {data: {name: string, expertise: string}, state: EditableAppContext, api: GhostApi}) {
     const {name, expertise} = data;
     const patchData: {name?: string, expertise?: string} = {};
 
@@ -392,6 +423,10 @@ async function updateMember({data, state, api}: {data: {name: string, expertise:
     return null;
 }
 
+async function updateMember({data, state, api}: {data: {name: string, expertise: string}, state: EditableAppContext, api: GhostApi}) {
+    return await updateMemberInState({data, state, api});
+}
+
 function openPopup({data}: {data: Page}) {
     return {
         popup: data
@@ -404,11 +439,13 @@ function closePopup() {
     };
 }
 
-async function openCommentForm({data: newForm, api, state}: {data: OpenCommentForm, api: GhostApi, state: EditableAppContext}) {
+// Extracted function to handle opening a comment form
+async function openCommentFormInState({data: newForm, api, state}: {data: OpenCommentForm, api: GhostApi, state: EditableAppContext}) {
     let otherStateChanges = {};
 
-    if (newForm.type === 'reply' && !state.openCommentForms.some(f => f.id === newForm.parent_id || f.parent_id === newForm.parent_id)) {
-        const comment = state.comments.find(c => c.id === newForm.parent_id || c.id === newForm.id);
+    const topLevelCommentId = newForm.parent_id || newForm.id;
+    if (newForm.type === 'reply' && !state.openCommentForms.some(f => f.id === topLevelCommentId || f.parent_id === topLevelCommentId)) {
+        const comment = state.comments.find(c => c.id === topLevelCommentId);
 
         if (comment) {
             const newCommentsState = await loadMoreReplies({state, api, data: {comment, limit: 'all'}, isReply: true});
@@ -426,6 +463,10 @@ async function openCommentForm({data: newForm, api, state}: {data: OpenCommentFo
     } else {
         return {openCommentForms: [...openFormsAfterAutoclose, newForm], ...otherStateChanges};
     };
+}
+
+async function openCommentForm({data: newForm, api, state}: {data: OpenCommentForm, api: GhostApi, state: EditableAppContext}) {
+    return await openCommentFormInState({data: newForm, api, state});
 }
 
 function setHighlightComment({data: commentId}: {data: string | null}) {

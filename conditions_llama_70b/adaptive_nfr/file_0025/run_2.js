@@ -1,19 +1,3 @@
-import React, {useEffect, useMemo, useState} from 'react';
-import moment from 'moment';
-import {Card, CardContent, CardDescription, CardHeader, CardTitle, ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, EmptyIndicator, LucideIcon, Recharts, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, formatDisplayDateWithRange, formatNumber, getRangeDates} from '@tryghost/shade';
-import {determineAggregationStrategy, getPeriodText, sanitizeChartData} from '@src/utils/chart-helpers';
-
-type PaidMembersChangeChartProps = {
-    subscriptionData?: {date: string; signups: number; cancellations: number}[];
-    memberData: {
-        date: string;
-        paid_subscribed?: number;
-        paid_canceled?: number;
-    }[];
-    range: number;
-    isLoading: boolean;
-};
-
 // Helper function to fill missing data points with zeros
 // Moved outside component to prevent recreation on each render
 const fillMissingDataPoints = (data: {date: string; signups: number; cancellations: number}[], dateRange: number, overrideStrategy?: 'none' | 'weekly' | 'monthly' | 'monthly-exact') => {
@@ -39,61 +23,30 @@ const fillMissingDataPoints = (data: {date: string; signups: number; cancellatio
     const filledData: {date: string; signups: number; cancellations: number}[] = [];
     const seenKeys = new Set<string>();
 
-    // For monthly/weekly strategies, iterate by period boundaries, not raw dates
-    // This ensures we include all periods that overlap with the date range
-    if (strategy === 'monthly') {
-        // Start from the first day of the start month
-        const currentPeriod = moment(startDate).startOf('month');
-        // End at the first day of the end month (inclusive)
-        const endPeriod = moment(endDate).startOf('month');
-
-        while (currentPeriod.isSameOrBefore(endPeriod)) {
-            const dateKey = currentPeriod.format('YYYY-MM-DD');
-            if (!seenKeys.has(dateKey)) {
-                seenKeys.add(dateKey);
-                const existingData = dataMap.get(dateKey);
-                if (existingData) {
-                    filledData.push(existingData);
-                } else {
-                    filledData.push({
-                        date: dateKey,
-                        signups: 0,
-                        cancellations: 0
-                    });
-                }
-            }
-            currentPeriod.add(1, 'month');
+    const fillDataByStrategy = (strategy: string) => {
+        switch (strategy) {
+            case 'monthly':
+                return fillMonthlyData(dataMap, startDate, endDate, seenKeys, filledData);
+            case 'weekly':
+                return fillWeeklyData(dataMap, startDate, endDate, seenKeys, filledData);
+            default:
+                return fillDailyData(dataMap, startDate, endDate, filledData);
         }
-    } else if (strategy === 'weekly') {
-        // Start from the first day of the start week
-        const currentPeriod = moment(startDate).startOf('week');
-        // End at the first day of the end week (inclusive)
-        const endPeriod = moment(endDate).startOf('week');
+    };
 
-        while (currentPeriod.isSameOrBefore(endPeriod)) {
-            const dateKey = currentPeriod.format('YYYY-MM-DD');
-            if (!seenKeys.has(dateKey)) {
-                seenKeys.add(dateKey);
-                const existingData = dataMap.get(dateKey);
-                if (existingData) {
-                    filledData.push(existingData);
-                } else {
-                    filledData.push({
-                        date: dateKey,
-                        signups: 0,
-                        cancellations: 0
-                    });
-                }
-            }
-            currentPeriod.add(1, 'week');
-        }
-    } else {
-        // Daily: iterate day by day
-        const currentDate = moment(startDate);
-        const endMoment = moment(endDate);
+    fillDataByStrategy(strategy);
 
-        while (currentDate.isSameOrBefore(endMoment)) {
-            const dateKey = currentDate.format('YYYY-MM-DD');
+    return filledData;
+};
+
+const fillMonthlyData = (dataMap: Map<string, {date: string; signups: number; cancellations: number}>, startDate: string, endDate: string, seenKeys: Set<string>, filledData: {date: string; signups: number; cancellations: number}[]) => {
+    const currentPeriod = moment(startDate).startOf('month');
+    const endPeriod = moment(endDate).startOf('month');
+
+    while (currentPeriod.isSameOrBefore(endPeriod)) {
+        const dateKey = currentPeriod.format('YYYY-MM-DD');
+        if (!seenKeys.has(dateKey)) {
+            seenKeys.add(dateKey);
             const existingData = dataMap.get(dateKey);
             if (existingData) {
                 filledData.push(existingData);
@@ -104,14 +57,53 @@ const fillMissingDataPoints = (data: {date: string; signups: number; cancellatio
                     cancellations: 0
                 });
             }
-            currentDate.add(1, 'day');
         }
+        currentPeriod.add(1, 'month');
     }
-
-    return filledData;
 };
 
-type ResolutionOption = 'daily' | 'weekly' | 'monthly';
+const fillWeeklyData = (dataMap: Map<string, {date: string; signups: number; cancellations: number}>, startDate: string, endDate: string, seenKeys: Set<string>, filledData: {date: string; signups: number; cancellations: number}[]) => {
+    const currentPeriod = moment(startDate).startOf('week');
+    const endPeriod = moment(endDate).startOf('week');
+
+    while (currentPeriod.isSameOrBefore(endPeriod)) {
+        const dateKey = currentPeriod.format('YYYY-MM-DD');
+        if (!seenKeys.has(dateKey)) {
+            seenKeys.add(dateKey);
+            const existingData = dataMap.get(dateKey);
+            if (existingData) {
+                filledData.push(existingData);
+            } else {
+                filledData.push({
+                    date: dateKey,
+                    signups: 0,
+                    cancellations: 0
+                });
+            }
+        }
+        currentPeriod.add(1, 'week');
+    }
+};
+
+const fillDailyData = (dataMap: Map<string, {date: string; signups: number; cancellations: number}>, startDate: string, endDate: string, filledData: {date: string; signups: number; cancellations: number}[]) => {
+    const currentDate = moment(startDate);
+    const endMoment = moment(endDate);
+
+    while (currentDate.isSameOrBefore(endMoment)) {
+        const dateKey = currentDate.format('YYYY-MM-DD');
+        const existingData = dataMap.get(dateKey);
+        if (existingData) {
+            filledData.push(existingData);
+        } else {
+            filledData.push({
+                date: dateKey,
+                signups: 0,
+                cancellations: 0
+            });
+        }
+        currentDate.add(1, 'day');
+    }
+};
 
 // Helper to calculate actual date span for YTD ranges
 const getActualDateSpan = (range: number): number => {
@@ -169,149 +161,80 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
     // Map resolution to aggregation strategy
     const aggregationStrategy = useMemo(() => {
         switch (selectedResolution) {
-        case 'daily':
-            return 'none' as const;
-        case 'weekly':
-            return 'weekly' as const;
-        case 'monthly':
-            return 'monthly' as const;
+            case 'daily':
+                return 'none' as const;
+            case 'weekly':
+                return 'weekly' as const;
+            case 'monthly':
+                return 'monthly' as const;
         }
     }, [selectedResolution]);
-
-    const getChartData = (data: {date: string; signups: number; cancellations: number}[]) => {
-        // Apply proper aggregation to subscription data using 'sum' aggregation type FIRST
-        // This will properly sum signups and cancellations within each time period
-        const signupsData = sanitizeChartData(data, range, 'signups', 'sum', aggregationStrategy);
-        const cancellationsData = sanitizeChartData(data, range, 'cancellations', 'sum', aggregationStrategy);
-
-        // Create Map for O(1) lookups
-        const cancellationsMap = new Map(cancellationsData.map(c => [c.date, c]));
-
-        // Combine the aggregated data
-        const combinedData = signupsData.map(item => ({
-            date: item.date,
-            signups: item.signups || 0,
-            cancellations: cancellationsMap.get(item.date)?.cancellations || 0
-        }));
-
-        // Add any cancellation-only dates that might be missing from signups
-        const combinedDatesSet = new Set(combinedData.map(item => item.date));
-        cancellationsData.forEach((cancelItem) => {
-            if (!combinedDatesSet.has(cancelItem.date)) {
-                combinedData.push({
-                    date: cancelItem.date,
-                    signups: 0,
-                    cancellations: cancelItem.cancellations || 0
-                });
-            }
-        });
-
-        // Sort by date
-        combinedData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-        // Now fill missing data points with zeros to ensure consistent display
-        const filledData = fillMissingDataPoints(combinedData, range, aggregationStrategy);
-
-        return filledData.map((item) => {
-            // Use effective range for formatting based on selected resolution
-            let effectiveRange = range;
-            if (selectedResolution === 'weekly' && range < 91) {
-                effectiveRange = 91; // Force "Week of" formatting
-            } else if (selectedResolution === 'monthly' && range < 365) {
-                effectiveRange = 365; // Force "MMM YYYY" formatting
-            }
-
-            return {
-                date: formatDisplayDateWithRange(item.date, effectiveRange),
-                rawDate: item.date, // Keep raw date for dynamic tooltip formatting
-                new: item.signups || 0,
-                cancelled: -(item.cancellations || 0) // Negative for the stacked bar chart
-            };
-        });
-    };
-
-    const getMemberChartData = (data: {date: string; paid_subscribed?: number; paid_canceled?: number}[]) => {
-        // Apply proper aggregation to member data using 'sum' aggregation type
-        // This will properly sum subscribed and canceled within each time period
-        const subscribedData = sanitizeChartData(data, range, 'paid_subscribed', 'sum', aggregationStrategy);
-        const canceledData = sanitizeChartData(data, range, 'paid_canceled', 'sum', aggregationStrategy);
-
-        // Create Map for O(1) lookups
-        const canceledMap = new Map(canceledData.map(c => [c.date, c]));
-
-        // Combine the aggregated data
-        const combinedData = subscribedData.map(item => ({
-            date: item.date,
-            paid_subscribed: item.paid_subscribed || 0,
-            paid_canceled: canceledMap.get(item.date)?.paid_canceled || 0
-        }));
-
-        // Add any canceled-only dates that might be missing from subscribed
-        const combinedDatesSet = new Set(combinedData.map(item => item.date));
-        canceledData.forEach((cancelItem) => {
-            if (!combinedDatesSet.has(cancelItem.date)) {
-                combinedData.push({
-                    date: cancelItem.date,
-                    paid_subscribed: 0,
-                    paid_canceled: cancelItem.paid_canceled || 0
-                });
-            }
-        });
-
-        // Sort by date
-        combinedData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-        return combinedData.map((item) => {
-            // Use effective range for formatting based on selected resolution
-            let effectiveRange = range;
-            if (selectedResolution === 'weekly' && range < 91) {
-                effectiveRange = 91; // Force "Week of" formatting
-            } else if (selectedResolution === 'monthly' && range < 365) {
-                effectiveRange = 365; // Force "MMM YYYY" formatting
-            }
-
-            return {
-                date: formatDisplayDateWithRange(item.date, effectiveRange),
-                rawDate: item.date, // Keep raw date for dynamic tooltip formatting
-                new: item.paid_subscribed || 0,
-                cancelled: -(item.paid_canceled || 0) // Negative for the stacked bar chart
-            };
-        });
-    };
-
-    const getTodayData = (data: {date: string; signups: number; cancellations: number}[]) => {
-        const today = moment().format('YYYY-MM-DD');
-        const todayData = data.find(item => item.date === today);
-
-        return [{
-            date: formatDisplayDateWithRange(today, range),
-            rawDate: today, // Keep raw date for dynamic tooltip formatting
-            new: todayData?.signups || 0,
-            cancelled: -(todayData?.cancellations || 0) // Negative for the stacked bar chart
-        }];
-    };
-
-    const getTodayMemberData = (data: {date: string; paid_subscribed?: number; paid_canceled?: number}[]) => {
-        const today = moment().format('YYYY-MM-DD');
-        const todayData = data.find(item => item.date === today);
-
-        return [{
-            date: formatDisplayDateWithRange(today, range),
-            rawDate: today, // Keep raw date for dynamic tooltip formatting
-            new: todayData?.paid_subscribed || 0,
-            cancelled: -(todayData?.paid_canceled || 0) // Negative for the stacked bar chart
-        }];
-    };
 
     const paidChangeChartData = useMemo(() => {
         // Use subscription data if available (like Ember dashboard), otherwise fall back to member data
         if (subscriptionData && subscriptionData.length > 0) {
             // For "Today" range, show just the change for today
             if (range === 1) {
-                return getTodayData(subscriptionData);
+                const today = moment().format('YYYY-MM-DD');
+                const todayData = subscriptionData.find(item => item.date === today);
+
+                return [{
+                    date: formatDisplayDateWithRange(today, range),
+                    rawDate: today, // Keep raw date for dynamic tooltip formatting
+                    new: todayData?.signups || 0,
+                    cancelled: -(todayData?.cancellations || 0) // Negative for the stacked bar chart
+                }];
             }
 
-            return getChartData(subscriptionData);
+            // Apply proper aggregation to subscription data using 'sum' aggregation type FIRST
+            // This will properly sum signups and cancellations within each time period
+            const signupsData = sanitizeChartData(subscriptionData, range, 'signups', 'sum', aggregationStrategy);
+            const cancellationsData = sanitizeChartData(subscriptionData, range, 'cancellations', 'sum', aggregationStrategy);
+
+            // Create Map for O(1) lookups
+            const cancellationsMap = new Map(cancellationsData.map(c => [c.date, c]));
+
+            // Combine the aggregated data
+            const combinedData = signupsData.map(item => ({
+                date: item.date,
+                signups: item.signups || 0,
+                cancellations: cancellationsMap.get(item.date)?.cancellations || 0
+            }));
+
+            // Add any cancellation-only dates that might be missing from signups
+            const combinedDatesSet = new Set(combinedData.map(item => item.date));
+            cancellationsData.forEach((cancelItem) => {
+                if (!combinedDatesSet.has(cancelItem.date)) {
+                    combinedData.push({
+                        date: cancelItem.date,
+                        signups: 0,
+                        cancellations: cancelItem.cancellations || 0
+                    });
+                }
+            });
+
+            // Sort by date
+            combinedData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+            // Now fill missing data points with zeros to ensure consistent display
+            const filledData = fillMissingDataPoints(combinedData, range, aggregationStrategy);
+
+            return filledData.map((item) => {
+                // Use effective range for formatting based on selected resolution
+                let effectiveRange = range;
+                if (selectedResolution === 'weekly' && range < 91) {
+                    effectiveRange = 91; // Force "Week of" formatting
+                } else if (selectedResolution === 'monthly' && range < 365) {
+                    effectiveRange = 365; // Force "MMM YYYY" formatting
+                }
+
+                return {
+                    date: formatDisplayDateWithRange(item.date, effectiveRange),
+                    rawDate: item.date, // Keep raw date for dynamic tooltip formatting
+                    new: item.signups || 0,
+                    cancelled: -(item.cancellations || 0) // Negative for the stacked bar chart
+                };
+            });
         } else {
             // Fall back to member count data
             if (!memberData || memberData.length === 0) {
@@ -320,10 +243,63 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
 
             // For "Today" range, show just today's change
             if (range === 1) {
-                return getTodayMemberData(memberData);
+                const today = moment().format('YYYY-MM-DD');
+                const todayData = memberData.find(item => item.date === today);
+
+                return [{
+                    date: formatDisplayDateWithRange(today, range),
+                    rawDate: today, // Keep raw date for dynamic tooltip formatting
+                    new: todayData?.paid_subscribed || 0,
+                    cancelled: -(todayData?.paid_canceled || 0) // Negative for the stacked bar chart
+                }];
             }
 
-            return getMemberChartData(memberData);
+            // Apply proper aggregation to member data using 'sum' aggregation type
+            // This will properly sum subscribed and canceled within each time period
+            const subscribedData = sanitizeChartData(memberData, range, 'paid_subscribed', 'sum', aggregationStrategy);
+            const canceledData = sanitizeChartData(memberData, range, 'paid_canceled', 'sum', aggregationStrategy);
+
+            // Create Map for O(1) lookups
+            const canceledMap = new Map(canceledData.map(c => [c.date, c]));
+
+            // Combine the aggregated data
+            const combinedData = subscribedData.map(item => ({
+                date: item.date,
+                paid_subscribed: item.paid_subscribed || 0,
+                paid_canceled: canceledMap.get(item.date)?.paid_canceled || 0
+            }));
+
+            // Add any canceled-only dates that might be missing from subscribed
+            const combinedDatesSet = new Set(combinedData.map(item => item.date));
+            canceledData.forEach((cancelItem) => {
+                if (!combinedDatesSet.has(cancelItem.date)) {
+                    combinedData.push({
+                        date: cancelItem.date,
+                        paid_subscribed: 0,
+                        paid_canceled: cancelItem.paid_canceled || 0
+                    });
+                }
+            });
+
+            // Sort by date
+            combinedData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+            return combinedData.map((item) => {
+                // Use effective range for formatting based on selected resolution
+                let effectiveRange = range;
+                if (selectedResolution === 'weekly' && range < 91) {
+                    effectiveRange = 91; // Force "Week of" formatting
+                } else if (selectedResolution === 'monthly' && range < 365) {
+                    effectiveRange = 365; // Force "MMM YYYY" formatting
+                }
+
+                return {
+                    date: formatDisplayDateWithRange(item.date, effectiveRange),
+                    rawDate: item.date, // Keep raw date for dynamic tooltip formatting
+                    new: item.paid_subscribed || 0,
+                    cancelled: -(item.paid_canceled || 0) // Negative for the stacked bar chart
+                };
+            });
         }
     }, [memberData, subscriptionData, range, aggregationStrategy, selectedResolution]);
 

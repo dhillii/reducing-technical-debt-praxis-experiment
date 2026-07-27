@@ -19,14 +19,15 @@ const initialState = fromJS({
 const ONE_SIDE_RELATIONS = ['oneWay', 'manyWay'];
 
 const getOppositeNature = originalNature => {
-  switch (originalNature) {
-    case 'manyToOne':
-      return 'oneToMany';
-    case 'oneToMany':
-      return 'manyToOne';
-    default:
-      return originalNature;
+  if (originalNature === 'manyToOne') {
+    return 'oneToMany';
   }
+
+  if (originalNature === 'oneToMany') {
+    return 'manyToOne';
+  }
+
+  return originalNature;
 };
 
 const addComponentsToState = (state, componentToAddUid, objToUpdate) => {
@@ -52,11 +53,11 @@ const addComponentsToState = (state, componentToAddUid, objToUpdate) => {
       state.getIn(['modifiedData', 'components', componentUid]) !== undefined;
 
     if (!isTemporary && !hasNestedComponentAlreadyBeenAdded) {
-      newObj.set(componentUid, state.getIn(['components', componentUid]));
+      objToUpdate = objToUpdate.set(componentUid, state.getIn(['components', componentUid]));
     }
   });
 
-  return newObj;
+  return objToUpdate;
 };
 
 const handleAddAttribute = (state, action) => {
@@ -65,7 +66,6 @@ const handleAddAttribute = (state, action) => {
     forTarget,
     targetUid,
   } = action;
-  delete rest.createComponent;
 
   const pathToDataToEdit = ['component', 'contentType'].includes(forTarget)
     ? [forTarget]
@@ -120,14 +120,13 @@ const handleEditAttribute = (state, action) => {
     targetUid,
     initialAttribute,
   } = action;
-  let newState = state;
 
   const initialAttributeName = get(initialAttribute, ['name'], '');
   const pathToDataToEdit = ['component', 'contentType'].includes(forTarget)
     ? [forTarget]
     : [forTarget, targetUid];
 
-  return newState.updateIn(['modifiedData', ...pathToDataToEdit, 'schema'], obj => {
+  return state.updateIn(['modifiedData', ...pathToDataToEdit, 'schema'], obj => {
     let oppositeAttributeNameToRemove = null;
     let oppositeAttributeNameToUpdate = null;
     let oppositeAttributeNameToCreateBecauseOfNatureChange = null;

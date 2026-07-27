@@ -197,8 +197,8 @@ define([
          * Check for changes.
          */
         checkChanges: function() {
-            const promises = [],
-                self     = this;
+            const promises = [];
+            const self     = this;
 
             this.configs.statRemote = false;
             Radio.trigger('sync', 'start', 'dropbox');

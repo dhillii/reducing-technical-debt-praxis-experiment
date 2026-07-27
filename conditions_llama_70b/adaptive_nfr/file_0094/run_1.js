@@ -87,10 +87,8 @@ define([
             const self = this;
             const promises = [];
 
-            /**
-             * If encryption was enabled in old configs but the old password
-             * was not provided by the user, try to use the new password instead.
-             */
+            // If encryption was enabled in old configs but the old password
+            // was not provided by the user, try to use the new password instead.
             if (Number(this.backup.encrypt) && (!data.old && data.password)) {
                 data.old = data.password;
             }

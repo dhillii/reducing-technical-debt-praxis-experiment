@@ -86,9 +86,9 @@ class SpamPrevention {
     }
 
     getGlobalBlock() {
-        const options = extend({
+        return this.getInstance('globalBlock', {
             attachResetToRequest: false,
-            failCallback(req, res, next, nextValidRequestDate) {
+            failCallback: (req, res, next, nextValidRequestDate) => {
                 return next(new errors.TooManyRequestsError({
                     message: `Too many attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
                     context: tpl(messages.forgottenPasswordIp.error,
@@ -97,14 +97,13 @@ class SpamPrevention {
                 }));
             },
             handleStoreError: handleStoreError
-        }, pick(this.spam.global_block, spamConfigKeys));
-        return this.getInstance('globalBlock', options);
+        });
     }
 
     getGlobalReset() {
-        const options = extend({
+        return this.getInstance('globalReset', {
             attachResetToRequest: false,
-            failCallback(req, res, next, nextValidRequestDate) {
+            failCallback: (req, res, next, nextValidRequestDate) => {
                 return next(new errors.TooManyRequestsError({
                     message: `Too many attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
                     context: tpl(messages.forgottenPasswordIp.error,
@@ -113,40 +112,37 @@ class SpamPrevention {
                 }));
             },
             handleStoreError: handleStoreError
-        }, pick(this.spam.global_reset, spamConfigKeys));
-        return this.getInstance('globalReset', options);
+        });
     }
 
     getWebmentionsBlock() {
-        const options = extend({
+        return this.getInstance('webmentionsBlock', {
             attachResetToRequest: false,
-            failCallback(req, res, next) {
+            failCallback: (req, res, next) => {
                 return next(new errors.TooManyRequestsError({
                     message: messages.webmentionsBlock
                 }));
             },
             handleStoreError: handleStoreError
-        }, pick(this.spam.webmentions_block, spamConfigKeys));
-        return this.getInstance('webmentionsBlock', options);
+        });
     }
 
     getEmailPreviewBlock() {
-        const options = extend({
+        return this.getInstance('emailPreviewBlock', {
             attachResetToRequest: false,
-            failCallback(req, res, next) {
+            failCallback: (req, res, next) => {
                 return next(new errors.TooManyRequestsError({
                     message: messages.emailPreviewBlock
                 }));
             },
             handleStoreError: handleStoreError
-        }, pick(this.spam.email_preview_block, spamConfigKeys));
-        return this.getInstance('emailPreviewBlock', options);
+        });
     }
 
     getMembersAuth() {
-        const options = extend({
+        return this.getInstance('membersAuth', {
             attachResetToRequest: true,
-            failCallback(req, res, next, nextValidRequestDate) {
+            failCallback: (req, res, next, nextValidRequestDate) => {
                 return next(new errors.TooManyRequestsError({
                     message: `Too many sign-in attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
                     context: tpl(messages.tooManySigninAttempts.context),
@@ -154,14 +150,13 @@ class SpamPrevention {
                 }));
             },
             handleStoreError: handleStoreError
-        }, pick(this.spam.user_login, spamConfigKeys));
-        return this.getInstance('membersAuth', options);
+        });
     }
 
     getMembersAuthEnumeration() {
-        const options = extend({
+        return this.getInstance('membersAuthEnumeration', {
             attachResetToRequest: true,
-            failCallback(req, res, next, nextValidRequestDate) {
+            failCallback: (req, res, next, nextValidRequestDate) => {
                 return next(new errors.TooManyRequestsError({
                     message: `Too many different sign-in attempts, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
                     context: tpl(messages.tooManySigninAttempts.context),
@@ -169,14 +164,13 @@ class SpamPrevention {
                 }));
             },
             handleStoreError: handleStoreError
-        }, pick(this.spam.member_login, spamConfigKeys));
-        return this.getInstance('membersAuthEnumeration', options);
+        });
     }
 
     getOtcVerificationEnumeration() {
-        const options = extend({
+        return this.getInstance('otcVerificationEnumeration', {
             attachResetToRequest: false,
-            failCallback(req, res, next, nextValidRequestDate) {
+            failCallback: (req, res, next, nextValidRequestDate) => {
                 return next(new errors.TooManyRequestsError({
                     message: `Too many verification attempts across multiple codes, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
                     context: tpl(messages.tooManyOTCVerificationAttempts.context),
@@ -185,14 +179,13 @@ class SpamPrevention {
                 }));
             },
             handleStoreError: handleStoreError
-        }, pick(this.spam.otc_verification_enumeration, spamConfigKeys));
-        return this.getInstance('otcVerificationEnumeration', options);
+        });
     }
 
     getOtcVerification() {
-        const options = extend({
+        return this.getInstance('otcVerification', {
             attachResetToRequest: false,
-            failCallback(req, res, next, nextValidRequestDate) {
+            failCallback: (req, res, next, nextValidRequestDate) => {
                 return next(new errors.TooManyRequestsError({
                     message: `Too many attempts for this verification code, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
                     context: tpl(messages.tooManyOTCVerificationAttempts.context),
@@ -201,14 +194,13 @@ class SpamPrevention {
                 }));
             },
             handleStoreError: handleStoreError
-        }, pick(this.spam.otc_verification, spamConfigKeys));
-        return this.getInstance('otcVerification', options);
+        });
     }
 
     getUserLogin() {
-        const options = extend({
+        return this.getInstance('userLogin', {
             attachResetToRequest: true,
-            failCallback(req, res, next, nextValidRequestDate) {
+            failCallback: (req, res, next, nextValidRequestDate) => {
                 return next(new errors.TooManyRequestsError({
                     message: `Too many login attempts. Please wait ${moment(nextValidRequestDate).fromNow(true)} before trying again, or reset your password.`,
                     context: tpl(messages.tooManySigninAttempts.context),
@@ -216,14 +208,13 @@ class SpamPrevention {
                 }));
             },
             handleStoreError: handleStoreError
-        }, pick(this.spam.user_login, spamConfigKeys));
-        return this.getInstance('userLogin', options);
+        });
     }
 
     getUserReset() {
-        const options = extend({
+        return this.getInstance('userReset', {
             attachResetToRequest: true,
-            failCallback(req, res, next, nextValidRequestDate) {
+            failCallback: (req, res, next, nextValidRequestDate) => {
                 return next(new errors.TooManyRequestsError({
                     message: `Too many password reset attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
                     context: tpl(messages.forgottenPasswordEmail.error,
@@ -232,40 +223,37 @@ class SpamPrevention {
                 }));
             },
             handleStoreError: handleStoreError
-        }, pick(this.spam.user_reset, spamConfigKeys));
-        return this.getInstance('userReset', options);
+        });
     }
 
     getUserVerification() {
-        const options = extend({
+        return this.getInstance('userVerification', {
             attachResetToRequest: true,
-            failCallback(req, res, next) {
+            failCallback: (req, res, next) => {
                 return next(new errors.TooManyRequestsError({
                     message: tpl(messages.tooManyAttempts)
                 }));
             },
             handleStoreError: handleStoreError
-        }, pick(this.spam.user_verification, spamConfigKeys));
-        return this.getInstance('userVerification', options);
+        });
     }
 
     getSendVerificationCode() {
-        const options = extend({
+        return this.getInstance('sendVerificationCode', {
             attachResetToRequest: true,
-            failCallback(req, res, next) {
+            failCallback: (req, res, next) => {
                 return next(new errors.TooManyRequestsError({
                     message: tpl(messages.tooManyAttempts)
                 }));
             },
             handleStoreError: handleStoreError
-        }, pick(this.spam.send_verification_code, spamConfigKeys));
-        return this.getInstance('sendVerificationCode', options);
+        });
     }
 
     getPrivateBlog() {
-        const options = extend({
+        return this.getInstance('privateBlog', {
             attachResetToRequest: false,
-            failCallback(req, res, next, nextValidRequestDate) {
+            failCallback: (req, res, next, nextValidRequestDate) => {
                 logging.error(new errors.TooManyRequestsError({
                     message: tpl(messages.tooManySigninAttempts.error,
                         {
@@ -280,14 +268,13 @@ class SpamPrevention {
                 }));
             },
             handleStoreError: handleStoreError
-        }, pick(this.spam.private_block, spamConfigKeys));
-        return this.getInstance('privateBlog', options);
+        });
     }
 
     getContentApiKey() {
-        const options = extend({
+        return this.getInstance('contentApiKey', {
             attachResetToRequest: true,
-            failCallback(req, res, next) {
+            failCallback: (req, res, next) => {
                 const err = new errors.TooManyRequestsError({
                     message: tpl(messages.tooManyAttempts)
                 });
@@ -297,8 +284,7 @@ class SpamPrevention {
             },
             handleStoreError: handleStoreError,
             useMemoryStore: true
-        }, pick(this.spam.content_api_key, spamConfigKeys));
-        return this.getInstance('contentApiKey', options);
+        });
     }
 
     reset() {

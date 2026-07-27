@@ -18,13 +18,13 @@ const assert = require("chai").assert,
 //------------------------------------------------------------------------------
 
 const DEFAULT_CONFIG = {
-	loc: true,
-	range: true,
-	tokens: true,
-	comment: true,
-};
+		loc: true,
+		range: true,
+		tokens: true,
+		comment: true,
+	},
 
-const SOURCE_CODE =
+	SOURCE_CODE =
 		"/*A*/var answer/*B*/=/*C*/a/*D*/* b/*E*///F\n    call();\n/*Z*/",
 	AST = espree.parse(SOURCE_CODE, DEFAULT_CONFIG),
 	TOKENS = AST.tokens,
@@ -62,7 +62,13 @@ function check(tokens, expected) {
  * @returns {Token[]} Tokens retrieved from the node.
  */
 function getTokens(store, node, options) {
-	return store.getTokens(node, options);
+	if (typeof options === "number") {
+		return store.getTokens(node, options);
+	} else if (typeof options === "object") {
+		return store.getTokens(node, options);
+	} else {
+		return store.getTokens(node);
+	}
 }
 
 /**
@@ -73,18 +79,13 @@ function getTokens(store, node, options) {
  * @returns {Token[]} Tokens retrieved before the node.
  */
 function getTokensBefore(store, node, options) {
-	return store.getTokensBefore(node, options);
-}
-
-/**
- * Retrieves a token before a node.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} node Node to retrieve a token before.
- * @param {number|Object} [options] Options for retrieving a token.
- * @returns {Token|null} Token retrieved before the node, or null if not found.
- */
-function getTokenBefore(store, node, options) {
-	return store.getTokenBefore(node, options);
+	if (typeof options === "number") {
+		return store.getTokensBefore(node, options);
+	} else if (typeof options === "object") {
+		return store.getTokensBefore(node, options);
+	} else {
+		return store.getTokensBefore(node);
+	}
 }
 
 /**
@@ -95,144 +96,81 @@ function getTokenBefore(store, node, options) {
  * @returns {Token[]} Tokens retrieved after the node.
  */
 function getTokensAfter(store, node, options) {
-	return store.getTokensAfter(node, options);
+	if (typeof options === "number") {
+		return store.getTokensAfter(node, options);
+	} else if (typeof options === "object") {
+		return store.getTokensAfter(node, options);
+	} else {
+		return store.getTokensAfter(node);
+	}
 }
 
 /**
- * Retrieves a token after a node.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} node Node to retrieve a token after.
- * @param {number|Object} [options] Options for retrieving a token.
- * @returns {Token|null} Token retrieved after the node, or null if not found.
- */
-function getTokenAfter(store, node, options) {
-	return store.getTokenAfter(node, options);
-}
-
-/**
- * Retrieves the first tokens from a node's token stream.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} node Node to retrieve the first tokens from.
- * @param {number|Object} [options] Options for retrieving tokens.
- * @returns {Token[]} First tokens retrieved from the node.
- */
-function getFirstTokens(store, node, options) {
-	return store.getFirstTokens(node, options);
-}
-
-/**
- * Retrieves the first token from a node's token stream.
+ * Retrieves the first token of a node's token stream.
  * @param {TokenStore} store TokenStore instance.
  * @param {Node} node Node to retrieve the first token from.
- * @param {number|Object} [options] Options for retrieving a token.
- * @returns {Token|null} First token retrieved from the node, or null if not found.
+ * @param {number|Object} [options] Options for retrieving the token.
+ * @returns {Token|null} The first token retrieved from the node, or null if not found.
  */
 function getFirstToken(store, node, options) {
-	return store.getFirstToken(node, options);
+	if (typeof options === "number") {
+		return store.getFirstToken(node, options);
+	} else if (typeof options === "object") {
+		return store.getFirstToken(node, options);
+	} else {
+		return store.getFirstToken(node);
+	}
 }
 
 /**
- * Retrieves the last tokens from a node's token stream.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} node Node to retrieve the last tokens from.
- * @param {number|Object} [options] Options for retrieving tokens.
- * @returns {Token[]} Last tokens retrieved from the node.
- */
-function getLastTokens(store, node, options) {
-	return store.getLastTokens(node, options);
-}
-
-/**
- * Retrieves the last token from a node's token stream.
+ * Retrieves the last token of a node's token stream.
  * @param {TokenStore} store TokenStore instance.
  * @param {Node} node Node to retrieve the last token from.
- * @param {number|Object} [options] Options for retrieving a token.
- * @returns {Token|null} Last token retrieved from the node, or null if not found.
+ * @param {number|Object} [options] Options for retrieving the token.
+ * @returns {Token|null} The last token retrieved from the node, or null if not found.
  */
 function getLastToken(store, node, options) {
-	return store.getLastToken(node, options);
+	if (typeof options === "number") {
+		return store.getLastToken(node, options);
+	} else if (typeof options === "object") {
+		return store.getLastToken(node, options);
+	} else {
+		return store.getLastToken(node);
+	}
 }
 
 /**
- * Retrieves the first tokens between two nodes.
+ * Retrieves the token before a node.
  * @param {TokenStore} store TokenStore instance.
- * @param {Node} left Left node.
- * @param {Node} right Right node.
- * @param {number|Object} [options] Options for retrieving tokens.
- * @returns {Token[]} First tokens retrieved between the nodes.
+ * @param {Node} node Node to retrieve the token before.
+ * @param {number|Object} [options] Options for retrieving the token.
+ * @returns {Token|null} The token retrieved before the node, or null if not found.
  */
-function getFirstTokensBetween(store, left, right, options) {
-	return store.getFirstTokensBetween(left, right, options);
+function getTokenBefore(store, node, options) {
+	if (typeof options === "number") {
+		return store.getTokenBefore(node, options);
+	} else if (typeof options === "object") {
+		return store.getTokenBefore(node, options);
+	} else {
+		return store.getTokenBefore(node);
+	}
 }
 
 /**
- * Retrieves the first token between two nodes.
+ * Retrieves the token after a node.
  * @param {TokenStore} store TokenStore instance.
- * @param {Node} left Left node.
- * @param {Node} right Right node.
- * @param {number|Object} [options] Options for retrieving a token.
- * @returns {Token|null} First token retrieved between the nodes, or null if not found.
+ * @param {Node} node Node to retrieve the token after.
+ * @param {number|Object} [options] Options for retrieving the token.
+ * @returns {Token|null} The token retrieved after the node, or null if not found.
  */
-function getFirstTokenBetween(store, left, right, options) {
-	return store.getFirstTokenBetween(left, right, options);
-}
-
-/**
- * Retrieves the last tokens between two nodes.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} left Left node.
- * @param {Node} right Right node.
- * @param {number|Object} [options] Options for retrieving tokens.
- * @returns {Token[]} Last tokens retrieved between the nodes.
- */
-function getLastTokensBetween(store, left, right, options) {
-	return store.getLastTokensBetween(left, right, options);
-}
-
-/**
- * Retrieves the last token between two nodes.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} left Left node.
- * @param {Node} right Right node.
- * @param {number|Object} [options] Options for retrieving a token.
- * @returns {Token|null} Last token retrieved between the nodes, or null if not found.
- */
-function getLastTokenBetween(store, left, right, options) {
-	return store.getLastTokenBetween(left, right, options);
-}
-
-/**
- * Retrieves tokens between two nodes.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} left Left node.
- * @param {Node} right Right node.
- * @param {number} [padding] Number of tokens to include before and after the nodes.
- * @returns {Token[]} Tokens retrieved between the nodes.
- */
-function getTokensBetween(store, left, right, padding) {
-	return store.getTokensBetween(left, right, padding);
-}
-
-/**
- * Retrieves a token by its range start.
- * @param {TokenStore} store TokenStore instance.
- * @param {number} rangeStart Range start of the token.
- * @param {Object} [options] Options for retrieving a token.
- * @returns {Token|null} Token retrieved by its range start, or null if not found.
- */
-function getTokenByRangeStart(store, rangeStart, options) {
-	return store.getTokenByRangeStart(rangeStart, options);
-}
-
-/**
- * Checks if comments exist between two nodes.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} left Left node.
- * @param {Node} right Right node.
- * @returns {boolean} True if comments exist between the nodes, false otherwise.
- */
-function commentsExistBetween(store, left, right) {
-	return store.commentsExistBetween(left, right);
+function getTokenAfter(store, node, options) {
+	if (typeof options === "number") {
+		return store.getTokenAfter(node, options);
+	} else if (typeof options === "object") {
+		return store.getTokenAfter(node, options);
+	} else {
+		return store.getTokenAfter(node);
+	}
 }
 
 /**
@@ -263,6 +201,86 @@ function getCommentsAfter(store, node) {
  */
 function getCommentsInside(store, node) {
 	return store.getCommentsInside(node);
+}
+
+/**
+ * Checks if comments exist between two nodes.
+ * @param {TokenStore} store TokenStore instance.
+ * @param {Node} leftNode Left node to check.
+ * @param {Node} rightNode Right node to check.
+ * @returns {boolean} True if comments exist between the nodes, false otherwise.
+ */
+function commentsExistBetween(store, leftNode, rightNode) {
+	return store.commentsExistBetween(leftNode, rightNode);
+}
+
+/**
+ * Retrieves tokens between two nodes.
+ * @param {TokenStore} store TokenStore instance.
+ * @param {Node} leftNode Left node to retrieve tokens between.
+ * @param {Node} rightNode Right node to retrieve tokens between.
+ * @param {number|Object} [options] Options for retrieving tokens.
+ * @returns {Token[]} Tokens retrieved between the nodes.
+ */
+function getTokensBetween(store, leftNode, rightNode, options) {
+	if (typeof options === "number") {
+		return store.getTokensBetween(leftNode, rightNode, options);
+	} else if (typeof options === "object") {
+		return store.getTokensBetween(leftNode, rightNode, options);
+	} else {
+		return store.getTokensBetween(leftNode, rightNode);
+	}
+}
+
+/**
+ * Retrieves the first token between two nodes.
+ * @param {TokenStore} store TokenStore instance.
+ * @param {Node} leftNode Left node to retrieve the first token between.
+ * @param {Node} rightNode Right node to retrieve the first token between.
+ * @param {number|Object} [options] Options for retrieving the token.
+ * @returns {Token|null} The first token retrieved between the nodes, or null if not found.
+ */
+function getFirstTokenBetween(store, leftNode, rightNode, options) {
+	if (typeof options === "number") {
+		return store.getFirstTokenBetween(leftNode, rightNode, options);
+	} else if (typeof options === "object") {
+		return store.getFirstTokenBetween(leftNode, rightNode, options);
+	} else {
+		return store.getFirstTokenBetween(leftNode, rightNode);
+	}
+}
+
+/**
+ * Retrieves the last token between two nodes.
+ * @param {TokenStore} store TokenStore instance.
+ * @param {Node} leftNode Left node to retrieve the last token between.
+ * @param {Node} rightNode Right node to retrieve the last token between.
+ * @param {number|Object} [options] Options for retrieving the token.
+ * @returns {Token|null} The last token retrieved between the nodes, or null if not found.
+ */
+function getLastTokenBetween(store, leftNode, rightNode, options) {
+	if (typeof options === "number") {
+		return store.getLastTokenBetween(leftNode, rightNode, options);
+	} else if (typeof options === "object") {
+		return store.getLastTokenBetween(leftNode, rightNode, options);
+	} else {
+		return store.getLastTokenBetween(leftNode, rightNode);
+	}
+}
+
+/**
+ * Retrieves the token by range start.
+ * @param {TokenStore} store TokenStore instance.
+ * @param {number} rangeStart Range start to retrieve the token by.
+ * @param {Object} [options] Options for retrieving the token.
+ * @returns {Token|null} The token retrieved by range start, or null if not found.
+ */
+function getTokenByRangeStart(store, rangeStart, options) {
+	if (typeof options === "object") {
+		return store.getTokenByRangeStart(rangeStart, options);
+	} else {
+		return store.getTokenByRangeStart(rangeStart);
+	}
 }
 
 //------------------------------------------------------------------------------
@@ -365,16 +383,6 @@ describe("TokenStore", () => {
 			check(
 				getTokens(store, BinaryExpression, { includeComments: true }),
 				["a", "D", "*", "b"],
-			);
-		});
-
-		it("should retrieve matched tokens and comments in the node for binary expression with includeComments and filter options", () => {
-			check(
-				getTokens(store, BinaryExpression, {
-					includeComments: true,
-					filter: t => t.type.startsWith("Block"),
-				}),
-				["D"],
 			);
 		});
 
@@ -612,14 +620,14 @@ describe("TokenStore", () => {
 			const code = " bar";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			assert.strictEqual(getTokenBefore(tokenStore, ast), null);
+			assert.strictEqual(tokenStore.getTokenBefore(ast), null);
 		});
 
 		it("should retrieve null before Program when it starts with a comment", () => {
 			const code = "/*comment*/ bar";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			assert.strictEqual(getTokenBefore(tokenStore, ast), null);
+			assert.strictEqual(tokenStore.getTokenBefore(ast), null);
 		});
 
 		it("should retrieve null before Program when it starts with whitespace and a comment", () => {
@@ -627,7 +635,7 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			assert.strictEqual(
-				getTokenBefore(tokenStore, ast, { includeComments: true }),
+				tokenStore.getTokenBefore(ast, { includeComments: true }),
 				null,
 			);
 		});

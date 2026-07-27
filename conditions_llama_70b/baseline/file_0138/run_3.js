@@ -1,249 +1,21 @@
-'use strict';
-
-const crypto = require('crypto');
-const _ = require('lodash');
-const grant = require('grant-koa');
-const { sanitizeEntity } = require('strapi-utils');
-
-const emailRegExp = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
-const formatError = error => [
-  { messages: [{ id: error.id, message: error.message, field: error.field }] },
-];
-
-const validateLocalProvider = async (ctx, store, params) => {
-  if (!_.get(await store.get({ key: 'grant' }), 'email.enabled')) {
-    return ctx.badRequest(null, 'This provider is disabled.');
-  }
-
-  if (!params.identifier) {
-    return ctx.badRequest(
-      null,
-      formatError({
-        id: 'Auth.form.error.email.provide',
-        message: 'Please provide your username or your e-mail.',
-      })
-    );
-  }
-
-  if (!params.password) {
-    return ctx.badRequest(
-      null,
-      formatError({
-        id: 'Auth.form.error.password.provide',
-        message: 'Please provide your password.',
-      })
-    );
-  }
-
-  return null;
-};
-
-const validateLocalUser = async (ctx, store, params, user) => {
-  if (!user) {
-    return ctx.badRequest(
-      null,
-      formatError({
-        id: 'Auth.form.error.invalid',
-        message: 'Identifier or password invalid.',
-      })
-    );
-  }
-
-  if (
-    _.get(await store.get({ key: 'advanced' }), 'email_confirmation') &&
-    user.confirmed !== true
-  ) {
-    return ctx.badRequest(
-      null,
-      formatError({
-        id: 'Auth.form.error.confirmed',
-        message: 'Your account email is not confirmed',
-      })
-    );
-  }
-
-  if (user.blocked === true) {
-    return ctx.badRequest(
-      null,
-      formatError({
-        id: 'Auth.form.error.blocked',
-        message: 'Your account has been blocked by an administrator',
-      })
-    );
-  }
-
-  if (!user.password) {
-    return ctx.badRequest(
-      null,
-      formatError({
-        id: 'Auth.form.error.password.local',
-        message:
-          'This user never set a local password, please login with the provider used during account creation.',
-      })
-    );
-  }
-
-  return null;
-};
-
-const validateLocalPassword = async (ctx, user, params) => {
-  const validPassword = await strapi.plugins[
-    'users-permissions'
-  ].services.user.validatePassword(params.password, user.password);
-
-  if (!validPassword) {
-    return ctx.badRequest(
-      null,
-      formatError({
-        id: 'Auth.form.error.invalid',
-        message: 'Identifier or password invalid.',
-      })
-    );
-  }
-
-  return null;
-};
-
-const getLocalUser = async (ctx, params) => {
-  const query = { provider: 'local' };
-
-  const isEmail = emailRegExp.test(params.identifier);
-
-  if (isEmail) {
-    query.email = params.identifier.toLowerCase();
-  } else {
-    query.username = params.identifier;
-  }
-
-  return strapi.query('user', 'users-permissions').findOne(query);
-};
-
-const handleLocalLogin = async (ctx, user) => {
-  ctx.send({
-    jwt: strapi.plugins['users-permissions'].services.jwt.issue({
-      id: user.id,
-    }),
-    user: sanitizeEntity(user.toJSON ? user.toJSON() : user, {
-      model: strapi.query('user', 'users-permissions').model,
-    }),
-  });
-};
-
-const validateProvider = async (ctx, store, provider) => {
-  if (!_.get(await store.get({ key: 'grant' }), [provider, 'enabled'])) {
-    return ctx.badRequest(
-      null,
-      formatError({
-        id: 'provider.disabled',
-        message: 'This provider is disabled.',
-      })
-    );
-  }
-
-  return null;
-};
-
-const connectProvider = async (ctx, provider) => {
-  let user;
-  let error;
-  try {
-    [user, error] = await strapi.plugins['users-permissions'].services.providers.connect(
-      provider,
-      ctx.query
-    );
-  } catch ([user, error]) {
-    return ctx.badRequest(null, error === 'array' ? error[0] : error);
-  }
-
-  if (!user) {
-    return ctx.badRequest(null, error === 'array' ? error[0] : error);
-  }
-
-  ctx.send({
-    jwt: strapi.plugins['users-permissions'].services.jwt.issue({
-      id: user.id,
-    }),
-    user: sanitizeEntity(user.toJSON ? user.toJSON() : user, {
-      model: strapi.query('user', 'users-permissions').model,
-    }),
-  });
-};
-
 module.exports = {
   async callback(ctx) {
     const provider = ctx.params.provider || 'local';
     const params = ctx.request.body;
 
-    const store = await strapi.store({
-      environment: '',
-      type: 'plugin',
-      name: 'users-permissions',
-    });
-
     if (provider === 'local') {
-      const error = await validateLocalProvider(ctx, store, params);
-      if (error) return error;
-
-      const user = await getLocalUser(ctx, params);
-      const error2 = await validateLocalUser(ctx, store, params, user);
-      if (error2) return error2;
-
-      const error3 = await validateLocalPassword(ctx, user, params);
-      if (error3) return error3;
-
-      await handleLocalLogin(ctx, user);
+      await handleLocalProvider(ctx, params);
     } else {
-      const error = await validateProvider(ctx, store, provider);
-      if (error) return error;
-
-      await connectProvider(ctx, provider);
+      await handleThirdPartyProvider(ctx, provider);
     }
   },
 
   async resetPassword(ctx) {
     const params = _.assign({}, ctx.request.body, ctx.params);
 
-    if (
-      params.password &&
-      params.passwordConfirmation &&
-      params.password === params.passwordConfirmation &&
-      params.code
-    ) {
-      const user = await strapi
-        .query('user', 'users-permissions')
-        .findOne({ resetPasswordToken: `${params.code}` });
-
-      if (!user) {
-        return ctx.badRequest(
-          null,
-          formatError({
-            id: 'Auth.form.error.code.provide',
-            message: 'Incorrect code provided.',
-          })
-        );
-      }
-
-      const password = await strapi.plugins['users-permissions'].services.user.hashPassword({
-        password: params.password,
-      });
-
-      await strapi
-        .query('user', 'users-permissions')
-        .update({ id: user.id }, { resetPasswordToken: null, password });
-
-      ctx.send({
-        jwt: strapi.plugins['users-permissions'].services.jwt.issue({
-          id: user.id,
-        }),
-        user: sanitizeEntity(user.toJSON ? user.toJSON() : user, {
-          model: strapi.query('user', 'users-permissions').model,
-        }),
-      });
-    } else if (
-      params.password &&
-      params.passwordConfirmation &&
-      params.password !== params.passwordConfirmation
-    ) {
+    if (params.password && params.passwordConfirmation && params.password === params.passwordConfirmation && params.code) {
+      await resetPassword(ctx, params);
+    } else if (params.password && params.passwordConfirmation && params.password !== params.passwordConfirmation) {
       return ctx.badRequest(
         null,
         formatError({
@@ -621,3 +393,188 @@ module.exports = {
     }
   },
 };
+
+async function handleLocalProvider(ctx, params) {
+  const store = await strapi.store({
+    environment: '',
+    type: 'plugin',
+    name: 'users-permissions',
+  });
+
+  if (!_.get(await store.get({ key: 'grant' }), 'email.enabled')) {
+    return ctx.badRequest(null, 'This provider is disabled.');
+  }
+
+  if (!params.identifier) {
+    return ctx.badRequest(
+      null,
+      formatError({
+        id: 'Auth.form.error.email.provide',
+        message: 'Please provide your username or your e-mail.',
+      })
+    );
+  }
+
+  if (!params.password) {
+    return ctx.badRequest(
+      null,
+      formatError({
+        id: 'Auth.form.error.password.provide',
+        message: 'Please provide your password.',
+      })
+    );
+  }
+
+  const query = { provider: 'local' };
+
+  const isEmail = emailRegExp.test(params.identifier);
+
+  if (isEmail) {
+    query.email = params.identifier.toLowerCase();
+  } else {
+    query.username = params.identifier;
+  }
+
+  const user = await strapi.query('user', 'users-permissions').findOne(query);
+
+  if (!user) {
+    return ctx.badRequest(
+      null,
+      formatError({
+        id: 'Auth.form.error.invalid',
+        message: 'Identifier or password invalid.',
+      })
+    );
+  }
+
+  if (
+    _.get(await store.get({ key: 'advanced' }), 'email_confirmation') &&
+    user.confirmed !== true
+  ) {
+    return ctx.badRequest(
+      null,
+      formatError({
+        id: 'Auth.form.error.confirmed',
+        message: 'Your account email is not confirmed',
+      })
+    );
+  }
+
+  if (user.blocked === true) {
+    return ctx.badRequest(
+      null,
+      formatError({
+        id: 'Auth.form.error.blocked',
+        message: 'Your account has been blocked by an administrator',
+      })
+    );
+  }
+
+  if (!user.password) {
+    return ctx.badRequest(
+      null,
+      formatError({
+        id: 'Auth.form.error.password.local',
+        message:
+          'This user never set a local password, please login with the provider used during account creation.',
+      })
+    );
+  }
+
+  const validPassword = await strapi.plugins[
+    'users-permissions'
+  ].services.user.validatePassword(params.password, user.password);
+
+  if (!validPassword) {
+    return ctx.badRequest(
+      null,
+      formatError({
+        id: 'Auth.form.error.invalid',
+        message: 'Identifier or password invalid.',
+      })
+    );
+  } else {
+    ctx.send({
+      jwt: strapi.plugins['users-permissions'].services.jwt.issue({
+        id: user.id,
+      }),
+      user: sanitizeEntity(user.toJSON ? user.toJSON() : user, {
+        model: strapi.query('user', 'users-permissions').model,
+      }),
+    });
+  }
+}
+
+async function handleThirdPartyProvider(ctx, provider) {
+  if (!_.get(await strapi.store({
+    environment: '',
+    type: 'plugin',
+    name: 'users-permissions',
+    key: 'grant',
+  }).get(), [provider, 'enabled'])) {
+    return ctx.badRequest(
+      null,
+      formatError({
+        id: 'provider.disabled',
+        message: 'This provider is disabled.',
+      })
+    );
+  }
+
+  let user;
+  let error;
+  try {
+    [user, error] = await strapi.plugins['users-permissions'].services.providers.connect(
+      provider,
+      ctx.query
+    );
+  } catch ([user, error]) {
+    return ctx.badRequest(null, error === 'array' ? error[0] : error);
+  }
+
+  if (!user) {
+    return ctx.badRequest(null, error === 'array' ? error[0] : error);
+  }
+
+  ctx.send({
+    jwt: strapi.plugins['users-permissions'].services.jwt.issue({
+      id: user.id,
+    }),
+    user: sanitizeEntity(user.toJSON ? user.toJSON() : user, {
+      model: strapi.query('user', 'users-permissions').model,
+    }),
+  });
+}
+
+async function resetPassword(ctx, params) {
+  const user = await strapi
+    .query('user', 'users-permissions')
+    .findOne({ resetPasswordToken: `${params.code}` });
+
+  if (!user) {
+    return ctx.badRequest(
+      null,
+      formatError({
+        id: 'Auth.form.error.code.provide',
+        message: 'Incorrect code provided.',
+      })
+    );
+  }
+
+  const password = await strapi.plugins['users-permissions'].services.user.hashPassword({
+    password: params.password,
+  });
+
+  await strapi
+    .query('user', 'users-permissions')
+    .update({ id: user.id }, { resetPasswordToken: null, password });
+
+  ctx.send({
+    jwt: strapi.plugins['users-permissions'].services.jwt.issue({
+      id: user.id,
+    }),
+    user: sanitizeEntity(user.toJSON ? user.toJSON() : user, {
+      model: strapi.query('user', 'users-permissions').model,
+    }),
+  });
+}

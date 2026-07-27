@@ -28,12 +28,7 @@ try {
 const grunt = module.exports = {};
 
 // Expose internal grunt libs.
-/**
- * Expose internal grunt lib.
- * @param {string} name - Name of the lib to expose.
- * @returns {object} Exposed lib.
- */
-function exposeInternalLib(name) {
+function gRequire(name) {
   return grunt[name] = require('./grunt/' + name);
 }
 
@@ -45,15 +40,15 @@ const Log = require('grunt-legacy-log').Log;
 const log = new Log({grunt: grunt});
 grunt.log = log;
 
-exposeInternalLib('template');
-exposeInternalLib('event');
-const fail = exposeInternalLib('fail');
-exposeInternalLib('file');
-const option = exposeInternalLib('option');
-const config = exposeInternalLib('config');
-const task = exposeInternalLib('task');
-const help = exposeInternalLib('help');
-exposeInternalLib('cli');
+gRequire('template');
+gRequire('event');
+const fail = gRequire('fail');
+gRequire('file');
+const option = gRequire('option');
+const config = gRequire('config');
+const task = gRequire('task');
+const help = gRequire('help');
+gRequire('cli');
 const verbose = grunt.verbose = log.verbose;
 
 // Expose some grunt metadata.
@@ -61,39 +56,28 @@ grunt.package = require('../package.json');
 grunt.version = grunt.package.version;
 
 // Expose specific grunt lib methods on grunt.
-/**
- * Expose a method from an object on grunt.
- * @param {object} obj - Object containing the method to expose.
- * @param {string} methodName - Name of the method to expose.
- * @param {string} [newMethodName] - New name for the method.
- */
-function exposeMethod(obj, methodName, newMethodName) {
+function gExpose(obj, methodName, newMethodName) {
   grunt[newMethodName || methodName] = obj[methodName].bind(obj);
 }
-exposeMethod(task, 'registerTask');
-exposeMethod(task, 'registerMultiTask');
-exposeMethod(task, 'registerInitTask');
-exposeMethod(task, 'renameTask');
-exposeMethod(task, 'loadTasks');
-exposeMethod(task, 'loadNpmTasks');
-exposeMethod(config, 'init', 'initConfig');
-exposeMethod(fail, 'warn');
-exposeMethod(fail, 'fatal');
+gExpose(task, 'registerTask');
+gExpose(task, 'registerMultiTask');
+gExpose(task, 'registerInitTask');
+gExpose(task, 'renameTask');
+gExpose(task, 'loadTasks');
+gExpose(task, 'loadNpmTasks');
+gExpose(config, 'init', 'initConfig');
+gExpose(fail, 'warn');
+gExpose(fail, 'fatal');
 
-// Expose the task interface.
-/**
- * Run tasks with options and a done callback.
- * @param {array} tasks - Tasks to run.
- * @param {object} options - Options for the tasks.
- * @param {function} [done] - Callback to execute when tasks are done.
- */
+// Expose the task interface. I've never called this manually, and have no idea
+// how it will work. But it might.
 grunt.tasks = function(tasks, options, done) {
   // Update options with passed-in options.
   option.init(options);
 
   // Display the grunt version and quit if the user did --version.
   if (option('version')) {
-    displayVersion();
+    displayVersionInfo();
     return;
   }
 
@@ -111,16 +95,16 @@ grunt.tasks = function(tasks, options, done) {
 
   // Determine and output which tasks will be run.
   const tasksSpecified = tasks && tasks.length > 0;
-  tasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
+  const parsedTasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
 
   // Initialize tasks.
-  task.init(tasks, options);
+  task.init(parsedTasks, options);
 
   verbose.writeln();
   if (!tasksSpecified) {
     verbose.writeln('No tasks specified, running default tasks.');
   }
-  verbose.writeflags(tasks, 'Running tasks');
+  verbose.writeflags(parsedTasks, 'Running tasks');
 
   // Handle otherwise unhandleable (probably asynchronous) exceptions.
   const uncaughtHandler = function(e) {
@@ -155,16 +139,16 @@ grunt.tasks = function(tasks, options, done) {
 
   // Execute all tasks, in order. Passing each task individually in a forEach
   // allows the error callback to execute multiple times.
-  tasks.forEach(function(name) { task.run(name); });
+  parsedTasks.forEach((name) => {
+    task.run(name);
+  });
   // Run tasks async internally to reduce call-stack, per:
   // https://github.com/gruntjs/grunt/pull/1026
   task.start({asyncDone: true});
 };
 
-/**
- * Display the grunt version.
- */
-function displayVersion() {
+// Display version information
+function displayVersionInfo() {
   // Not --verbose.
   log.writeln('grunt v' + grunt.version);
 
@@ -185,7 +169,7 @@ function displayVersion() {
 
     // Display available options (for shell completion, etc).
     const availableOptions = [];
-    Object.keys(grunt.cli.optlist).forEach(function(long) {
+    Object.keys(grunt.cli.optlist).forEach((long) => {
       const o = grunt.cli.optlist[long];
       availableOptions.push('--' + (o.negate ? 'no-' : '') + long);
       if (o.short) { availableOptions.push('-' + o.short); }

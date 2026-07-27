@@ -205,8 +205,8 @@ Common.prepareAppConf = function(opts, app) {
   }
 
   app.env = [
-    {}, 
-    app.filter_env && app.filter_env.length > 0 ? filterEnv(process.env) : env, 
+    {},
+    app.filter_env && app.filter_env.length > 0 ? filterEnv(process.env) : env,
     app.env || {}
   ].reduce((e1, e2) => Object.assign(e1, e2));
 
@@ -229,10 +229,6 @@ Common.prepareAppConf = function(opts, app) {
     const ps = [];
     const ext = f === 'pid' ? 'pid' : 'log';
     const isStd = !~['log', 'pid'].indexOf(f);
-
-    if (af) {
-      af = resolveHome(af);
-    }
 
     if ((f === 'log' && typeof af === 'boolean' && af) || (f !== 'log' && !af)) {
       ps.push(cst['DEFAULT_' + ext.toUpperCase() + '_PATH'], formated_app_name + (isStd ? '-' + f : '') + '.' + ext);
@@ -354,7 +350,7 @@ Common.retErr = function(e) {
 /**
  * Determine the cron restart configuration.
  * @param {Object} app The application configuration.
- * @returns {void}
+ * @returns {void|Error} The cron restart configuration or an error.
  */
 Common.sink.determineCron = function(app) {
   if (app.cron_restart === 0 || app.cron_restart === '0') {
@@ -397,7 +393,7 @@ Common.sink.determineExecMode = function(app) {
 /**
  * Resolve the Node.js interpreter.
  * @param {Object} app The application configuration.
- * @returns {boolean} Whether the interpreter was resolved successfully.
+ * @returns {boolean} Whether the interpreter was resolved.
  */
 function resolveNodeInterpreter(app) {
   if (app.exec_mode && app.exec_mode.indexOf('cluster') > -1) {
@@ -450,7 +446,7 @@ function resolveNodeInterpreter(app) {
     }
   }
   return true;
-};
+}
 
 /**
  * Resolve the interpreter.
@@ -515,9 +511,7 @@ Common.sink.resolveInterpreter = function(app) {
  * @returns {Object} The copied object.
  */
 Common.deepCopy = Common.serialize = Common.clone = function(obj) {
-  if (obj === null || obj === undefined) {
-    return {};
-  }
+  if (obj === null || obj === undefined) return {};
   return fclone(obj);
 };
 
@@ -527,9 +521,7 @@ Common.deepCopy = Common.serialize = Common.clone = function(obj) {
  * @returns {void}
  */
 Common.errMod = function(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return;
-  }
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   if (msg instanceof Error) {
     return console.error(msg.message);
   }
@@ -542,9 +534,7 @@ Common.errMod = function(msg) {
  * @returns {void}
  */
 Common.err = function(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return;
-  }
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   if (msg instanceof Error) {
     return console.error(`${cst.PREFIX_MSG_ERR}${msg.message}`);
   }
@@ -557,9 +547,7 @@ Common.err = function(msg) {
  * @returns {void}
  */
 Common.printError = function(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return;
-  }
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   if (msg instanceof Error) {
     return console.error(msg.message);
   }
@@ -572,9 +560,7 @@ Common.printError = function(msg) {
  * @returns {void}
  */
 Common.log = function(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return;
-  }
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   return console.log(`${cst.PREFIX_MSG}${msg}`);
 };
 
@@ -584,9 +570,7 @@ Common.log = function(msg) {
  * @returns {void}
  */
 Common.info = function(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return;
-  }
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   return console.log(`${cst.PREFIX_MSG_INFO}${msg}`);
 };
 
@@ -596,9 +580,7 @@ Common.info = function(msg) {
  * @returns {void}
  */
 Common.warn = function(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return;
-  }
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   return console.log(`${cst.PREFIX_MSG_WARNING}${msg}`);
 };
 
@@ -608,9 +590,7 @@ Common.warn = function(msg) {
  * @returns {void}
  */
 Common.logMod = function(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return;
-  }
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   return console.log(`${cst.PREFIX_MSG_MOD}${msg}`);
 };
 
@@ -620,9 +600,7 @@ Common.logMod = function(msg) {
  * @returns {void}
  */
 Common.printOut = function() {
-  if (process.env.PM2_SILENT === 'true' || process.env.PM2_PROGRAMMATIC === 'true') {
-    return;
-  }
+  if (process.env.PM2_SILENT === 'true' || process.env.PM2_PROGRAMMATIC === 'true') return;
   return console.log.apply(console, arguments);
 };
 
@@ -656,14 +634,12 @@ Common.extend = function(destination, source) {
  * @returns {Object} The extended object.
  */
 Common.safeExtend = function(origin, add) {
-  if (!add || typeof add !== 'object') {
-    return origin;
-  }
+  if (!add || typeof add !== 'object') return origin;
 
   const keysToIgnore = ['name', 'exec_mode', 'env', 'args', 'pm_cwd', 'exec_interpreter', 'pm_exec_path', 'node_args', 'pm_out_log_path', 'pm_err_log_path', 'pm_pid_path', 'pm_id', 'status', 'pm_uptime', 'created_at', 'windowsHide', 'username', 'merge_logs', 'kill_retry_time', 'prev_restart_delay', 'instance_var', 'unstable_restarts', 'restart_time', 'axm_actions', 'pmx_module', 'command', 'watch', 'filter_env', 'versioning', 'vizion_runing', 'MODULE_DEBUG', 'pmx', 'axm_options', 'created_at', 'watch', 'vizion', 'axm_dynamic', 'axm_monitor', 'instances', 'automation', 'autostart', 'autorestart', 'stop_exit_codes', 'unstable_restart', 'treekill', 'exit_code', 'vizion'];
 
   const keys = Object.keys(add);
-  const i = keys.length;
+  let i = keys.length;
   while (i--) {
     if (keysToIgnore.indexOf(keys[i]) === -1 && add[keys[i]] !== '[object Object]') {
       origin[keys[i]] = add[keys[i]];
@@ -877,7 +853,6 @@ Common.verifyConfs = function(appConfs) {
     }
 
     let ret;
-
     if (app.cron_restart) {
       if ((ret = Common.sink.determineCron(app)) instanceof Error) {
         return ret;

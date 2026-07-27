@@ -144,14 +144,15 @@ const NewsletterPreviewContent: React.FC<{
                                     showExcerpt={showExcerpt}
                                     excerptClasses={excerptClasses}
                                     postTitleColor={postTitleColor}
-                                    secondaryHeaderTextColor={secondaryHeaderTextColor}
                                     authorPlaceholder={authorPlaceholder}
                                     currentDate={currentDate}
+                                    secondaryHeaderTextColor={secondaryHeaderTextColor}
                                 />
                             )}
                             {showFeatureImage && (
                                 <FeatureImage
                                     imageCorners={imageCorners}
+                                    CoverImage={CoverImage}
                                     secondaryHeaderTextColor={secondaryHeaderTextColor}
                                 />
                             )}
@@ -188,6 +189,9 @@ const NewsletterPreviewContent: React.FC<{
                                     sectionTitleColor={sectionTitleColor}
                                     secondaryTextColor={secondaryTextColor}
                                     imageCorners={imageCorners}
+                                    LatestPosts1={LatestPosts1}
+                                    LatestPosts2={LatestPosts2}
+                                    LatestPosts3={LatestPosts3}
                                     dividerStyle={dividerStyle}
                                     dividerColor={dividerColor}
                                     textColor={textColor}
@@ -219,11 +223,12 @@ const NewsletterPreviewContent: React.FC<{
     );
 };
 
+// Process footer content to add target and rel attributes to links
 const processFooterContent = (footerContent?: string | null) => {
-    // Process footer content to add target and rel attributes to links
     return footerContent ? footerContent.replace(/<a/g, '<a target="_blank" rel="noopener noreferrer"') : '';
 };
 
+// Get email header based on sender information and config
 const getEmailHeader = (senderName?: string, senderEmail: string | null, senderReplyTo: string | null, config: any) => {
     if (isManagedEmail(config)) {
         return (
@@ -244,6 +249,7 @@ const getEmailHeader = (senderName?: string, senderEmail: string | null, senderR
     }
 };
 
+// Get excerpt classes based on title font category, body font category, and title alignment
 const getExcerptClasses = (titleFontCategory?: string, bodyFontCategory?: string, titleAlignment?: string) => {
     let excerptClasses = 'mb-5 text-pretty leading-[1.7] text-black';
 
@@ -267,6 +273,7 @@ const getExcerptClasses = (titleFontCategory?: string, bodyFontCategory?: string
     return excerptClasses;
 };
 
+// Post title section component
 const PostTitleSection = ({
     titleAlignment,
     titleFontCategory,
@@ -274,9 +281,9 @@ const PostTitleSection = ({
     showExcerpt,
     excerptClasses,
     postTitleColor,
-    secondaryHeaderTextColor,
     authorPlaceholder,
     currentDate,
+    secondaryHeaderTextColor,
 }) => {
     return (
         <div className={clsx('flex flex-col py-8', titleAlignment === 'center' ? 'items-center' : 'items-start')}>
@@ -291,7 +298,7 @@ const PostTitleSection = ({
                 showExcerpt ? 'mb-2' : 'mb-8'
             )} style={{color: postTitleColor}}>Your email newsletter</h2>
             {showExcerpt && (
-                <p className={excerptClasses} style={{color: secondaryHeaderTextColor}}>A subtitle to highlight key points and engage your readers.</p>
+                <p className={excerptClasses} style={{color: postTitleColor}}>A subtitle to highlight key points and engage your readers.</p>
             )}
             <div className={clsx(
                 'flex w-full justify-between text-center text-md leading-none text-grey-700',
@@ -307,7 +314,12 @@ const PostTitleSection = ({
     );
 };
 
-const FeatureImage = ({imageCorners, secondaryHeaderTextColor}) => {
+// Feature image component
+const FeatureImage = ({
+    imageCorners,
+    CoverImage,
+    secondaryHeaderTextColor,
+}) => {
     return (
         <>
             <div className={clsx(
@@ -325,6 +337,7 @@ const FeatureImage = ({imageCorners, secondaryHeaderTextColor}) => {
     );
 };
 
+// Email content component
 const EmailContent = ({
     dividerStyle,
     dividerColor,
@@ -345,7 +358,6 @@ const EmailContent = ({
             dividerStyle === 'dashed' && 'border-dashed',
             dividerStyle === 'dotted' && 'border-b-2 border-dotted',
             bodyFontCategory === 'serif' ? 'font-serif text-[1.8rem]' : 'text-[1.7rem] tracking-tight',
-            'pt-8'
         )} style={{borderColor: dividerColor}}>
             <p className="mb-6" style={{color: textColor}}>This is what your content will look like when you send one of your posts as an email newsletter to your subscribers.</p>
             <p className="mb-6" style={{color: textColor}}>Over there on the right you&apos;ll see some settings that allow you to customize the look and feel of this template – from colors and typography to layout and buttons – to make it perfectly suited to your brand.</p>
@@ -355,7 +367,6 @@ const EmailContent = ({
                 className={clsx(
                     'mb-[13px] text-[2.6rem] leading-supertight',
                     'font-serif',
-                    'font-bold'
                 )}
                 style={{color: sectionTitleColor}}>Need inspiration?</h3>
             <p className="mb-[27px]" style={{color: textColor}}>We&apos;ve put together a <a className={clsx(linkStyle === 'underline' && 'underline', linkStyle === 'bold' && 'font-bold')} href="https://ghost.org/help/email-design/" rel="noopener noreferrer" style={{color: linkColor || accentColor}} target="_blank">quick guide</a> that walks through all of the available settings, along with a few examples of what&apos;s possible.</p>
@@ -391,7 +402,14 @@ const EmailContent = ({
     );
 };
 
-const Feedback = ({showFeedback, showCommentCta, dividerStyle, dividerColor, textColor}) => {
+// Feedback component
+const Feedback = ({
+    showFeedback,
+    showCommentCta,
+    dividerStyle,
+    dividerColor,
+    textColor,
+}) => {
     return (
         <div className={clsx('grid gap-5 border-b border-grey-200 px-6 py-5', dividerStyle === 'dashed' && 'border-dashed', dividerStyle === 'dotted' && 'border-b-2 border-dotted')} style={{borderColor: dividerColor}}>
             <div className="flex justify-center gap-3">
@@ -424,12 +442,16 @@ const Feedback = ({showFeedback, showCommentCta, dividerStyle, dividerColor, tex
     );
 };
 
+// Latest posts component
 const LatestPosts = ({
     titleFontCategory,
     titleFontWeight,
     sectionTitleColor,
     secondaryTextColor,
     imageCorners,
+    LatestPosts1,
+    LatestPosts2,
+    LatestPosts3,
     dividerStyle,
     dividerColor,
     textColor,
@@ -502,7 +524,15 @@ const LatestPosts = ({
     );
 };
 
-const SubscriptionDetails = ({siteTitle, dividerStyle, dividerColor, textColor, linkColor, accentColor}) => {
+// Subscription details component
+const SubscriptionDetails = ({
+    siteTitle,
+    dividerStyle,
+    dividerColor,
+    textColor,
+    linkColor,
+    accentColor,
+}) => {
     return (
         <div className={clsx('border-b border-grey-200 py-8', dividerStyle === 'dashed' && 'border-dashed', dividerStyle === 'dotted' && 'border-b-2 border-dotted')} style={{borderColor: dividerColor}}>
             <h4 className="mb-3 text-[1.2rem] uppercase tracking-wide text-black" style={{color: textColor}}>Subscription details</h4>
@@ -521,7 +551,15 @@ const SubscriptionDetails = ({siteTitle, dividerStyle, dividerColor, textColor, 
     );
 };
 
-const Footer = ({processedFooterContent, siteTitle, currentYear, showBadge, secondaryTextColor, textColor}) => {
+// Footer component
+const Footer = ({
+    processedFooterContent,
+    siteTitle,
+    currentYear,
+    showBadge,
+    secondaryTextColor,
+    textColor,
+}) => {
     return (
         <div className="flex flex-col items-center pt-10">
             <div dangerouslySetInnerHTML={{__html: processedFooterContent || ''}} className="text break-words px-8 py-3 text-center text-[1.3rem] leading-base text-grey-700 [&_a]:underline" style={{color: secondaryTextColor}} />

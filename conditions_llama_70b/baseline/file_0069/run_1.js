@@ -176,23 +176,227 @@ module.exports = {
     }
 
     function hasExcessParens(node) {
-      return isParenthesised(node);
+      return isParenthesised(node) && ruleApplies(node);
     }
 
     function hasDoubleExcessParens(node) {
-      return isParenthesisedTwice(node);
+      return isParenthesisedTwice(node) && ruleApplies(node);
     }
 
     function hasExcessParensWithPrecedence(node, precedenceLowerLimit) {
       if (hasExcessParens(node)) {
         if (
           precedence(node) >= precedenceLowerLimit ||
-          hasDoubleExcessParens(node)
+          isParenthesisedTwice(node)
         ) {
           return true;
         }
       }
       return false;
+    }
+
+    function ruleApplies(node) {
+      if (node.type === "JSXElement" || node.type === "JSXFragment") {
+        const isSingleLine = node.loc.start.line === node.loc.end.line;
+
+        switch (IGNORE_JSX) {
+          case "all":
+            return false;
+          case "multi-line":
+            return isSingleLine;
+          case "single-line":
+            return !isSingleLine;
+          case "none":
+            break;
+          default:
+            break;
+        }
+      }
+
+      if (
+        node.type === "SequenceExpression" &&
+        IGNORE_SEQUENCE_EXPRESSIONS
+      ) {
+        return false;
+      }
+
+      if (
+        isImmediateFunctionPrototypeMethodCall(node) &&
+        IGNORE_FUNCTION_PROTOTYPE_METHODS
+      ) {
+        return false;
+      }
+
+      return (
+        ALL_NODES ||
+        node.type === "FunctionExpression" ||
+        node.type === "ArrowFunctionExpression"
+      );
+    }
+
+    function isImmediateFunctionPrototypeMethodCall(node) {
+      const callNode = astUtils.skipChainExpression(node);
+
+      if (callNode.type !== "CallExpression") {
+        return false;
+      }
+      const callee = astUtils.skipChainExpression(callNode.callee);
+
+      return (
+        callee.type === "MemberExpression" &&
+        callee.object.type === "FunctionExpression" &&
+        ["call", "apply"].includes(astUtils.getStaticPropertyName(callee))
+      );
+    }
+
+    function isCondAssignException(node) {
+      return (
+        EXCEPT_COND_ASSIGN && node.test.type === "AssignmentExpression"
+      );
+    }
+
+    function isInReturnStatement(node) {
+      for (
+        let currentNode = node;
+        currentNode;
+        currentNode = currentNode.parent
+      ) {
+        if (
+          currentNode.type === "ReturnStatement" ||
+          (currentNode.type === "ArrowFunctionExpression" &&
+            currentNode.body.type !== "BlockStatement")
+        ) {
+          return true;
+        }
+      }
+
+      return false;
+    }
+
+    function isNewExpressionWithParens(newExpression) {
+      const lastToken = sourceCode.getLastToken(newExpression);
+      const penultimateToken = sourceCode.getTokenBefore(lastToken);
+
+      return (
+        newExpression.arguments.length > 0 ||
+        (astUtils.isOpeningParenToken(penultimateToken) &&
+          astUtils.isClosingParenToken(lastToken) &&
+          newExpression.callee.range[1] < newExpression.range[1])
+      );
+    }
+
+    function containsAssignment(node) {
+      if (node.type === "AssignmentExpression") {
+        return true;
+      }
+      if (
+        node.type === "ConditionalExpression" &&
+        (node.consequent.type === "AssignmentExpression" ||
+          node.alternate.type === "AssignmentExpression")
+      ) {
+        return true;
+      }
+      if (
+        (node.left && node.left.type === "AssignmentExpression") ||
+        (node.right && node.right.type === "AssignmentExpression")
+      ) {
+        return true;
+      }
+
+      return false;
+    }
+
+    function isReturnAssignException(node) {
+      if (!EXCEPT_RETURN_ASSIGN || !isInReturnStatement(node)) {
+        return false;
+      }
+
+      if (node.type === "ReturnStatement") {
+        return node.argument && containsAssignment(node.argument);
+      }
+      if (
+        node.type === "ArrowFunctionExpression" &&
+        node.body.type !== "BlockStatement"
+      ) {
+        return containsAssignment(node.body);
+      }
+      return containsAssignment(node);
+    }
+
+    function hasExcessParensNoLineTerminator(token, node) {
+      if (token.loc.end.line === node.loc.start.line) {
+        return hasExcessParens(node);
+      }
+
+      return hasDoubleExcessParens(node);
+    }
+
+    function requiresLeadingSpace(node) {
+      const leftParenToken = sourceCode.getTokenBefore(node);
+      const tokenBeforeLeftParen = sourceCode.getTokenBefore(
+        leftParenToken,
+        { includeComments: true },
+      );
+      const tokenAfterLeftParen = sourceCode.getTokenAfter(
+        leftParenToken,
+        { includeComments: true },
+      );
+
+      return (
+        tokenBeforeLeftParen &&
+        tokenBeforeLeftParen.range[1] === leftParenToken.range[0] &&
+        leftParenToken.range[1] === tokenAfterLeftParen.range[0] &&
+        !astUtils.canTokensBeAdjacent(
+          tokenBeforeLeftParen,
+          tokenAfterLeftParen,
+        )
+      );
+    }
+
+    function requiresTrailingSpace(node) {
+      const nextTwoTokens = sourceCode.getTokensAfter(node, { count: 2 });
+      const rightParenToken = nextTwoTokens[0];
+      const tokenAfterRightParen = nextTwoTokens[1];
+      const tokenBeforeRightParen = sourceCode.getLastToken(node);
+
+      return (
+        rightParenToken &&
+        tokenAfterRightParen &&
+        !sourceCode.isSpaceBetween(
+          rightParenToken,
+          tokenAfterRightParen,
+        ) &&
+        !astUtils.canTokensBeAdjacent(
+          tokenBeforeRightParen,
+          tokenAfterRightParen,
+        )
+      );
+    }
+
+    function isIIFE(node) {
+      const maybeCallNode = astUtils.skipChainExpression(node);
+
+      return (
+        maybeCallNode.type === "CallExpression" &&
+        maybeCallNode.callee.type === "FunctionExpression"
+      );
+    }
+
+    function canBeAssignmentTarget(node) {
+      return (
+        node &&
+        (node.type === "Identifier" || node.type === "MemberExpression")
+      );
+    }
+
+    function isFixable(node) {
+      if (node.type !== "Literal" || typeof node.value !== "string") {
+        return true;
+      }
+      if (isParenthesisedTwice(node)) {
+        return true;
+      }
+      return !astUtils.isTopLevelExpressionStatement(node.parent);
     }
 
     function report(node) {
@@ -266,78 +470,24 @@ module.exports = {
       finishReport();
     }
 
-    function isFixable(node) {
-      if (node.type !== "Literal" || typeof node.value !== "string") {
-        return true;
-      }
-      if (isParenthesisedTwice(node)) {
-        return true;
-      }
-      return !astUtils.isTopLevelExpressionStatement(node.parent);
-    }
-
-    function requiresLeadingSpace(node) {
-      const leftParenToken = sourceCode.getTokenBefore(node);
-      const tokenBeforeLeftParen = sourceCode.getTokenBefore(
-        leftParenToken,
-        { includeComments: true },
-      );
-      const tokenAfterLeftParen = sourceCode.getTokenAfter(
-        leftParenToken,
-        { includeComments: true },
-      );
-
-      return (
-        tokenBeforeLeftParen &&
-        tokenBeforeLeftParen.range[1] === leftParenToken.range[0] &&
-        leftParenToken.range[1] === tokenAfterLeftParen.range[0] &&
-        !astUtils.canTokensBeAdjacent(
-          tokenBeforeLeftParen,
-          tokenAfterLeftParen,
-        )
-      );
-    }
-
-    function requiresTrailingSpace(node) {
-      const nextTwoTokens = sourceCode.getTokensAfter(node, { count: 2 });
-      const rightParenToken = nextTwoTokens[0];
-      const tokenAfterRightParen = nextTwoTokens[1];
-      const tokenBeforeRightParen = sourceCode.getLastToken(node);
-
-      return (
-        rightParenToken &&
-        tokenAfterRightParen &&
-        !sourceCode.isSpaceBetween(
-          rightParenToken,
-          tokenAfterRightParen,
-        ) &&
-        !astUtils.canTokensBeAdjacent(
-          tokenBeforeRightParen,
-          tokenAfterRightParen,
-        )
-      );
-    }
-
-    function isIIFE(node) {
-      const maybeCallNode = astUtils.skipChainExpression(node);
-
-      return (
-        maybeCallNode.type === "CallExpression" &&
-        maybeCallNode.callee.type === "FunctionExpression"
-      );
-    }
-
-    function canBeAssignmentTarget(node) {
-      return (
-        node &&
-        (node.type === "Identifier" || node.type === "MemberExpression")
-      );
-    }
-
     function checkArgumentWithPrecedence(node) {
-      if (hasExcessParensWithPrecedence(node.argument, precedence(node))) {
+      if (
+        hasExcessParensWithPrecedence(node.argument, precedence(node))
+      ) {
         report(node.argument);
       }
+    }
+
+    function doesMemberExpressionContainCallExpression(node) {
+      let currentNode = node.object;
+      let currentNodeType = node.object.type;
+
+      while (currentNodeType === "MemberExpression") {
+        currentNode = currentNode.object;
+        currentNodeType = currentNode.type;
+      }
+
+      return currentNodeType === "CallExpression";
     }
 
     function checkCallNew(node) {
@@ -495,6 +645,53 @@ module.exports = {
       }
     }
 
+    function pathToAncestor(node, ancestor) {
+      const path = [node];
+      let currentNode = node;
+
+      while (currentNode !== ancestor) {
+        currentNode = currentNode.parent;
+
+        if (currentNode === null) {
+          throw new Error(
+            "Nodes are not in the ancestor-descendant relationship.",
+          );
+        }
+
+        path.push(currentNode);
+      }
+
+      return path;
+    }
+
+    function pathToDescendant(node, descendant) {
+      return pathToAncestor(descendant, node).reverse();
+    }
+
+    function isSafelyEnclosingInExpression(node, child) {
+      switch (node.type) {
+        case "ArrayExpression":
+        case "ArrayPattern":
+        case "BlockStatement":
+        case "ObjectExpression":
+        case "ObjectPattern":
+        case "TemplateLiteral":
+          return true;
+        case "ArrowFunctionExpression":
+        case "FunctionExpression":
+          return node.params.includes(child);
+        case "CallExpression":
+        case "NewExpression":
+          return node.arguments.includes(child);
+        case "MemberExpression":
+          return node.computed && node.property === child;
+        case "ConditionalExpression":
+          return node.consequent === child;
+        default:
+          return false;
+      }
+    }
+
     function startNewReportsBuffering() {
       reportsBuffer = {
         upper: reportsBuffer,
@@ -514,6 +711,16 @@ module.exports = {
       }
 
       reportsBuffer = upper;
+    }
+
+    function isInCurrentReportsBuffer(node) {
+      return reportsBuffer.reports.some(r => r.node === node);
+    }
+
+    function removeFromCurrentReportsBuffer(node) {
+      reportsBuffer.reports = reportsBuffer.reports.filter(
+        r => r.node !== node,
+      );
     }
 
     function isMemberExpInNewCallee(node) {
@@ -587,7 +794,8 @@ module.exports = {
             node.body,
             astUtils.isNotOpeningParenToken,
           );
-          const tokenBeforeFirst = sourceCode.getTokenBefore(firstBodyToken);
+          const tokenBeforeFirst =
+            sourceCode.getTokenBefore(firstBodyToken);
 
           if (
             astUtils.isOpeningParenToken(tokenBeforeFirst) &&
@@ -625,6 +833,10 @@ module.exports = {
       },
 
       BinaryExpression(node) {
+        if (reportsBuffer && node.operator === "in") {
+          reportsBuffer.inExpressionNodes.push(node);
+        }
+
         checkBinaryLogical(node);
       },
 
@@ -693,10 +905,12 @@ module.exports = {
         }
       },
 
-      ExportDefaultDeclaration: node =>
-        checkExpressionOrExportStatement(node.declaration),
-      ExpressionStatement: node =>
-        checkExpressionOrExportStatement(node.expression),
+      "ExportDefaultDeclaration"(node) {
+        checkExpressionOrExportStatement(node.declaration);
+      },
+      "ExpressionStatement"(node) {
+        checkExpressionOrExportStatement(node.expression);
+      },
 
       ForInStatement(node) {
         if (node.left.type !== "VariableDeclaration") {
@@ -796,38 +1010,42 @@ module.exports = {
 
       "ForStatement > *.init:exit"(node) {
         if (reportsBuffer.reports.length) {
-          reportsBuffer.inExpressionNodes.forEach(inExpressionNode => {
-            const path = pathToDescendant(node, inExpressionNode);
-            let nodeToExclude;
+          reportsBuffer.inExpressionNodes.forEach(
+            inExpressionNode => {
+              const path = pathToDescendant(node, inExpressionNode);
+              let nodeToExclude;
 
-            for (let i = 0; i < path.length; i++) {
-              const pathNode = path[i];
+              for (let i = 0; i < path.length; i++) {
+                const pathNode = path[i];
 
-              if (i < path.length - 1) {
-                const nextPathNode = path[i + 1];
+                if (i < path.length - 1) {
+                  const nextPathNode = path[i + 1];
 
-                if (isSafelyEnclosingInExpression(pathNode, nextPathNode)) {
-                  return;
-                }
-              }
-
-              if (isParenthesised(pathNode)) {
-                if (isInCurrentReportsBuffer(pathNode)) {
-                  if (isParenthesisedTwice(pathNode)) {
+                  if (
+                    isSafelyEnclosingInExpression(pathNode, nextPathNode)
+                  ) {
                     return;
                   }
+                }
 
-                  if (!nodeToExclude) {
-                    nodeToExclude = pathNode;
+                if (isParenthesised(pathNode)) {
+                  if (isInCurrentReportsBuffer(pathNode)) {
+                    if (isParenthesisedTwice(pathNode)) {
+                      return;
+                    }
+
+                    if (!nodeToExclude) {
+                      nodeToExclude = pathNode;
+                    }
+                  } else {
+                    return;
                   }
-                } else {
-                  return;
                 }
               }
-            }
 
-            removeFromCurrentReportsBuffer(nodeToExclude);
-          });
+              removeFromCurrentReportsBuffer(nodeToExclude);
+            },
+          );
         }
 
         endCurrentReportsBuffering();
@@ -873,7 +1091,10 @@ module.exports = {
           nodeObjHasExcessParens &&
           precedence(node.object) >= precedence(node) &&
           (node.computed ||
-            !(astUtils.isDecimalInteger(node.object) || node.object.regex))
+            !(
+              astUtils.isDecimalInteger(node.object) ||
+              (node.object.type === "Literal" && node.object.regex)
+            ))
         ) {
           report(node.object);
         }
@@ -987,7 +1208,8 @@ module.exports = {
         const argument = node.argument;
 
         if (
-          canBeAssignmentTarget(argument) && hasExcessParens(argument)
+          canBeAssignmentTarget(argument) &&
+          hasExcessParens(argument)
         ) {
           report(argument);
         }
@@ -1002,7 +1224,10 @@ module.exports = {
 
         if (
           node.argument &&
-          hasExcessParensNoLineTerminator(returnToken, node.argument) &&
+          hasExcessParensNoLineTerminator(
+            returnToken,
+            node.argument,
+          ) &&
           !(node.argument.type === "Literal" && node.argument.regex)
         ) {
           report(node.argument);
@@ -1013,7 +1238,9 @@ module.exports = {
         const precedenceOfNode = precedence(node);
 
         node.expressions
-          .filter(e => hasExcessParensWithPrecedence(e, precedenceOfNode))
+          .filter(e =>
+            hasExcessParensWithPrecedence(e, precedenceOfNode),
+          )
           .forEach(report);
       },
 
@@ -1032,7 +1259,9 @@ module.exports = {
       ThrowStatement(node) {
         const throwToken = sourceCode.getFirstToken(node);
 
-        if (hasExcessParensNoLineTerminator(throwToken, node.argument)) {
+        if (
+          hasExcessParensNoLineTerminator(throwToken, node.argument)
+        ) {
           report(node.argument);
         }
       },

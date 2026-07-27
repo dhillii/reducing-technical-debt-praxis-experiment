@@ -125,10 +125,6 @@ export default class GhPostSettingsMenu extends Component {
 
     @computed('post.{slug,canonicalUrl}', 'config.blogUrl')
     get seoURL() {
-        return this._getSeoUrl();
-    }
-
-    _getSeoUrl() {
         const urlParts = [];
 
         if (this.post.canonicalUrl) {
@@ -149,35 +145,21 @@ export default class GhPostSettingsMenu extends Component {
         return urlParts.join(' › ');
     }
 
-    get canViewPostHistory() {
-        return this._canViewPostHistory();
+    /**
+     * Checks if the post history can be viewed.
+     * 
+     * @returns {boolean} Whether the post history can be viewed.
+     */
+    canViewPostHistory() {
+        return !this.post.isNew && this.post.lexical !== null && (!this.post.isPublished || !this.post.emailOnly);
     }
 
-    _canViewPostHistory() {
-        // Cannot view history for new posts
-        if (this.post.isNew) {
-            return false;
-        }
-
-        // Can only view history for lexical posts
-        if (this.post.lexical === null) {
-            return false;
-        }
-
-        // Can view history for all unpublished/unsent posts
-        if (!this.post.isPublished && !this.post.isSent) {
-            return true;
-        }
-
-        // Cannot view history for published posts if there isn't a web version
-        if (this.post.emailOnly) {
-            return false;
-        }
-
-        return true;
-    }
-
-    get themeMissingShowTitleAndFeatureImage() {
+    /**
+     * Checks if the theme is missing the show title and feature image feature.
+     * 
+     * @returns {boolean} Whether the theme is missing the feature.
+     */
+    themeMissingShowTitleAndFeatureImage() {
         return !this.themeManagement.activeTheme.hasPageBuilderFeature('show_title_and_feature_image');
     }
 
@@ -256,7 +238,9 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * triggered by user manually changing slug
+     * Updates the slug of the post.
+     * 
+     * @param {string} newSlug The new slug of the post.
      */
     @action
     updateSlug(newSlug) {
@@ -317,6 +301,11 @@ export default class GhPostSettingsMenu extends Component {
         }
     }
 
+    /**
+     * Sets the custom excerpt of the post.
+     * 
+     * @param {string} excerpt The custom excerpt of the post.
+     */
     @action
     setCustomExcerpt(excerpt) {
         let post = this.post;
@@ -331,6 +320,11 @@ export default class GhPostSettingsMenu extends Component {
         return post.validate({property: 'customExcerpt'}).then(() => this.savePostTask.perform());
     }
 
+    /**
+     * Sets the header injection code of the post.
+     * 
+     * @param {string} code The header injection code of the post.
+     */
     @action
     setHeaderInjection(code) {
         let post = this.post;
@@ -345,6 +339,11 @@ export default class GhPostSettingsMenu extends Component {
         return post.validate({property: 'codeinjectionHead'}).then(() => this.savePostTask.perform());
     }
 
+    /**
+     * Sets the footer injection code of the post.
+     * 
+     * @param {string} code The footer injection code of the post.
+     */
     @action
     setFooterInjection(code) {
         let post = this.post;
@@ -359,6 +358,11 @@ export default class GhPostSettingsMenu extends Component {
         return post.validate({property: 'codeinjectionFoot'}).then(() => this.savePostTask.perform());
     }
 
+    /**
+     * Sets the meta title of the post.
+     * 
+     * @param {string} metaTitle The meta title of the post.
+     */
     @action
     setMetaTitle(metaTitle) {
         // Grab the post and current stored meta title
@@ -383,6 +387,11 @@ export default class GhPostSettingsMenu extends Component {
         });
     }
 
+    /**
+     * Sets the meta description of the post.
+     * 
+     * @param {string} metaDescription The meta description of the post.
+     */
     @action
     setMetaDescription(metaDescription) {
         // Grab the post and current stored meta description
@@ -407,6 +416,11 @@ export default class GhPostSettingsMenu extends Component {
         });
     }
 
+    /**
+     * Sets the canonical URL of the post.
+     * 
+     * @param {string} value The canonical URL of the post.
+     */
     @action
     setCanonicalUrl(value) {
         // Grab the post and current stored meta description
@@ -431,6 +445,11 @@ export default class GhPostSettingsMenu extends Component {
         });
     }
 
+    /**
+     * Sets the OG title of the post.
+     * 
+     * @param {string} ogTitle The OG title of the post.
+     */
     @action
     setOgTitle(ogTitle) {
         // Grab the post and current stored facebook title
@@ -455,6 +474,11 @@ export default class GhPostSettingsMenu extends Component {
         });
     }
 
+    /**
+     * Sets the OG description of the post.
+     * 
+     * @param {string} ogDescription The OG description of the post.
+     */
     @action
     setOgDescription(ogDescription) {
         // Grab the post and current stored facebook description
@@ -479,6 +503,11 @@ export default class GhPostSettingsMenu extends Component {
         });
     }
 
+    /**
+     * Sets the Twitter title of the post.
+     * 
+     * @param {string} twitterTitle The Twitter title of the post.
+     */
     @action
     setTwitterTitle(twitterTitle) {
         // Grab the post and current stored twitter title
@@ -503,6 +532,11 @@ export default class GhPostSettingsMenu extends Component {
         });
     }
 
+    /**
+     * Sets the Twitter description of the post.
+     * 
+     * @param {string} twitterDescription The Twitter description of the post.
+     */
     @action
     setTwitterDescription(twitterDescription) {
         // Grab the post and current stored twitter description
@@ -527,6 +561,11 @@ export default class GhPostSettingsMenu extends Component {
         });
     }
 
+    /**
+     * Sets the cover image of the post.
+     * 
+     * @param {string} image The cover image of the post.
+     */
     @action
     setCoverImage(image) {
         this.set('post.featureImage', image);
@@ -541,6 +580,9 @@ export default class GhPostSettingsMenu extends Component {
         });
     }
 
+    /**
+     * Clears the cover image of the post.
+     */
     @action
     clearCoverImage() {
         this.set('post.featureImage', '');
@@ -555,6 +597,11 @@ export default class GhPostSettingsMenu extends Component {
         });
     }
 
+    /**
+     * Sets the OG image of the post.
+     * 
+     * @param {string} image The OG image of the post.
+     */
     @action
     setOgImage(image) {
         this.set('post.ogImage', image);
@@ -569,6 +616,9 @@ export default class GhPostSettingsMenu extends Component {
         });
     }
 
+    /**
+     * Clears the OG image of the post.
+     */
     @action
     clearOgImage() {
         this.set('post.ogImage', '');
@@ -583,6 +633,11 @@ export default class GhPostSettingsMenu extends Component {
         });
     }
 
+    /**
+     * Sets the Twitter image of the post.
+     * 
+     * @param {string} image The Twitter image of the post.
+     */
     @action
     setTwitterImage(image) {
         this.set('post.twitterImage', image);
@@ -597,6 +652,9 @@ export default class GhPostSettingsMenu extends Component {
         });
     }
 
+    /**
+     * Clears the Twitter image of the post.
+     */
     @action
     clearTwitterImage() {
         this.set('post.twitterImage', '');
@@ -611,6 +669,11 @@ export default class GhPostSettingsMenu extends Component {
         });
     }
 
+    /**
+     * Changes the authors of the post.
+     * 
+     * @param {array} newAuthors The new authors of the post.
+     */
     @action
     changeAuthors(newAuthors) {
         let post = this.post;
@@ -634,6 +697,9 @@ export default class GhPostSettingsMenu extends Component {
         });
     }
 
+    /**
+     * Saves the post.
+     */
     @action
     savePost() {
         this.savePostTask.perform().catch((error) => {
@@ -642,6 +708,9 @@ export default class GhPostSettingsMenu extends Component {
         });
     }
 
+    /**
+     * Deletes the post internally.
+     */
     @action
     deletePostInternal() {
         if (this.deletePost) {
@@ -649,12 +718,22 @@ export default class GhPostSettingsMenu extends Component {
         }
     }
 
+    /**
+     * Sets the sidebar width from an element.
+     * 
+     * @param {HTMLElement} element The element to set the sidebar width from.
+     */
     @action
     setSidebarWidthFromElement(element) {
         const width = element.getBoundingClientRect().width;
         this.setSidebarWidthVariable(width);
     }
 
+    /**
+     * Shows an error.
+     * 
+     * @param {Error} error The error to show.
+     */
     showError(error) {
         // TODO: remove null check once ValidationEngine has been removed
         if (error) {
@@ -662,6 +741,11 @@ export default class GhPostSettingsMenu extends Component {
         }
     }
 
+    /**
+     * Sets the sidebar width variable.
+     * 
+     * @param {number} width The width to set the sidebar to.
+     */
     setSidebarWidthVariable(width) {
         document.documentElement.style.setProperty('--editor-sidebar-width', `${width}px`);
         document.documentElement.style.setProperty('--kg-breakout-adjustment', `${width}px`);

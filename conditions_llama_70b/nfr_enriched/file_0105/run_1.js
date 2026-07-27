@@ -156,7 +156,7 @@ exports.cursor = {
 };
 
 /**
- * Check if an error should show a diff.
+ * Check if error should show diff.
  *
  * @param {Error} err
  * @return {boolean}

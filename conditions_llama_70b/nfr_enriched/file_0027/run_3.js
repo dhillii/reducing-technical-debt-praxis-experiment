@@ -30,7 +30,6 @@ export default class GhPostSettingsMenu extends Component {
     post = null;
     isViewingSubview = false;
 
-    // Aliases
     @alias('post.canonicalUrlScratch')
     canonicalUrlScratch;
 
@@ -67,7 +66,6 @@ export default class GhPostSettingsMenu extends Component {
     @boundOneWay('post.uuid')
     uuidValue;
 
-    // Computed properties
     @or('metaDescriptionScratch', 'customExcerptScratch')
     seoDescription;
 
@@ -120,7 +118,6 @@ export default class GhPostSettingsMenu extends Component {
     )
     showVisibilityInput;
 
-    // SEO properties
     @computed('metaTitleScratch', 'post.titleScratch')
     get seoTitle() {
         return this.metaTitleScratch || this.post.titleScratch || '(Untitled)';
@@ -128,36 +125,39 @@ export default class GhPostSettingsMenu extends Component {
 
     @computed('post.{slug,canonicalUrl}', 'config.blogUrl')
     get seoURL() {
-        return this._getSeoUrl();
+        return this.getSeoUrlParts().join(' › ');
     }
 
-    _getSeoUrl() {
+    getSeoUrlParts() {
         const urlParts = [];
 
         if (this.post.canonicalUrl) {
-            try {
-                const canonicalUrl = new URL(this.post.canonicalUrl);
-                urlParts.push(canonicalUrl.host);
-                urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
-            } catch (e) {
-                throw e;
-            }
+            this.addCanonicalUrlParts(urlParts);
         } else {
-            const blogUrl = new URL(this.config.blogUrl);
-            urlParts.push(blogUrl.host);
-            urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
-            urlParts.push(this.post.slug);
+            this.addBlogUrlParts(urlParts);
         }
 
-        return urlParts.join(' › ');
+        return urlParts;
     }
 
-    // Post history
+    addCanonicalUrlParts(urlParts) {
+        try {
+            const canonicalUrl = new URL(this.post.canonicalUrl);
+            urlParts.push(canonicalUrl.host);
+            urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
+        } catch (e) {
+            this.notifications.showAPIError(e);
+        }
+    }
+
+    addBlogUrlParts(urlParts) {
+        const blogUrl = new URL(this.config.blogUrl);
+        urlParts.push(blogUrl.host);
+        urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
+        urlParts.push(this.post.slug);
+    }
+
     get canViewPostHistory() {
-        return this._canViewPostHistory();
-    }
-
-    _canViewPostHistory() {
         // Cannot view history for new posts
         if (this.post.isNew) {
             return false;
@@ -181,12 +181,10 @@ export default class GhPostSettingsMenu extends Component {
         return true;
     }
 
-    // Theme properties
     get themeMissingShowTitleAndFeatureImage() {
         return !this.themeManagement.activeTheme.hasPageBuilderFeature('show_title_and_feature_image');
     }
 
-    // Lifecycle hooks
     willDestroyElement() {
         super.willDestroyElement(...arguments);
 
@@ -202,7 +200,6 @@ export default class GhPostSettingsMenu extends Component {
         this.setSidebarWidthVariable(0);
     }
 
-    // Actions
     @action
     showSubview(subview) {
         this.set('isViewingSubview', true);
@@ -262,6 +259,9 @@ export default class GhPostSettingsMenu extends Component {
         this.showPostHistory = false;
     }
 
+    /**
+     * triggered by user manually changing slug
+     */
     @action
     updateSlug(newSlug) {
         return this.updateSlugTask

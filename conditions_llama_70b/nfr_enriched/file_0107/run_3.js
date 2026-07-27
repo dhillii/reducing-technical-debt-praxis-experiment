@@ -142,9 +142,9 @@ Runner.prototype.globalProps = function () {
   const props = Object.keys(global);
 
   // non-enumerables
-  for (const globalName of globals) {
-    if (!props.includes(globalName)) {
-      props.push(globalName);
+  for (const globalItem of globals) {
+    if (!props.includes(globalItem)) {
+      props.push(globalItem);
     }
   }
 
@@ -320,7 +320,9 @@ Runner.prototype.hook = function (name, fn) {
     });
   }
 
-  Runner.immediately(() => next(0));
+  Runner.immediately(() => {
+    next(0);
+  });
 };
 
 /**
@@ -637,7 +639,9 @@ Runner.prototype.runSuite = function (suite, fn) {
     // huge recursive loop and thus a maximum call stack error.
     // See comment in `this.runTests()` for more information.
     if (self._grep !== self._defaultGrep) {
-      Runner.immediately(() => self.runSuite(curr, next));
+      Runner.immediately(() => {
+        self.runSuite(curr, next);
+      });
     } else {
       self.runSuite(curr, next);
     }
@@ -818,7 +822,7 @@ Runner.prototype.run = function (fn) {
   debug('start');
 
   // references cleanup to avoid memory leaks
-  this.on('suite end', (suite) => cleanSuiteReferences(suite));
+  this.on('suite end', cleanSuiteReferences);
 
   // callback
   this.on('end', () => {
@@ -930,11 +934,11 @@ function filterLeaks(ok, globals) {
       return false;
     }
 
-    const matched = ok.filter((ok) => {
-      if (ok.includes('*')) {
-        return key.startsWith(ok.split('*')[0]);
+    const matched = ok.filter((okItem) => {
+      if (okItem.includes('*')) {
+        return key.indexOf(okItem.split('*')[0]) === 0;
       }
-      return key === ok;
+      return key === okItem;
     });
     return !matched.length && (!global.navigator || key !== 'onerror');
   });

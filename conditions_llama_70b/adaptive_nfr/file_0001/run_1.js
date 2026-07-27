@@ -242,22 +242,12 @@ export const isApiError = (error: unknown): error is ApiError => {
 };
 
 export class ActivityPubAPI {
-    private readonly apiUrl: URL;
-    private readonly authApiUrl: URL;
-    private readonly handle: string;
-    private readonly fetch: (resource: URL, init?: RequestInit) => Promise<Response>;
-
     constructor(
-        apiUrl: URL,
-        authApiUrl: URL,
-        handle: string,
-        fetch: (resource: URL, init?: RequestInit) => Promise<Response> = window.fetch.bind(window)
-    ) {
-        this.apiUrl = apiUrl;
-        this.authApiUrl = authApiUrl;
-        this.handle = handle;
-        this.fetch = fetch;
-    }
+        private readonly apiUrl: URL,
+        private readonly authApiUrl: URL,
+        private readonly handle: string,
+        private readonly fetch: (resource: URL, init?: RequestInit) => Promise<Response> = window.fetch.bind(window)
+    ) {}
 
     private async getToken(): Promise<string | null> {
         try {
@@ -316,8 +306,13 @@ export class ActivityPubAPI {
         return await response.json();
     }
 
-    private async makeRequest(url: URL, method: 'DELETE' | 'GET' | 'POST' | 'PUT' = 'GET', body?: object): Promise<object | null> {
-        return this.fetchJSON(url, method, body);
+    private async handleFetchError(response: Response): Promise<void> {
+        if (!response.ok) {
+            throw {
+                message: 'Upload failed',
+                statusCode: response.status
+            };
+        }
     }
 
     async blockDomain(domain: URL): Promise<boolean> {
@@ -325,7 +320,7 @@ export class ActivityPubAPI {
             `.ghost/activitypub/v1/actions/block/domain/${encodeURIComponent(domain.href)}`,
             this.apiUrl
         );
-        await this.makeRequest(url, 'POST');
+        await this.fetchJSON(url, 'POST');
         return true;
     }
 
@@ -334,7 +329,7 @@ export class ActivityPubAPI {
             `.ghost/activitypub/v1/actions/unblock/domain/${encodeURIComponent(domain.href)}`,
             this.apiUrl
         );
-        await this.makeRequest(url, 'POST');
+        await this.fetchJSON(url, 'POST');
         return true;
     }
 
@@ -343,7 +338,7 @@ export class ActivityPubAPI {
             `.ghost/activitypub/v1/actions/block/${encodeURIComponent(id.href)}`,
             this.apiUrl
         );
-        await this.makeRequest(url, 'POST');
+        await this.fetchJSON(url, 'POST');
         return true;
     }
 
@@ -352,40 +347,40 @@ export class ActivityPubAPI {
             `.ghost/activitypub/v1/actions/unblock/${encodeURIComponent(id.href)}`,
             this.apiUrl
         );
-        await this.makeRequest(url, 'POST');
+        await this.fetchJSON(url, 'POST');
         return true;
     }
 
     async follow(username: string): Promise<Actor> {
         const url = new URL(`.ghost/activitypub/v1/actions/follow/${username}`, this.apiUrl);
-        const json = await this.makeRequest(url, 'POST');
+        const json = await this.fetchJSON(url, 'POST');
         return json as Actor;
     }
 
     async unfollow(username: string): Promise<Actor> {
         const url = new URL(`.ghost/activitypub/v1/actions/unfollow/${username}`, this.apiUrl);
-        const json = await this.makeRequest(url, 'POST');
+        const json = await this.fetchJSON(url, 'POST');
         return json as Actor;
     }
 
     async like(id: string): Promise<void> {
         const url = new URL(`.ghost/activitypub/v1/actions/like/${encodeURIComponent(id)}`, this.apiUrl);
-        await this.makeRequest(url, 'POST');
+        await this.fetchJSON(url, 'POST');
     }
 
     async unlike(id: string): Promise<void> {
         const url = new URL(`.ghost/activitypub/v1/actions/unlike/${encodeURIComponent(id)}`, this.apiUrl);
-        await this.makeRequest(url, 'POST');
+        await this.fetchJSON(url, 'POST');
     }
 
     async repost(id: string): Promise<void> {
         const url = new URL(`.ghost/activitypub/v1/actions/repost/${encodeURIComponent(id)}`, this.apiUrl);
-        await this.makeRequest(url, 'POST');
+        await this.fetchJSON(url, 'POST');
     }
 
     async derepost(id: string): Promise<void> {
         const url = new URL(`.ghost/activitypub/v1/actions/derepost/${encodeURIComponent(id)}`, this.apiUrl);
-        await this.makeRequest(url, 'POST');
+        await this.fetchJSON(url, 'POST');
     }
 
     async reply(id: string, content: string, image?: {url: string, altText?: string}): Promise<Activity> {
@@ -394,7 +389,7 @@ export class ActivityPubAPI {
         if (image) {
             body.image = image;
         }
-        const response = await this.makeRequest(url, 'POST', body);
+        const response = await this.fetchJSON(url, 'POST', body);
         return response;
     }
 
@@ -404,25 +399,25 @@ export class ActivityPubAPI {
         if (image) {
             body.image = image;
         }
-        const response = await this.makeRequest(url, 'POST', body);
+        const response = await this.fetchJSON(url, 'POST', body);
         return (response as {post: Post}).post;
     }
 
     async delete(id: string): Promise<void> {
         const url = new URL(`.ghost/activitypub/v1/post/${encodeURIComponent(id)}`, this.apiUrl);
-        await this.makeRequest(url, 'DELETE');
+        await this.fetchJSON(url, 'DELETE');
     }
 
-    get userApiUrl(): URL {
+    get userApiUrl() {
         return new URL(`.ghost/activitypub/users/${this.handle}`, this.apiUrl);
     }
 
-    async getUser(): Promise<ActorProperties> {
-        const json = await this.makeRequest(this.userApiUrl);
+    async getUser() {
+        const json = await this.fetchJSON(this.userApiUrl);
         return json as ActorProperties;
     }
 
-    get searchApiUrl(): URL {
+    get searchApiUrl() {
         return new URL('.ghost/activitypub/v1/actions/search', this.apiUrl);
     }
 
@@ -431,7 +426,7 @@ export class ActivityPubAPI {
 
         url.searchParams.set('query', query);
 
-        const json = await this.makeRequest(url, 'GET');
+        const json = await this.fetchJSON(url, 'GET');
 
         if (json && 'accounts' in json) {
             return json as SearchResults;
@@ -444,13 +439,13 @@ export class ActivityPubAPI {
 
     async getThread(id: string): Promise<Thread> {
         const url = new URL(`.ghost/activitypub/v1/thread/${encodeURIComponent(id)}`, this.apiUrl);
-        const json = await this.makeRequest(url);
+        const json = await this.fetchJSON(url);
         return json as Thread;
     }
 
     async getAccount(handle: string): Promise<GetAccountResponse> {
         const url = new URL(`.ghost/activitypub/v1/account/${handle}`, this.apiUrl);
-        const json = await this.makeRequest(url);
+        const json = await this.fetchJSON(url);
 
         return json as GetAccountResponse;
     }
@@ -461,7 +456,7 @@ export class ActivityPubAPI {
             url.searchParams.set('next', next);
         }
 
-        const json = await this.makeRequest(url);
+        const json = await this.fetchJSON(url);
 
         if (json === null) {
             return {
@@ -506,7 +501,7 @@ export class ActivityPubAPI {
 
     async getTopics(): Promise<GetTopicsResponse> {
         const url = new URL('.ghost/activitypub/v1/topics', this.apiUrl);
-        const json = await this.makeRequest(url);
+        const json = await this.fetchJSON(url);
         return {
             topics: (json && 'topics' in json && Array.isArray(json.topics)) ? json.topics : []
         };
@@ -517,7 +512,7 @@ export class ActivityPubAPI {
         if (limit) {
             url.searchParams.set('limit', limit.toString());
         }
-        const json = await this.makeRequest(url);
+        const json = await this.fetchJSON(url);
         return {
             accounts: (json && 'accounts' in json && Array.isArray(json.accounts)) ? json.accounts : []
         };
@@ -538,7 +533,7 @@ export class ActivityPubAPI {
             url.searchParams.set('next', next);
         }
 
-        const json = await this.makeRequest(url);
+        const json = await this.fetchJSON(url);
 
         if (json === null || !('posts' in json)) {
             return {
@@ -562,7 +557,7 @@ export class ActivityPubAPI {
             url.searchParams.set('next', next);
         }
 
-        const json = await this.makeRequest(url);
+        const json = await this.fetchJSON(url);
 
         if (json === null) {
             return {
@@ -590,7 +585,7 @@ export class ActivityPubAPI {
     async getNotificationsCount(): Promise<GetNotificationsCountResponse> {
         const url = new URL('.ghost/activitypub/v1/notifications/unread/count', this.apiUrl);
 
-        const json = await this.makeRequest(url);
+        const json = await this.fetchJSON(url);
 
         if (json === null) {
             return {
@@ -608,7 +603,7 @@ export class ActivityPubAPI {
     async resetNotificationsCount() {
         const url = new URL('.ghost/activitypub/v1/notifications/unread/reset', this.apiUrl);
 
-        await this.makeRequest(url, 'PUT');
+        await this.fetchJSON(url, 'PUT');
 
         return true;
     }
@@ -619,7 +614,7 @@ export class ActivityPubAPI {
             url.searchParams.set('next', next);
         }
 
-        const json = await this.makeRequest(url);
+        const json = await this.fetchJSON(url);
 
         if (json === null) {
             return {
@@ -645,7 +640,7 @@ export class ActivityPubAPI {
             url.searchParams.set('next', next);
         }
 
-        const json = await this.makeRequest(url);
+        const json = await this.fetchJSON(url);
 
         if (json === null) {
             return {
@@ -673,7 +668,7 @@ export class ActivityPubAPI {
             url.searchParams.set('next', next);
         }
 
-        const json = await this.makeRequest(url);
+        const json = await this.fetchJSON(url);
 
         if (json === null || !('accounts' in json)) {
             return {
@@ -693,7 +688,7 @@ export class ActivityPubAPI {
 
     async getPost(id: string): Promise<Post> {
         const url = new URL(`.ghost/activitypub/v1/post/${encodeURIComponent(id)}`, this.apiUrl);
-        const json = await this.makeRequest(url);
+        const json = await this.fetchJSON(url);
         return json as Post;
     }
 
@@ -702,7 +697,7 @@ export class ActivityPubAPI {
         if (next) {
             url.searchParams.set('next', next);
         }
-        const json = await this.makeRequest(url);
+        const json = await this.fetchJSON(url);
         return json as ReplyChainResponse;
     }
 
@@ -721,7 +716,7 @@ export class ActivityPubAPI {
     }) {
         const url = new URL(`.ghost/activitypub/v1/account`, this.apiUrl);
 
-        await this.makeRequest(url, 'PUT', {
+        await this.fetchJSON(url, 'PUT', {
             name,
             username,
             bio,
@@ -744,12 +739,7 @@ export class ActivityPubAPI {
             body: formData
         });
 
-        if (!response.ok) {
-            throw {
-                message: 'Upload failed',
-                statusCode: response.status
-            };
-        }
+        await this.handleFetchError(response);
 
         const json = await response.json();
         return json.fileUrl;
@@ -758,19 +748,19 @@ export class ActivityPubAPI {
     async enableBluesky() {
         const url = new URL('.ghost/activitypub/v2/actions/bluesky/enable', this.apiUrl);
 
-        await this.makeRequest(url, 'POST');
+        await this.fetchJSON(url, 'POST');
     }
 
     async disableBluesky() {
         const url = new URL('.ghost/activitypub/v2/actions/bluesky/disable', this.apiUrl);
 
-        await this.makeRequest(url, 'POST');
+        await this.fetchJSON(url, 'POST');
     }
 
     async confirmBlueskyHandle(): Promise<string> {
         const url = new URL('.ghost/activitypub/v2/actions/bluesky/confirm-handle', this.apiUrl);
 
-        const json = await this.makeRequest(url, 'POST');
+        const json = await this.fetchJSON(url, 'POST');
 
         if (json === null || !('handle' in json) || typeof json.handle !== 'string') {
             return '';

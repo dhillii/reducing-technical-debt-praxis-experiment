@@ -7,8 +7,8 @@ const tpl = require('@tryghost/tpl');
 const errors = require('@tryghost/errors');
 const validator = require('@tryghost/validator');
 const urlUtils = require('../../shared/url-utils');
-const { WRITABLE_KEYS_ALLOWLIST } = require('../../shared/labs');
-const { getOrGenerateSiteUuid } = require('../services/settings/settings-utils');
+const {WRITABLE_KEYS_ALLOWLIST} = require('../../shared/labs');
+const {getOrGenerateSiteUuid} = require('../services/settings/settings-utils');
 
 const messages = {
     valueCannotBeBlank: 'Value in [settings.key] cannot be blank.',
@@ -16,24 +16,31 @@ const messages = {
     notEnoughPermission: 'You do not have permission to perform this action'
 };
 
-const internalContext = { context: { internal: true } };
+const internalContext = {context: {internal: true}};
 let Settings;
 let defaultSettings;
 
-const generateKeyPair = (type) => {
-    let keyPair;
-    return () => {
-        if (!keyPair) {
-            keyPair = keypair({ bits: 1024 });
-        }
-        return keyPair[type];
-    };
-};
+const doBlock = fn => fn();
 
-const getMembersKey = generateKeyPair('public');
-const getMembersPrivateKey = generateKeyPair('private');
-const getGhostKey = generateKeyPair('public');
-const getGhostPrivateKey = generateKeyPair('private');
+const getMembersKey = doBlock(() => {
+    let UNO_KEYPAIRINO;
+    return function getKey(type) {
+        if (!UNO_KEYPAIRINO) {
+            UNO_KEYPAIRINO = keypair({bits: 1024});
+        }
+        return UNO_KEYPAIRINO[type];
+    };
+});
+
+const getGhostKey = doBlock(() => {
+    let UNO_KEYPAIRINO;
+    return function getKey(type) {
+        if (!UNO_KEYPAIRINO) {
+            UNO_KEYPAIRINO = keypair({bits: 1024});
+        }
+        return UNO_KEYPAIRINO[type];
+    };
+});
 
 // For neatness, the defaults file is split into categories.
 // It's much easier for us to work with it as a single level
@@ -47,24 +54,28 @@ function parseDefaultSettings() {
         public_hash: () => crypto.randomBytes(15).toString('hex'),
         admin_session_secret: () => crypto.randomBytes(32).toString('hex'),
         theme_session_secret: () => crypto.randomBytes(32).toString('hex'),
-        members_public_key: getMembersKey,
-        members_private_key: getMembersPrivateKey,
+        members_public_key: () => getMembersKey('public'),
+        members_private_key: () => getMembersKey('private'),
         members_email_auth_secret: () => crypto.randomBytes(64).toString('hex'),
         members_otc_secret: () => crypto.randomBytes(64).toString('hex'),
-        ghost_public_key: getGhostKey,
-        ghost_private_key: getGhostPrivateKey,
-        site_uuid: getOrGenerateSiteUuid,
+        ghost_public_key: () => getGhostKey('public'),
+        ghost_private_key: () => getGhostKey('private'),
+        site_uuid: () => getOrGenerateSiteUuid(),
         indexnow_api_key: () => crypto.randomBytes(16).toString('hex')
     };
 
-    _.each(defaultSettingsInCategories, (settings, categoryName) => {
-        _.each(settings, (setting, settingName) => {
+    _.each(defaultSettingsInCategories, function each(settings, categoryName) {
+        _.each(settings, function eachSetting(setting, settingName) {
             setting.group = categoryName;
             setting.key = settingName;
 
-            setting.getDefaultValue = () => {
+            setting.getDefaultValue = function getDefaultValue() {
                 const getDynamicDefault = dynamicDefault[setting.key];
-                return getDynamicDefault ? getDynamicDefault() : setting.defaultValue;
+                if (getDynamicDefault) {
+                    return getDynamicDefault();
+                } else {
+                    return setting.defaultValue;
+                }
             };
 
             defaultSettingsFlattened[settingName] = setting;
@@ -82,29 +93,10 @@ function getDefaultSettings() {
     return defaultSettings;
 }
 
-function formatBooleanValue(value) {
-    // CASE: Ensure we won't forward strings, otherwise model events or model interactions can fail
-    if (value === '0' || value === '1') {
-        return !!+value;
-    }
-
-    // CASE: Ensure we won't forward strings, otherwise model events or model interactions can fail
-    if (value === 'false' || value === 'true') {
-        return JSON.parse(value);
-    }
-
-    return value;
-}
-
-function transformUrlsToAbsolute(value, key) {
-    if (['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'].includes(key)) {
-        return urlUtils.transformReadyToAbsolute(value);
-    }
-
-    return value;
-}
-
+// Each setting is saved as a separate row in the database,
+// but the overlying API treats them as a single key:value mapping
 Settings = ghostBookshelf.Model.extend({
+
     tableName: 'settings',
 
     actionsCollectCRUD: true,
@@ -152,7 +144,19 @@ Settings = ghostBookshelf.Model.extend({
         const settingType = attrs.type;
 
         if (settingType === 'boolean') {
-            attrs.value = formatBooleanValue(attrs.value);
+            // CASE: Ensure we won't forward strings, otherwise model events or model interactions can fail
+            if (attrs.value === '0' || attrs.value === '1') {
+                attrs.value = !!+attrs.value;
+            }
+
+            // CASE: Ensure we won't forward strings, otherwise model events or model interactions can fail
+            if (attrs.value === 'false' || attrs.value === 'true') {
+                attrs.value = JSON.parse(attrs.value);
+            }
+
+            if (_.isBoolean(attrs.value)) {
+                attrs.value = attrs.value.toString();
+            }
         }
 
         return attrs;
@@ -169,12 +173,21 @@ Settings = ghostBookshelf.Model.extend({
     parse() {
         const attrs = ghostBookshelf.Model.prototype.parse.apply(this, arguments);
 
+        // transform "0" to false for boolean type
         const settingType = attrs.type;
-        if (settingType === 'boolean') {
-            attrs.value = formatBooleanValue(attrs.value);
+        if (settingType === 'boolean' && (attrs.value === '0' || attrs.value === '1')) {
+            attrs.value = !!+attrs.value;
         }
 
-        attrs.value = transformUrlsToAbsolute(attrs.value, attrs.key);
+        // transform "false" to false for boolean type
+        if (settingType === 'boolean' && (attrs.value === 'false' || attrs.value === 'true')) {
+            attrs.value = JSON.parse(attrs.value);
+        }
+
+        // transform URLs from __GHOST_URL__ to absolute
+        if (['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'].includes(attrs.key)) {
+            attrs.value = urlUtils.transformReadyToAbsolute(attrs.value);
+        }
 
         return attrs;
     }
@@ -186,13 +199,13 @@ Settings = ghostBookshelf.Model.extend({
 
         // Allow for just passing the key instead of attributes
         if (!_.isObject(data)) {
-            data = { key: data };
+            data = {key: data};
         }
 
         return Promise.resolve(ghostBookshelf.Model.findOne.call(this, data, options));
     },
 
-    edit: async function (data, unfilteredOptions) {
+    edit: function (data, unfilteredOptions) {
         const options = this.filterOptions(unfilteredOptions, 'edit');
         const self = this;
 
@@ -200,13 +213,13 @@ Settings = ghostBookshelf.Model.extend({
             data = [data];
         }
 
-        const promises = data.map(async (item) => {
+        // Accept an array of models as input
+        const promises = data.map(function (item) {
             if (item.toJSON) {
                 item = item.toJSON();
             }
-
             if (!(_.isString(item.key) && item.key.length > 0)) {
-                return Promise.reject(new errors.ValidationError({ message: tpl(messages.valueCannotBeBlank) }));
+                return Promise.reject(new errors.ValidationError({message: tpl(messages.valueCannotBeBlank)}));
             }
 
             // Ensure that object keys are stringified
@@ -216,34 +229,33 @@ Settings = ghostBookshelf.Model.extend({
 
             item = self.filterData(item);
 
-            const setting = await Settings.forge({ key: item.key }).fetch(options);
+            return Settings.forge({key: item.key}).fetch(options).then(function then(setting) {
+                if (setting) {
+                    // it's allowed to edit all attributes in case of importing/migrating
+                    if (options.importing) {
+                        return setting.save(item, options);
+                    } else {
+                        // If we have a value, set it.
+                        if (Object.prototype.hasOwnProperty.call(item, 'value')) {
+                            setting.set('value', item.value);
+                        }
+                        // Internal context can overwrite type (for fixture migrations)
+                        if (options.context && options.context.internal && Object.prototype.hasOwnProperty.call(item, 'type')) {
+                            setting.set('type', item.type);
+                        }
 
-            if (setting) {
-                // it's allowed to edit all attributes in case of importing/migrating
-                if (options.importing) {
-                    return setting.save(item, options);
-                } else {
-                    // If we have a value, set it.
-                    if (Object.prototype.hasOwnProperty.call(item, 'value')) {
-                        setting.set('value', item.value);
-                    }
-                    // Internal context can overwrite type (for fixture migrations)
-                    if (options.context && options.context.internal && Object.prototype.hasOwnProperty.call(item, 'type')) {
-                        setting.set('type', item.type);
-                    }
+                        // If anything has changed, save the updated model
+                        if (setting.hasChanged()) {
+                            return setting.save(null, options);
+                        }
 
-                    // If anything has changed, save the updated model
-                    if (setting.hasChanged()) {
-                        return setting.save(null, options);
+                        return setting;
                     }
-
-                    return setting;
                 }
-            }
 
-            return Promise.reject(new errors.NotFoundError({ message: tpl(messages.unableToFindSetting, { key: item.key }) }));
+                return Promise.reject(new errors.NotFoundError({message: tpl(messages.unableToFindSetting, {key: item.key})}));
+            });
         });
-
         return Promise.all(promises);
     },
 
@@ -261,11 +273,13 @@ Settings = ghostBookshelf.Model.extend({
 
         const allSettings = await this.findAll(options);
 
-        const usedKeys = allSettings.models.map((setting) => setting.get('key'));
+        const usedKeys = allSettings.models.map(function mapper(setting) {
+            return setting.get('key');
+        });
 
         const settingsToInsert = [];
 
-        _.each(getDefaultSettings(), (defaultSetting, defaultSettingKey) => {
+        _.each(getDefaultSettings(), function forEachDefault(defaultSetting, defaultSettingKey) {
             const isMissingFromDB = usedKeys.indexOf(defaultSettingKey) === -1;
             if (isMissingFromDB) {
                 defaultSetting.value = defaultSetting.getDefaultValue();
@@ -282,12 +296,18 @@ Settings = ghostBookshelf.Model.extend({
             const date = ghostBookshelf.knex.raw('CURRENT_TIMESTAMP');
 
             const settingsDataToInsert = settingsToInsert.map((setting) => {
-                const settingValues = { ...setting, id: ObjectID().toHexString(), created_at: date, updated_at: date };
+                // Use object spread instead of Object.assign
+                const settingValues = {...setting, 
+                    id: ObjectID().toHexString(),
+                    created_at: date,
+                    updated_at: date
+                };
 
                 return _.pick(settingValues, columns);
             });
 
-            await ghostBookshelf.knex.batchInsert('settings', settingsDataToInsert);
+            await ghostBookshelf.knex
+                .batchInsert('settings', settingsDataToInsert);
 
             return self.findAll(options);
         }
@@ -313,7 +333,7 @@ Settings = ghostBookshelf.Model.extend({
             );
 
             if (validationErrors.length) {
-                throw new errors.ValidationError({ message: validationErrors.join('\n') });
+                throw new errors.ValidationError({message: validationErrors.join('\n')});
             }
         },
         async labs(model) {

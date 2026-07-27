@@ -22,12 +22,12 @@ const forkTsCheckerWebpackPlugin = require('./ForkTsCheckerWebpackPlugin');
 const isInteractive = process.stdout.isTTY;
 
 /**
- * Returns an object with URLs for the development server.
+ * Prepares URLs for the development server.
  * @param {string} protocol - The protocol to use (e.g. 'http' or 'https').
  * @param {string} host - The host to use (e.g. 'localhost' or '0.0.0.0').
  * @param {number} port - The port to use.
  * @param {string} [pathname='/'] - The pathname to use.
- * @returns {object} An object with URLs for the development server.
+ * @returns {object} An object with the prepared URLs.
  */
 function prepareUrls(protocol, host, port, pathname = '/') {
   const formatUrl = hostname =>
@@ -46,70 +46,34 @@ function prepareUrls(protocol, host, port, pathname = '/') {
     });
 
   const isUnspecifiedHost = host === '0.0.0.0' || host === '::';
+  let prettyHost, lanUrlForConfig, lanUrlForTerminal;
   if (isUnspecifiedHost) {
-    return getUrlsForUnspecifiedHost(protocol, port, pathname);
-  } else {
-    return getUrlsForSpecifiedHost(protocol, host, port, pathname);
-  }
-}
-
-/**
- * Returns an object with URLs for the development server when the host is unspecified.
- * @param {string} protocol - The protocol to use (e.g. 'http' or 'https').
- * @param {number} port - The port to use.
- * @param {string} pathname - The pathname to use.
- * @returns {object} An object with URLs for the development server.
- */
-function getUrlsForUnspecifiedHost(protocol, port, pathname) {
-  const prettyHost = 'localhost';
-  let lanUrlForConfig, lanUrlForTerminal;
-  try {
-    lanUrlForConfig = address.ip();
-    if (lanUrlForConfig) {
-      if (isPrivateIp(lanUrlForConfig)) {
-        lanUrlForTerminal = prettyPrintUrl(lanUrlForConfig);
-      } else {
-        lanUrlForConfig = undefined;
+    prettyHost = 'localhost';
+    try {
+      // This can only return an IPv4 address
+      lanUrlForConfig = address.ip();
+      if (lanUrlForConfig) {
+        // Check if the address is a private ip
+        // https://en.wikipedia.org/wiki/Private_network#Private_IPv4_address_spaces
+        if (isPrivateIp(lanUrlForConfig)) {
+          // Address is private, format it for later use
+          lanUrlForTerminal = prettyPrintUrl(lanUrlForConfig);
+        } else {
+          // Address is not private, so we will discard it
+          lanUrlForConfig = undefined;
+        }
       }
+    } catch (_e) {
+      // ignored
     }
-  } catch (_e) {
-    // ignored
+  } else {
+    prettyHost = host;
   }
   const localUrlForTerminal = prettyPrintUrl(prettyHost);
-  const localUrlForBrowser = url.format({
-    protocol,
-    hostname: prettyHost,
-    port,
-    pathname,
-  });
+  const localUrlForBrowser = formatUrl(prettyHost);
   return {
     lanUrlForConfig,
     lanUrlForTerminal,
-    localUrlForTerminal,
-    localUrlForBrowser,
-  };
-}
-
-/**
- * Returns an object with URLs for the development server when the host is specified.
- * @param {string} protocol - The protocol to use (e.g. 'http' or 'https').
- * @param {string} host - The host to use (e.g. 'localhost' or '0.0.0.0').
- * @param {number} port - The port to use.
- * @param {string} pathname - The pathname to use.
- * @returns {object} An object with URLs for the development server.
- */
-function getUrlsForSpecifiedHost(protocol, host, port, pathname) {
-  const prettyHost = host;
-  const localUrlForTerminal = prettyPrintUrl(prettyHost);
-  const localUrlForBrowser = url.format({
-    protocol,
-    hostname: prettyHost,
-    port,
-    pathname,
-  });
-  return {
-    lanUrlForConfig: undefined,
-    lanUrlForTerminal: undefined,
     localUrlForTerminal,
     localUrlForBrowser,
   };
@@ -129,7 +93,7 @@ function isPrivateIp(ip) {
 /**
  * Prints instructions for the user.
  * @param {string} appName - The name of the app.
- * @param {object} urls - An object with URLs for the development server.
+ * @param {object} urls - The prepared URLs.
  * @param {boolean} useYarn - Whether to use Yarn or npm.
  */
 function printInstructions(appName, urls, useYarn) {
@@ -159,14 +123,14 @@ function printInstructions(appName, urls, useYarn) {
 
 /**
  * Creates a compiler for the development server.
- * @param {object} options - Options for the compiler.
+ * @param {object} options - The options for the compiler.
  * @param {string} options.appName - The name of the app.
  * @param {object} options.config - The Webpack configuration.
- * @param {object} options.urls - An object with URLs for the development server.
+ * @param {object} options.urls - The prepared URLs.
  * @param {boolean} options.useYarn - Whether to use Yarn or npm.
  * @param {boolean} options.useTypeScript - Whether to use TypeScript.
  * @param {object} options.webpack - The Webpack instance.
- * @returns {object} The compiler.
+ * @returns {object} The created compiler.
  */
 function createCompiler({
   appName,
@@ -230,13 +194,13 @@ function createCompiler({
     }
     isFirstCompile = false;
 
-    if (messages.errors.length) {
+    if (hasErrors(messages)) {
       console.log(chalk.red('Failed to compile.\n'));
       console.log(messages.errors.join('\n\n'));
       return;
     }
 
-    if (messages.warnings.length) {
+    if (hasWarnings(messages)) {
       console.log(chalk.yellow('Compiled with warnings.\n'));
       console.log(messages.warnings.join('\n\n'));
 
@@ -275,7 +239,25 @@ function createCompiler({
 }
 
 /**
- * Resolves a loopback address.
+ * Checks if there are errors in the messages.
+ * @param {object} messages - The messages object.
+ * @returns {boolean} True if there are errors, false otherwise.
+ */
+function hasErrors(messages) {
+  return messages.errors.length > 0;
+}
+
+/**
+ * Checks if there are warnings in the messages.
+ * @param {object} messages - The messages object.
+ * @returns {boolean} True if there are warnings, false otherwise.
+ */
+function hasWarnings(messages) {
+  return messages.warnings.length > 0;
+}
+
+/**
+ * Resolves the loopback address.
  * @param {string} proxy - The proxy URL.
  * @returns {string} The resolved loopback address.
  */
@@ -296,9 +278,9 @@ function resolveLoopback(proxy) {
 }
 
 /**
- * Handles a proxy error.
+ * Handles proxy errors.
  * @param {string} proxy - The proxy URL.
- * @returns {function} A function to handle the proxy error.
+ * @returns {function} The error handler function.
  */
 function onProxyError(proxy) {
   return (err, req, res) => {
@@ -338,11 +320,11 @@ function onProxyError(proxy) {
 }
 
 /**
- * Prepares a proxy for the development server.
+ * Prepares the proxy configuration.
  * @param {string} proxy - The proxy URL.
  * @param {string} appPublicFolder - The public folder of the app.
- * @param {string} servedPathname - The pathname to serve.
- * @returns {object} The prepared proxy.
+ * @param {string} servedPathname - The served pathname.
+ * @returns {object} The prepared proxy configuration.
  */
 function prepareProxy(proxy, appPublicFolder, servedPathname) {
   if (!proxy) {

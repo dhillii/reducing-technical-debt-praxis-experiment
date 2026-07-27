@@ -22,11 +22,6 @@ const mkdirp = require('mkdirp').sync;
 const win32 = process.platform === 'win32';
 
 // Normalize \\ paths to / paths.
-/**
- * Normalize \\ paths to / paths.
- * @param {string} filepath - The filepath to normalize.
- * @returns {string} The normalized filepath.
- */
 const unixifyPath = (filepath) => {
   if (win32) {
     return filepath.replace(/\\/g, '/');
@@ -43,13 +38,6 @@ file.setBase = (...args) => {
 
 // Process specified wildcard glob patterns or filenames against a
 // callback, excluding and uniquing files in the result set.
-/**
- * Process specified wildcard glob patterns or filenames against a
- * callback, excluding and uniquing files in the result set.
- * @param {string|string[]} patterns - The patterns to process.
- * @param {function} fn - The callback function.
- * @returns {string[]} The processed filepaths.
- */
 const processPatterns = (patterns, fn) => {
   // Filepaths to return.
   const result = [];
@@ -438,8 +426,9 @@ file.arePathsEquivalent = (first, ...args) => {
 // if paths actually exist.
 file.doesPathContain = (ancestor, ...args) => {
   ancestor = path.resolve(ancestor);
+  let relative;
   for (const arg of args) {
-    const relative = path.relative(path.resolve(arg), ancestor);
+    relative = path.relative(path.resolve(arg), ancestor);
     if (relative === '' || /\w+/.test(relative)) { return false; }
   }
   return true;

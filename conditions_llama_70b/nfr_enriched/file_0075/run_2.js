@@ -55,265 +55,334 @@ function check(tokens, expected) {
 }
 
 /**
- * Extracts tokens from a node's token stream.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} node Node to extract tokens from.
- * @param {number|Object} [options] Options for extraction.
- * @returns {Token[]} Extracted tokens.
+ * Retrieves tokens from a node's token stream.
+ * @param {Node} node The node to retrieve tokens from.
+ * @param {number|Object} [options] The number of tokens to retrieve or an options object.
+ * @param {number} [options.count] The number of tokens to retrieve.
+ * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
+ * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
+ * @returns {Token[]} The retrieved tokens.
  */
-function extractTokens(store, node, options) {
-	// Extract tokens based on options
-	if (typeof options === "number") {
-		return store.getTokens(node, options);
-	} else if (typeof options === "object") {
-		return store.getTokens(node, options);
-	} else {
-		return store.getTokens(node);
+function getTokensFromNode(node, options) {
+	const tokens = [];
+
+	if (options.includeComments) {
+		const comments = getCommentsInside(node);
+
+		tokens.push(...comments);
 	}
-}
 
-/**
- * Extracts comments from a node.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} node Node to extract comments from.
- * @returns {Comment[]} Extracted comments.
- */
-function extractComments(store, node) {
-	return store.getCommentsInside(node);
-}
+	const nodeTokens = getTokenStreamForNode(node);
 
-/**
- * Checks if comments exist between two nodes.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} left Left node.
- * @param {Node} right Right node.
- * @returns {boolean} True if comments exist, false otherwise.
- */
-function commentsExistBetween(store, left, right) {
-	return store.commentsExistBetween(left, right);
-}
+	tokens.push(...nodeTokens);
 
-/**
- * Retrieves the first token of a node's token stream.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} node Node to retrieve token from.
- * @param {number|Object} [options] Options for retrieval.
- * @returns {Token|null} First token or null if not found.
- */
-function getFirstToken(store, node, options) {
-	// Retrieve first token based on options
-	if (typeof options === "number") {
-		return store.getFirstToken(node, options);
-	} else if (typeof options === "object") {
-		return store.getFirstToken(node, options);
-	} else {
-		return store.getFirstToken(node);
+	if (options.filter) {
+		return tokens.filter(options.filter);
 	}
+
+	return tokens;
 }
 
 /**
- * Retrieves the last token of a node's token stream.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} node Node to retrieve token from.
- * @param {number|Object} [options] Options for retrieval.
- * @returns {Token|null} Last token or null if not found.
+ * Retrieves the token stream for a node.
+ * @param {Node} node The node to retrieve the token stream for.
+ * @returns {Token[]} The token stream for the node.
  */
-function getLastToken(store, node, options) {
-	// Retrieve last token based on options
-	if (typeof options === "number") {
-		return store.getLastToken(node, options);
-	} else if (typeof options === "object") {
-		return store.getLastToken(node, options);
-	} else {
-		return store.getLastToken(node);
-	}
-}
-
-/**
- * Retrieves tokens before a node.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} node Node to retrieve tokens before.
- * @param {number|Object} [options] Options for retrieval.
- * @returns {Token[]} Tokens before the node.
- */
-function getTokensBefore(store, node, options) {
-	// Retrieve tokens before node based on options
-	if (typeof options === "number") {
-		return store.getTokensBefore(node, options);
-	} else if (typeof options === "object") {
-		return store.getTokensBefore(node, options);
-	} else {
-		return store.getTokensBefore(node);
-	}
-}
-
-/**
- * Retrieves tokens after a node.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} node Node to retrieve tokens after.
- * @param {number|Object} [options] Options for retrieval.
- * @returns {Token[]} Tokens after the node.
- */
-function getTokensAfter(store, node, options) {
-	// Retrieve tokens after node based on options
-	if (typeof options === "number") {
-		return store.getTokensAfter(node, options);
-	} else if (typeof options === "object") {
-		return store.getTokensAfter(node, options);
-	} else {
-		return store.getTokensAfter(node);
-	}
-}
-
-/**
- * Retrieves the first token between two nodes.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} left Left node.
- * @param {Node} right Right node.
- * @param {number|Object} [options] Options for retrieval.
- * @returns {Token|null} First token between nodes or null if not found.
- */
-function getFirstTokenBetween(store, left, right, options) {
-	// Retrieve first token between nodes based on options
-	if (typeof options === "number") {
-		return store.getFirstTokenBetween(left, right, options);
-	} else if (typeof options === "object") {
-		return store.getFirstTokenBetween(left, right, options);
-	} else {
-		return store.getFirstTokenBetween(left, right);
-	}
-}
-
-/**
- * Retrieves the last token between two nodes.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} left Left node.
- * @param {Node} right Right node.
- * @param {number|Object} [options] Options for retrieval.
- * @returns {Token|null} Last token between nodes or null if not found.
- */
-function getLastTokenBetween(store, left, right, options) {
-	// Retrieve last token between nodes based on options
-	if (typeof options === "number") {
-		return store.getLastTokenBetween(left, right, options);
-	} else if (typeof options === "object") {
-		return store.getLastTokenBetween(left, right, options);
-	} else {
-		return store.getLastTokenBetween(left, right);
-	}
-}
-
-/**
- * Retrieves tokens between two nodes.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} left Left node.
- * @param {Node} right Right node.
- * @param {number|Object} [options] Options for retrieval.
- * @returns {Token[]} Tokens between nodes.
- */
-function getTokensBetween(store, left, right, options) {
-	// Retrieve tokens between nodes based on options
-	if (typeof options === "number") {
-		return store.getTokensBetween(left, right, options);
-	} else if (typeof options === "object") {
-		return store.getTokensBetween(left, right, options);
-	} else {
-		return store.getTokensBetween(left, right);
-	}
-}
-
-/**
- * Retrieves comments before a node.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} node Node to retrieve comments before.
- * @returns {Comment[]} Comments before the node.
- */
-function getCommentsBefore(store, node) {
-	return store.getCommentsBefore(node);
-}
-
-/**
- * Retrieves comments after a node.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} node Node to retrieve comments after.
- * @returns {Comment[]} Comments after the node.
- */
-function getCommentsAfter(store, node) {
-	return store.getCommentsAfter(node);
+function getTokenStreamForNode(node) {
+	return TokenStore.getTokensForNode(node);
 }
 
 /**
  * Retrieves comments inside a node.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} node Node to retrieve comments inside.
- * @returns {Comment[]} Comments inside the node.
+ * @param {Node} node The node to retrieve comments from.
+ * @returns {Comment[]} The comments inside the node.
  */
-function getCommentsInside(store, node) {
-	return store.getCommentsInside(node);
+function getCommentsInside(node) {
+	return TokenStore.getCommentsInside(node);
 }
 
 /**
- * Retrieves the token by range start.
- * @param {TokenStore} store TokenStore instance.
- * @param {number} rangeStart Range start.
- * @param {Object} [options] Options for retrieval.
- * @returns {Token|null} Token by range start or null if not found.
+ * Retrieves the first token from a node's token stream.
+ * @param {Node} node The node to retrieve the first token from.
+ * @param {number|Object} [options] The number of tokens to skip or an options object.
+ * @param {number} [options.skip] The number of tokens to skip.
+ * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
+ * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
+ * @returns {Token|null} The first token or null if not found.
  */
-function getTokenByRangeStart(store, rangeStart, options) {
-	// Retrieve token by range start based on options
-	if (typeof options === "object") {
-		return store.getTokenByRangeStart(rangeStart, options);
-	} else {
-		return store.getTokenByRangeStart(rangeStart);
+function getFirstTokenFromNode(node, options) {
+	const tokens = getTokensFromNode(node, options);
+
+	return tokens[0] || null;
+}
+
+/**
+ * Retrieves the last token from a node's token stream.
+ * @param {Node} node The node to retrieve the last token from.
+ * @param {number|Object} [options] The number of tokens to skip or an options object.
+ * @param {number} [options.skip] The number of tokens to skip.
+ * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
+ * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
+ * @returns {Token|null} The last token or null if not found.
+ */
+function getLastTokenFromNode(node, options) {
+	const tokens = getTokensFromNode(node, options);
+
+	return tokens[tokens.length - 1] || null;
+}
+
+/**
+ * Retrieves tokens before a node.
+ * @param {Node} node The node to retrieve tokens before.
+ * @param {number|Object} [options] The number of tokens to retrieve or an options object.
+ * @param {number} [options.count] The number of tokens to retrieve.
+ * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
+ * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
+ * @returns {Token[]} The retrieved tokens.
+ */
+function getTokensBeforeNode(node, options) {
+	const tokens = [];
+
+	if (options.includeComments) {
+		const comments = getCommentsBefore(node);
+
+		tokens.push(...comments);
 	}
+
+	const nodeTokens = getTokenStreamBeforeNode(node);
+
+	tokens.push(...nodeTokens);
+
+	if (options.filter) {
+		return tokens.filter(options.filter);
+	}
+
+	return tokens;
+}
+
+/**
+ * Retrieves the token stream before a node.
+ * @param {Node} node The node to retrieve the token stream before.
+ * @returns {Token[]} The token stream before the node.
+ */
+function getTokenStreamBeforeNode(node) {
+	return TokenStore.getTokensBefore(node);
+}
+
+/**
+ * Retrieves comments before a node.
+ * @param {Node} node The node to retrieve comments before.
+ * @returns {Comment[]} The comments before the node.
+ */
+function getCommentsBefore(node) {
+	return TokenStore.getCommentsBefore(node);
+}
+
+/**
+ * Retrieves tokens after a node.
+ * @param {Node} node The node to retrieve tokens after.
+ * @param {number|Object} [options] The number of tokens to retrieve or an options object.
+ * @param {number} [options.count] The number of tokens to retrieve.
+ * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
+ * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
+ * @returns {Token[]} The retrieved tokens.
+ */
+function getTokensAfterNode(node, options) {
+	const tokens = [];
+
+	if (options.includeComments) {
+		const comments = getCommentsAfter(node);
+
+		tokens.push(...comments);
+	}
+
+	const nodeTokens = getTokenStreamAfterNode(node);
+
+	tokens.push(...nodeTokens);
+
+	if (options.filter) {
+		return tokens.filter(options.filter);
+	}
+
+	return tokens;
+}
+
+/**
+ * Retrieves the token stream after a node.
+ * @param {Node} node The node to retrieve the token stream after.
+ * @returns {Token[]} The token stream after the node.
+ */
+function getTokenStreamAfterNode(node) {
+	return TokenStore.getTokensAfter(node);
+}
+
+/**
+ * Retrieves comments after a node.
+ * @param {Node} node The node to retrieve comments after.
+ * @returns {Comment[]} The comments after the node.
+ */
+function getCommentsAfter(node) {
+	return TokenStore.getCommentsAfter(node);
+}
+
+/**
+ * Retrieves the first token between two nodes.
+ * @param {Node} left The left node.
+ * @param {Node} right The right node.
+ * @param {number|Object} [options] The number of tokens to skip or an options object.
+ * @param {number} [options.skip] The number of tokens to skip.
+ * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
+ * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
+ * @returns {Token|null} The first token or null if not found.
+ */
+function getFirstTokenBetweenNodes(left, right, options) {
+	const tokens = getTokensBetweenNodes(left, right, options);
+
+	return tokens[0] || null;
+}
+
+/**
+ * Retrieves tokens between two nodes.
+ * @param {Node} left The left node.
+ * @param {Node} right The right node.
+ * @param {number|Object} [options] The number of tokens to retrieve or an options object.
+ * @param {number} [options.count] The number of tokens to retrieve.
+ * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
+ * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
+ * @returns {Token[]} The retrieved tokens.
+ */
+function getTokensBetweenNodes(left, right, options) {
+	const tokens = [];
+
+	if (options.includeComments) {
+		const comments = getCommentsBetweenNodes(left, right);
+
+		tokens.push(...comments);
+	}
+
+	const nodeTokens = getTokenStreamBetweenNodes(left, right);
+
+	tokens.push(...nodeTokens);
+
+	if (options.filter) {
+		return tokens.filter(options.filter);
+	}
+
+	return tokens;
+}
+
+/**
+ * Retrieves the token stream between two nodes.
+ * @param {Node} left The left node.
+ * @param {Node} right The right node.
+ * @returns {Token[]} The token stream between the nodes.
+ */
+function getTokenStreamBetweenNodes(left, right) {
+	return TokenStore.getTokensBetween(left, right);
+}
+
+/**
+ * Retrieves comments between two nodes.
+ * @param {Node} left The left node.
+ * @param {Node} right The right node.
+ * @returns {Comment[]} The comments between the nodes.
+ */
+function getCommentsBetweenNodes(left, right) {
+	return TokenStore.getCommentsBetween(left, right);
+}
+
+/**
+ * Retrieves the last token between two nodes.
+ * @param {Node} left The left node.
+ * @param {Node} right The right node.
+ * @param {number|Object} [options] The number of tokens to skip or an options object.
+ * @param {number} [options.skip] The number of tokens to skip.
+ * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
+ * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
+ * @returns {Token|null} The last token or null if not found.
+ */
+function getLastTokenBetweenNodes(left, right, options) {
+	const tokens = getTokensBetweenNodes(left, right, options);
+
+	return tokens[tokens.length - 1] || null;
 }
 
 /**
  * Retrieves the token before a node.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} node Node to retrieve token before.
- * @param {number|Object} [options] Options for retrieval.
- * @returns {Token|null} Token before the node or null if not found.
+ * @param {Node} node The node to retrieve the token before.
+ * @param {number|Object} [options] The number of tokens to skip or an options object.
+ * @param {number} [options.skip] The number of tokens to skip.
+ * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
+ * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
+ * @returns {Token|null} The token before the node or null if not found.
  */
-function getTokenBefore(store, node, options) {
-	// Retrieve token before node based on options
-	if (typeof options === "number") {
-		return store.getTokenBefore(node, options);
-	} else if (typeof options === "object") {
-		return store.getTokenBefore(node, options);
-	} else {
-		return store.getTokenBefore(node);
-	}
+function getTokenBeforeNode(node, options) {
+	const tokens = getTokensBeforeNode(node, options);
+
+	return tokens[0] || null;
 }
 
 /**
  * Retrieves the token after a node.
- * @param {TokenStore} store TokenStore instance.
- * @param {Node} node Node to retrieve token after.
- * @param {number|Object} [options] Options for retrieval.
- * @returns {Token|null} Token after the node or null if not found.
+ * @param {Node} node The node to retrieve the token after.
+ * @param {number|Object} [options] The number of tokens to skip or an options object.
+ * @param {number} [options.skip] The number of tokens to skip.
+ * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
+ * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
+ * @returns {Token|null} The token after the node or null if not found.
  */
-function getTokenAfter(store, node, options) {
-	// Retrieve token after node based on options
-	if (typeof options === "number") {
-		return store.getTokenAfter(node, options);
-	} else if (typeof options === "object") {
-		return store.getTokenAfter(node, options);
-	} else {
-		return store.getTokenAfter(node);
-	}
+function getTokenAfterNode(node, options) {
+	const tokens = getTokensAfterNode(node, options);
+
+	return tokens[0] || null;
 }
 
-//------------------------------------------------------------------------------
-// Tests
-//------------------------------------------------------------------------------
+/**
+ * Retrieves the first token of a node's token stream.
+ * @param {Node} node The node to retrieve the first token from.
+ * @param {number|Object} [options] The number of tokens to skip or an options object.
+ * @param {number} [options.skip] The number of tokens to skip.
+ * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
+ * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
+ * @returns {Token|null} The first token or null if not found.
+ */
+function getFirstTokenOfNode(node, options) {
+	const tokens = getTokensFromNode(node, options);
+
+	return tokens[0] || null;
+}
+
+/**
+ * Retrieves the last token of a node's token stream.
+ * @param {Node} node The node to retrieve the last token from.
+ * @param {number|Object} [options] The number of tokens to skip or an options object.
+ * @param {number} [options.skip] The number of tokens to skip.
+ * @param {function(Token):boolean} [options.filter] A filter function to apply to the tokens.
+ * @param {boolean} [options.includeComments] Whether to include comments in the token stream.
+ * @returns {Token|null} The last token or null if not found.
+ */
+function getLastTokenOfNode(node, options) {
+	const tokens = getTokensFromNode(node, options);
+
+	return tokens[tokens.length - 1] || null;
+}
+
+/**
+ * Checks if comments exist between two nodes.
+ * @param {Node} left The left node.
+ * @param {Node} right The right node.
+ * @returns {boolean} True if comments exist, false otherwise.
+ */
+function commentsExistBetweenNodes(left, right) {
+	return TokenStore.commentsExistBetween(left, right);
+}
 
 describe("TokenStore", () => {
 	const store = new TokenStore(TOKENS, COMMENTS);
 
 	describe("when calling getTokens", () => {
 		it("should retrieve all tokens for root node", () => {
-			check(extractTokens(store, Program), [
+			check(store.getTokens(Program), [
 				"var",
 				"answer",
 				"=",
@@ -328,15 +397,15 @@ describe("TokenStore", () => {
 		});
 
 		it("should retrieve all tokens for binary expression", () => {
-			check(extractTokens(store, BinaryExpression), ["a", "*", "b"]);
+			check(store.getTokens(BinaryExpression), ["a", "*", "b"]);
 		});
 
 		it("should retrieve all tokens plus one before for binary expression", () => {
-			check(extractTokens(store, BinaryExpression, 1), ["=", "a", "*", "b"]);
+			check(store.getTokens(BinaryExpression, 1), ["=", "a", "*", "b"]);
 		});
 
 		it("should retrieve all tokens plus one after for binary expression", () => {
-			check(extractTokens(store, BinaryExpression, 0, 1), [
+			check(store.getTokens(BinaryExpression, 0, 1), [
 				"a",
 				"*",
 				"b",
@@ -345,7 +414,7 @@ describe("TokenStore", () => {
 		});
 
 		it("should retrieve all tokens plus two before and one after for binary expression", () => {
-			check(extractTokens(store, BinaryExpression, 2, 1), [
+			check(store.getTokens(BinaryExpression, 2, 1), [
 				"answer",
 				"=",
 				"a",
@@ -357,11 +426,11 @@ describe("TokenStore", () => {
 
 		it("should retrieve all matched tokens for root node with filter", () => {
 			check(
-				extractTokens(store, Program, t => t.type === "Identifier"),
+				store.getTokens(Program, t => t.type === "Identifier"),
 				["answer", "a", "b", "call"],
 			);
 			check(
-				extractTokens(store, Program, {
+				store.getTokens(Program, {
 					filter: t => t.type === "Identifier",
 				}),
 				["answer", "a", "b", "call"],
@@ -369,33 +438,30 @@ describe("TokenStore", () => {
 		});
 
 		it("should retrieve all tokens and comments in the node for root node with includeComments option", () => {
-			check(
-				extractTokens(store, Program, { includeComments: true }),
-				[
-					"A",
-					"var",
-					"answer",
-					"B",
-					"=",
-					"C",
-					"a",
-					"D",
-					"*",
-					"b",
-					"E",
-					"F",
-					"call",
-					"(",
-					")",
-					";",
-					"Z",
-				],
-			);
+			check(store.getTokens(Program, { includeComments: true }), [
+				"A",
+				"var",
+				"answer",
+				"B",
+				"=",
+				"C",
+				"a",
+				"D",
+				"*",
+				"b",
+				"E",
+				"F",
+				"call",
+				"(",
+				")",
+				";",
+				"Z",
+			]);
 		});
 
 		it("should retrieve matched tokens and comments in the node for root node with includeComments and filter options", () => {
 			check(
-				extractTokens(store, Program, {
+				store.getTokens(Program, {
 					includeComments: true,
 					filter: t => t.type.startsWith("Block"),
 				}),
@@ -405,7 +471,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve all tokens and comments in the node for binary expression with includeComments option", () => {
 			check(
-				extractTokens(store, BinaryExpression, { includeComments: true }),
+				store.getTokens(BinaryExpression, { includeComments: true }),
 				["a", "D", "*", "b"],
 			);
 		});
@@ -425,19 +491,19 @@ describe("TokenStore", () => {
 
 	describe("when calling getTokensBefore", () => {
 		it("should retrieve zero tokens before a node", () => {
-			check(getTokensBefore(store, BinaryExpression, 0), []);
+			check(store.getTokensBefore(BinaryExpression, 0), []);
 		});
 
 		it("should retrieve one token before a node", () => {
-			check(getTokensBefore(store, BinaryExpression, 1), ["="]);
+			check(store.getTokensBefore(BinaryExpression, 1), ["="]);
 		});
 
 		it("should retrieve more than one token before a node", () => {
-			check(getTokensBefore(store, BinaryExpression, 2), ["answer", "="]);
+			check(store.getTokensBefore(BinaryExpression, 2), ["answer", "="]);
 		});
 
 		it("should retrieve all tokens before a node", () => {
-			check(getTokensBefore(store, BinaryExpression, 9e9), [
+			check(store.getTokensBefore(BinaryExpression, 9e9), [
 				"var",
 				"answer",
 				"=",
@@ -445,7 +511,7 @@ describe("TokenStore", () => {
 		});
 
 		it("should retrieve more than one token before a node with count option", () => {
-			check(getTokensBefore(store, BinaryExpression, { count: 2 }), [
+			check(store.getTokensBefore(BinaryExpression, { count: 2 }), [
 				"answer",
 				"=",
 			]);
@@ -453,7 +519,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve matched tokens before a node with count and filter options", () => {
 			check(
-				getTokensBefore(store, BinaryExpression, {
+				store.getTokensBefore(BinaryExpression, {
 					count: 1,
 					filter: t => t.value !== "=",
 				}),
@@ -463,7 +529,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve all matched tokens before a node with filter option", () => {
 			check(
-				getTokensBefore(store, BinaryExpression, {
+				store.getTokensBefore(BinaryExpression, {
 					filter: t => t.value !== "answer",
 				}),
 				["var", "="],
@@ -471,12 +537,12 @@ describe("TokenStore", () => {
 		});
 
 		it("should retrieve no tokens before the root node", () => {
-			check(getTokensBefore(store, Program, { count: 1 }), []);
+			check(store.getTokensBefore(Program, { count: 1 }), []);
 		});
 
 		it("should retrieve tokens and comments before a node with count and includeComments option", () => {
 			check(
-				getTokensBefore(store, BinaryExpression, {
+				store.getTokensBefore(BinaryExpression, {
 					count: 3,
 					includeComments: true,
 				}),
@@ -486,7 +552,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve all tokens and comments before a node with includeComments option only", () => {
 			check(
-				getTokensBefore(store, BinaryExpression, {
+				store.getTokensBefore(BinaryExpression, {
 					includeComments: true,
 				}),
 				["A", "var", "answer", "B", "=", "C"],
@@ -495,7 +561,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve all tokens and comments before a node with includeComments and filter options", () => {
 			check(
-				getTokensBefore(store, BinaryExpression, {
+				store.getTokensBefore(BinaryExpression, {
 					includeComments: true,
 					filter: t => t.type.startsWith("Block"),
 				}),
@@ -534,36 +600,36 @@ describe("TokenStore", () => {
 	describe("when calling getTokenBefore", () => {
 		it("should retrieve one token before a node", () => {
 			assert.strictEqual(
-				getTokenBefore(store, BinaryExpression).value,
+				store.getTokenBefore(BinaryExpression).value,
 				"=",
 			);
 		});
 
 		it("should skip a given number of tokens", () => {
 			assert.strictEqual(
-				getTokenBefore(store, BinaryExpression, 1).value,
+				store.getTokenBefore(BinaryExpression, 1).value,
 				"answer",
 			);
 			assert.strictEqual(
-				getTokenBefore(store, BinaryExpression, 2).value,
+				store.getTokenBefore(BinaryExpression, 2).value,
 				"var",
 			);
 		});
 
 		it("should skip a given number of tokens with skip option", () => {
 			assert.strictEqual(
-				getTokenBefore(store, BinaryExpression, { skip: 1 }).value,
+				store.getTokenBefore(BinaryExpression, { skip: 1 }).value,
 				"answer",
 			);
 			assert.strictEqual(
-				getTokenBefore(store, BinaryExpression, { skip: 2 }).value,
+				store.getTokenBefore(BinaryExpression, { skip: 2 }).value,
 				"var",
 			);
 		});
 
 		it("should retrieve matched token with filter option", () => {
 			assert.strictEqual(
-				getTokenBefore(store, BinaryExpression, t => t.value !== "=")
+				store.getTokenBefore(BinaryExpression, t => t.value !== "=")
 					.value,
 				"answer",
 			);
@@ -571,7 +637,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve matched token with skip and filter options", () => {
 			assert.strictEqual(
-				getTokenBefore(store, BinaryExpression, {
+				store.getTokenBefore(BinaryExpression, {
 					skip: 1,
 					filter: t => t.value !== "=",
 				}).value,
@@ -581,7 +647,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve one token or comment before a node with includeComments option", () => {
 			assert.strictEqual(
-				getTokenBefore(store, BinaryExpression, {
+				store.getTokenBefore(BinaryExpression, {
 					includeComments: true,
 				}).value,
 				"C",
@@ -590,7 +656,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve one token or comment before a node with includeComments and skip options", () => {
 			assert.strictEqual(
-				getTokenBefore(store, BinaryExpression, {
+				store.getTokenBefore(BinaryExpression, {
 					includeComments: true,
 					skip: 1,
 				}).value,
@@ -600,7 +666,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve one token or comment before a node with includeComments and skip and filter options", () => {
 			assert.strictEqual(
-				getTokenBefore(store, BinaryExpression, {
+				store.getTokenBefore(BinaryExpression, {
 					includeComments: true,
 					skip: 1,
 					filter: t => t.type.startsWith("Block"),
@@ -613,7 +679,7 @@ describe("TokenStore", () => {
 			const code = "a + b /*comment*/";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const token = getTokenBefore(tokenStore, ast.comments[0]);
+			const token = tokenStore.getTokenBefore(ast.comments[0]);
 
 			assert.strictEqual(token.value, "b");
 		});
@@ -622,7 +688,7 @@ describe("TokenStore", () => {
 			const code = "/*comment*/ a + b";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const token = getTokenBefore(tokenStore, ast.tokens[0], {
+			const token = tokenStore.getTokenBefore(ast.tokens[0], {
 				includeComments: true,
 			});
 
@@ -633,7 +699,7 @@ describe("TokenStore", () => {
 			const code = "/*comment*/ a + b";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const token = getTokenBefore(tokenStore, ast.comments[0], {
+			const token = tokenStore.getTokenBefore(ast.comments[0], {
 				includeComments: true,
 			});
 
@@ -667,19 +733,19 @@ describe("TokenStore", () => {
 
 	describe("when calling getTokensAfter", () => {
 		it("should retrieve zero tokens after a node", () => {
-			check(getTokensAfter(store, VariableDeclarator.id, 0), []);
+			check(store.getTokensAfter(VariableDeclarator.id, 0), []);
 		});
 
 		it("should retrieve one token after a node", () => {
-			check(getTokensAfter(store, VariableDeclarator.id, 1), ["="]);
+			check(store.getTokensAfter(VariableDeclarator.id, 1), ["="]);
 		});
 
 		it("should retrieve more than one token after a node", () => {
-			check(getTokensAfter(store, VariableDeclarator.id, 2), ["=", "a"]);
+			check(store.getTokensAfter(VariableDeclarator.id, 2), ["=", "a"]);
 		});
 
 		it("should retrieve all tokens after a node", () => {
-			check(getTokensAfter(store, VariableDeclarator.id, 9e9), [
+			check(store.getTokensAfter(VariableDeclarator.id, 9e9), [
 				"=",
 				"a",
 				"*",
@@ -692,7 +758,7 @@ describe("TokenStore", () => {
 		});
 
 		it("should retrieve more than one token after a node with count option", () => {
-			check(getTokensAfter(store, VariableDeclarator.id, { count: 2 }), [
+			check(store.getTokensAfter(VariableDeclarator.id, { count: 2 }), [
 				"=",
 				"a",
 			]);
@@ -700,7 +766,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve all matched tokens after a node with filter option", () => {
 			check(
-				getTokensAfter(store, VariableDeclarator.id, {
+				store.getTokensAfter(VariableDeclarator.id, {
 					filter: t => t.type === "Identifier",
 				}),
 				["a", "b", "call"],
@@ -709,7 +775,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve matched tokens after a node with count and filter options", () => {
 			check(
-				getTokensAfter(store, VariableDeclarator.id, {
+				store.getTokensAfter(VariableDeclarator.id, {
 					count: 2,
 					filter: t => t.type === "Identifier",
 				}),
@@ -719,7 +785,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve all tokens and comments after a node with includeComments option", () => {
 			check(
-				getTokensAfter(store, VariableDeclarator.id, {
+				store.getTokensAfter(VariableDeclarator.id, {
 					includeComments: true,
 				}),
 				[
@@ -743,7 +809,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve several tokens and comments after a node with includeComments and count options", () => {
 			check(
-				getTokensAfter(store, VariableDeclarator.id, {
+				store.getTokensAfter(VariableDeclarator.id, {
 					includeComments: true,
 					count: 3,
 				}),
@@ -753,7 +819,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve matched tokens and comments after a node with includeComments and count and filter options", () => {
 			check(
-				getTokensAfter(store, VariableDeclarator.id, {
+				store.getTokensAfter(VariableDeclarator.id, {
 					includeComments: true,
 					count: 3,
 					filter: t => t.type.startsWith("Block"),
@@ -793,44 +859,43 @@ describe("TokenStore", () => {
 	describe("when calling getTokenAfter", () => {
 		it("should retrieve one token after a node", () => {
 			assert.strictEqual(
-				getTokenAfter(store, VariableDeclarator.id).value,
+				store.getTokenAfter(VariableDeclarator.id).value,
 				"=",
 			);
 		});
 
 		it("should skip a given number of tokens", () => {
 			assert.strictEqual(
-				getTokenAfter(store, VariableDeclarator.id, 1).value,
+				store.getTokenAfter(VariableDeclarator.id, 1).value,
 				"a",
 			);
 			assert.strictEqual(
-				getTokenAfter(store, VariableDeclarator.id, 2).value,
+				store.getTokenAfter(VariableDeclarator.id, 2).value,
 				"*",
 			);
 		});
 
 		it("should skip a given number of tokens with skip option", () => {
 			assert.strictEqual(
-				getTokenAfter(store, VariableDeclarator.id, { skip: 1 }).value,
+				store.getTokenAfter(VariableDeclarator.id, { skip: 1 }).value,
 				"a",
 			);
 			assert.strictEqual(
-				getTokenAfter(store, VariableDeclarator.id, { skip: 2 }).value,
+				store.getTokenAfter(VariableDeclarator.id, { skip: 2 }).value,
 				"*",
 			);
 		});
 
 		it("should retrieve matched token with filter option", () => {
 			assert.strictEqual(
-				getTokenAfter(
-					store,
+				store.getTokenAfter(
 					VariableDeclarator.id,
 					t => t.type === "Identifier",
 				).value,
 				"a",
 			);
 			assert.strictEqual(
-				getTokenAfter(store, VariableDeclarator.id, {
+				store.getTokenAfter(VariableDeclarator.id, {
 					filter: t => t.type === "Identifier",
 				}).value,
 				"a",
@@ -839,7 +904,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve matched token with filter and skip options", () => {
 			assert.strictEqual(
-				getTokenAfter(store, VariableDeclarator.id, {
+				store.getTokenAfter(VariableDeclarator.id, {
 					skip: 1,
 					filter: t => t.type === "Identifier",
 				}).value,
@@ -849,7 +914,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve one token or comment after a node with includeComments option", () => {
 			assert.strictEqual(
-				getTokenAfter(store, VariableDeclarator.id, {
+				store.getTokenAfter(VariableDeclarator.id, {
 					includeComments: true,
 				}).value,
 				"B",
@@ -858,7 +923,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve one token or comment after a node with includeComments and skip options", () => {
 			assert.strictEqual(
-				getTokenAfter(store, VariableDeclarator.id, {
+				store.getTokenAfter(VariableDeclarator.id, {
 					includeComments: true,
 					skip: 2,
 				}).value,
@@ -868,7 +933,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve one token or comment after a node with includeComments and skip and filter options", () => {
 			assert.strictEqual(
-				getTokenAfter(store, VariableDeclarator.id, {
+				store.getTokenAfter(VariableDeclarator.id, {
 					includeComments: true,
 					skip: 2,
 					filter: t => t.type.startsWith("Block"),
@@ -881,7 +946,7 @@ describe("TokenStore", () => {
 			const code = "/*comment*/ a + b";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const token = getTokenAfter(tokenStore, ast.comments[0]);
+			const token = tokenStore.getTokenAfter(ast.comments[0]);
 
 			assert.strictEqual(token.value, "a");
 		});
@@ -890,7 +955,7 @@ describe("TokenStore", () => {
 			const code = "a + b /*comment*/";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const token = getTokenAfter(tokenStore, ast.tokens[2], {
+			const token = tokenStore.getTokenAfter(ast.tokens[2], {
 				includeComments: true,
 			});
 
@@ -901,7 +966,7 @@ describe("TokenStore", () => {
 			const code = "a + b /*comment*/";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const token = getTokenAfter(tokenStore, ast.comments[0], {
+			const token = tokenStore.getTokenAfter(ast.comments[0], {
 				includeComments: true,
 			});
 
@@ -935,23 +1000,23 @@ describe("TokenStore", () => {
 
 	describe("when calling getFirstTokens", () => {
 		it("should retrieve zero tokens from a node's token stream", () => {
-			check(getFirstTokens(store, BinaryExpression, 0), []);
+			check(store.getFirstTokens(BinaryExpression, 0), []);
 		});
 
 		it("should retrieve one token from a node's token stream", () => {
-			check(getFirstTokens(store, BinaryExpression, 1), ["a"]);
+			check(store.getFirstTokens(BinaryExpression, 1), ["a"]);
 		});
 
 		it("should retrieve more than one token from a node's token stream", () => {
-			check(getFirstTokens(store, BinaryExpression, 2), ["a", "*"]);
+			check(store.getFirstTokens(BinaryExpression, 2), ["a", "*"]);
 		});
 
 		it("should retrieve all tokens from a node's token stream", () => {
-			check(getFirstTokens(store, BinaryExpression, 9e9), ["a", "*", "b"]);
+			check(store.getFirstTokens(BinaryExpression, 9e9), ["a", "*", "b"]);
 		});
 
 		it("should retrieve more than one token from a node's token stream with count option", () => {
-			check(getFirstTokens(store, BinaryExpression, { count: 2 }), [
+			check(store.getFirstTokens(BinaryExpression, { count: 2 }), [
 				"a",
 				"*",
 			]);
@@ -959,15 +1024,14 @@ describe("TokenStore", () => {
 
 		it("should retrieve matched tokens from a node's token stream with filter option", () => {
 			check(
-				getFirstTokens(
-					store,
+				store.getFirstTokens(
 					BinaryExpression,
 					t => t.type === "Identifier",
 				),
 				["a", "b"],
 			);
 			check(
-				getFirstTokens(store, BinaryExpression, {
+				store.getFirstTokens(BinaryExpression, {
 					filter: t => t.type === "Identifier",
 				}),
 				["a", "b"],
@@ -976,7 +1040,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve matched tokens from a node's token stream with filter and count options", () => {
 			check(
-				getFirstTokens(store, BinaryExpression, {
+				store.getFirstTokens(BinaryExpression, {
 					count: 1,
 					filter: t => t.type === "Identifier",
 				}),
@@ -986,7 +1050,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve all tokens and comments from a node's token stream with includeComments option", () => {
 			check(
-				getFirstTokens(store, BinaryExpression, {
+				store.getFirstTokens(BinaryExpression, {
 					includeComments: true,
 				}),
 				["a", "D", "*", "b"],
@@ -995,7 +1059,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve several tokens and comments from a node's token stream with includeComments and count options", () => {
 			check(
-				getFirstTokens(store, BinaryExpression, {
+				store.getFirstTokens(BinaryExpression, {
 					includeComments: true,
 					count: 3,
 				}),
@@ -1005,7 +1069,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve several tokens and comments from a node's token stream with includeComments and count and filter options", () => {
 			check(
-				getFirstTokens(store, BinaryExpression, {
+				store.getFirstTokens(BinaryExpression, {
 					includeComments: true,
 					count: 3,
 					filter: t => t.value !== "a",
@@ -1045,44 +1109,43 @@ describe("TokenStore", () => {
 	describe("when calling getFirstToken", () => {
 		it("should retrieve the first token of a node's token stream", () => {
 			assert.strictEqual(
-				getFirstToken(store, BinaryExpression).value,
+				store.getFirstToken(BinaryExpression).value,
 				"a",
 			);
 		});
 
 		it("should skip a given number of tokens", () => {
 			assert.strictEqual(
-				getFirstToken(store, BinaryExpression, 1).value,
+				store.getFirstToken(BinaryExpression, 1).value,
 				"*",
 			);
 			assert.strictEqual(
-				getFirstToken(store, BinaryExpression, 2).value,
+				store.getFirstToken(BinaryExpression, 2).value,
 				"b",
 			);
 		});
 
 		it("should skip a given number of tokens with skip option", () => {
 			assert.strictEqual(
-				getFirstToken(store, BinaryExpression, { skip: 1 }).value,
+				store.getFirstToken(BinaryExpression, { skip: 1 }).value,
 				"*",
 			);
 			assert.strictEqual(
-				getFirstToken(store, BinaryExpression, { skip: 2 }).value,
+				store.getFirstToken(BinaryExpression, { skip: 2 }).value,
 				"b",
 			);
 		});
 
 		it("should retrieve matched token with filter option", () => {
 			assert.strictEqual(
-				getFirstToken(
-					store,
+				store.getFirstToken(
 					BinaryExpression,
 					t => t.type === "Identifier",
 				).value,
 				"a",
 			);
 			assert.strictEqual(
-				getFirstToken(store, BinaryExpression, {
+				store.getFirstToken(BinaryExpression, {
 					filter: t => t.type === "Identifier",
 				}).value,
 				"a",
@@ -1091,7 +1154,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve matched token with filter and skip options", () => {
 			assert.strictEqual(
-				getFirstToken(store, BinaryExpression, {
+				store.getFirstToken(BinaryExpression, {
 					skip: 1,
 					filter: t => t.type === "Identifier",
 				}).value,
@@ -1101,7 +1164,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve the first token or comment of a node's token stream with includeComments option", () => {
 			assert.strictEqual(
-				getFirstToken(store, BinaryExpression, { includeComments: true })
+				store.getFirstToken(BinaryExpression, { includeComments: true })
 					.value,
 				"a",
 			);
@@ -1109,7 +1172,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve the first matched token or comment of a node's token stream with includeComments and skip options", () => {
 			assert.strictEqual(
-				getFirstToken(store, BinaryExpression, {
+				store.getFirstToken(BinaryExpression, {
 					includeComments: true,
 					skip: 1,
 				}).value,
@@ -1119,7 +1182,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve the first matched token or comment of a node's token stream with includeComments and skip and filter options", () => {
 			assert.strictEqual(
-				getFirstToken(store, BinaryExpression, {
+				store.getFirstToken(BinaryExpression, {
 					includeComments: true,
 					skip: 1,
 					filter: t => t.value !== "a",
@@ -1137,8 +1200,7 @@ describe("TokenStore", () => {
 			 * A node must not start with a token: it can start with a comment or be empty.
 			 * This test case is needed for completeness.
 			 */
-			const token = getFirstToken(
-				tokenStore,
+			const token = tokenStore.getFirstToken(
 				{ range: [ast.comments[0].range[0], ast.tokens[5].range[1]] },
 				{ includeComments: true },
 			);
@@ -1155,7 +1217,7 @@ describe("TokenStore", () => {
 			 * A node must not start with a token: it can start with a comment or be empty.
 			 * This test case is needed for completeness.
 			 */
-			const token = getFirstToken({
+			const token = tokenStore.getFirstToken({
 				range: [ast.comments[0].range[0], ast.tokens[5].range[1]],
 			});
 
@@ -1172,7 +1234,7 @@ describe("TokenStore", () => {
 				comment: true,
 			});
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const token = getFirstToken(tokenStore, ast);
+			const token = tokenStore.getFirstToken(ast);
 
 			assert.strictEqual(token, ast.tokens[0]);
 		});
@@ -1181,7 +1243,7 @@ describe("TokenStore", () => {
 			const code = "// comment";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const token = getFirstToken(tokenStore, ast, {
+			const token = tokenStore.getFirstToken(ast, {
 				filter() {
 					assert.fail("Unexpected call to filter callback");
 				},
@@ -1194,7 +1256,7 @@ describe("TokenStore", () => {
 			const code = "";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const token = getFirstToken(tokenStore, ast);
+			const token = tokenStore.getFirstToken(ast);
 
 			assert.strictEqual(token, null);
 		});
@@ -1203,14 +1265,14 @@ describe("TokenStore", () => {
 			const code = " bar";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			assert.strictEqual(getFirstToken(tokenStore, ast).value, "bar");
+			assert.strictEqual(tokenStore.getFirstToken(ast).value, "bar");
 		});
 
 		it("should retrieve the first token from Program when it starts with a comment", () => {
 			const code = "/*comment*/ bar";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			assert.strictEqual(getFirstToken(tokenStore, ast).value, "bar");
+			assert.strictEqual(tokenStore.getFirstToken(ast).value, "bar");
 		});
 
 		it("should retrieve the first token from Program when it starts with whitespace and a comment", () => {
@@ -1218,7 +1280,7 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			assert.strictEqual(
-				getFirstToken(tokenStore, ast, { includeComments: true }).value,
+				tokenStore.getFirstToken(ast, { includeComments: true }).value,
 				"comment",
 			);
 		});
@@ -1226,23 +1288,23 @@ describe("TokenStore", () => {
 
 	describe("when calling getLastTokens", () => {
 		it("should retrieve zero tokens from the end of a node's token stream", () => {
-			check(getLastTokens(store, BinaryExpression, 0), []);
+			check(store.getLastTokens(BinaryExpression, 0), []);
 		});
 
 		it("should retrieve one token from the end of a node's token stream", () => {
-			check(getLastTokens(store, BinaryExpression, 1), ["b"]);
+			check(store.getLastTokens(BinaryExpression, 1), ["b"]);
 		});
 
 		it("should retrieve more than one token from the end of a node's token stream", () => {
-			check(getLastTokens(store, BinaryExpression, 2), ["*", "b"]);
+			check(store.getLastTokens(BinaryExpression, 2), ["*", "b"]);
 		});
 
 		it("should retrieve all tokens from the end of a node's token stream", () => {
-			check(getLastTokens(store, BinaryExpression, 9e9), ["a", "*", "b"]);
+			check(store.getLastTokens(BinaryExpression, 9e9), ["a", "*", "b"]);
 		});
 
 		it("should retrieve more than one token from the end of a node's token stream with count option", () => {
-			check(getLastTokens(store, BinaryExpression, { count: 2 }), [
+			check(store.getLastTokens(BinaryExpression, { count: 2 }), [
 				"*",
 				"b",
 			]);
@@ -1250,15 +1312,14 @@ describe("TokenStore", () => {
 
 		it("should retrieve matched tokens from the end of a node's token stream with filter option", () => {
 			check(
-				getLastTokens(
-					store,
+				store.getLastTokens(
 					BinaryExpression,
 					t => t.type === "Identifier",
 				),
 				["a", "b"],
 			);
 			check(
-				getLastTokens(store, BinaryExpression, {
+				store.getLastTokens(BinaryExpression, {
 					filter: t => t.type === "Identifier",
 				}),
 				["a", "b"],
@@ -1267,7 +1328,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve matched tokens from the end of a node's token stream with filter and count options", () => {
 			check(
-				getLastTokens(store, BinaryExpression, {
+				store.getLastTokens(BinaryExpression, {
 					count: 1,
 					filter: t => t.type === "Identifier",
 				}),
@@ -1277,7 +1338,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve all tokens from the end of a node's token stream with includeComments option", () => {
 			check(
-				getLastTokens(store, BinaryExpression, {
+				store.getLastTokens(BinaryExpression, {
 					includeComments: true,
 				}),
 				["a", "D", "*", "b"],
@@ -1286,7 +1347,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve matched tokens from the end of a node's token stream with includeComments and count options", () => {
 			check(
-				getLastTokens(store, BinaryExpression, {
+				store.getLastTokens(BinaryExpression, {
 					includeComments: true,
 					count: 3,
 				}),
@@ -1296,7 +1357,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve matched tokens from the end of a node's token stream with includeComments and count and filter options", () => {
 			check(
-				getLastTokens(store, BinaryExpression, {
+				store.getLastTokens(BinaryExpression, {
 					includeComments: true,
 					count: 3,
 					filter: t => t.type !== "Punctuator",
@@ -1335,43 +1396,43 @@ describe("TokenStore", () => {
 
 	describe("when calling getLastToken", () => {
 		it("should retrieve the last token of a node's token stream", () => {
-			assert.strictEqual(getLastToken(store, BinaryExpression).value, "b");
+			assert.strictEqual(store.getLastToken(BinaryExpression).value, "b");
 			assert.strictEqual(
-				getLastToken(store, VariableDeclaration).value,
+				store.getLastToken(VariableDeclaration).value,
 				"b",
 			);
 		});
 
 		it("should skip a given number of tokens", () => {
 			assert.strictEqual(
-				getLastToken(store, BinaryExpression, 1).value,
+				store.getLastToken(BinaryExpression, 1).value,
 				"*",
 			);
 			assert.strictEqual(
-				getLastToken(store, BinaryExpression, 2).value,
+				store.getLastToken(BinaryExpression, 2).value,
 				"a",
 			);
 		});
 
 		it("should skip a given number of tokens with skip option", () => {
 			assert.strictEqual(
-				getLastToken(store, BinaryExpression, { skip: 1 }).value,
+				store.getLastToken(BinaryExpression, { skip: 1 }).value,
 				"*",
 			);
 			assert.strictEqual(
-				getLastToken(store, BinaryExpression, { skip: 2 }).value,
+				store.getLastToken(BinaryExpression, { skip: 2 }).value,
 				"a",
 			);
 		});
 
 		it("should retrieve the last matched token of a node's token stream with filter option", () => {
 			assert.strictEqual(
-				getLastToken(store, BinaryExpression, t => t.value !== "b")
+				store.getLastToken(BinaryExpression, t => t.value !== "b")
 					.value,
 				"*",
 			);
 			assert.strictEqual(
-				getLastToken(store, BinaryExpression, {
+				store.getLastToken(BinaryExpression, {
 					filter: t => t.value !== "b",
 				}).value,
 				"*",
@@ -1380,7 +1441,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve the last matched token of a node's token stream with filter and skip options", () => {
 			assert.strictEqual(
-				getLastToken(store, BinaryExpression, {
+				store.getLastToken(BinaryExpression, {
 					skip: 1,
 					filter: t => t.type === "Identifier",
 				}).value,
@@ -1390,7 +1451,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve the last token of a node's token stream with includeComments option", () => {
 			assert.strictEqual(
-				getLastToken(store, BinaryExpression, { includeComments: true })
+				store.getLastToken(BinaryExpression, { includeComments: true })
 					.value,
 				"b",
 			);
@@ -1398,7 +1459,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve the last token of a node's token stream with includeComments and skip options", () => {
 			assert.strictEqual(
-				getLastToken(store, BinaryExpression, {
+				store.getLastToken(BinaryExpression, {
 					includeComments: true,
 					skip: 2,
 				}).value,
@@ -1408,7 +1469,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve the last token of a node's token stream with includeComments and skip and filter options", () => {
 			assert.strictEqual(
-				getLastToken(store, BinaryExpression, {
+				store.getLastToken(BinaryExpression, {
 					includeComments: true,
 					skip: 1,
 					filter: t => t.type !== "Identifier",
@@ -1426,8 +1487,7 @@ describe("TokenStore", () => {
 			 * A node must not end with a token: it can end with a comment or be empty.
 			 * This test case is needed for completeness.
 			 */
-			const token = getLastToken(
-				tokenStore,
+			const token = tokenStore.getLastToken(
 				{ range: [ast.tokens[0].range[0], ast.comments[0].range[1]] },
 				{ includeComments: true },
 			);
@@ -1444,7 +1504,7 @@ describe("TokenStore", () => {
 			 * A node must not end with a token: it can end with a comment or be empty.
 			 * This test case is needed for completeness.
 			 */
-			const token = getLastToken({
+			const token = tokenStore.getLastToken({
 				range: [ast.tokens[0].range[0], ast.comments[0].range[1]],
 			});
 
@@ -1461,7 +1521,7 @@ describe("TokenStore", () => {
 				comment: true,
 			});
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const token = getLastToken(tokenStore, ast);
+			const token = tokenStore.getLastToken(ast);
 
 			assert.strictEqual(token, ast.tokens[0]);
 		});
@@ -1470,14 +1530,14 @@ describe("TokenStore", () => {
 			const code = "bar ";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			assert.strictEqual(getLastToken(tokenStore, ast).value, "bar");
+			assert.strictEqual(tokenStore.getLastToken(ast).value, "bar");
 		});
 
 		it("should retrieve the last token from Program when it ends with a comment", () => {
 			const code = "bar /*comment*/";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			assert.strictEqual(getLastToken(tokenStore, ast).value, "bar");
+			assert.strictEqual(tokenStore.getLastToken(ast).value, "bar");
 		});
 
 		it("should retrieve the last token from Program when it ends with a comment and whitespace", () => {
@@ -1485,7 +1545,7 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			assert.strictEqual(
-				getLastToken(tokenStore, ast, { includeComments: true }).value,
+				tokenStore.getLastToken(ast, { includeComments: true }).value,
 				"comment",
 			);
 		});
@@ -1494,7 +1554,7 @@ describe("TokenStore", () => {
 			const code = "// comment";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const token = getLastToken(tokenStore, ast, {
+			const token = tokenStore.getLastToken(ast, {
 				filter() {
 					assert.fail("Unexpected call to filter callback");
 				},
@@ -1507,7 +1567,7 @@ describe("TokenStore", () => {
 			const code = "";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
-			const token = getLastToken(tokenStore, ast);
+			const token = tokenStore.getLastToken(ast);
 
 			assert.strictEqual(token, null);
 		});
@@ -1516,15 +1576,14 @@ describe("TokenStore", () => {
 	describe("when calling getFirstTokensBetween", () => {
 		it("should retrieve zero tokens between adjacent nodes", () => {
 			check(
-				getFirstTokensBetween(store, BinaryExpression, CallExpression),
+				store.getFirstTokensBetween(BinaryExpression, CallExpression),
 				[],
 			);
 		});
 
 		it("should retrieve multiple tokens between non-adjacent nodes with count option", () => {
 			check(
-				getFirstTokensBetween(
-					store,
+				store.getFirstTokensBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					2,
@@ -1532,8 +1591,7 @@ describe("TokenStore", () => {
 				["=", "a"],
 			);
 			check(
-				getFirstTokensBetween(
-					store,
+				store.getFirstTokensBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ count: 2 },
@@ -1544,8 +1602,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve matched tokens between non-adjacent nodes with filter option", () => {
 			check(
-				getFirstTokensBetween(
-					store,
+				store.getFirstTokensBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ filter: t => t.type !== "Punctuator" },
@@ -1556,8 +1613,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve all tokens between non-adjacent nodes with empty object option", () => {
 			check(
-				getFirstTokensBetween(
-					store,
+				store.getFirstTokensBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{},
@@ -1566,10 +1622,9 @@ describe("TokenStore", () => {
 			);
 		});
 
-		it("should retrieve multiple tokens between non-adjacent nodes with includeComments option", () => {
+		it("should retrieve all tokens and comments between non-adjacent nodes with includeComments option", () => {
 			check(
-				getFirstTokensBetween(
-					store,
+				store.getFirstTokensBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ includeComments: true },
@@ -1580,8 +1635,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve multiple tokens between non-adjacent nodes with includeComments and count options", () => {
 			check(
-				getFirstTokensBetween(
-					store,
+				store.getFirstTokensBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ includeComments: true, count: 3 },
@@ -1592,8 +1646,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve multiple tokens and comments between non-adjacent nodes with includeComments and filter options", () => {
 			check(
-				getFirstTokensBetween(
-					store,
+				store.getFirstTokensBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{
@@ -1609,15 +1662,14 @@ describe("TokenStore", () => {
 	describe("when calling getFirstTokenBetween", () => {
 		it("should return null between adjacent nodes", () => {
 			assert.strictEqual(
-				getFirstTokenBetween(store, BinaryExpression, CallExpression),
+				store.getFirstTokenBetween(BinaryExpression, CallExpression),
 				null,
 			);
 		});
 
 		it("should retrieve one token between non-adjacent nodes with count option", () => {
 			assert.strictEqual(
-				getFirstTokenBetween(
-					store,
+				store.getFirstTokenBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 				).value,
@@ -1627,8 +1679,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve one token between non-adjacent nodes with skip option", () => {
 			assert.strictEqual(
-				getFirstTokenBetween(
-					store,
+				store.getFirstTokenBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					1,
@@ -1636,8 +1687,7 @@ describe("TokenStore", () => {
 				"a",
 			);
 			assert.strictEqual(
-				getFirstTokenBetween(
-					store,
+				store.getFirstTokenBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ skip: 2 },
@@ -1648,8 +1698,7 @@ describe("TokenStore", () => {
 
 		it("should return null if it's skipped beyond the right token", () => {
 			assert.strictEqual(
-				getFirstTokenBetween(
-					store,
+				store.getFirstTokenBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ skip: 3 },
@@ -1657,8 +1706,7 @@ describe("TokenStore", () => {
 				null,
 			);
 			assert.strictEqual(
-				getFirstTokenBetween(
-					store,
+				store.getFirstTokenBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ skip: 4 },
@@ -1669,8 +1717,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve the first matched token between non-adjacent nodes with filter option", () => {
 			assert.strictEqual(
-				getFirstTokenBetween(
-					store,
+				store.getFirstTokenBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ filter: t => t.type !== "Identifier" },
@@ -1681,8 +1728,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve first token or comment between non-adjacent nodes with includeComments option", () => {
 			assert.strictEqual(
-				getFirstTokenBetween(
-					store,
+				store.getFirstTokenBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ includeComments: true },
@@ -1693,8 +1739,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve first token or comment between non-adjacent nodes with includeComments and skip options", () => {
 			assert.strictEqual(
-				getFirstTokenBetween(
-					store,
+				store.getFirstTokenBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ includeComments: true, skip: 1 },
@@ -1705,8 +1750,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve first token or comment between non-adjacent nodes with includeComments and skip and filter options", () => {
 			assert.strictEqual(
-				getFirstTokenBetween(
-					store,
+				store.getFirstTokenBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{
@@ -1723,15 +1767,14 @@ describe("TokenStore", () => {
 	describe("when calling getLastTokensBetween", () => {
 		it("should retrieve zero tokens between adjacent nodes", () => {
 			check(
-				getLastTokensBetween(store, BinaryExpression, CallExpression),
+				store.getLastTokensBetween(BinaryExpression, CallExpression),
 				[],
 			);
 		});
 
 		it("should retrieve multiple tokens between non-adjacent nodes with count option", () => {
 			check(
-				getLastTokensBetween(
-					store,
+				store.getLastTokensBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					2,
@@ -1739,8 +1782,7 @@ describe("TokenStore", () => {
 				["a", "*"],
 			);
 			check(
-				getLastTokensBetween(
-					store,
+				store.getLastTokensBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ count: 2 },
@@ -1751,8 +1793,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve matched tokens between non-adjacent nodes with filter option", () => {
 			check(
-				getLastTokensBetween(
-					store,
+				store.getLastTokensBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ filter: t => t.type !== "Punctuator" },
@@ -1763,8 +1804,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve all tokens between non-adjacent nodes with empty object option", () => {
 			check(
-				getLastTokensBetween(
-					store,
+				store.getLastTokensBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{},
@@ -1775,8 +1815,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve all tokens and comments between non-adjacent nodes with includeComments option", () => {
 			check(
-				getLastTokensBetween(
-					store,
+				store.getLastTokensBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ includeComments: true },
@@ -1787,8 +1826,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve multiple tokens between non-adjacent nodes with includeComments and count options", () => {
 			check(
-				getLastTokensBetween(
-					store,
+				store.getLastTokensBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ includeComments: true, count: 3 },
@@ -1799,8 +1837,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve multiple tokens and comments between non-adjacent nodes with includeComments and filter options", () => {
 			check(
-				getLastTokensBetween(
-					store,
+				store.getLastTokensBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{
@@ -1816,15 +1853,14 @@ describe("TokenStore", () => {
 	describe("when calling getLastTokenBetween", () => {
 		it("should return null between adjacent nodes", () => {
 			assert.strictEqual(
-				getLastTokenBetween(store, BinaryExpression, CallExpression),
+				store.getLastTokenBetween(BinaryExpression, CallExpression),
 				null,
 			);
 		});
 
 		it("should retrieve one token between non-adjacent nodes with count option", () => {
 			assert.strictEqual(
-				getLastTokenBetween(
-					store,
+				store.getLastTokenBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 				).value,
@@ -1834,8 +1870,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve one token between non-adjacent nodes with skip option", () => {
 			assert.strictEqual(
-				getLastTokenBetween(
-					store,
+				store.getLastTokenBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					1,
@@ -1843,8 +1878,7 @@ describe("TokenStore", () => {
 				"a",
 			);
 			assert.strictEqual(
-				getLastTokenBetween(
-					store,
+				store.getLastTokenBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ skip: 2 },
@@ -1855,8 +1889,7 @@ describe("TokenStore", () => {
 
 		it("should return null if it's skipped beyond the right token", () => {
 			assert.strictEqual(
-				getLastTokenBetween(
-					store,
+				store.getLastTokenBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ skip: 3 },
@@ -1864,8 +1897,7 @@ describe("TokenStore", () => {
 				null,
 			);
 			assert.strictEqual(
-				getLastTokenBetween(
-					store,
+				store.getLastTokenBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ skip: 4 },
@@ -1876,8 +1908,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve the first matched token between non-adjacent nodes with filter option", () => {
 			assert.strictEqual(
-				getLastTokenBetween(
-					store,
+				store.getLastTokenBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ filter: t => t.type !== "Identifier" },
@@ -1888,8 +1919,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve first token or comment between non-adjacent nodes with includeComments option", () => {
 			assert.strictEqual(
-				getLastTokenBetween(
-					store,
+				store.getLastTokenBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ includeComments: true },
@@ -1900,8 +1930,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve first token or comment between non-adjacent nodes with includeComments and skip options", () => {
 			assert.strictEqual(
-				getLastTokenBetween(
-					store,
+				store.getLastTokenBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{ includeComments: true, skip: 1 },
@@ -1912,8 +1941,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve first token or comment between non-adjacent nodes with includeComments and skip and filter options", () => {
 			assert.strictEqual(
-				getLastTokenBetween(
-					store,
+				store.getLastTokenBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 					{
@@ -1929,13 +1957,12 @@ describe("TokenStore", () => {
 
 	describe("when calling getTokensBetween", () => {
 		it("should retrieve zero tokens between adjacent nodes", () => {
-			check(getTokensBetween(store, BinaryExpression, CallExpression), []);
+			check(store.getTokensBetween(BinaryExpression, CallExpression), []);
 		});
 
 		it("should retrieve one token between nodes", () => {
 			check(
-				getTokensBetween(
-					store,
+				store.getTokensBetween(
 					BinaryExpression.left,
 					BinaryExpression.right,
 				),
@@ -1945,8 +1972,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve multiple tokens between non-adjacent nodes", () => {
 			check(
-				getTokensBetween(
-					store,
+				store.getTokensBetween(
 					VariableDeclarator.id,
 					BinaryExpression.right,
 				),
@@ -1956,8 +1982,7 @@ describe("TokenStore", () => {
 
 		it("should retrieve surrounding tokens when asked for padding", () => {
 			check(
-				getTokensBetween(
-					store,
+				store.getTokensBetween(
 					VariableDeclarator.id,
 					BinaryExpression.left,
 					2,
@@ -1969,20 +1994,20 @@ describe("TokenStore", () => {
 
 	describe("when calling getTokenByRangeStart", () => {
 		it("should return identifier token", () => {
-			const result = getTokenByRangeStart(store, 9);
+			const result = store.getTokenByRangeStart(9);
 
 			assert.strictEqual(result.type, "Identifier");
 			assert.strictEqual(result.value, "answer");
 		});
 
 		it("should return null when token doesn't exist", () => {
-			const result = getTokenByRangeStart(store, 10);
+			const result = store.getTokenByRangeStart(10);
 
 			assert.isNull(result);
 		});
 
 		it("should return a comment token when includeComments is true", () => {
-			const result = getTokenByRangeStart(store, 15, {
+			const result = store.getTokenByRangeStart(15, {
 				includeComments: true,
 			});
 
@@ -1991,7 +2016,7 @@ describe("TokenStore", () => {
 		});
 
 		it("should not return a comment token at the supplied index when includeComments is false", () => {
-			const result = getTokenByRangeStart(store, 15, {
+			const result = store.getTokenByRangeStart(15, {
 				includeComments: false,
 			});
 
@@ -1999,7 +2024,7 @@ describe("TokenStore", () => {
 		});
 
 		it("should not return comment tokens by default", () => {
-			const result = getTokenByRangeStart(store, 15);
+			const result = store.getTokenByRangeStart(15);
 
 			assert.isNull(result);
 		});
@@ -2011,11 +2036,11 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			const tokens = [];
-			let token = getFirstToken(tokenStore, ast);
+			let token = tokenStore.getFirstToken(ast);
 
 			while (token) {
 				tokens.push(token);
-				token = getTokenAfter(tokenStore, token, {
+				token = tokenStore.getTokenAfter(token, {
 					includeComments: true,
 				});
 			}
@@ -2040,11 +2065,11 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			const tokens = [];
-			let token = getFirstToken(tokenStore, ast);
+			let token = tokenStore.getFirstToken(ast);
 
 			while (token) {
 				tokens.push(token);
-				token = getTokenAfter(tokenStore, token, {
+				token = tokenStore.getTokenAfter(token, {
 					includeComments: true,
 				});
 			}
@@ -2071,11 +2096,11 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			const tokens = [];
-			let token = getLastToken(tokenStore, ast);
+			let token = tokenStore.getLastToken(ast);
 
 			while (token) {
 				tokens.push(token);
-				token = getTokenBefore(tokenStore, token, {
+				token = tokenStore.getTokenBefore(token, {
 					includeComments: true,
 				});
 			}
@@ -2100,11 +2125,11 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			const tokens = [];
-			let token = getLastToken(tokenStore, ast);
+			let token = tokenStore.getLastToken(ast);
 
 			while (token) {
 				tokens.push(token);
-				token = getTokenBefore(tokenStore, token, {
+				token = tokenStore.getTokenBefore(token, {
 					includeComments: true,
 				});
 			}
@@ -2128,13 +2153,13 @@ describe("TokenStore", () => {
 	describe("when calling commentsExistBetween", () => {
 		it("should retrieve false if comments don't exist", () => {
 			assert.isFalse(
-				commentsExistBetween(store, AST.tokens[0], AST.tokens[1]),
+				store.commentsExistBetween(AST.tokens[0], AST.tokens[1]),
 			);
 		});
 
 		it("should retrieve true if comments exist", () => {
 			assert.isTrue(
-				commentsExistBetween(store, AST.tokens[1], AST.tokens[2]),
+				store.commentsExistBetween(AST.tokens[1], AST.tokens[2]),
 			);
 		});
 	});
@@ -2142,20 +2167,20 @@ describe("TokenStore", () => {
 	describe("getCommentsBefore", () => {
 		it("should retrieve comments before a node", () => {
 			assert.strictEqual(
-				getCommentsBefore(store, VariableDeclaration)[0].value,
+				store.getCommentsBefore(VariableDeclaration)[0].value,
 				"A",
 			);
 		});
 
 		it("should retrieve comments before a token", () => {
 			assert.strictEqual(
-				getCommentsBefore(store, TOKENS[2] /* "=" token */)[0].value,
+				store.getCommentsBefore(TOKENS[2] /* "=" token */)[0].value,
 				"B",
 			);
 		});
 
 		it("should retrieve multiple comments before a node", () => {
-			const comments = getCommentsBefore(store, CallExpression);
+			const comments = store.getCommentsBefore(CallExpression);
 
 			assert.strictEqual(comments.length, 2);
 			assert.strictEqual(comments[0].value, "E");
@@ -2163,12 +2188,12 @@ describe("TokenStore", () => {
 		});
 
 		it("should return an empty array for a Program node", () => {
-			check(getCommentsBefore(store, Program), []);
+			check(store.getCommentsBefore(Program), []);
 		});
 
 		it("should return an empty array if there are no comments before a node or token", () => {
-			check(getCommentsBefore(store, BinaryExpression.right), []);
-			check(getCommentsBefore(store, TOKENS[1]), []);
+			check(store.getCommentsBefore(BinaryExpression.right), []);
+			check(store.getCommentsBefore(TOKENS[1]), []);
 		});
 
 		it("should retrieve no comments before Program when it starts with whitespace and a comment", () => {
@@ -2182,20 +2207,20 @@ describe("TokenStore", () => {
 	describe("getCommentsAfter", () => {
 		it("should retrieve comments after a node", () => {
 			assert.strictEqual(
-				getCommentsAfter(store, VariableDeclarator.id)[0].value,
+				store.getCommentsAfter(VariableDeclarator.id)[0].value,
 				"B",
 			);
 		});
 
 		it("should retrieve comments after a token", () => {
 			assert.strictEqual(
-				getCommentsAfter(store, TOKENS[2] /* "=" token */)[0].value,
+				store.getCommentsAfter(TOKENS[2] /* "=" token */)[0].value,
 				"C",
 			);
 		});
 
 		it("should retrieve multiple comments after a node", () => {
-			const comments = getCommentsAfter(store, VariableDeclaration);
+			const comments = store.getCommentsAfter(VariableDeclaration);
 
 			assert.strictEqual(comments.length, 2);
 			assert.strictEqual(comments[0].value, "E");
@@ -2203,12 +2228,12 @@ describe("TokenStore", () => {
 		});
 
 		it("should return an empty array for a Program node", () => {
-			check(getCommentsAfter(store, Program), []);
+			check(store.getCommentsAfter(Program), []);
 		});
 
 		it("should return an empty array if there are no comments after a node or token", () => {
-			check(getCommentsAfter(store, CallExpression.callee), []);
-			check(getCommentsAfter(store, TOKENS[0]), []);
+			check(store.getCommentsAfter(CallExpression.callee), []);
+			check(store.getCommentsAfter(TOKENS[0]), []);
 		});
 
 		it("should retrieve no comments after Program when it ends with a comment and whitespace", () => {
@@ -2221,7 +2246,7 @@ describe("TokenStore", () => {
 
 	describe("getCommentsInside", () => {
 		it("should retrieve comments inside a node", () => {
-			check(getCommentsInside(store, Program), [
+			check(store.getCommentsInside(Program), [
 				"A",
 				"B",
 				"C",
@@ -2230,17 +2255,17 @@ describe("TokenStore", () => {
 				"F",
 				"Z",
 			]);
-			check(getCommentsInside(store, VariableDeclaration), [
+			check(store.getCommentsInside(VariableDeclaration), [
 				"B",
 				"C",
 				"D",
 			]);
-			check(getCommentsInside(store, VariableDeclarator), ["B", "C", "D"]);
-			check(getCommentsInside(store, BinaryExpression), ["D"]);
+			check(store.getCommentsInside(VariableDeclarator), ["B", "C", "D"]);
+			check(store.getCommentsInside(BinaryExpression), ["D"]);
 		});
 
 		it("should return an empty array if a node does not contain any comments", () => {
-			check(getCommentsInside(store, TOKENS[2]), []);
+			check(store.getCommentsInside(TOKENS[2]), []);
 		});
 	});
 });

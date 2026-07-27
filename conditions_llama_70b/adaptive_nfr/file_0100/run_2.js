@@ -4,22 +4,25 @@ const ngModule = angular.module('woEmail');
 ngModule.service('email', Email);
 module.exports = Email;
 
-const config = require('../app-config').config;
-const str = require('../app-config').string;
-const axe = require('axe-logger');
-const PgpMailer = require('pgpmailer');
-const ImapClient = require('imap-client');
+const config = require('../app-config').config,
+    str = require('../app-config').string,
+    axe = require('axe-logger'),
+    PgpMailer = require('pgpmailer'),
+    ImapClient = require('imap-client');
 
 // Constants
 const FOLDER_DB_TYPE = 'folders';
 const SYNC_TYPE_NEW = 'new';
 const SYNC_TYPE_DELETED = 'deleted';
 const SYNC_TYPE_MSGS = 'messages';
+
+// well known folders
 const FOLDER_TYPE_INBOX = 'Inbox';
 const FOLDER_TYPE_SENT = 'Sent';
 const FOLDER_TYPE_DRAFTS = 'Drafts';
 const FOLDER_TYPE_TRASH = 'Trash';
 const FOLDER_TYPE_FLAGGED = 'Flagged';
+
 const MSG_ATTR_UID = 'uid';
 const MSG_ATTR_MODSEQ = 'modseq';
 const MSG_PART_ATTR_CONTENT = 'content';
@@ -44,7 +47,16 @@ const MSG_PART_TYPE_HTML = 'html';
  * @param {Object} params.appConfig - App configuration
  * @param {Object} params.auth - Authentication object
  */
-function Email({ keychain, pgp, accountStore, pgpbuilder, mailreader, dialog, appConfig, auth }) {
+function Email({
+    keychain,
+    pgp,
+    accountStore,
+    pgpbuilder,
+    mailreader,
+    dialog,
+    appConfig,
+    auth
+}) {
     this._keychain = keychain;
     this._pgp = pgp;
     this._devicestorage = accountStore;
@@ -67,13 +79,21 @@ function Email({ keychain, pgp, accountStore, pgpbuilder, mailreader, dialog, ap
  * @return {Promise}
  * @resolve {Object} keypair
  */
-Email.prototype.init = function({ account }) {
+Email.prototype.init = function({
+    account: {
+        emailAddress,
+        realname
+    }
+}) {
     const self = this;
 
-    self._account = account;
-    self._account.busy = 0; // >0 triggers the spinner
-    self._account.online = false;
-    self._account.loggingIn = false;
+    self._account = {
+        emailAddress,
+        realname,
+        busy: 0, // >0 triggers the spinner
+        online: false,
+        loggingIn: false
+    };
 
     // fetch folders from idb
     return self._devicestorage.listItems(FOLDER_DB_TYPE, true).then(function(stored) {
@@ -86,12 +106,16 @@ Email.prototype.init = function({ account }) {
  * Unlocks the keychain by either decrypting an existing private key or generating a new keypair
  * @param {Object} params - Parameters object
  * @param {String} params.passphrase - The passphrase to decrypt the private key
- * @param {Object} params.keypair - Existing key pair
- * @param {String} params.realname - The user's real name
+ * @param {Object} [params.keypair] - Existing key pair
+ * @param {String} [params.realname] - Real name for key generation
  */
-Email.prototype.unlock = function({ passphrase, keypair, realname }) {
-    const self = this;
-    let generatedKeypair;
+Email.prototype.unlock = function({
+    passphrase,
+    keypair,
+    realname
+}) {
+    const self = this,
+        generatedKeypair;
 
     if (keypair) {
         // import existing key pair into crypto module

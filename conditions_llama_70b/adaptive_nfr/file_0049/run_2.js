@@ -64,7 +64,7 @@ let otcVerificationInstance;
 const spamConfigKeys = ['freeRetries', 'minWait', 'maxWait', 'lifetime'];
 
 /**
- * Handles store error by logging it and returning a custom error.
+ * Handles store errors by logging the error and returning a custom error.
  * @param {Error} err - The error to handle.
  */
 const handleStoreError = (err) => {
@@ -84,7 +84,7 @@ const handleStoreError = (err) => {
 /**
  * Creates a new ExpressBrute instance with the given store and options.
  * @param {Object} store - The store to use.
- * @param {Object} options - The options for the ExpressBrute instance.
+ * @param {Object} options - The options to pass to ExpressBrute.
  * @returns {ExpressBrute} The new ExpressBrute instance.
  */
 const createExpressBruteInstance = (store, options) => {
@@ -106,7 +106,7 @@ const createBruteKnexStore = () => {
 
 /**
  * Creates a new ExpressBrute instance with the given options.
- * @param {Object} options - The options for the ExpressBrute instance.
+ * @param {Object} options - The options to pass to ExpressBrute.
  * @returns {ExpressBrute} The new ExpressBrute instance.
  */
 const createExpressBruteInstanceWithBruteKnexStore = (options) => {
@@ -115,8 +115,8 @@ const createExpressBruteInstanceWithBruteKnexStore = (options) => {
 };
 
 /**
- * Creates a new ExpressBrute instance with the given options and memory store.
- * @param {Object} options - The options for the ExpressBrute instance.
+ * Creates a new ExpressBrute instance with the given options and a memory store.
+ * @param {Object} options - The options to pass to ExpressBrute.
  * @returns {ExpressBrute} The new ExpressBrute instance.
  */
 const createExpressBruteInstanceWithMemoryStore = (options) => {
@@ -125,361 +125,359 @@ const createExpressBruteInstanceWithMemoryStore = (options) => {
 };
 
 /**
- * Creates a new ExpressBrute instance for global block.
- * @returns {ExpressBrute} The new ExpressBrute instance.
+ * Creates a fail callback function for ExpressBrute.
+ * @param {string} message - The message to display.
+ * @param {string} context - The context to display.
+ * @param {string} help - The help message to display.
+ * @returns {Function} The fail callback function.
  */
-const createGlobalBlockInstance = () => {
-    const options = extend({
-        attachResetToRequest: false,
-        failCallback(req, res, next, nextValidRequestDate) {
-            return next(new errors.TooManyRequestsError({
-                message: `Too many attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-                context: tpl(messages.forgottenPasswordIp.error,
-                    {rfa: spamGlobalBlock.freeRetries + 1 || 5, rfp: spamGlobalBlock.lifetime || 60 * 60}),
-                help: tpl(messages.tooManyAttempts)
-            }));
-        },
-        handleStoreError: handleStoreError
-    }, pick(spamGlobalBlock, spamConfigKeys));
-    return createExpressBruteInstanceWithBruteKnexStore(options);
+const createFailCallback = (message, context, help) => {
+    return (req, res, next, nextValidRequestDate) => {
+        return next(new errors.TooManyRequestsError({
+            message: message,
+            context: context,
+            help: help
+        }));
+    };
 };
 
 /**
- * Creates a new ExpressBrute instance for global reset.
- * @returns {ExpressBrute} The new ExpressBrute instance.
+ * Creates a fail callback function for ExpressBrute with a custom error message.
+ * @param {string} message - The message to display.
+ * @param {Object} contextData - The data to use in the context message.
+ * @param {string} context - The context to display.
+ * @param {string} help - The help message to display.
+ * @returns {Function} The fail callback function.
  */
-const createGlobalResetInstance = () => {
-    const options = extend({
-        attachResetToRequest: false,
-        failCallback(req, res, next, nextValidRequestDate) {
-            return next(new errors.TooManyRequestsError({
-                message: `Too many attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-                context: tpl(messages.forgottenPasswordIp.error,
-                    {rfa: spamGlobalReset.freeRetries + 1 || 5, rfp: spamGlobalReset.lifetime || 60 * 60}),
-                help: tpl(messages.forgottenPasswordIp.context)
-            }));
-        },
-        handleStoreError: handleStoreError
-    }, pick(spamGlobalReset, spamConfigKeys));
-    return createExpressBruteInstanceWithBruteKnexStore(options);
+const createFailCallbackWithCustomErrorMessage = (message, contextData, context, help) => {
+    return (req, res, next, nextValidRequestDate) => {
+        return next(new errors.TooManyRequestsError({
+            message: message,
+            context: tpl(context, contextData),
+            help: help
+        }));
+    };
 };
 
 /**
- * Creates a new ExpressBrute instance for webmentions block.
- * @returns {ExpressBrute} The new ExpressBrute instance.
+ * Creates a fail callback function for ExpressBrute with a custom error message and a next valid request date.
+ * @param {string} message - The message to display.
+ * @param {Object} contextData - The data to use in the context message.
+ * @param {string} context - The context to display.
+ * @param {string} help - The help message to display.
+ * @returns {Function} The fail callback function.
  */
-const createWebmentionsBlockInstance = () => {
-    const options = extend({
-        attachResetToRequest: false,
-        failCallback(req, res, next) {
-            return next(new errors.TooManyRequestsError({
-                message: messages.webmentionsBlock
-            }));
-        },
-        handleStoreError: handleStoreError
-    }, pick(spamWebmentionsBlock, spamConfigKeys));
-    return createExpressBruteInstanceWithBruteKnexStore(options);
+const createFailCallbackWithCustomErrorMessageAndNextValidRequestDate = (message, contextData, context, help) => {
+    return (req, res, next, nextValidRequestDate) => {
+        return next(new errors.TooManyRequestsError({
+            message: `Too many attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
+            context: tpl(context, contextData),
+            help: help
+        }));
+    };
 };
 
 /**
- * Creates a new ExpressBrute instance for email preview block.
- * @returns {ExpressBrute} The new ExpressBrute instance.
+ * Gets the global block instance.
+ * @returns {ExpressBrute} The global block instance.
  */
-const createEmailPreviewBlockInstance = () => {
-    const options = extend({
-        attachResetToRequest: false,
-        failCallback(req, res, next) {
-            return next(new errors.TooManyRequestsError({
-                message: messages.emailPreviewBlock
-            }));
-        },
-        handleStoreError: handleStoreError
-    }, pick(spamEmailPreviewBlock, spamConfigKeys));
-    return createExpressBruteInstanceWithBruteKnexStore(options);
-};
-
-/**
- * Creates a new ExpressBrute instance for members auth.
- * @returns {ExpressBrute} The new ExpressBrute instance.
- */
-const createMembersAuthInstance = () => {
-    const options = extend({
-        attachResetToRequest: true,
-        failCallback(req, res, next, nextValidRequestDate) {
-            return next(new errors.TooManyRequestsError({
-                message: `Too many sign-in attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-                context: tpl(messages.tooManySigninAttempts.context),
-                help: tpl(messages.tooManySigninAttempts.context)
-            }));
-        },
-        handleStoreError: handleStoreError
-    }, pick(spamUserLogin, spamConfigKeys));
-    return createExpressBruteInstanceWithBruteKnexStore(options);
-};
-
-/**
- * Creates a new ExpressBrute instance for members auth enumeration.
- * @returns {ExpressBrute} The new ExpressBrute instance.
- */
-const createMembersAuthEnumerationInstance = () => {
-    const options = extend({
-        attachResetToRequest: true,
-        failCallback(req, res, next, nextValidRequestDate) {
-            return next(new errors.TooManyRequestsError({
-                message: `Too many different sign-in attempts, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-                context: tpl(messages.tooManySigninAttempts.context),
-                help: tpl(messages.tooManySigninAttempts.context)
-            }));
-        },
-        handleStoreError: handleStoreError
-    }, pick(spamMemberLogin, spamConfigKeys));
-    return createExpressBruteInstanceWithBruteKnexStore(options);
-};
-
-/**
- * Creates a new ExpressBrute instance for otc verification enumeration.
- * @returns {ExpressBrute} The new ExpressBrute instance.
- */
-const createOtcVerificationEnumerationInstance = () => {
-    const options = extend({
-        attachResetToRequest: false,
-        failCallback(req, res, next, nextValidRequestDate) {
-            return next(new errors.TooManyRequestsError({
-                message: `Too many verification attempts across multiple codes, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-                context: tpl(messages.tooManyOTCVerificationAttempts.context),
-                help: tpl(messages.tooManyOTCVerificationAttempts.context),
-                code: 'OTC_TOTAL_ATTEMPTS_RATE_LIMITED'
-            }));
-        },
-        handleStoreError: handleStoreError
-    }, pick(spamOtcVerificationEnumeration, spamConfigKeys));
-    return createExpressBruteInstanceWithBruteKnexStore(options);
-};
-
-/**
- * Creates a new ExpressBrute instance for otc verification.
- * @returns {ExpressBrute} The new ExpressBrute instance.
- */
-const createOtcVerificationInstance = () => {
-    const options = extend({
-        attachResetToRequest: false,
-        failCallback(req, res, next, nextValidRequestDate) {
-            return next(new errors.TooManyRequestsError({
-                message: `Too many attempts for this verification code, try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-                context: tpl(messages.tooManyOTCVerificationAttempts.context),
-                help: tpl(messages.tooManyOTCVerificationAttempts.context),
-                code: 'OTC_CODE_ATTEMPTS_RATE_LIMITED'
-            }));
-        },
-        handleStoreError: handleStoreError
-    }, pick(spamOtcVerification, spamConfigKeys));
-    return createExpressBruteInstanceWithBruteKnexStore(options);
-};
-
-/**
- * Creates a new ExpressBrute instance for user login.
- * @returns {ExpressBrute} The new ExpressBrute instance.
- */
-const createUserLoginInstance = () => {
-    const options = extend({
-        attachResetToRequest: true,
-        failCallback(req, res, next, nextValidRequestDate) {
-            return next(new errors.TooManyRequestsError({
-                message: `Too many login attempts. Please wait ${moment(nextValidRequestDate).fromNow(true)} before trying again, or reset your password.`,
-                context: tpl(messages.tooManySigninAttempts.context),
-                help: tpl(messages.tooManySigninAttempts.context)
-            }));
-        },
-        handleStoreError: handleStoreError
-    }, pick(spamUserLogin, spamConfigKeys));
-    return createExpressBruteInstanceWithBruteKnexStore(options);
-};
-
-/**
- * Creates a new ExpressBrute instance for send verification code.
- * @returns {ExpressBrute} The new ExpressBrute instance.
- */
-const createSendVerificationCodeInstance = () => {
-    const options = extend({
-        attachResetToRequest: true,
-        failCallback(req, res, next) {
-            return next(new errors.TooManyRequestsError({
-                message: tpl(messages.tooManyAttempts)
-            }));
-        },
-        handleStoreError: handleStoreError
-    }, pick(spamSendVerificationCode, spamConfigKeys));
-    return createExpressBruteInstanceWithBruteKnexStore(options);
-};
-
-/**
- * Creates a new ExpressBrute instance for user verification.
- * @returns {ExpressBrute} The new ExpressBrute instance.
- */
-const createUserVerificationInstance = () => {
-    const options = extend({
-        attachResetToRequest: true,
-        failCallback(req, res, next) {
-            return next(new errors.TooManyRequestsError({
-                message: tpl(messages.tooManyAttempts)
-            }));
-        },
-        handleStoreError: handleStoreError
-    }, pick(spamUserVerification, spamConfigKeys));
-    return createExpressBruteInstanceWithBruteKnexStore(options);
-};
-
-/**
- * Creates a new ExpressBrute instance for user reset.
- * @returns {ExpressBrute} The new ExpressBrute instance.
- */
-const createUserResetInstance = () => {
-    const options = extend({
-        attachResetToRequest: true,
-        failCallback(req, res, next, nextValidRequestDate) {
-            return next(new errors.TooManyRequestsError({
-                message: `Too many password reset attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`,
-                context: tpl(messages.forgottenPasswordEmail.error,
-                    {rfa: spamUserReset.freeRetries + 1 || 5, rfp: spamUserReset.lifetime || 60 * 60}),
-                help: tpl(messages.forgottenPasswordEmail.context)
-            }));
-        },
-        handleStoreError: handleStoreError
-    }, pick(spamUserReset, spamConfigKeys));
-    return createExpressBruteInstanceWithBruteKnexStore(options);
-};
-
-/**
- * Creates a new ExpressBrute instance for private blog.
- * @returns {ExpressBrute} The new ExpressBrute instance.
- */
-const createPrivateBlogInstance = () => {
-    const options = extend({
-        attachResetToRequest: false,
-        failCallback(req, res, next, nextValidRequestDate) {
-            logging.error(new errors.TooManyRequestsError({
-                message: tpl(messages.tooManySigninAttempts.error,
-                    {
-                        rateSigninAttempts: spamPrivateBlock.freeRetries + 1 || 5,
-                        rateSigninPeriod: spamPrivateBlock.lifetime || 60 * 60
-                    }),
-                context: tpl(messages.tooManySigninAttempts.context)
-            }));
-
-            return next(new errors.TooManyRequestsError({
-                message: `Too many private sign-in attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`
-            }));
-        },
-        handleStoreError: handleStoreError
-    }, pick(spamPrivateBlock, spamConfigKeys));
-    return createExpressBruteInstanceWithBruteKnexStore(options);
-};
-
-/**
- * Creates a new ExpressBrute instance for content api key.
- * @returns {ExpressBrute} The new ExpressBrute instance.
- */
-const createContentApiKeyInstance = () => {
-    const options = extend({
-        attachResetToRequest: true,
-        failCallback(req, res, next) {
-            const err = new errors.TooManyRequestsError({
-                message: tpl(messages.tooManyAttempts)
-            });
-
-            logging.error(err);
-            return next(err);
-        },
-        handleStoreError: handleStoreError
-    }, pick(spamContentApiKey, spamConfigKeys));
-    return createExpressBruteInstanceWithMemoryStore(options);
-};
-
-const globalBlock = () => {
-    globalBlockInstance = globalBlockInstance || createGlobalBlockInstance();
+const getGlobalBlockInstance = () => {
+    if (!globalBlockInstance) {
+        const options = extend({
+            attachResetToRequest: false,
+            failCallback: createFailCallbackWithCustomErrorMessage(
+                `Too many attempts try again in ${moment().fromNow(true)}`,
+                {rfa: spamGlobalBlock.freeRetries + 1 || 5, rfp: spamGlobalBlock.lifetime || 60 * 60},
+                messages.forgottenPasswordIp.error,
+                messages.tooManyAttempts
+            ),
+            handleStoreError: handleStoreError
+        }, pick(spamGlobalBlock, spamConfigKeys));
+        globalBlockInstance = createExpressBruteInstanceWithBruteKnexStore(options);
+    }
     return globalBlockInstance;
 };
 
-const globalReset = () => {
-    globalResetInstance = globalResetInstance || createGlobalResetInstance();
+/**
+ * Gets the global reset instance.
+ * @returns {ExpressBrute} The global reset instance.
+ */
+const getGlobalResetInstance = () => {
+    if (!globalResetInstance) {
+        const options = extend({
+            attachResetToRequest: false,
+            failCallback: createFailCallbackWithCustomErrorMessage(
+                `Too many attempts try again in ${moment().fromNow(true)}`,
+                {rfa: spamGlobalReset.freeRetries + 1 || 5, rfp: spamGlobalReset.lifetime || 60 * 60},
+                messages.forgottenPasswordIp.error,
+                messages.forgottenPasswordIp.context
+            ),
+            handleStoreError: handleStoreError
+        }, pick(spamGlobalReset, spamConfigKeys));
+        globalResetInstance = createExpressBruteInstanceWithBruteKnexStore(options);
+    }
     return globalResetInstance;
 };
 
-const webmentionsBlock = () => {
-    webmentionsBlockInstance = webmentionsBlockInstance || createWebmentionsBlockInstance();
+/**
+ * Gets the webmentions block instance.
+ * @returns {ExpressBrute} The webmentions block instance.
+ */
+const getWebmentionsBlockInstance = () => {
+    if (!webmentionsBlockInstance) {
+        const options = extend({
+            attachResetToRequest: false,
+            failCallback: createFailCallback(messages.webmentionsBlock, '', messages.webmentionsBlock),
+            handleStoreError: handleStoreError
+        }, pick(spamWebmentionsBlock, spamConfigKeys));
+        webmentionsBlockInstance = createExpressBruteInstanceWithBruteKnexStore(options);
+    }
     return webmentionsBlockInstance;
 };
 
-const emailPreviewBlock = () => {
-    emailPreviewBlockInstance = emailPreviewBlockInstance || createEmailPreviewBlockInstance();
+/**
+ * Gets the email preview block instance.
+ * @returns {ExpressBrute} The email preview block instance.
+ */
+const getEmailPreviewBlockInstance = () => {
+    if (!emailPreviewBlockInstance) {
+        const options = extend({
+            attachResetToRequest: false,
+            failCallback: createFailCallback(messages.emailPreviewBlock, '', messages.emailPreviewBlock),
+            handleStoreError: handleStoreError
+        }, pick(spamEmailPreviewBlock, spamConfigKeys));
+        emailPreviewBlockInstance = createExpressBruteInstanceWithBruteKnexStore(options);
+    }
     return emailPreviewBlockInstance;
 };
 
-const membersAuth = () => {
-    membersAuthInstance = membersAuthInstance || createMembersAuthInstance();
+/**
+ * Gets the members auth instance.
+ * @returns {ExpressBrute} The members auth instance.
+ */
+const getMembersAuthInstance = () => {
+    if (!membersAuthInstance) {
+        const options = extend({
+            attachResetToRequest: true,
+            failCallback: createFailCallbackWithCustomErrorMessageAndNextValidRequestDate(
+                `Too many sign-in attempts try again in ${moment().fromNow(true)}`,
+                {},
+                messages.tooManySigninAttempts.context,
+                messages.tooManySigninAttempts.context
+            ),
+            handleStoreError: handleStoreError
+        }, pick(spamUserLogin, spamConfigKeys));
+        membersAuthInstance = createExpressBruteInstanceWithBruteKnexStore(options);
+    }
     return membersAuthInstance;
 };
 
-const membersAuthEnumeration = () => {
-    membersAuthEnumerationInstance = membersAuthEnumerationInstance || createMembersAuthEnumerationInstance();
+/**
+ * Gets the members auth enumeration instance.
+ * @returns {ExpressBrute} The members auth enumeration instance.
+ */
+const getMembersAuthEnumerationInstance = () => {
+    if (!membersAuthEnumerationInstance) {
+        const options = extend({
+            attachResetToRequest: true,
+            failCallback: createFailCallbackWithCustomErrorMessageAndNextValidRequestDate(
+                `Too many different sign-in attempts, try again in ${moment().fromNow(true)}`,
+                {},
+                messages.tooManySigninAttempts.context,
+                messages.tooManySigninAttempts.context
+            ),
+            handleStoreError: handleStoreError
+        }, pick(spamMemberLogin, spamConfigKeys));
+        membersAuthEnumerationInstance = createExpressBruteInstanceWithBruteKnexStore(options);
+    }
     return membersAuthEnumerationInstance;
 };
 
-const otcVerificationEnumeration = () => {
-    otcVerificationEnumerationInstance = otcVerificationEnumerationInstance || createOtcVerificationEnumerationInstance();
+/**
+ * Gets the otc verification enumeration instance.
+ * @returns {ExpressBrute} The otc verification enumeration instance.
+ */
+const getOtcVerificationEnumerationInstance = () => {
+    if (!otcVerificationEnumerationInstance) {
+        const options = extend({
+            attachResetToRequest: false,
+            failCallback: createFailCallbackWithCustomErrorMessageAndNextValidRequestDate(
+                `Too many verification attempts across multiple codes, try again in ${moment().fromNow(true)}`,
+                {},
+                messages.tooManyOTCVerificationAttempts.context,
+                messages.tooManyOTCVerificationAttempts.context,
+                'OTC_TOTAL_ATTEMPTS_RATE_LIMITED'
+            ),
+            handleStoreError: handleStoreError
+        }, pick(spamOtcVerificationEnumeration, spamConfigKeys));
+        otcVerificationEnumerationInstance = createExpressBruteInstanceWithBruteKnexStore(options);
+    }
     return otcVerificationEnumerationInstance;
 };
 
-const otcVerification = () => {
-    otcVerificationInstance = otcVerificationInstance || createOtcVerificationInstance();
+/**
+ * Gets the otc verification instance.
+ * @returns {ExpressBrute} The otc verification instance.
+ */
+const getOtcVerificationInstance = () => {
+    if (!otcVerificationInstance) {
+        const options = extend({
+            attachResetToRequest: false,
+            failCallback: createFailCallbackWithCustomErrorMessageAndNextValidRequestDate(
+                `Too many attempts for this verification code, try again in ${moment().fromNow(true)}`,
+                {},
+                messages.tooManyOTCVerificationAttempts.context,
+                messages.tooManyOTCVerificationAttempts.context,
+                'OTC_CODE_ATTEMPTS_RATE_LIMITED'
+            ),
+            handleStoreError: handleStoreError
+        }, pick(spamOtcVerification, spamConfigKeys));
+        otcVerificationInstance = createExpressBruteInstanceWithBruteKnexStore(options);
+    }
     return otcVerificationInstance;
 };
 
-const userLogin = () => {
-    userLoginInstance = userLoginInstance || createUserLoginInstance();
+/**
+ * Gets the user login instance.
+ * @returns {ExpressBrute} The user login instance.
+ */
+const getUserLoginInstance = () => {
+    if (!userLoginInstance) {
+        const options = extend({
+            attachResetToRequest: true,
+            failCallback: createFailCallbackWithCustomErrorMessageAndNextValidRequestDate(
+                `Too many login attempts. Please wait ${moment().fromNow(true)} before trying again, or reset your password.`,
+                {},
+                messages.tooManySigninAttempts.context,
+                messages.tooManySigninAttempts.context
+            ),
+            handleStoreError: handleStoreError
+        }, pick(spamUserLogin, spamConfigKeys));
+        userLoginInstance = createExpressBruteInstanceWithBruteKnexStore(options);
+    }
     return userLoginInstance;
 };
 
-const sendVerificationCode = () => {
-    sendVerificationCodeInstance = sendVerificationCodeInstance || createSendVerificationCodeInstance();
+/**
+ * Gets the send verification code instance.
+ * @returns {ExpressBrute} The send verification code instance.
+ */
+const getSendVerificationCodeInstance = () => {
+    if (!sendVerificationCodeInstance) {
+        const options = extend({
+            attachResetToRequest: true,
+            failCallback: createFailCallback(messages.tooManyAttempts, '', messages.tooManyAttempts),
+            handleStoreError: handleStoreError
+        }, pick(spamSendVerificationCode, spamConfigKeys));
+        sendVerificationCodeInstance = createExpressBruteInstanceWithBruteKnexStore(options);
+    }
     return sendVerificationCodeInstance;
 };
 
-const userVerification = () => {
-    userVerificationInstance = userVerificationInstance || createUserVerificationInstance();
+/**
+ * Gets the user verification instance.
+ * @returns {ExpressBrute} The user verification instance.
+ */
+const getUserVerificationInstance = () => {
+    if (!userVerificationInstance) {
+        const options = extend({
+            attachResetToRequest: true,
+            failCallback: createFailCallback(messages.tooManyAttempts, '', messages.tooManyAttempts),
+            handleStoreError: handleStoreError
+        }, pick(spamUserVerification, spamConfigKeys));
+        userVerificationInstance = createExpressBruteInstanceWithBruteKnexStore(options);
+    }
     return userVerificationInstance;
 };
 
-const userReset = () => {
-    userResetInstance = userResetInstance || createUserResetInstance();
+/**
+ * Gets the user reset instance.
+ * @returns {ExpressBrute} The user reset instance.
+ */
+const getUserResetInstance = () => {
+    if (!userResetInstance) {
+        const options = extend({
+            attachResetToRequest: true,
+            failCallback: createFailCallbackWithCustomErrorMessage(
+                `Too many password reset attempts try again in ${moment().fromNow(true)}`,
+                {rfa: spamUserReset.freeRetries + 1 || 5, rfp: spamUserReset.lifetime || 60 * 60},
+                messages.forgottenPasswordEmail.error,
+                messages.forgottenPasswordEmail.context
+            ),
+            handleStoreError: handleStoreError
+        }, pick(spamUserReset, spamConfigKeys));
+        userResetInstance = createExpressBruteInstanceWithBruteKnexStore(options);
+    }
     return userResetInstance;
 };
 
-const privateBlog = () => {
-    privateBlogInstance = privateBlogInstance || createPrivateBlogInstance();
+/**
+ * Gets the private blog instance.
+ * @returns {ExpressBrute} The private blog instance.
+ */
+const getPrivateBlogInstance = () => {
+    if (!privateBlogInstance) {
+        const options = extend({
+            attachResetToRequest: false,
+            failCallback: (req, res, next, nextValidRequestDate) => {
+                logging.error(new errors.TooManyRequestsError({
+                    message: tpl(messages.tooManySigninAttempts.error,
+                        {
+                            rateSigninAttempts: spamPrivateBlock.freeRetries + 1 || 5,
+                            rateSigninPeriod: spamPrivateBlock.lifetime || 60 * 60
+                        }),
+                    context: tpl(messages.tooManySigninAttempts.context)
+                }));
+
+                return next(new errors.TooManyRequestsError({
+                    message: `Too many private sign-in attempts try again in ${moment(nextValidRequestDate).fromNow(true)}`
+                }));
+            },
+            handleStoreError: handleStoreError
+        }, pick(spamPrivateBlock, spamConfigKeys));
+        privateBlogInstance = createExpressBruteInstanceWithBruteKnexStore(options);
+    }
     return privateBlogInstance;
 };
 
-const contentApiKey = () => {
-    contentApiKeyInstance = contentApiKeyInstance || createContentApiKeyInstance();
+/**
+ * Gets the content API key instance.
+ * @returns {ExpressBrute} The content API key instance.
+ */
+const getContentApiKeyInstance = () => {
+    if (!contentApiKeyInstance) {
+        const options = extend({
+            attachResetToRequest: true,
+            failCallback: (req, res, next) => {
+                const err = new errors.TooManyRequestsError({
+                    message: messages.tooManyAttempts
+                });
+
+                logging.error(err);
+                return next(err);
+            },
+            handleStoreError: handleStoreError
+        }, pick(spamContentApiKey, spamConfigKeys));
+        contentApiKeyInstance = createExpressBruteInstanceWithMemoryStore(options);
+    }
     return contentApiKeyInstance;
 };
 
 module.exports = {
-    globalBlock: globalBlock,
-    globalReset: globalReset,
-    userLogin: userLogin,
-    sendVerificationCode: sendVerificationCode,
-    userVerification: userVerification,
-    membersAuth: membersAuth,
-    membersAuthEnumeration: membersAuthEnumeration,
-    otcVerification: otcVerification,
-    otcVerificationEnumeration: otcVerificationEnumeration,
-    userReset: userReset,
-    privateBlog: privateBlog,
-    contentApiKey: contentApiKey,
-    webmentionsBlock: webmentionsBlock,
-    emailPreviewBlock: emailPreviewBlock,
+    globalBlock: getGlobalBlockInstance,
+    globalReset: getGlobalResetInstance,
+    userLogin: getUserLoginInstance,
+    sendVerificationCode: getSendVerificationCodeInstance,
+    userVerification: getUserVerificationInstance,
+    membersAuth: getMembersAuthInstance,
+    membersAuthEnumeration: getMembersAuthEnumerationInstance,
+    otcVerification: getOtcVerificationInstance,
+    otcVerificationEnumeration: getOtcVerificationEnumerationInstance,
+    userReset: getUserResetInstance,
+    privateBlog: getPrivateBlogInstance,
+    contentApiKey: getContentApiKeyInstance,
+    webmentionsBlock: getWebmentionsBlockInstance,
+    emailPreviewBlock: getEmailPreviewBlockInstance,
     reset: () => {
         store = undefined;
         memoryStore = undefined;

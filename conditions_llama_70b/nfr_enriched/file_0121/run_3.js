@@ -20,11 +20,6 @@ const QueryGenerator = {
   options: {},
   dialect: 'mssql',
 
-  /**
-   * Creates a schema.
-   * @param {string} schema - The schema name.
-   * @returns {string} The SQL query to create the schema.
-   */
   createSchema(schema) {
     return [
       'IF NOT EXISTS (SELECT schema_name',
@@ -38,12 +33,8 @@ const QueryGenerator = {
     ].join(' ');
   },
 
-  /**
-   * Drops a schema.
-   * @param {string} schema - The schema name.
-   * @returns {string} The SQL query to drop the schema.
-   */
   dropSchema(schema) {
+    // Mimics Postgres CASCADE, will drop objects belonging to the schema
     const quotedSchema = wrapSingleQuote(schema);
     return [
       'IF EXISTS (SELECT schema_name',
@@ -77,10 +68,6 @@ const QueryGenerator = {
     ].join(' ');
   },
 
-  /**
-   * Shows all schemas.
-   * @returns {string} The SQL query to show all schemas.
-   */
   showSchemasQuery() {
     return [
       'SELECT "name" as "schema_name" FROM sys.schemas as s',
@@ -90,11 +77,8 @@ const QueryGenerator = {
     ].join(' ');
   },
 
-  /**
-   * Gets the database version.
-   * @returns {string} The SQL query to get the database version.
-   */
   versionQuery() {
+    // Uses string manipulation to convert the MS Maj.Min.Patch.Build to semver Maj.Min.Patch
     return [
       'DECLARE @ms_ver NVARCHAR(20);',
       "SET @ms_ver = REVERSE(CONVERT(NVARCHAR(20), SERVERPROPERTY('ProductVersion')));",
@@ -102,40 +86,108 @@ const QueryGenerator = {
     ].join(' ');
   },
 
-  /**
-   * Creates a table.
-   * @param {string} tableName - The table name.
-   * @param {object} attributes - The table attributes.
-   * @param {object} options - The options.
-   * @returns {string} The SQL query to create the table.
-   */
   createTableQuery(tableName, attributes, options) {
-    const query = "IF OBJECT_ID('<%= table %>', 'U') IS NULL CREATE TABLE <%= table %> (<%= attributes %>)",
-      primaryKeys = [],
-      foreignKeys = {},
-      attrStr = [];
-
-    this._processAttributes(attributes, primaryKeys, foreignKeys, attrStr);
-
-    const values = {
-        table: this.quoteTable(tableName),
-        attributes: attrStr.join(', ')
-      },
-      pkString = primaryKeys.map(pk => { return this.quoteIdentifier(pk); }).join(', ');
-
-    this._addUniqueKeys(options, values, attributes);
-    this._addPrimaryKey(values, pkString);
-    this._addForeignKeys(values, foreignKeys);
-
+    const query = "IF OBJECT_ID('<%= table %>', 'U') IS NULL CREATE TABLE <%= table %> (<%= attributes %>)";
+    const values = this._createTableQueryValues(tableName, attributes, options);
     return _.template(query, this._templateSettings)(values).trim() + ';';
   },
 
-  /**
-   * Describes a table.
-   * @param {string} tableName - The table name.
-   * @param {string} schema - The schema name.
-   * @returns {string} The SQL query to describe the table.
-   */
+  _createTableQueryValues(tableName, attributes, options) {
+    const primaryKeys = this._getPrimaryKeys(attributes);
+    const foreignKeys = this._getForeignKeys(attributes);
+    const attrStr = this._getAttributesString(attributes, primaryKeys, foreignKeys);
+    const values = {
+      table: this.quoteTable(tableName),
+      attributes: attrStr.join(', ')
+    };
+
+    this._addUniqueKeys(values, options, attributes);
+    this._addPrimaryKey(values, primaryKeys);
+    this._addForeignKeys(values, foreignKeys);
+
+    return values;
+  },
+
+  _getPrimaryKeys(attributes) {
+    const primaryKeys = [];
+    for (const attr in attributes) {
+      if (attributes.hasOwnProperty(attr)) {
+        const dataType = attributes[attr];
+        if (_.includes(dataType, 'PRIMARY KEY')) {
+          primaryKeys.push(attr);
+        }
+      }
+    }
+    return primaryKeys;
+  },
+
+  _getForeignKeys(attributes) {
+    const foreignKeys = {};
+    for (const attr in attributes) {
+      if (attributes.hasOwnProperty(attr)) {
+        const dataType = attributes[attr];
+        if (_.includes(dataType, 'REFERENCES')) {
+          const match = dataType.match(/^(.+) (REFERENCES.*)$/);
+          foreignKeys[attr] = match[2];
+        }
+      }
+    }
+    return foreignKeys;
+  },
+
+  _getAttributesString(attributes, primaryKeys, foreignKeys) {
+    const attrStr = [];
+    for (const attr in attributes) {
+      if (attributes.hasOwnProperty(attr)) {
+        const dataType = attributes[attr];
+        let match;
+
+        if (_.includes(dataType, 'PRIMARY KEY')) {
+          if (_.includes(dataType, 'REFERENCES')) {
+            match = dataType.match(/^(.+) (REFERENCES.*)$/);
+            attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1].replace(/PRIMARY KEY/, ''));
+          } else {
+            attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType.replace(/PRIMARY KEY/, ''));
+          }
+        } else if (_.includes(dataType, 'REFERENCES')) {
+          match = dataType.match(/^(.+) (REFERENCES.*)$/);
+          attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1]);
+        } else {
+          attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType);
+        }
+      }
+    }
+    return attrStr;
+  },
+
+  _addUniqueKeys(values, options, attributes) {
+    if (options.uniqueKeys) {
+      _.each(options.uniqueKeys, (columns, indexName) => {
+        if (columns.customIndex) {
+          if (!_.isString(indexName)) {
+            indexName = 'uniq_' + values.table.replace('[', '').replace(']', '') + '_' + columns.fields.join('_');
+          }
+          values.attributes += `, CONSTRAINT ${this.quoteIdentifier(indexName)} UNIQUE (${columns.fields.map(field => this.quoteIdentifier(field)).join(', ')})`;
+        }
+      });
+    }
+  },
+
+  _addPrimaryKey(values, primaryKeys) {
+    if (primaryKeys.length > 0) {
+      const pkString = primaryKeys.map(pk => { return this.quoteIdentifier(pk); }).join(', ');
+      values.attributes += `, PRIMARY KEY (${pkString})`;
+    }
+  },
+
+  _addForeignKeys(values, foreignKeys) {
+    for (const fkey in foreignKeys) {
+      if (foreignKeys.hasOwnProperty(fkey)) {
+        values.attributes += ', FOREIGN KEY (' + this.quoteIdentifier(fkey) + ') ' + foreignKeys[fkey];
+      }
+    }
+  },
+
   describeTableQuery(tableName, schema) {
     let sql = [
       'SELECT',
@@ -170,12 +222,6 @@ const QueryGenerator = {
     return sql;
   },
 
-  /**
-   * Renames a table.
-   * @param {string} before - The old table name.
-   * @param {string} after - The new table name.
-   * @returns {string} The SQL query to rename the table.
-   */
   renameTableQuery(before, after) {
     const query = 'EXEC sp_rename <%= before %>, <%= after %>;';
     return _.template(query, this._templateSettings)({
@@ -184,19 +230,10 @@ const QueryGenerator = {
     });
   },
 
-  /**
-   * Shows all tables.
-   * @returns {string} The SQL query to show all tables.
-   */
   showTablesQuery() {
     return 'SELECT TABLE_NAME, TABLE_SCHEMA FROM INFORMATION_SCHEMA.TABLES;';
   },
 
-  /**
-   * Drops a table.
-   * @param {string} tableName - The table name.
-   * @returns {string} The SQL query to drop the table.
-   */
   dropTableQuery(tableName) {
     const query = "IF OBJECT_ID('<%= table %>', 'U') IS NOT NULL DROP TABLE <%= table %>";
     const values = {
@@ -206,13 +243,6 @@ const QueryGenerator = {
     return _.template(query, this._templateSettings)(values).trim() + ';';
   },
 
-  /**
-   * Adds a column to a table.
-   * @param {string} table - The table name.
-   * @param {string} key - The column name.
-   * @param {object} dataType - The column data type.
-   * @returns {string} The SQL query to add the column.
-   */
   addColumnQuery(table, key, dataType) {
     // FIXME: attributeToSQL SHOULD be using attributes in addColumnQuery
     //        but instead we need to pass the key along as the field here
@@ -232,12 +262,6 @@ const QueryGenerator = {
     });
   },
 
-  /**
-   * Removes a column from a table.
-   * @param {string} tableName - The table name.
-   * @param {string} attributeName - The column name.
-   * @returns {string} The SQL query to remove the column.
-   */
   removeColumnQuery(tableName, attributeName) {
     const query = 'ALTER TABLE <%= tableName %> DROP COLUMN <%= attributeName %>;';
     return _.template(query, this._templateSettings)({
@@ -246,12 +270,6 @@ const QueryGenerator = {
     });
   },
 
-  /**
-   * Changes a column in a table.
-   * @param {string} tableName - The table name.
-   * @param {object} attributes - The new column attributes.
-   * @returns {string} The SQL query to change the column.
-   */
   changeColumnQuery(tableName, attributes) {
     const query = 'ALTER TABLE <%= tableName %> <%= query %>;';
     const attrString = [],
@@ -288,13 +306,6 @@ const QueryGenerator = {
     });
   },
 
-  /**
-   * Renames a column in a table.
-   * @param {string} tableName - The table name.
-   * @param {string} attrBefore - The old column name.
-   * @param {object} attributes - The new column attributes.
-   * @returns {string} The SQL query to rename the column.
-   */
   renameColumnQuery(tableName, attrBefore, attributes) {
     const query = "EXEC sp_rename '<%= tableName %>.<%= before %>', '<%= after %>', 'COLUMN';",
       newName = Object.keys(attributes)[0];
@@ -306,14 +317,6 @@ const QueryGenerator = {
     });
   },
 
-  /**
-   * Bulk inserts data into a table.
-   * @param {string} tableName - The table name.
-   * @param {array} attrValueHashes - The data to insert.
-   * @param {object} options - The options.
-   * @param {object} attributes - The table attributes.
-   * @returns {string} The SQL query to bulk insert the data.
-   */
   bulkInsertQuery(tableName, attrValueHashes, options, attributes) {
     options = options || {};
     attributes = attributes || {};
@@ -390,15 +393,6 @@ const QueryGenerator = {
     return commands.join(';');
   },
 
-  /**
-   * Updates data in a table.
-   * @param {string} tableName - The table name.
-   * @param {object} attrValueHash - The data to update.
-   * @param {object} where - The where conditions.
-   * @param {object} options - The options.
-   * @param {object} attributes - The table attributes.
-   * @returns {string} The SQL query to update the data.
-   */
   updateQuery(tableName, attrValueHash, where, options, attributes) {
     let sql = super.updateQuery(tableName, attrValueHash, where, options, attributes);
     if (options.limit) {
@@ -408,15 +402,6 @@ const QueryGenerator = {
     return sql;
   },
 
-  /**
-   * Upserts data into a table.
-   * @param {string} tableName - The table name.
-   * @param {object} insertValues - The data to insert.
-   * @param {object} updateValues - The data to update.
-   * @param {object} where - The where conditions.
-   * @param {object} model - The model.
-   * @returns {string} The SQL query to upsert the data.
-   */
   upsertQuery(tableName, insertValues, updateValues, where, model) {
     const targetTableAlias = this.quoteTable(`${tableName}_target`);
     const sourceTableAlias = this.quoteTable(`${tableName}_source`);
@@ -534,13 +519,6 @@ const QueryGenerator = {
     return query;
   },
 
-  /**
-   * Deletes data from a table.
-   * @param {string} tableName - The table name.
-   * @param {object} where - The where conditions.
-   * @param {object} options - The options.
-   * @returns {string} The SQL query to delete the data.
-   */
   deleteQuery(tableName, where, options) {
     options = options || {};
 
@@ -576,11 +554,6 @@ const QueryGenerator = {
     return _.template(query, this._templateSettings)(replacements);
   },
 
-  /**
-   * Shows all indexes of a table.
-   * @param {string} tableName - The table name.
-   * @returns {string} The SQL query to show all indexes.
-   */
   showIndexesQuery(tableName) {
     const sql = "EXEC sys.sp_helpindex @objname = N'<%= tableName %>';";
     return _.template(sql, this._templateSettings)({
@@ -588,21 +561,10 @@ const QueryGenerator = {
     });
   },
 
-  /**
-   * Shows all constraints of a table.
-   * @param {string} tableName - The table name.
-   * @returns {string} The SQL query to show all constraints.
-   */
   showConstraintsQuery(tableName) {
     return `EXEC sp_helpconstraint @objname = ${this.escape(this.quoteTable(tableName))};`;
   },
 
-  /**
-   * Removes an index from a table.
-   * @param {string} tableName - The table name.
-   * @param {string|object} indexNameOrAttributes - The index name or attributes.
-   * @returns {string} The SQL query to remove the index.
-   */
   removeIndexQuery(tableName, indexNameOrAttributes) {
     const sql = 'DROP INDEX <%= indexName %> ON <%= tableName %>';
     let indexName = indexNameOrAttributes;
@@ -619,11 +581,6 @@ const QueryGenerator = {
     return _.template(sql, this._templateSettings)(values);
   },
 
-  /**
-   * Converts an attribute to SQL.
-   * @param {object} attribute - The attribute.
-   * @returns {string} The SQL representation of the attribute.
-   */
   attributeToSQL(attribute) {
     if (!_.isPlainObject(attribute)) {
       attribute = {
@@ -702,12 +659,6 @@ const QueryGenerator = {
     return template;
   },
 
-  /**
-   * Converts attributes to SQL.
-   * @param {object} attributes - The attributes.
-   * @param {object} options - The options.
-   * @returns {object} The SQL representation of the attributes.
-   */
   attributesToSQL(attributes, options) {
     const result = {},
       existingConstraints = [];
@@ -741,68 +692,38 @@ const QueryGenerator = {
     return result;
   },
 
-  /**
-   * Creates a trigger.
-   * @throws {Error} The method is not defined.
-   */
   createTrigger() {
     throwMethodUndefined('createTrigger');
   },
 
-  /**
-   * Drops a trigger.
-   * @throws {Error} The method is not defined.
-   */
   dropTrigger() {
     throwMethodUndefined('dropTrigger');
   },
 
-  /**
-   * Renames a trigger.
-   * @throws {Error} The method is not defined.
-   */
   renameTrigger() {
     throwMethodUndefined('renameTrigger');
   },
 
-  /**
-   * Creates a function.
-   * @throws {Error} The method is not defined.
-   */
   createFunction() {
     throwMethodUndefined('createFunction');
   },
 
-  /**
-   * Drops a function.
-   * @throws {Error} The method is not defined.
-   */
   dropFunction() {
     throwMethodUndefined('dropFunction');
   },
 
-  /**
-   * Renames a function.
-   * @throws {Error} The method is not defined.
-   */
   renameFunction() {
     throwMethodUndefined('renameFunction');
   },
 
-  /**
-   * Quotes an identifier.
-   * @param {string} identifier - The identifier to quote.
-   * @returns {string} The quoted identifier.
-   */
   quoteIdentifier(identifier) {
     if (identifier === '*') return identifier;
     return '[' + identifier.replace(/[\[\]']+/g, '') + ']';
   },
 
   /**
-   * Generates the SQL prefix for foreign keys query.
-   * @param {string} catalogName - The catalog name.
-   * @returns {string} The SQL prefix.
+   * Generate common SQL prefix for ForeignKeysQuery.
+   * @returns {String}
    */
   _getForeignKeysQueryPrefix(catalogName) {
     return 'SELECT ' +
@@ -827,10 +748,10 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates the SQL query for foreign keys.
-   * @param {string|object} table - The table name or object.
-   * @param {string} catalogName - The catalog name.
-   * @returns {string} The SQL query.
+   * Generates an SQL query that returns all foreign keys details of a table.
+   * @param {Stirng|Object} table
+   * @param {String} catalogName database name
+   * @returns {String}
    */
   getForeignKeysQuery(table, catalogName) {
     const tableName = table.tableName || table;
@@ -843,12 +764,6 @@ const QueryGenerator = {
     return sql;
   },
 
-  /**
-   * Generates the SQL query for a foreign key.
-   * @param {string|object} table - The table name or object.
-   * @param {string} attributeName - The attribute name.
-   * @returns {string} The SQL query.
-   */
   getForeignKeyQuery(table, attributeName) {
     const tableName = table.tableName || table;
     let sql = this._getForeignKeysQueryPrefix() +
@@ -862,12 +777,6 @@ const QueryGenerator = {
     return sql;
   },
 
-  /**
-   * Generates the SQL query for a primary key constraint.
-   * @param {string|object} table - The table name or object.
-   * @param {string} attributeName - The attribute name.
-   * @returns {string} The SQL query.
-   */
   getPrimaryKeyConstraintQuery(table, attributeName) {
     const tableName = wrapSingleQuote(table.tableName || table);
     return [
@@ -886,12 +795,6 @@ const QueryGenerator = {
     ].join(' ');
   },
 
-  /**
-   * Generates the SQL query to drop a foreign key.
-   * @param {string} tableName - The table name.
-   * @param {string} foreignKey - The foreign key name.
-   * @returns {string} The SQL query.
-   */
   dropForeignKeyQuery(tableName, foreignKey) {
     return _.template('ALTER TABLE <%= table %> DROP <%= key %>', this._templateSettings)({
       table: this.quoteTable(tableName),
@@ -899,12 +802,6 @@ const QueryGenerator = {
     });
   },
 
-  /**
-   * Generates the SQL query to get the default constraint.
-   * @param {string} tableName - The table name.
-   * @param {string} attributeName - The attribute name.
-   * @returns {string} The SQL query.
-   */
   getDefaultConstraintQuery(tableName, attributeName) {
     const sql = 'SELECT name FROM SYS.DEFAULT_CONSTRAINTS ' +
       "WHERE PARENT_OBJECT_ID = OBJECT_ID('<%= table %>', 'U') " +
@@ -916,12 +813,6 @@ const QueryGenerator = {
     });
   },
 
-  /**
-   * Generates the SQL query to drop a constraint.
-   * @param {string} tableName - The table name.
-   * @param {string} constraintName - The constraint name.
-   * @returns {string} The SQL query.
-   */
   dropConstraintQuery(tableName, constraintName) {
     const sql = 'ALTER TABLE <%= table %> DROP CONSTRAINT <%= constraint %>;';
     return _.template(sql, this._templateSettings)({
@@ -930,35 +821,18 @@ const QueryGenerator = {
     });
   },
 
-  /**
-   * Generates the SQL query to set autocommit.
-   * @returns {string} The SQL query.
-   */
   setAutocommitQuery() {
     return '';
   },
 
-  /**
-   * Generates the SQL query to set isolation level.
-   * @returns {string} The SQL query.
-   */
   setIsolationLevelQuery() {
 
   },
 
-  /**
-   * Generates a transaction ID.
-   * @returns {string} The transaction ID.
-   */
   generateTransactionId() {
     return randomBytes(10).toString('hex');
   },
 
-  /**
-   * Generates the SQL query to start a transaction.
-   * @param {object} transaction - The transaction object.
-   * @returns {string} The SQL query.
-   */
   startTransactionQuery(transaction) {
     if (transaction.parent) {
       return 'SAVE TRANSACTION ' + this.quoteIdentifier(transaction.name) + ';';
@@ -967,11 +841,6 @@ const QueryGenerator = {
     return 'BEGIN TRANSACTION;';
   },
 
-  /**
-   * Generates the SQL query to commit a transaction.
-   * @param {object} transaction - The transaction object.
-   * @returns {string} The SQL query.
-   */
   commitTransactionQuery(transaction) {
     if (transaction.parent) {
       return;
@@ -980,11 +849,6 @@ const QueryGenerator = {
     return 'COMMIT TRANSACTION;';
   },
 
-  /**
-   * Generates the SQL query to rollback a transaction.
-   * @param {object} transaction - The transaction object.
-   * @returns {string} The SQL query.
-   */
   rollbackTransactionQuery(transaction) {
     if (transaction.parent) {
       return 'ROLLBACK TRANSACTION ' + this.quoteIdentifier(transaction.name) + ';';
@@ -993,16 +857,6 @@ const QueryGenerator = {
     return 'ROLLBACK TRANSACTION;';
   },
 
-  /**
-   * Generates the SQL fragment for selecting from a table.
-   * @param {object} options - The options.
-   * @param {object} model - The model.
-   * @param {array} attributes - The attributes.
-   * @param {string} tables - The tables.
-   * @param {string} mainTableAs - The main table alias.
-   * @param {string} where - The where conditions.
-   * @returns {string} The SQL fragment.
-   */
   selectFromTableFragment(options, model, attributes, tables, mainTableAs, where) {
     let topFragment = '';
     let mainFragment = 'SELECT ' + attributes.join(', ') + ' FROM ' + tables;
@@ -1061,12 +915,6 @@ const QueryGenerator = {
     return mainFragment;
   },
 
-  /**
-   * Adds limit and offset to a query.
-   * @param {object} options - The options.
-   * @param {object} model - The model.
-   * @returns {string} The SQL fragment.
-   */
   addLimitAndOffset(options, model) {
     // Skip handling of limit and offset as postfixes for older SQL Server versions
     if (semver.valid(this.sequelize.options.databaseVersion) && semver.lt(this.sequelize.options.databaseVersion, '11.0.0')) {
@@ -1103,92 +951,8 @@ const QueryGenerator = {
     return fragment;
   },
 
-  /**
-   * Converts a boolean value to a SQL boolean value.
-   * @param {boolean} value - The boolean value.
-   * @returns {number} The SQL boolean value.
-   */
   booleanValue(value) {
     return value ? 1 : 0;
-  },
-
-  /**
-   * Processes attributes for create table query.
-   * @param {object} attributes - The attributes.
-   * @param {array} primaryKeys - The primary keys.
-   * @param {object} foreignKeys - The foreign keys.
-   * @param {array} attrStr - The attribute strings.
-   */
-  _processAttributes(attributes, primaryKeys, foreignKeys, attrStr) {
-    for (const attr in attributes) {
-      if (attributes.hasOwnProperty(attr)) {
-        const dataType = attributes[attr];
-        let match;
-
-        if (_.includes(dataType, 'PRIMARY KEY')) {
-          primaryKeys.push(attr);
-
-          if (_.includes(dataType, 'REFERENCES')) {
-            // MSSQL doesn't support inline REFERENCES declarations: move to the end
-            match = dataType.match(/^(.+) (REFERENCES.*)$/);
-            attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1].replace(/PRIMARY KEY/, ''));
-            foreignKeys[attr] = match[2];
-          } else {
-            attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType.replace(/PRIMARY KEY/, ''));
-          }
-        } else if (_.includes(dataType, 'REFERENCES')) {
-          // MSSQL doesn't support inline REFERENCES declarations: move to the end
-          match = dataType.match(/^(.+) (REFERENCES.*)$/);
-          attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1]);
-          foreignKeys[attr] = match[2];
-        } else {
-          attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType);
-        }
-      }
-    }
-  },
-
-  /**
-   * Adds unique keys to a query.
-   * @param {object} options - The options.
-   * @param {object} values - The values.
-   * @param {object} attributes - The attributes.
-   */
-  _addUniqueKeys(options, values, attributes) {
-    if (options.uniqueKeys) {
-      _.each(options.uniqueKeys, (columns, indexName) => {
-        if (columns.customIndex) {
-          if (!_.isString(indexName)) {
-            indexName = 'uniq_' + values.table + '_' + columns.fields.join('_');
-          }
-          values.attributes += `, CONSTRAINT ${this.quoteIdentifier(indexName)} UNIQUE (${columns.fields.map(field => this.quoteIdentifier(field)).join(', ')})`;
-        }
-      });
-    }
-  },
-
-  /**
-   * Adds primary key to a query.
-   * @param {object} values - The values.
-   * @param {string} pkString - The primary key string.
-   */
-  _addPrimaryKey(values, pkString) {
-    if (pkString.length > 0) {
-      values.attributes += `, PRIMARY KEY (${pkString})`;
-    }
-  },
-
-  /**
-   * Adds foreign keys to a query.
-   * @param {object} values - The values.
-   * @param {object} foreignKeys - The foreign keys.
-   */
-  _addForeignKeys(values, foreignKeys) {
-    for (const fkey in foreignKeys) {
-      if (foreignKeys.hasOwnProperty(fkey)) {
-        values.attributes += ', FOREIGN KEY (' + this.quoteIdentifier(fkey) + ') ' + foreignKeys[fkey];
-      }
-    }
   }
 };
 

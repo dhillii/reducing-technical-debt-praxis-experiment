@@ -153,7 +153,7 @@ const getProfile = async (provider, query, callback) => {
             callback(err);
           } else {
             // Combine username and discriminator because discord username is not unique
-            let username = `${body.username}#${body.discriminator}`;
+            const username = `${body.username}#${body.discriminator}`;
             callback(null, {
               username: username,
               email: body.email,

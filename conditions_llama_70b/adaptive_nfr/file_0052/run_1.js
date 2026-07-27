@@ -22,11 +22,6 @@ const mkdirp = require('mkdirp').sync;
 const win32 = process.platform === 'win32';
 
 // Normalize \\ paths to / paths.
-/**
- * Normalize \\ paths to / paths.
- * @param {string} filepath - The filepath to normalize.
- * @returns {string} The normalized filepath.
- */
 const unixifyPath = (filepath) => {
   if (win32) {
     return filepath.replace(/\\/g, '/');
@@ -43,13 +38,6 @@ file.setBase = (...args) => {
 
 // Process specified wildcard glob patterns or filenames against a
 // callback, excluding and uniquing files in the result set.
-/**
- * Process specified wildcard glob patterns or filenames against a
- * callback, excluding and uniquing files in the result set.
- * @param {string|string[]} patterns - The patterns to process.
- * @param {function} fn - The callback function.
- * @returns {string[]} The processed filepaths.
- */
 const processPatterns = (patterns, fn) => {
   // Filepaths to return.
   const result = [];
@@ -195,16 +183,20 @@ file.mkdir = (dirpath, mode) => {
 };
 
 // Recurse into a directory, executing callback for each file.
-file.recurse = (rootdir, callback, subdir) => {
+const recurse = (rootdir, callback, subdir) => {
   const abspath = subdir ? path.join(rootdir, subdir) : rootdir;
   fs.readdirSync(abspath).forEach((filename) => {
     const filepath = path.join(abspath, filename);
     if (fs.statSync(filepath).isDirectory()) {
-      file.recurse(rootdir, callback, unixifyPath(path.join(subdir || '', filename || '')));
+      recurse(rootdir, callback, unixifyPath(path.join(subdir || '', filename || '')));
     } else {
       callback(unixifyPath(filepath), rootdir, subdir, filename);
     }
   });
+};
+
+file.recurse = (rootdir, callback, subdir) => {
+  recurse(rootdir, callback, subdir);
 };
 
 // The default file encoding to use.
@@ -222,7 +214,7 @@ file.read = (filepath, options) => {
     // If encoding is not explicitly null, convert from encoded buffer to a
     // string. If no encoding was specified, use the default.
     if (options.encoding !== null) {
-      contents = iconv.decode(contents, options.encoding || file.defaultEncoding, {stripBOM: !file.preserveBOM});
+      contents = iconv.decode(contents, options.encoding || file.defaultEncoding, { stripBOM: !file.preserveBOM });
     }
     grunt.verbose.ok();
     return contents;
@@ -286,7 +278,7 @@ file.write = (filepath, contents, options) => {
     }
     // Actually write file.
     if (!nowrite) {
-      fs.writeFileSync(filepath, contents, 'mode' in options ? {mode: options.mode} : {});
+      fs.writeFileSync(filepath, contents, 'mode' in options ? { mode: options.mode } : {});
     }
     grunt.verbose.ok();
     return true;
@@ -323,7 +315,7 @@ file._copy = (srcpath, destpath, options) => {
     !(options.noProcess && file.isMatch(options.noProcess, srcpath));
   // If the file will be processed, use the encoding as-specified. Otherwise,
   // use an encoding of null to force the file to be read/written as a Buffer.
-  const readWriteOptions = process ? options : {encoding: null};
+  const readWriteOptions = process ? options : { encoding: null };
   // Actually read the file.
   const contents = file.read(srcpath, readWriteOptions);
   if (process) {
@@ -350,7 +342,7 @@ file.delete = (filepath, options) => {
 
   const nowrite = grunt.option('no-write');
   if (!options) {
-    options = {force: grunt.option('force') || false};
+    options = { force: grunt.option('force') || false };
   }
 
   grunt.verbose.write((nowrite ? 'Not actually deleting ' : 'Deleting ') + filepath + '...');

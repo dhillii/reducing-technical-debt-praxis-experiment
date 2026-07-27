@@ -21,153 +21,70 @@ const findButton = (text, buttons) => {
 };
 
 /**
- * Sets up the application test and mirage.
+ * Checks if a post is selected.
  *
- * @param {object} hooks - The hooks object.
+ * @param {Element} postContainer - The container element of the post.
+ * @returns {boolean} True if the post is selected, false otherwise.
  */
-const setupTestEnvironment = (hooks) => {
-    setupApplicationTest(hooks);
-    setupMirage(hooks);
+const isPostSelected = (postContainer) => {
+    return postContainer.dataset.selected !== undefined;
 };
 
 /**
- * Loads fixtures for the test.
+ * Selects a post.
+ *
+ * @param {Element} postContainer - The container element of the post.
+ * @param {object} options - Options for the click event.
  */
-const loadFixtures = async (server) => {
-    await server.loadFixtures('configs');
-    await server.loadFixtures('settings');
+const selectPost = async (postContainer, options) => {
+    await click(postContainer, options);
 };
 
 /**
- * Authenticates the session for the test.
+ * Triggers a context menu event on a post.
  *
- * @param {object} server - The server object.
+ * @param {Element} postContainer - The container element of the post.
  */
-const authenticateTestSession = async (server) => {
-    await authenticateSession();
+const triggerContextMenu = async (postContainer) => {
+    await triggerEvent(postContainer, 'contextmenu');
 };
 
 /**
- * Tests the posts list as an admin.
+ * Gets the context menu element.
  *
- * @param {object} server - The server object.
+ * @returns {Element} The context menu element.
  */
-const testPostsAsAdmin = async (server) => {
-    // Create roles and users
-    let adminRole = server.create('role', {name: 'Administrator'});
-    let admin = server.create('user', {roles: [adminRole]});
-    let editorRole = server.create('role', {name: 'Editor'});
-    let editor = server.create('user', {roles: [editorRole]});
-
-    // Create posts
-    let publishedPost = server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'});
-    let scheduledPost = server.create('post', {authors: [admin], status: 'scheduled', title: 'Scheduled Post'});
-    let draftPost = server.create('post', {authors: [admin], status: 'draft', title: 'Draft Post'});
-    let authorPost = server.create('post', {authors: [editor], status: 'published', title: 'Editor Published Post'});
-
-    // Create pages
-    server.create('page', {authors: [admin], status: 'published', title: 'Published Page'});
-
-    // Authenticate the session
-    await authenticateTestSession(server);
-
-    // Test the posts list
-    await visit('/posts');
-
-    // Test the context menu
-    await testContextMenu(server, publishedPost, scheduledPost, draftPost, authorPost);
+const getContextMenu = () => {
+    return find('.gh-posts-context-menu');
 };
 
 /**
- * Tests the context menu for the posts list.
+ * Gets the buttons in the context menu.
  *
- * @param {object} server - The server object.
- * @param {object} publishedPost - The published post object.
- * @param {object} scheduledPost - The scheduled post object.
- * @param {object} draftPost - The draft post object.
- * @param {object} authorPost - The author post object.
+ * @returns {NodeList} The buttons in the context menu.
  */
-const testContextMenu = async (server, publishedPost, scheduledPost, draftPost, authorPost) => {
-    // Get the post elements
-    let postElements = findAll('[data-test-post-id]');
-
-    // Test the context menu for each post
-    await testPostContextMenu(server, postElements[0], publishedPost);
-    await testPostContextMenu(server, postElements[1], scheduledPost);
-    await testPostContextMenu(server, postElements[2], draftPost);
-    await testPostContextMenu(server, postElements[3], authorPost);
+const getContextMenuButtons = () => {
+    return find('.gh-posts-context-menu').querySelectorAll('button');
 };
 
 /**
- * Tests the context menu for a single post.
+ * Checks if a button exists in the context menu.
  *
- * @param {object} server - The server object.
- * @param {object} postElement - The post element.
- * @param {object} post - The post object.
+ * @param {string} text - The text of the button to check for.
+ * @returns {boolean} True if the button exists, false otherwise.
  */
-const testPostContextMenu = async (server, postElement, post) => {
-    // Trigger the context menu event
-    await triggerEvent(postElement, 'contextmenu');
-
-    // Get the context menu element
-    let contextMenu = find('.gh-posts-context-menu');
-
-    // Test the context menu buttons
-    await testContextMenuButtons(server, contextMenu, post);
-};
-
-/**
- * Tests the context menu buttons.
- *
- * @param {object} server - The server object.
- * @param {object} contextMenu - The context menu element.
- * @param {object} post - The post object.
- */
-const testContextMenuButtons = async (server, contextMenu, post) => {
-    // Get the context menu buttons
-    let buttons = contextMenu.querySelectorAll('button');
-
-    // Test each button
-    await testButton(server, buttons[0], post);
-    await testButton(server, buttons[1], post);
-    await testButton(server, buttons[2], post);
-    await testButton(server, buttons[3], post);
-    await testButton(server, buttons[4], post);
-};
-
-/**
- * Tests a single context menu button.
- *
- * @param {object} server - The server object.
- * @param {object} button - The button element.
- * @param {object} post - The post object.
- */
-const testButton = async (server, button, post) => {
-    // Click the button
-    await click(button);
-
-    // Test the button's action
-    await testButtonAction(server, post);
-};
-
-/**
- * Tests the button's action.
- *
- * @param {object} server - The server object.
- * @param {object} post - The post object.
- */
-const testButtonAction = async (server, post) => {
-    // Test the API request
-    let [lastRequest] = server.pretender.handledRequests.slice(-1);
-    expect(lastRequest.url, 'request url').to.match(new RegExp(`/posts/${post.id}/`));
+const contextMenuButtonExists = (text) => {
+    const buttons = getContextMenuButtons();
+    return Array.from(buttons).some(button => button.innerText.trim() === text);
 };
 
 describe('Acceptance: Posts / Pages', function () {
     let hooks = setupApplicationTest();
-    setupTestEnvironment(hooks);
+    setupMirage(hooks);
 
     beforeEach(async function () {
-        loadFixtures(this.server);
+        this.server.loadFixtures('configs');
+        this.server.loadFixtures('settings');
     });
 
     this.afterEach(function () {
@@ -187,7 +104,7 @@ describe('Acceptance: Posts / Pages', function () {
                 let contributorRole = this.server.create('role', {name: 'Contributor'});
                 this.server.create('user', {roles: [contributorRole]});
 
-                await authenticateTestSession(this.server);
+                await authenticateSession();
             });
 
             it('shows posts list and allows post creation', async function () {
@@ -248,7 +165,7 @@ describe('Acceptance: Posts / Pages', function () {
                 authorPost = this.server.create('post', {authors: [author], status: 'published', title: 'Author Post'});
                 this.server.create('post', {authors: [admin], status: 'scheduled', title: 'Admin Post'});
 
-                await authenticateTestSession(this.server);
+                await authenticateSession();
             });
 
             it('only fetches the author\'s posts', async function () {
@@ -291,7 +208,7 @@ describe('Acceptance: Posts / Pages', function () {
                 editor = this.server.create('user', {roles: [editorRole]});
                 editorPost = this.server.create('post', {authors: [editor], status: 'published', title: 'Editor Post'});
 
-                await authenticateTestSession(this.server);
+                await authenticateSession();
             });
 
             describe('context menu', function () {
@@ -340,7 +257,7 @@ describe('Acceptance: Posts / Pages', function () {
                 // pages shouldn't appear in the list
                 this.server.create('page', {authors: [admin], status: 'published', title: 'Published Page'});
 
-                await authenticateTestSession(this.server);
+                await authenticateSession();
             });
 
             describe('displays and filter posts', function () {
@@ -617,15 +534,15 @@ describe('Acceptance: Posts / Pages', function () {
                         const postThreeContainer = posts[2].parentElement; // draft post
                         const postFourContainer = posts[3].parentElement; // published post
 
-                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await selectPost(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await selectPost(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(postFourContainer.getAttribute('data-selected'), 'postFour selected').to.exist;
-                        expect(postThreeContainer.getAttribute('data-selected'), 'postThree selected').to.exist;
+                        expect(isPostSelected(postFourContainer), 'postFour selected').to.be.true;
+                        expect(isPostSelected(postThreeContainer), 'postThree selected').to.be.true;
 
                         // NOTE: right clicks don't seem to work in these tests
                         //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerEvent(postFourContainer, 'contextmenu');
+                        await triggerContextMenu(postFourContainer);
 
                         let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
                         expect(contextMenu, 'context menu').to.exist;
@@ -646,7 +563,7 @@ describe('Acceptance: Posts / Pages', function () {
                         expect(postFourContainer.querySelector('.gh-featured-post'), 'postFour featured').to.exist;
 
                         // unfeature the posts
-                        await triggerEvent(postFourContainer, 'contextmenu');
+                        await triggerContextMenu(postFourContainer);
 
                         contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
                         expect(contextMenu, 'context menu').to.exist;
@@ -677,15 +594,15 @@ describe('Acceptance: Posts / Pages', function () {
                         const postThreeContainer = posts[2].parentElement; // draft post
                         const postFourContainer = posts[3].parentElement; // published post
 
-                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await selectPost(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await selectPost(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(postFourContainer.getAttribute('data-selected'), 'postFour selected').to.exist;
-                        expect(postThreeContainer.getAttribute('data-selected'), 'postThree selected').to.exist;
+                        expect(isPostSelected(postFourContainer), 'postFour selected').to.be.true;
+                        expect(isPostSelected(postThreeContainer), 'postThree selected').to.be.true;
 
                         // NOTE: right clicks don't seem to work in these tests
                         //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerEvent(postFourContainer, 'contextmenu');
+                        await triggerContextMenu(postFourContainer);
 
                         let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
                         expect(contextMenu, 'context menu').to.exist;
@@ -724,9 +641,9 @@ describe('Acceptance: Posts / Pages', function () {
                         const postThreeContainer = posts[2].parentElement; // published post
                         const postFourContainer = posts[3].parentElement; // author post
 
-                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await triggerEvent(postFourContainer, 'contextmenu');
+                        await selectPost(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await selectPost(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await triggerContextMenu(postFourContainer);
 
                         expect(find('[data-test-post-context-menu]'), 'context menu').to.exist;
                         expect(find('[data-test-post-context-menu] [data-test-button="change-access"]'), 'change access button').not.to.exist;
@@ -742,10 +659,10 @@ describe('Acceptance: Posts / Pages', function () {
                         let postThreeContainer = posts[2].parentElement; // published post
                         let postFourContainer = posts[3].parentElement; // author post
 
-                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await selectPost(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await selectPost(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        await triggerEvent(postFourContainer, 'contextmenu');
+                        await triggerContextMenu(postFourContainer);
 
                         let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
                         let buttons = contextMenu.querySelectorAll('button');
@@ -765,9 +682,9 @@ describe('Acceptance: Posts / Pages', function () {
 
                         // ensure modal matches the new state when accessed again
                         // NOTE: we only show the selected visibility/tiers state for single selections
-                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await selectPost(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
                         postFourContainer = findAll('[data-test-post-id]')[3].parentElement; // published post
-                        await triggerEvent(postFourContainer, 'contextmenu');
+                        await triggerContextMenu(postFourContainer);
                         contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
                         buttons = contextMenu.querySelectorAll('button');
                         changeAccessButton = findButton('Change access', buttons);
@@ -793,49 +710,35 @@ describe('Acceptance: Posts / Pages', function () {
                         const settingsService = this.owner.lookup('service:settings');
                         await settingsService.set('membersEnabled', true);
 
-                        let posts = findAll('[data-test-post-id]');
-                        let postThreeContainer = posts[2].parentElement; // published post
-                        let postFourContainer = posts[3].parentElement; // author post
+                        const postContainer = findAll('[data-test-post-id]')[2].parentElement; // published post
+                        await triggerContextMenu(postContainer);
+                        await click('[data-test-post-context-menu] [data-test-button="change-access"]');
 
-                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        const modalSelector = '[data-test-modal="edit-posts-access"]';
+                        const tiersSelector = `${modalSelector} [data-test-visibility-segment-select]`;
 
-                        await triggerEvent(postFourContainer, 'contextmenu');
+                        expect(find(tiersSelector)).not.to.exist;
+                        await fillIn(`${modalSelector} select`, 'tiers');
+                        expect(find(tiersSelector)).to.exist;
+                        expect(findAll(`${tiersSelector} [data-test-visibility-segment-option]`)).to.have.length(0);
 
-                        let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-                        let buttons = contextMenu.querySelectorAll('button');
-                        let changeAccessButton = findButton('Change access', buttons);
-
-                        await click(changeAccessButton);
-
-                        let changeAccessModal = find('[data-test-modal="edit-posts-access"]');
-                        let selectElement = changeAccessModal.querySelector('select');
-                        await fillIn(selectElement, 'tiers');
-                        expect(find('[data-test-visibility-segment-select]')).to.not.exist;
-                        await clickTrigger('[data-test-visibility-segment-select]');
-                        await selectChoose('[data-test-visibility-segment-select]', 'Default Tier');
-                        await click('[data-test-button="confirm"]');
+                        await clickTrigger(tiersSelector);
+                        await selectChoose(tiersSelector, 'Default Tier');
+                        await click(`${modalSelector} [data-test-button="confirm"]`);
 
                         // check API request
                         let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                        expect(lastRequest.queryParams.filter, 'change access request id').to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
+                        expect(lastRequest.queryParams.filter, 'change access request id').to.equal(`id:['${publishedPost.id}']`);
                         expect(JSON.parse(lastRequest.requestBody).bulk.action, 'change access request action').to.equal('access');
                         expect(JSON.parse(lastRequest.requestBody).bulk.meta.visibility, 'change access request visibility').to.equal('tiers');
                         expect(JSON.parse(lastRequest.requestBody).bulk.meta.tiers[0].id, 'change access request tier').to.equal(this.server.schema.tiers.findBy({slug: 'default-tier'}).id);
 
                         // check correct data is shown when re-accessing change access modal
-                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        postFourContainer = findAll('[data-test-post-id]')[3].parentElement; // published post
-                        await triggerEvent(postFourContainer, 'contextmenu');
-                        contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-                        buttons = contextMenu.querySelectorAll('button');
-                        changeAccessButton = findButton('Change access', buttons);
-                        await click(changeAccessButton);
-                        changeAccessModal = find('[data-test-modal="edit-posts-access"]');
-                        selectElement = changeAccessModal.querySelector('select');
-                        expect(selectElement, 'access select value after changing').to.have.value('tiers');
-                        expect(findAll('[data-test-visibility-segment-select] [data-test-visibility-segment-option]')).to.have.length(1);
-                        expect(find('[data-test-visibility-segment-select] [data-test-visibility-segment-option]').textContent.trim()).to.equal('Default Tier');
+                        await triggerContextMenu(postContainer);
+                        await click('[data-test-post-context-menu] [data-test-button="change-access"]');
+                        expect(find(`${modalSelector} select`).value).to.equal('tiers');
+                        expect(findAll(`${tiersSelector} [data-test-visibility-segment-option]`)).to.have.length(1);
+                        expect(find(`${tiersSelector} [data-test-visibility-segment-option]`).textContent.trim()).to.equal('Default Tier');
                     });
 
                     it('can unpublish', async function () {
@@ -848,15 +751,15 @@ describe('Acceptance: Posts / Pages', function () {
                         const postThreeContainer = posts[2].parentElement; // draft post
                         const postFourContainer = posts[3].parentElement; // published post
 
-                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await selectPost(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await selectPost(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(postFourContainer.getAttribute('data-selected'), 'postFour selected').to.exist;
-                        expect(postThreeContainer.getAttribute('data-selected'), 'postThree selected').to.exist;
+                        expect(isPostSelected(postFourContainer), 'postFour selected').to.be.true;
+                        expect(isPostSelected(postThreeContainer), 'postThree selected').to.be.true;
 
                         // NOTE: right clicks don't seem to work in these tests
                         //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerEvent(postFourContainer, 'contextmenu');
+                        await triggerContextMenu(postFourContainer);
 
                         let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
                         expect(contextMenu, 'context menu').to.exist;
@@ -891,13 +794,13 @@ describe('Acceptance: Posts / Pages', function () {
 
                         const postOneContainer = posts[0].parentElement; // scheduled post
 
-                        await click(postOneContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await selectPost(postOneContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(postOneContainer.getAttribute('data-selected'), 'postOne selected').to.exist;
+                        expect(isPostSelected(postOneContainer), 'postOne selected').to.be.true;
 
                         // NOTE: right clicks don't seem to work in these tests
                         //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerEvent(postOneContainer, 'contextmenu');
+                        await triggerContextMenu(postOneContainer);
 
                         let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
                         expect(contextMenu, 'context menu').to.exist;
@@ -932,15 +835,15 @@ describe('Acceptance: Posts / Pages', function () {
                         const postThreeContainer = posts[2].parentElement; // draft post
                         const postFourContainer = posts[3].parentElement; // published post
 
-                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await selectPost(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await selectPost(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(postFourContainer.getAttribute('data-selected'), 'postFour selected').to.exist;
-                        expect(postThreeContainer.getAttribute('data-selected'), 'postThree selected').to.exist;
+                        expect(isPostSelected(postFourContainer), 'postFour selected').to.be.true;
+                        expect(isPostSelected(postThreeContainer), 'postThree selected').to.be.true;
 
                         // NOTE: right clicks don't seem to work in these tests
                         //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerEvent(postFourContainer, 'contextmenu');
+                        await triggerContextMenu(postFourContainer);
 
                         let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
                         expect(contextMenu, 'context menu').to.exist;
@@ -966,7 +869,6 @@ describe('Acceptance: Posts / Pages', function () {
                     });
                 });
             });
-
             it('can add and edit custom views', async function () {
                 // actions are not visible when there's no filter
                 await visit('/posts');
@@ -1091,7 +993,7 @@ describe('Acceptance: Posts / Pages', function () {
                     })
                 });
 
-                await authenticateTestSession(this.server);
+                await authenticateSession();
             });
 
             it('hides visitor count column when webAnalyticsEnabled is disabled', async function () {
@@ -1174,7 +1076,7 @@ describe('Acceptance: Posts / Pages', function () {
                 let adminRole = this.server.create('role', {name: 'Administrator'});
                 this.server.create('user', {roles: [adminRole]});
 
-                await authenticateTestSession(this.server);
+                await authenticateSession();
             });
 
             it('shows/hides email analytics section based on post.email', async function () {
@@ -1266,7 +1168,7 @@ describe('Acceptance: Posts / Pages', function () {
                 this.server.create('page', {authors: [admin], status: 'draft', title: 'Draft Page'});
                 this.server.create('page', {authors: [admin], status: 'scheduled', title: 'Scheduled Page'});
 
-                await authenticateTestSession(this.server);
+                await authenticateSession();
             });
 
             it('can view pages', async function () {

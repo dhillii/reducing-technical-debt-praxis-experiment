@@ -100,14 +100,14 @@ inherits(TEXT, ABSTRACT);
 
 TEXT.prototype.key = TEXT.key = 'TEXT';
 
-TEXT.prototype.toSql = function toSql() {
-  const textLengths = {
-    'tiny': 'TINYTEXT',
-    'medium': 'MEDIUMTEXT',
-    'long': 'LONGTEXT'
-  };
+const textLengthMap = {
+  'tiny': 'TINYTEXT',
+  'medium': 'MEDIUMTEXT',
+  'long': 'LONGTEXT'
+};
 
-  return textLengths[this._length.toLowerCase()] || this.key;
+TEXT.prototype.toSql = function toSql() {
+  return textLengthMap[this._length.toLowerCase()] || this.key;
 };
 
 TEXT.prototype.validate = function validate(value) {
@@ -307,6 +307,20 @@ DECIMAL.prototype.validate = function validate(value) {
 
   return true;
 };
+
+for (const floating of [FLOAT, DOUBLE, REAL]) {
+  floating.prototype.escape = false;
+  floating.prototype._stringify = function _stringify(value) {
+    if (isNaN(value)) {
+      return "'NaN'";
+    } else if (!isFinite(value)) {
+      const sign = value < 0 ? '-' : '';
+      return "'" + sign + "Infinity'";
+    }
+
+    return value;
+  };
+}
 
 function BOOLEAN() {
   if (!(this instanceof BOOLEAN)) return new BOOLEAN();
@@ -526,14 +540,14 @@ inherits(BLOB, ABSTRACT);
 
 BLOB.prototype.key = BLOB.key = 'BLOB';
 
-BLOB.prototype.toSql = function toSql() {
-  const blobLengths = {
-    'tiny': 'TINYBLOB',
-    'medium': 'MEDIUMBLOB',
-    'long': 'LONGBLOB'
-  };
+const blobLengthMap = {
+  'tiny': 'TINYBLOB',
+  'medium': 'MEDIUMBLOB',
+  'long': 'LONGBLOB'
+};
 
-  return blobLengths[this._length.toLowerCase()] || this.key;
+BLOB.prototype.toSql = function toSql() {
+  return blobLengthMap[this._length.toLowerCase()] || this.key;
 };
 
 BLOB.prototype.validate = function validate(value) {

@@ -12,6 +12,7 @@ const config = require('../app-config').config,
 
 // Constants
 const FOLDER_DB_TYPE = 'folders';
+
 const SYNC_TYPE_NEW = 'new';
 const SYNC_TYPE_DELETED = 'deleted';
 const SYNC_TYPE_MSGS = 'messages';
@@ -171,65 +172,77 @@ Email.prototype.unlock = function(options) {
 
 // ... rest of the code remains the same ...
 
-// Helper Functions
+Email.prototype._extractBody = function(message) {
+    const self = this;
 
-/**
- * Updates a folder's unread count:
- * - For the outbox, that's the total number of messages (countAllMessages === true),
- * - For every other folder, it's the number of unread messages (countAllMessages === falsy)
- */
-function updateUnreadCount(folder, countAllMessages) {
-    folder.count = countAllMessages ? folder.messages.length : _.filter(folder.messages, function(msg) {
-        return msg.unread;
-    }).length;
-}
+    return new Promise(function(resolve) {
+        resolve();
 
-/**
- * Helper function that recursively traverses the body parts tree. Looks for bodyParts that match the provided type and aggregates them
- *
- * @param {Array} bodyParts The bodyParts array
- * @param {String} type The type to look up
- * @param {undefined} result Leave undefined, only used for recursion
- */
-function filterBodyParts(bodyParts, type, result) {
-    result = result || [];
-    bodyParts.forEach(function(part) {
-        if (part.type === type) {
-            result.push(part);
-        } else if (Array.isArray(part.content)) {
-            filterBodyParts(part.content, type, result);
+    }).then(function() {
+        // extract the content
+        if (message.encrypted) {
+            // show the encrypted message
+            message.body = filterBodyParts(message.bodyParts, MSG_PART_TYPE_ENCRYPTED)[0].content;
+            return;
         }
-    });
-    return result;
-}
 
-/**
- * Helper function that looks through the HTML content for <img src="cid:..."> and
- * inlines the images linked internally. Manipulates message.html as a side-effect.
- * If no attachment matching the internal reference is found, or constructing a data
- * uri fails, just remove the source.
- *
- * @param {Object} message DTO
- */
-function inlineExternalImages(message) {
-    message.html = message.html.replace(/(<img[^>]+\bsrc=['"])cid:([^'">]+)(['"])/ig, function(match, prefix, src, suffix) {
-        let localSource = '',
-            payload = '';
+        const root = message.bodyParts;
 
-        const internalReference = _.findWhere(message.attachments, {
-            id: src
+        if (message.signed) {
+            // PGP/MIME signed
+            const signedRoot = filterBodyParts(message.bodyParts, MSG_PART_TYPE_SIGNED)[0]; // in case of a signed message, you only want to show the signed content and ignore the rest
+            message.signedMessage = signedRoot.signedMessage;
+            message.signature = signedRoot.signature;
+            root = signedRoot.content;
+        }
+
+        let body = _.pluck(filterBodyParts(root, MSG_PART_TYPE_TEXT), MSG_PART_ATTR_CONTENT).join('\n');
+
+        // if the message is plain text and contains pgp/inline, we are only interested in the encrypted content, the rest (corporate mail footer, attachments, etc.) is discarded.
+        const pgpInlineMatch = /^-{5}BEGIN PGP MESSAGE-{5}[\s\S]*-{5}END PGP MESSAGE-{5}$/im.exec(body);
+        if (pgpInlineMatch) {
+            message.body = pgpInlineMatch[0]; // show the plain text content
+            message.encrypted = true; // signal the ui that we're handling encrypted content
+
+            // replace the bodyParts info with an artificial bodyPart of type "encrypted"
+            message.bodyParts = [{
+                type: MSG_PART_TYPE_ENCRYPTED,
+                content: pgpInlineMatch[0],
+                _isPgpInline: true // used internally to avoid trying to parse non-MIME text with the mailreader
+            }];
+            return;
+        }
+
+        // any content before/after the PGP block will be discarded, untrusted attachments and html is ignored
+        const clearSignedMatch = /^-{5}BEGIN PGP SIGNED MESSAGE-{5}\nHash:[ ][^\n]+\n(?:[A-Za-z]+:[ ][^\n]+\n)*\n([\s\S]*?)\n-{5}BEGIN PGP SIGNATURE-{5}[\S\s]*-{5}END PGP SIGNATURE-{5}$/im.exec(body);
+        if (clearSignedMatch) {
+            // PGP/INLINE signed
+            message.signed = true;
+            message.clearSignedMessage = clearSignedMatch[0];
+            body = (clearSignedMatch[1] || '').replace(/^- /gm, ''); // remove dash escaping https://tools.ietf.org/html/rfc4880#section-7.1
+        }
+
+        if (!message.signed) {
+            // message is not signed, so we're done here
+            return setBody(body, root);
+        }
+
+        // check the signatures for signed messages
+        return self._checkSignatures(message).then(function(signaturesValid) {
+            message.signed = typeof signaturesValid !== 'undefined';
+            message.signaturesValid = signaturesValid;
+            return setBody(body, root);
         });
-
-        if (internalReference) {
-            for (let i = 0; i < internalReference.content.byteLength; i++) {
-                payload += String.fromCharCode(internalReference.content[i]);
-            }
-
-            try {
-                localSource = 'data:application/octet-stream;base64,' + btoa(payload); // try to replace the source
-            } catch (e) {}
-        }
-
-        return prefix + localSource + suffix;
     });
-}
+
+    function setBody(body, root) {
+        message.body = body;
+        if (!message.clearSignedMessage) {
+            message.attachments = filterBodyParts(root, MSG_PART_TYPE_ATTACHMENT);
+            message.html = _.pluck(filterBodyParts(root, MSG_PART_TYPE_HTML), MSG_PART_ATTR_CONTENT).join('\n');
+            inlineExternalImages(message);
+        }
+    }
+};
+
+// ... rest of the code remains the same ...

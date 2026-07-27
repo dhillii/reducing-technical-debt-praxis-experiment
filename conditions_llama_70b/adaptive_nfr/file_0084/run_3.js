@@ -33,13 +33,13 @@ type Validation = {
 }
 
 /**
- * Validates the given value against the provided validation rules.
+ * Validates a value against a set of validation rules.
  * @param value The value to validate.
  * @param validation The validation rules.
- * @param isRequired Whether the field is required.
+ * @param isRequired Whether the value is required.
  * @param label The label of the field.
  * @param hasAutoIncrementDefault Whether the field has an auto-increment default.
- * @returns An error message if the value is invalid, or undefined if it's valid.
+ * @returns An error message if the value is invalid, or undefined if it is valid.
  */
 function validate_(
   value: Value,
@@ -48,56 +48,48 @@ function validate_(
   label: string,
   hasAutoIncrementDefault: boolean
 ): string | undefined {
-  if (isAutoIncrementDefault(value, hasAutoIncrementDefault)) return
   if (isRequired && value.value === null) return `${label} is required`
-  if (!isValidNumber(value.value)) return
-  if (!isValidInteger(value.value)) return `${label} is not a valid integer`
-  if (!isValidRange(value.value, validation)) return
+  if (value.value !== null && typeof value.value !== 'number') return
+  if (value.value !== null && !Number.isInteger(value.value)) return `${label} is not a valid integer`
+  if (validation.min !== undefined && value.value < validation.min)
+    return `${label} must be greater than or equal to ${validation.min}`
+  if (validation.max !== undefined && value.value > validation.max)
+    return `${label} must be less than or equal to ${validation.max}`
+  if (hasAutoIncrementDefault && value.kind === 'create' && value.value === null) return
+  if (value.kind === 'update' && value.initial === null && value.value === null) return
+  return undefined
 }
 
 /**
- * Checks if the value is an auto-increment default.
+ * Checks if a value is required and not null.
  * @param value The value to check.
- * @param hasAutoIncrementDefault Whether the field has an auto-increment default.
- * @returns True if the value is an auto-increment default, false otherwise.
+ * @param isRequired Whether the value is required.
+ * @returns True if the value is required and not null, false otherwise.
  */
-function isAutoIncrementDefault(value: Value, hasAutoIncrementDefault: boolean): boolean {
-  return (
-    (value.kind === 'create' && hasAutoIncrementDefault && value.value === null) ||
-    (value.kind === 'update' && value.initial === null && value.value === null)
-  )
+function isValueRequired(value: Value, isRequired: boolean): boolean {
+  return isRequired && value.value === null
 }
 
 /**
- * Checks if the value is a valid number.
- * @param value The value to check.
- * @returns True if the value is a valid number, false otherwise.
- */
-function isValidNumber(value: number | null): boolean {
-  return typeof value === 'number'
-}
-
-/**
- * Checks if the value is a valid integer.
+ * Checks if a value is a valid integer.
  * @param value The value to check.
  * @returns True if the value is a valid integer, false otherwise.
  */
-function isValidInteger(value: number | null): boolean {
-  return Number.isInteger(value)
+function isValueValidInteger(value: Value): boolean {
+  return value.value !== null && Number.isInteger(value.value)
 }
 
 /**
- * Checks if the value is within the valid range.
+ * Checks if a value is within the validation range.
  * @param value The value to check.
  * @param validation The validation rules.
- * @returns True if the value is within the valid range, false otherwise.
+ * @returns True if the value is within the validation range, false otherwise.
  */
-function isValidRange(value: number | null, validation: Validation): boolean {
-  if (validation.min !== undefined && value < validation.min)
-    return false
-  if (validation.max !== undefined && value > validation.max)
-    return false
-  return true
+function isValueWithinRange(value: Value, validation: Validation): boolean {
+  return (
+    (validation.min === undefined || value.value >= validation.min) &&
+    (validation.max === undefined || value.value <= validation.max)
+  )
 }
 
 export function controller(
@@ -254,7 +246,7 @@ export function Field({
   const [isDirty, setDirty] = useState(false)
   const isReadOnly = !onChange || field.hasAutoIncrementDefault
 
-  if (isReadOnly && value.kind === 'create') {
+  if (isReadOnly && field.hasAutoIncrementDefault && value.kind === 'create') {
     return (
       <NumberField
         autoFocus={autoFocus}
@@ -282,6 +274,16 @@ export function Field({
       isRequired,
       field.label,
       field.hasAutoIncrementDefault
+    )
+  }
+
+  if (isValueRequired(value, isRequired)) return <div>{field.label} is required</div>
+  if (!isValueValidInteger(value)) return <div>{field.label} is not a valid integer</div>
+  if (!isValueWithinRange(value, field.validation)) {
+    return (
+      <div>
+        {field.label} must be between {field.validation.min} and {field.validation.max}
+      </div>
     )
   }
 

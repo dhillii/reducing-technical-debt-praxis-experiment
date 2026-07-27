@@ -71,25 +71,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
         try {
             setIsPosting(true);
-
-            if (replyTo) {
-                await replyMutation.mutateAsync({
-                    inReplyTo: replyTo.object.id,
-                    content: content.trim(),
-                    imageUrl: uploadedImageUrl || undefined,
-                    altText: altText || undefined
-                });
-                onReply?.();
-            } else {
-                await noteMutation.mutateAsync({content: content.trim(), imageUrl: uploadedImageUrl || undefined, altText: altText || undefined});
-                navigate('/notes');
-            }
-
-            setIsOpen(false);
-            if (onOpenChange) {
-                onOpenChange(false);
-            }
-            toast.success(replyTo ? 'Reply posted' : 'Note posted');
+            await postNote();
         } catch {
             if (replyTo) {
                 onReplyError?.();
@@ -97,7 +79,28 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         } finally {
             setIsPosting(false);
         }
-    }, [content, user, replyTo, replyMutation, noteMutation, uploadedImageUrl, altText, onReply, onReplyError, setIsOpen, navigate, onOpenChange]);
+    }, [content, user, replyTo, onReplyError]);
+
+    const postNote = async () => {
+        if (replyTo) {
+            await replyMutation.mutateAsync({
+                inReplyTo: replyTo.object.id,
+                content: content.trim(),
+                imageUrl: uploadedImageUrl || undefined,
+                altText: altText || undefined
+            });
+            onReply?.();
+        } else {
+            await noteMutation.mutateAsync({content: content.trim(), imageUrl: uploadedImageUrl || undefined, altText: altText || undefined});
+            navigate('/notes');
+        }
+
+        setIsOpen(false);
+        if (onOpenChange) {
+            onOpenChange(false);
+        }
+        toast.success(replyTo ? 'Reply posted' : 'Note posted');
+    };
 
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setContent(e.target.value);

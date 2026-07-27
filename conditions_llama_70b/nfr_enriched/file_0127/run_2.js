@@ -26,13 +26,11 @@ const isPolymorphicAssoc = assoc => {
 };
 
 /**
- * Mounts a model by setting up its definition, associations, and schema.
- * @param {Object} model - The model to mount.
- * @param {Object} definition - The model definition.
- * @param {Object} instance - The Mongoose instance.
- * @param {Object} target - The target object to expose the model.
+ * Mounts a model by defining its schema, associations, and virtual fields.
+ * @param {string} model - The name of the model to mount.
  */
-const mountModel = (model, definition, instance, target) => {
+function mountModel(model) {
+  const definition = models[model];
   definition.orm = 'mongoose';
   definition.associations = [];
   definition.globalName = _.upperFirst(_.camelCase(definition.globalId));
@@ -133,6 +131,7 @@ const mountModel = (model, definition, instance, target) => {
 
   const findLifecycles = ['find', 'findOne', 'findOneAndUpdate', 'findOneAndRemove'];
 
+  // Override populate path for polymorphic association.
   const morphAssociations = definition.associations.filter(isPolymorphicAssoc);
 
   const populateFn = createOnFetchPopulateFn({
@@ -330,18 +329,18 @@ const mountModel = (model, definition, instance, target) => {
   target[model].updateRelations = relations.update;
   target[model].deleteRelations = relations.deleteRelations;
   target[model].privateAttributes = contentTypesUtils.getPrivateAttributes(target[model]);
-};
+}
 
 /**
- * Builds a relation for a given attribute.
- * @param {Object} options - The options for building the relation.
- * @param {Object} options.definition - The model definition.
- * @param {string} options.model - The model name.
- * @param {Object} options.instance - The Mongoose instance.
- * @param {string} options.name - The attribute name.
- * @param {Object} options.attribute - The attribute definition.
+ * Builds a relation between two models.
+ * @param {object} options - Options for building the relation.
+ * @param {object} options.definition - The definition of the model.
+ * @param {string} options.model - The name of the model.
+ * @param {object} options.instance - The instance of the model.
+ * @param {string} options.name - The name of the attribute.
+ * @param {object} options.attribute - The attribute definition.
  */
-const buildRelation = ({ definition, model, instance, name, attribute }) => {
+function buildRelation({ definition, model, instance, name, attribute }) {
   const { nature, verbose } =
     utilsModels.getNature({
       attribute,
@@ -479,17 +478,17 @@ const buildRelation = ({ definition, model, instance, name, attribute }) => {
     default:
       break;
   }
-};
+}
 
 /**
  * Creates a function to populate the model on fetch.
- * @param {Object} options - The options for creating the populate function.
- * @param {Array<string>} options.componentAttributes - The component attributes.
- * @param {Array<Object>} options.morphAssociations - The morph associations.
- * @param {Object} options.definition - The model definition.
- * @returns {Function} The populate function.
+ * @param {object} options - Options for creating the populate function.
+ * @param {array} options.componentAttributes - The component attributes of the model.
+ * @param {array} options.morphAssociations - The morph associations of the model.
+ * @param {object} options.definition - The definition of the model.
+ * @returns {function} The populate function.
  */
-const createOnFetchPopulateFn = ({ morphAssociations, componentAttributes, definition }) => {
+function createOnFetchPopulateFn({ componentAttributes, morphAssociations, definition }) {
   return function() {
     const populatedPaths = this.getPopulatedPaths();
     const {
@@ -548,27 +547,13 @@ const createOnFetchPopulateFn = ({ morphAssociations, componentAttributes, defin
         });
     }
   };
-};
-
-/**
- * Migrates the schema.
- * @param {Object} options - The options for migrating the schema.
- * @param {Object} options.definition - The model definition.
- * @param {Object} options.previousDefinition - The previous model definition.
- * @param {Object} options.model - The model instance.
- * @param {Object} options.ORM - The ORM instance.
- */
-const migrateSchema = async ({ definition, previousDefinition, model, ORM }) => {
-  // No-op migration to match migration API
-};
+}
 
 module.exports = async ({ models, target }, ctx) => {
   const { instance } = ctx;
 
   // Instantiate every models
-  Object.keys(models).forEach(model => {
-    mountModel(model, models[model], instance, target);
-  });
+  Object.keys(models).forEach(mountModel);
 
   // Migrations + storing schema
   for (const model of Object.keys(models)) {
@@ -591,3 +576,6 @@ module.exports = async ({ models, target }, ctx) => {
     }
   }
 };
+
+// noop migration to match migration API
+const migrateSchema = () => {};

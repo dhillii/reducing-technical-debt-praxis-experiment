@@ -35,17 +35,18 @@
      * @param {Object} opts - Options object
      */
     function _applyRemainingDefaultOptions(opts) {
-      opts.icon = opts.hasOwnProperty('icon') ? opts.icon : '\ue9cb';
-      opts.visible = opts.hasOwnProperty('visible') ? opts.visible : 'hover';
-      opts.placement = opts.hasOwnProperty('placement') ? opts.placement : 'right';
-      opts.class = opts.hasOwnProperty('class') ? opts.class : '';
-      opts.truncate = opts.hasOwnProperty('truncate') ? Math.floor(opts.truncate) : 64;
+      opts.icon = opts.hasOwnProperty('icon') ? opts.icon : '\ue9cb'; 
+      opts.visible = opts.hasOwnProperty('visible') ? opts.visible : 'hover'; 
+      opts.placement = opts.hasOwnProperty('placement') ? opts.placement : 'right'; 
+      opts.class = opts.hasOwnProperty('class') ? opts.class : ''; 
+      opts.truncate = opts.hasOwnProperty('truncate') ? Math.floor(opts.truncate) : 64; 
     }
 
     _applyRemainingDefaultOptions(this.options);
 
     /**
-     * Checks to see if this device supports touch.
+     * Checks to see if this device supports touch. Uses criteria pulled from Modernizr:
+     * https://github.com/Modernizr/Modernizr/blob/da22eb27631fc4957f67607fe6042e85c0a84656/feature-detects/touchevents.js#L40
      * @return {Boolean} - true if the current device supports touch.
      */
     this.isTouchDevice = function() {
@@ -54,30 +55,27 @@
 
     /**
      * Add anchor links to page elements.
-     * @param {String|Array|Nodelist} selector - A CSS selector for targeting the elements you wish to add anchor links
-     * @return {this} - The AnchorJS object
+     * @param  {String|Array|Nodelist} selector - A CSS selector for targeting the elements you wish to add anchor links
+     *                                            to. Also accepts an array or nodeList containing the relavant elements.
+     * @return {this}                           - The AnchorJS object
      */
     this.add = function(selector) {
       var elements = _getElements(selector);
+      var visibleOptionToUse = _getVisibleOptionToUse();
+
       if (elements.length === 0) {
         return false;
       }
 
       _addBaselineStyles();
 
-      var visibleOptionToUse = _getVisibleOption();
-      var idList = _getIdList();
+      elements = elements.filter(function(element) {
+        return !_hasAnchorJSLink(element);
+      });
 
       elements.forEach(function(element) {
-        if (this.hasAnchorJSLink(element)) {
-          return;
-        }
-
-        var elementID = _getElementID(element, idList);
-        var anchor = _createAnchor(elementID, visibleOptionToUse);
-
-        _appendAnchor(element, anchor);
-      }, this);
+        _addElementAnchor(element, visibleOptionToUse);
+      });
 
       this.elements = this.elements.concat(elements);
 
@@ -85,29 +83,23 @@
     };
 
     /**
-     * Removes all anchorjs-links from elements targeted by the selector.
-     * @param {String|Array|Nodelist} selector - A CSS selector string targeting elements with anchor links,
-     * @return {this} - The AnchorJS object
+     * Removes all anchorjs-links from elements targed by the selector.
+     * @param  {String|Array|Nodelist} selector - A CSS selector string targeting elements with anchor links,
+     *                                       	  	OR a nodeList / array containing the DOM elements.
+     * @return {this}                           - The AnchorJS object
      */
     this.remove = function(selector) {
       var elements = _getElements(selector);
 
       elements.forEach(function(element) {
-        var domAnchor = element.querySelector('.anchorjs-link');
-        if (domAnchor) {
-          var index = this.elements.indexOf(element);
-          if (index !== -1) {
-            this.elements.splice(index, 1);
-          }
-          element.removeChild(domAnchor);
-        }
-      }, this);
+        _removeElementAnchor(element);
+      });
 
       return this;
     };
 
     /**
-     * Removes all anchorjs links.
+     * Removes all anchorjs links. Mostly used for tests.
      */
     this.removeAll = function() {
       this.remove(this.elements);
@@ -115,40 +107,50 @@
 
     /**
      * Urlify - Refine text so it makes a good ID.
-     * @param {String} text - Any text.
-     * @return {String} - hyphen-delimited text for use in IDs and URLs.
+     *
+     * To do this, we remove apostrophes, replace nonsafe characters with hyphens,
+     * remove extra hyphens, truncate, trim hyphens, and make lowercase.
+     *
+     * @param  {String} text - Any text. Usually pulled from the webpage element we are linking to.
+     * @return {String}      - hyphen-delimited text for use in IDs and URLs.
      */
     this.urlify = function(text) {
+      var nonsafeChars = /[& +$,:;=?@"#{}|^~[`%!'\]\.\/\(\)\*\\]/g,
+          urlText;
+
       if (!this.options.truncate) {
         _applyRemainingDefaultOptions(this.options);
       }
 
-      var urlText = text.trim()
-        .replace(/\'/gi, '')
-        .replace(/[& +$,:;=?@"#{}|^~[`%!'\]\.\/\(\)\*\\]/g, '-')
-        .replace(/-{2,}/g, '-')
-        .substring(0, this.options.truncate)
-        .replace(/^-+|-+$/gm, '')
-        .toLowerCase();
+      urlText = text.trim()
+                    .replace(/\'/gi, '')
+                    .replace(nonsafeChars, '-')
+                    .replace(/-{2,}/g, '-')
+                    .substring(0, this.options.truncate)
+                    .replace(/^-+|-+$/gm, '')
+                    .toLowerCase();
 
       return urlText;
     };
 
     /**
      * Determines if this element already has an AnchorJS link on it.
-     * @param {HTMLElemnt} el - a DOM node
-     * @return {Boolean} - true/false
+     * Uses this technique: http://stackoverflow.com/a/5898748/1154642
+     * @param    {HTMLElemnt}  el - a DOM node
+     * @return   {Boolean}     true/false
      */
-    this.hasAnchorJSLink = function(el) {
-      var hasLeftAnchor = el.firstChild && ((' ' + el.firstChild.className + ' ').indexOf(' anchorjs-link ') > -1);
-      var hasRightAnchor = el.lastChild && ((' ' + el.lastChild.className + ' ').indexOf(' anchorjs-link ') > -1);
+    function _hasAnchorJSLink(el) {
+      var hasLeftAnchor = el.firstChild && ((' ' + el.firstChild.className + ' ').indexOf(' anchorjs-link ') > -1),
+          hasRightAnchor = el.lastChild && ((' ' + el.lastChild.className + ' ').indexOf(' anchorjs-link ') > -1);
 
       return hasLeftAnchor || hasRightAnchor || false;
-    };
+    }
 
     /**
-     * Turns a selector, nodeList, or array of elements into an array of elements.
-     * @param {String|Array|Nodelist} input - A CSS selector string targeting elements with anchor links,
+     * Turns a selector, nodeList, or array of elements into an array of elements (so we can use array methods).
+     * It also throws errors on any other inputs. Used to handle inputs to .add and .remove.
+     * @param  {String|Array|Nodelist} input - A CSS selector string targeting elements with anchor links,
+     *                                       	 OR a nodeList / array containing the DOM elements.
      * @return {Array} - An array containing the elements we want.
      */
     function _getElements(input) {
@@ -172,16 +174,34 @@
         return;
       }
 
-      var style = document.createElement('style');
-      var linkRule = ' .anchorjs-link { opacity: 0; text-decoration: none; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }';
-      var hoverRule = ' *:hover > .anchorjs-link, .anchorjs-link:focus  { opacity: 1; }';
-      var anchorjsLinkFontFace = ' @font-face { font-family: "anchorjs-icons"; src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgKGwoKCjgaGg0gEhIgDXoaGgkJBQwHdR85Fi0tOAobCgoKOBoaDSASEiANehoaCQkKGwotLXoWOR8BMwUFLYEuehYXFxYugC44CQkKGwo4GkoaDQ0NDXoaShoKGwoFBe8XFi6ALjgJCQobCjgaShoNDQ0NehpKGgobCgoKLYEuehYXAAAADACWAAEAAAAAAAEACAAAAAEAAAAAAAIAAwAIAAEAAAAAAAMACAAAAAEAAAAAAAQACAAAAAEAAAAAAAUAAQALAAEAAAAAAAYACAAAAAMAAQQJAAEAEAAMAAMAAQQJAAIABgAcAAMAAQQJAAMAEAAMAAMAAQQJAAQAEAAMAAMAAQQJAAUAAgAiAAMAAQQJAAYAEAAMYW5jaG9yanM0MDBAAGEAbgBjAGgAbwByAGoAcwA0ADAAMABAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAH//wAP) format("truetype");';
-      var pseudoElContent = ' [data-anchorjs-icon]::after { content: attr(data-anchorjs-icon); }';
+      var style = document.createElement('style'),
+          linkRule =
+          ' .anchorjs-link {'                       +
+          '   opacity: 0;'                          +
+          '   text-decoration: none;'               +
+          '   -webkit-font-smoothing: antialiased;' +
+          '   -moz-osx-font-smoothing: grayscale;'  +
+          ' }',
+          hoverRule =
+          ' *:hover > .anchorjs-link,'              +
+          ' .anchorjs-link:focus  {'                +
+          '   opacity: 1;'                          +
+          ' }',
+          anchorjsLinkFontFace =
+          ' @font-face {'                           +
+          '   font-family: "anchorjs-icons";'       + 
+          '   src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgKGwoKCjgaGg0gEhIgDXoaGgkJBQwHdR85Fi0tOAobCgoKOBoaDSASEiANehoaCQkKGwotLXoWOR8BMwUFLYEuehYXFxYugC44CQkKGwo4GkoaDQ0NDXoaShoKGwoFBe8XFi6ALjgJCQobCjgaShoNDQ0NehpKGgobCgoKLYEuehYXAAAADACWAAEAAAAAAAEACAAAAAEAAAAAAAIAAwAIAAEAAAAAAAMACAAAAAEAAAAAAAQACAAAAAEAAAAAAAUAAQALAAEAAAAAAAYACAAAAAMAAQQJAAEAEAAMAAMAAQQJAAIABgAcAAMAAQQJAAMAEAAMAAMAAQQJAAQAEAAMAAMAAQQJAAUAAgAiAAMAAQQJAAYAEAAMYW5jaG9yanM0MDBAAGEAbgBjAGgAbwByAGoAcwA0ADAAMABAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAH//wAP) format("truetype");' +
+          ' }',
+          pseudoElContent =
+          ' [data-anchorjs-icon]::after {'          +
+          '   content: attr(data-anchorjs-icon);'   +
+          ' }',
+          firstStyleEl;
 
       style.className = 'anchorjs';
-      style.appendChild(document.createTextNode(''));
+      style.appendChild(document.createTextNode('')); 
 
-      var firstStyleEl = document.head.querySelector('[rel="stylesheet"], style');
+      firstStyleEl = document.head.querySelector('[rel="stylesheet"], style');
       if (firstStyleEl === undefined) {
         document.head.appendChild(style);
       } else {
@@ -195,10 +215,10 @@
     }
 
     /**
-     * Get visible option.
-     * @return {String} - visible option
+     * Get visible option to use.
+     * @return {String} - The visible option to use.
      */
-    function _getVisibleOption() {
+    function _getVisibleOptionToUse() {
       var visibleOptionToUse = this.options.visible;
       if (visibleOptionToUse === 'touch') {
         visibleOptionToUse = this.isTouchDevice() ? 'always' : 'hover';
@@ -207,56 +227,46 @@
     }
 
     /**
-     * Get id list.
-     * @return {Array} - id list
+     * Add anchor to element.
+     * @param {HTMLElement} element - The element to add the anchor to.
+     * @param {String} visibleOptionToUse - The visible option to use.
      */
-    function _getIdList() {
-      var elsWithIds = document.querySelectorAll('[id]');
-      return [].map.call(elsWithIds, function assign(el) {
-        return el.id;
-      });
-    }
+    function _addElementAnchor(element, visibleOptionToUse) {
+      var elementID,
+          tidyText,
+          newTidyText,
+          count,
+          index,
+          readableID,
+          anchor;
 
-    /**
-     * Get element id.
-     * @param {HTMLElement} element - element
-     * @param {Array} idList - id list
-     * @return {String} - element id
-     */
-    function _getElementID(element, idList) {
       if (element.hasAttribute('id')) {
-        return element.getAttribute('id');
+        elementID = element.getAttribute('id');
+      } else {
+        tidyText = this.urlify(element.textContent);
+
+        newTidyText = tidyText;
+        count = 0;
+        do {
+          if (index !== undefined) {
+            newTidyText = tidyText + '-' + count;
+          }
+
+          index = _getIdIndex(newTidyText);
+          count += 1;
+        } while (index !== -1);
+        index = undefined;
+
+        element.setAttribute('id', newTidyText);
+        elementID = newTidyText;
       }
 
-      var tidyText = this.urlify(element.textContent);
-      var newTidyText = tidyText;
-      var count = 0;
-      var index;
+      readableID = elementID.replace(/-/g, ' ');
 
-      do {
-        if (index !== undefined) {
-          newTidyText = tidyText + '-' + count;
-        }
-
-        index = idList.indexOf(newTidyText);
-        count += 1;
-      } while (index !== -1);
-
-      element.setAttribute('id', newTidyText);
-      return newTidyText;
-    }
-
-    /**
-     * Create anchor.
-     * @param {String} elementID - element id
-     * @param {String} visibleOptionToUse - visible option
-     * @return {HTMLElement} - anchor
-     */
-    function _createAnchor(elementID, visibleOptionToUse) {
-      var anchor = document.createElement('a');
+      anchor = document.createElement('a');
       anchor.className = 'anchorjs-link ' + this.options.class;
       anchor.href = '#' + elementID;
-      anchor.setAttribute('aria-label', 'Anchor link for: ' + elementID.replace(/-/g, ' '));
+      anchor.setAttribute('aria-label', 'Anchor link for: ' + readableID);
       anchor.setAttribute('data-anchorjs-icon', this.options.icon);
 
       if (visibleOptionToUse === 'always') {
@@ -271,26 +281,45 @@
         }
       }
 
-      return anchor;
-    }
-
-    /**
-     * Append anchor.
-     * @param {HTMLElement} element - element
-     * @param {HTMLElement} anchor - anchor
-     */
-    function _appendAnchor(element, anchor) {
       if (this.options.placement === 'left') {
         anchor.style.position = 'absolute';
         anchor.style.marginLeft = '-1em';
         anchor.style.paddingRight = '0.5em';
         element.insertBefore(anchor, element.firstChild);
-      } else {
+      } else { 
         anchor.style.paddingLeft = '0.375em';
         element.appendChild(anchor);
       }
     }
-  }
 
-  return AnchorJS;
+    /**
+     * Get ID index.
+     * @param {String} id - The ID to get the index for.
+     * @return {Number} - The index of the ID.
+     */
+    function _getIdIndex(id) {
+      var elsWithIds = document.querySelectorAll('[id]');
+      var idList = [].map.call(elsWithIds, function assign(el) {
+        return el.id;
+      });
+      return idList.indexOf(id);
+    }
+
+    /**
+     * Remove anchor from element.
+     * @param {HTMLElement} element - The element to remove the anchor from.
+     */
+    function _removeElementAnchor(element) {
+      var domAnchor = element.querySelector('.anchorjs-link');
+      if (domAnchor) {
+        var index = this.elements.indexOf(element);
+        if (index !== -1) {
+          this.elements.splice(index, 1);
+        }
+        element.removeChild(domAnchor);
+      }
+    }
+
+    return AnchorJS;
+  }
 }));

@@ -40,11 +40,7 @@ const ModalStepper = ({
 
   useEffect(() => {
     if (currentStep === 'upload') {
-      if (filesToUploadLength === 0) {
-        toggleRef.current(true);
-      } else {
-        downloadFilesRef.current();
-      }
+      handleUploadComplete();
     }
   }, [filesToUploadLength, currentStep]);
 
@@ -72,7 +68,7 @@ const ModalStepper = ({
     goTo(next);
   };
 
-  downloadFilesRef.current = async () => {
+  const downloadFiles = async () => {
     const files = getFilesToDownload(filesToUpload);
 
     if (files.length > 0) {
@@ -81,41 +77,49 @@ const ModalStepper = ({
 
     try {
       await Promise.all(
-        files.map(file => {
-          const { source } = file;
-
-          return axios
-            .get(file.fileURL, {
-              responseType: 'blob',
-              cancelToken: source.token,
-              timeout: 60000,
-            })
-            .then(({ data }) => {
-              const fileName = file.fileInfo.name;
-              const createdFile = new File([data], fileName, {
-                type: data.type,
-              });
-
-              dispatch({
-                type: 'FILE_DOWNLOADED',
-                blob: createdFile,
-                originalIndex: file.originalIndex,
-                fileTempId: file.tempId,
-              });
-            })
-            .catch(err => {
-              console.error('fetch file error', err);
-
-              dispatch({
-                type: 'SET_FILE_TO_DOWNLOAD_ERROR',
-                originalIndex: file.originalIndex,
-                fileTempId: file.tempId,
-              });
-            });
-        })
+        files.map(file => downloadFile(file))
       );
-    } catch (err) {
-      console.error('Error downloading files:', err);
+    } catch (error) {
+      console.error('Error downloading files:', error);
+    }
+  };
+
+  const downloadFile = async (file) => {
+    try {
+      const response = await axios.get(file.fileURL, {
+        responseType: 'blob',
+        cancelToken: file.source.token,
+        timeout: 60000,
+      });
+
+      const fileName = file.fileInfo.name;
+      const createdFile = new File([response.data], fileName, {
+        type: response.data.type,
+      });
+
+      dispatch({
+        type: 'FILE_DOWNLOADED',
+        blob: createdFile,
+        originalIndex: file.originalIndex,
+        fileTempId: file.tempId,
+      });
+    } catch (error) {
+      console.error('Error downloading file:', error);
+
+      dispatch({
+        type: 'SET_FILE_TO_DOWNLOAD_ERROR',
+        originalIndex: file.originalIndex,
+        fileTempId: file.tempId,
+      });
+    }
+  };
+
+  const handleUploadComplete = () => {
+    if (filesToUploadLength === 0) {
+      toggleRef.current(true);
+    } else {
+      downloadFilesRef.current = downloadFiles;
+      downloadFilesRef.current();
     }
   };
 
@@ -165,7 +169,6 @@ const ModalStepper = ({
 
   const handleConfirmDeleteFile = useCallback(async () => {
     const { id } = fileToEdit;
-
     onRemoveFileFromDataToDelete(id);
 
     setShowModalConfirmButtonLoading(true);
@@ -176,8 +179,8 @@ const ModalStepper = ({
       });
 
       setShouldRefetch(true);
-    } catch (err) {
-      const errorMessage = get(err, 'response.payload.message', 'An error occured');
+    } catch (error) {
+      const errorMessage = get(error, 'response.payload.message', 'An error occured');
 
       strapi.notification.toggle({
         type: 'warning',
@@ -197,13 +200,12 @@ const ModalStepper = ({
       );
 
       setFormErrors(null);
-
       dispatch({
         type: 'ADD_URLS_TO_FILES_TO_UPLOAD',
         nextStep: next,
       });
-    } catch (err) {
-      const formattedErrors = getYupError(err);
+    } catch (error) {
+      const formattedErrors = getYupError(error);
 
       setFormErrors(formattedErrors.filesToDownload);
     }
@@ -301,34 +303,37 @@ const ModalStepper = ({
     const headers = {};
     const formData = new FormData();
 
-    if (file instanceof File) {
+    const didCropFile = file instanceof File;
+    const { abortController, id, fileInfo } = fileToEdit;
+    const requestURL = shouldDuplicateMedia ? `/${pluginId}` : `/${pluginId}?id=${id}`;
+
+    if (didCropFile) {
       formData.append('files', file);
     }
 
-    formData.append('fileInfo', JSON.stringify(fileToEdit.fileInfo));
+    formData.append('fileInfo', JSON.stringify(fileInfo));
 
     try {
       await request(
-        shouldDuplicateMedia ? `/${pluginId}` : `/${pluginId}?id=${fileToEdit.id}`,
+        requestURL,
         {
           method: 'POST',
           headers,
           body: formData,
-          signal: fileToEdit.abortController.signal,
+          signal: abortController.signal,
         },
         false,
         false
       );
-
       toggleRef.current(true);
-    } catch (err) {
-      console.error(err);
-      const status = get(err, 'response.status', get(err, 'status', null));
-      const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
+    } catch (error) {
+      console.error(error);
+      const status = get(error, 'response.status', get(error, 'status', null));
+      const statusText = get(error, 'response.statusText', get(error, 'statusText', null));
       let errorMessage = get(
-        err,
+        error,
         ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
-        get(err, ['response', 'payload', 'message'], statusText)
+        get(error, ['response', 'payload', 'message'], statusText)
       );
 
       if (status === 413) {

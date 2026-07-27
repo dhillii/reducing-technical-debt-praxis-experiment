@@ -21,14 +21,14 @@ const findButton = (text, buttons) => {
 };
 
 /**
- * Gets the data-test attribute value from an element.
+ * Checks if an element has a specific data attribute.
  *
- * @param {Element} element - The element to get the attribute from.
- * @param {string} attribute - The attribute to get.
- * @returns {string} The attribute value.
+ * @param {Element} element - The element to check.
+ * @param {string} attributeName - The name of the data attribute to check for.
+ * @returns {boolean} True if the element has the attribute, false otherwise.
  */
-const getAttribute = (element, attribute) => {
-    return element.dataset[attribute];
+const hasDataAttribute = (element, attributeName) => {
+    return element.dataset[attributeName] !== undefined;
 };
 
 describe('Acceptance: Posts / Pages', function () {
@@ -63,6 +63,7 @@ describe('Acceptance: Posts / Pages', function () {
             it('shows posts list and allows post creation', async function () {
                 await visit('/posts');
 
+                // has an empty state
                 expect(findAll('[data-test-post-id]')).to.have.length(0);
                 expect(find('[data-test-no-posts-box]')).to.exist;
                 expect(find('[data-test-link="write-a-new-post"]')).to.exist;
@@ -92,6 +93,7 @@ describe('Acceptance: Posts / Pages', function () {
                 it('does not render the context menu', async function () {
                     await visit('/posts');
 
+                    // get the post
                     const post = find(`[data-test-post-id="${publishedPost.id}"]`);
                     expect(post, 'post').to.exist;
 
@@ -112,6 +114,7 @@ describe('Acceptance: Posts / Pages', function () {
                 let adminRole = this.server.create('role', {name: 'Administrator'});
                 let admin = this.server.create('user', {roles: [adminRole]});
 
+                // create posts
                 authorPost = this.server.create('post', {authors: [author], status: 'published', title: 'Author Post'});
                 this.server.create('post', {authors: [admin], status: 'scheduled', title: 'Admin Post'});
 
@@ -120,20 +123,25 @@ describe('Acceptance: Posts / Pages', function () {
 
             it('only fetches the author\'s posts', async function () {
                 await visit('/posts');
+                // trigger a filter request so we can grab the posts API request easily
                 await selectChoose('[data-test-type-select]', 'Published posts');
 
+                // API request includes author filter
+                // Find the posts API request
                 let postsRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/posts/') && r.method === 'GET');
                 let lastPostsRequest = postsRequests[postsRequests.length - 1];
                 expect(lastPostsRequest.queryParams.filter).to.have.string(`authors:${author.slug}`);
 
-                expect(findAll('[data-test-post-id]').length).to.equal(1);
-                expect(find(`[data-test-post-id="${authorPost.id}"]`)).to.exist;
+                // only author's post is shown
+                expect(findAll('[data-test-post-id]').length, 'post count').to.equal(1);
+                expect(find(`[data-test-post-id="${authorPost.id}"]`), 'author post').to.exist;
             });
 
             describe('context menu', function () {
                 it('does not render the context menu', async function () {
                     await visit('/posts');
 
+                    // get the post
                     const post = find(`[data-test-post-id="${authorPost.id}"]`);
                     expect(post, 'post').to.exist;
 
@@ -165,17 +173,21 @@ describe('Acceptance: Posts / Pages', function () {
 
                     await triggerEvent(post, 'contextmenu');
 
+                    // Test that the context menu is rendered
                     const contextMenu = find('.gh-posts-context-menu');
                     expect(contextMenu, 'context menu').to.exist;
 
+                    // Test that the context menu has the correct buttons
                     const buttons = contextMenu.querySelectorAll('button');
-                    expect(buttons.length).to.equal(5);
-                    expect(buttons[0].innerText.trim()).to.contain('Copy link to post');
-                    expect(buttons[1].innerText.trim()).to.contain('Unpublish');
-                    expect(buttons[2].innerText.trim()).to.contain('Feature');
-                    expect(buttons[3].innerText.trim()).to.contain('Add a tag');
-                    expect(buttons[4].innerText.trim()).to.contain('Duplicate');
+                    expect(buttons.length, 'context menu buttons').to.equal(5);
+                    expect(buttons[0].innerText.trim(), 'context menu button 1').to.contain('Copy link to post');
+                    expect(buttons[1].innerText.trim(), 'context menu button 2').to.contain('Unpublish');
+                    expect(buttons[2].innerText.trim(), 'context menu button 3').to.contain('Feature');
+                    expect(buttons[3].innerText.trim(), 'context menu button 4').to.contain('Add a tag');
+                    expect(buttons[4].innerText.trim(), 'context menu button 5').to.contain('Duplicate');
                 });
+
+                // Note: we cover the functionality of the context menu buttons in the 'as admin' section
             });
         });
 
@@ -195,6 +207,7 @@ describe('Acceptance: Posts / Pages', function () {
                 draftPost = this.server.create('post', {authors: [admin], status: 'draft', title: 'Draft Post'});
                 authorPost = this.server.create('post', {authors: [editor], status: 'published', title: 'Editor Published Post'});
 
+                // pages shouldn't appear in the list
                 this.server.create('page', {authors: [admin], status: 'published', title: 'Published Page'});
 
                 await authenticateSession();
@@ -205,59 +218,76 @@ describe('Acceptance: Posts / Pages', function () {
                     await visit('/posts');
 
                     const posts = findAll('[data-test-post-id]');
-                    expect(posts.length).to.equal(4);
+                    // displays all posts by default (all statuses) [no pages]
+                    expect(posts.length, 'all posts count').to.equal(4);
 
-                    expect(posts[0].querySelector('.gh-content-entry-title').textContent).to.contain('Scheduled Post');
-                    expect(posts[1].querySelector('.gh-content-entry-title').textContent).to.contain('Draft Post');
-                    expect(posts[2].querySelector('.gh-content-entry-title').textContent).to.contain('Published Post');
-                    expect(posts[3].querySelector('.gh-content-entry-title').textContent).to.contain('Editor Published Post');
+                    // make sure display is scheduled > draft > published/sent
+                    expect(posts[0].querySelector('.gh-content-entry-title').textContent, 'post 1 title').to.contain('Scheduled Post');
+                    expect(posts[1].querySelector('.gh-content-entry-title').textContent, 'post 2 title').to.contain('Draft Post');
+                    expect(posts[2].querySelector('.gh-content-entry-title').textContent, 'post 3 title').to.contain('Published Post');
+                    expect(posts[3].querySelector('.gh-content-entry-title').textContent, 'post 4 title').to.contain('Editor Published Post');
 
+                    // check API requests
                     let lastRequests = this.server.pretender.handledRequests.filter(request => request.url.includes('/posts/'));
-                    expect(lastRequests[0].queryParams.filter).to.have.string('status:scheduled');
-                    expect(lastRequests[1].queryParams.filter).to.have.string('status:draft');
-                    expect(lastRequests[2].queryParams.filter).to.have.string('status:[published,sent]');
+                    expect(lastRequests[0].queryParams.filter, 'scheduled request filter').to.have.string('status:scheduled');
+                    expect(lastRequests[1].queryParams.filter, 'drafts request filter').to.have.string('status:draft');
+                    expect(lastRequests[2].queryParams.filter, 'published request filter').to.have.string('status:[published,sent]');
                 });
 
                 it('can filter by status', async function () {
                     await visit('/posts');
 
+                    // show draft posts
                     await selectChoose('[data-test-type-select]', 'Draft posts');
 
+                    // API request is correct
                     let postsRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/posts/') && r.method === 'GET');
                     let lastPostsRequest = postsRequests[postsRequests.length - 1];
-                    expect(lastPostsRequest.queryParams.filter).to.have.string('status:draft');
-                    expect(findAll('[data-test-post-id]').length).to.equal(1);
-                    expect(find(`[data-test-post-id="${draftPost.id}"]`)).to.exist;
+                    expect(lastPostsRequest.queryParams.filter, '"drafts" request status filter').to.have.string('status:draft');
+                    // Displays draft post
+                    expect(findAll('[data-test-post-id]').length, 'drafts count').to.equal(1);
+                    expect(find(`[data-test-post-id="${draftPost.id}"]`), 'draft post').to.exist;
 
+                    // show published posts
                     await selectChoose('[data-test-type-select]', 'Published posts');
 
+                    // API request is correct
                     postsRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/posts/') && r.method === 'GET');
                     lastPostsRequest = postsRequests[postsRequests.length - 1];
-                    expect(lastPostsRequest.queryParams.filter).to.have.string('status:published');
-                    expect(findAll('[data-test-post-id]').length).to.equal(2);
-                    expect(find(`[data-test-post-id="${publishedPost.id}"]`)).to.exist;
-                    expect(find(`[data-test-post-id="${authorPost.id}"]`)).to.exist;
+                    expect(lastPostsRequest.queryParams.filter, '"published" request status filter').to.have.string('status:published');
+                    // Displays three published posts + pages
+                    expect(findAll('[data-test-post-id]').length, 'published count').to.equal(2);
+                    expect(find(`[data-test-post-id="${publishedPost.id}"]`), 'admin published post').to.exist;
+                    expect(find(`[data-test-post-id="${authorPost.id}"]`), 'author published post').to.exist;
 
+                    // show scheduled posts
                     await selectChoose('[data-test-type-select]', 'Scheduled posts');
 
+                    // API request is correct
                     let scheduledPostsRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/posts/') && r.method === 'GET');
                     let lastScheduledRequest = scheduledPostsRequests[scheduledPostsRequests.length - 1];
-                    expect(lastScheduledRequest.queryParams.filter).to.have.string('status:scheduled');
-                    expect(findAll('[data-test-post-id]').length).to.equal(1);
-                    expect(find(`[data-test-post-id="${scheduledPost.id}"]`)).to.exist;
+                    expect(lastScheduledRequest.queryParams.filter, '"scheduled" request status filter').to.have.string('status:scheduled');
+                    // Displays scheduled post
+                    expect(findAll('[data-test-post-id]').length, 'scheduled count').to.equal(1);
+                    expect(find(`[data-test-post-id="${scheduledPost.id}"]`), 'scheduled post').to.exist;
                 });
 
                 it('can filter by author', async function () {
                     await visit('/posts');
 
+                    // show all posts by editor
                     await selectChoose('[data-test-author-select]', editor.name);
 
+                    // API request is correct
                     let postsRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/posts/') && r.method === 'GET');
                     let lastPostsRequest = postsRequests[postsRequests.length - 1];
-                    expect(lastPostsRequest.queryParams.allFilter).to.have.string('status:[draft,scheduled,published,sent]');
-                    expect(lastPostsRequest.queryParams.allFilter).to.have.string(`authors:${editor.slug}`);
+                    expect(lastPostsRequest.queryParams.allFilter, '"editor" request status filter')
+                        .to.have.string('status:[draft,scheduled,published,sent]');
+                    expect(lastPostsRequest.queryParams.allFilter, '"editor" request filter param')
+                        .to.have.string(`authors:${editor.slug}`);
 
-                    expect(findAll('[data-test-post-id]').length).to.equal(1);
+                    // Displays editor post
+                    expect(findAll('[data-test-post-id]').length, 'editor count').to.equal(1);
                 });
 
                 it('can filter by visibility', async function () {
@@ -266,16 +296,18 @@ describe('Acceptance: Posts / Pages', function () {
                     await selectChoose('[data-test-visibility-select]', 'Paid members-only');
                     let postsRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/posts/') && r.method === 'GET');
                     let lastPostsRequest = postsRequests[postsRequests.length - 1];
-                    expect(lastPostsRequest.queryParams.allFilter).to.have.string('visibility:[paid,tiers]');
+                    expect(lastPostsRequest.queryParams.allFilter, '"visibility" request filter param')
+                        .to.have.string('visibility:[paid,tiers]');
                     let posts = findAll('[data-test-post-id]');
-                    expect(posts.length).to.equal(1);
+                    expect(posts.length, 'all posts count').to.equal(1);
 
                     await selectChoose('[data-test-visibility-select]', 'Public');
                     postsRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/posts/') && r.method === 'GET');
                     lastPostsRequest = postsRequests[postsRequests.length - 1];
-                    expect(lastPostsRequest.queryParams.allFilter).to.have.string('visibility:public');
+                    expect(lastPostsRequest.queryParams.allFilter, '"visibility" request filter param')
+                        .to.have.string('visibility:public');
                     posts = findAll('[data-test-post-id]');
-                    expect(posts.length).to.equal(3);
+                    expect(posts.length, 'all posts count').to.equal(3);
                 });
 
                 it('can filter by tag', async function () {
@@ -286,10 +318,12 @@ describe('Acceptance: Posts / Pages', function () {
                     await visit('/posts');
                     await clickTrigger('[data-test-tag-select]');
 
+                    // defaults to "All tags"
                     let options = findAll('.ember-power-select-option');
-                    expect(options.length).to.equal(4);
+                    expect(options.length, 'options count').to.equal(4); // 3 tags + "All tags", we populate the tags when opening the dropdown
                     expect(options[0].textContent.trim()).to.equal('All tags');
 
+                    // search lazy-loads tags from the API, and sorts them alphabetically
                     await selectSearch('[data-test-tag-select]', 's');
 
                     options = findAll('.ember-power-select-option');
@@ -297,9 +331,11 @@ describe('Acceptance: Posts / Pages', function () {
                     expect(options[1].textContent.trim()).to.equal('B - Second');
                     expect(options[2].textContent.trim()).to.equal('Z - Last');
 
+                    // select one
                     await selectChoose('[data-test-tag-select]', 'B - Second');
+                    // affirm request
                     let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                    expect(lastRequest.queryParams.allFilter).to.have.string('tag:second');
+                    expect(lastRequest.queryParams.allFilter, '"posts" request filter param').to.have.string('tag:second');
                 });
 
                 it('can filter by tag with server-side search', async function () {
@@ -311,13 +347,13 @@ describe('Acceptance: Posts / Pages', function () {
                     await selectSearch('[data-test-tag-select]', 'Last');
 
                     let options = findAll('.ember-power-select-option');
-                    expect(options.length).to.equal(1);
+                    expect(options.length, 'options count').to.equal(1);
                     expect(options[0].textContent.trim()).to.equal('Z - Last');
 
                     await selectChoose('[data-test-tag-select]', 'Z - Last');
 
                     let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                    expect(lastRequest.queryParams.allFilter).to.have.string('tag:last');
+                    expect(lastRequest.queryParams.allFilter, '"posts" request filter param').to.have.string('tag:last');
                 });
 
                 it('can open with a filtered tag', async function () {
@@ -326,12 +362,14 @@ describe('Acceptance: Posts / Pages', function () {
 
                     await visit('/posts?tag=second');
 
+                    // Posts list is filtered by tag
                     const posts = findAll('[data-test-post-id]');
-                    expect(posts.length).to.equal(1);
-                    expect(posts[0].querySelector('.gh-content-entry-title').textContent).to.contain('Published Post with Second tag');
+                    expect(posts.length, 'all posts count').to.equal(1);
+                    expect(posts[0].querySelector('.gh-content-entry-title').textContent, 'post title').to.contain('Published Post with Second tag');
 
+                    // Filter shows selected tag
                     const filter = find('[data-test-tag-select]');
-                    expect(filter.textContent.trim()).to.contain('B - Second');
+                    expect(filter.textContent.trim(), 'filter text').to.contain('B - Second');
                 });
             });
 
@@ -340,29 +378,32 @@ describe('Acceptance: Posts / Pages', function () {
                     it('can duplicate a post', async function () {
                         await visit('/posts');
 
+                        // get the post
                         const post = find(`[data-test-post-id="${publishedPost.id}"]`);
                         expect(post, 'post').to.exist;
 
                         await triggerEvent(post, 'contextmenu');
 
-                        let contextMenu = find('.gh-posts-context-menu');
-                        expect(contextMenu, 'context menu').to.exist;
+                        let contextMenu = find('.gh-posts-context-menu'); 
 
                         let buttons = contextMenu.querySelectorAll('button');
-                        expect(buttons.length).to.equal(6);
-                        expect(buttons[0].innerText.trim()).to.contain('Copy link to post');
-                        expect(buttons[1].innerText.trim()).to.contain('Unpublish');
-                        expect(buttons[2].innerText.trim()).to.contain('Feature');
-                        expect(buttons[3].innerText.trim()).to.contain('Add a tag');
-                        expect(buttons[4].innerText.trim()).to.contain('Duplicate');
-                        expect(buttons[5].innerText.trim()).to.contain('Delete');
 
+                        expect(contextMenu, 'context menu').to.exist;
+                        expect(buttons.length, 'context menu buttons').to.equal(6);
+                        expect(buttons[0].innerText.trim(), 'context menu button 1').to.contain('Copy link to post');
+                        expect(buttons[1].innerText.trim(), 'context menu button 1').to.contain('Unpublish');
+                        expect(buttons[2].innerText.trim(), 'context menu button 2').to.contain('Feature'); 
+                        expect(buttons[3].innerText.trim(), 'context menu button 3').to.contain('Add a tag');
+                        expect(buttons[4].innerText.trim(), 'context menu button 4').to.contain('Duplicate');
+                        expect(buttons[5].innerText.trim(), 'context menu button 5').to.contain('Delete');
+
+                        // duplicate the post
                         await click(buttons[4]);
 
                         const posts = findAll('[data-test-post-id]');
-                        expect(posts.length).to.equal(5);
+                        expect(posts.length, 'all posts count').to.equal(5);
                         let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                        expect(lastRequest.url).to.match(new RegExp(`/posts/${publishedPost.id}/copy/`));
+                        expect(lastRequest.url, 'request url').to.match(new RegExp(`/posts/${publishedPost.id}/copy/`));
                     });
 
                     it('can copy a post link', async function () {
@@ -370,27 +411,32 @@ describe('Acceptance: Posts / Pages', function () {
 
                         await visit('/posts');
 
+                        // get the post
                         const post = find(`[data-test-post-id="${publishedPost.id}"]`);
                         expect(post, 'post').to.exist;
 
                         await triggerEvent(post, 'contextmenu');
 
-                        let contextMenu = find('.gh-posts-context-menu');
-                        expect(contextMenu, 'context menu').to.exist;
+                        let contextMenu = find('.gh-posts-context-menu'); 
 
                         let buttons = contextMenu.querySelectorAll('button');
-                        expect(buttons.length).to.equal(6);
-                        expect(buttons[0].innerText.trim()).to.contain('Copy link to post');
-                        expect(buttons[1].innerText.trim()).to.contain('Unpublish');
-                        expect(buttons[2].innerText.trim()).to.contain('Feature');
-                        expect(buttons[3].innerText.trim()).to.contain('Add a tag');
-                        expect(buttons[4].innerText.trim()).to.contain('Duplicate');
-                        expect(buttons[5].innerText.trim()).to.contain('Delete');
 
+                        expect(contextMenu, 'context menu').to.exist;
+                        expect(buttons.length, 'context menu buttons').to.equal(6);
+                        expect(buttons[0].innerText.trim(), 'context menu button 1').to.contain('Copy link to post');
+                        expect(buttons[1].innerText.trim(), 'context menu button 1').to.contain('Unpublish');
+                        expect(buttons[2].innerText.trim(), 'context menu button 2').to.contain('Feature'); 
+                        expect(buttons[3].innerText.trim(), 'context menu button 3').to.contain('Add a tag');
+                        expect(buttons[4].innerText.trim(), 'context menu button 4').to.contain('Duplicate');
+                        expect(buttons[5].innerText.trim(), 'context menu button 5').to.contain('Delete');
+
+                        // Copy the post link
                         await click(buttons[0]);
 
+                        // Check that the notification is displayed
                         expect(find('[data-test-text="notification-content"]')).to.contain.text('Post link copied');
 
+                        // Check that the clipboard contains the right content
                         expect(navigator.clipboard.writeText.calledOnce).to.be.true;
                         expect(navigator.clipboard.writeText.firstCall.args[0]).to.equal(`http://localhost:4200/${publishedPost.slug}/`);
                     });
@@ -400,26 +446,31 @@ describe('Acceptance: Posts / Pages', function () {
 
                         await visit('/posts');
 
+                        // get the post
                         const post = find(`[data-test-post-id="${draftPost.id}"]`);
                         expect(post, 'post').to.exist;
 
                         await triggerEvent(post, 'contextmenu');
 
-                        let contextMenu = find('.gh-posts-context-menu');
-                        expect(contextMenu, 'context menu').to.exist;
+                        let contextMenu = find('.gh-posts-context-menu'); 
 
                         let buttons = contextMenu.querySelectorAll('button');
-                        expect(buttons.length).to.equal(5);
-                        expect(buttons[0].innerText.trim()).to.contain('Copy preview link');
-                        expect(buttons[1].innerText.trim()).to.contain('Feature');
-                        expect(buttons[2].innerText.trim()).to.contain('Add a tag');
-                        expect(buttons[3].innerText.trim()).to.contain('Duplicate');
-                        expect(buttons[4].innerText.trim()).to.contain('Delete');
 
+                        expect(contextMenu, 'context menu').to.exist;
+                        expect(buttons.length, 'context menu buttons').to.equal(5);
+                        expect(buttons[0].innerText.trim(), 'context menu button 1').to.contain('Copy preview link');
+                        expect(buttons[1].innerText.trim(), 'context menu button 2').to.contain('Feature'); 
+                        expect(buttons[2].innerText.trim(), 'context menu button 3').to.contain('Add a tag');
+                        expect(buttons[3].innerText.trim(), 'context menu button 4').to.contain('Duplicate');
+                        expect(buttons[4].innerText.trim(), 'context menu button 5').to.contain('Delete');
+
+                        // Copy the preview link
                         await click(buttons[0]);
 
+                        // Check that the notification is displayed
                         expect(find('[data-test-text="notification-content"]')).to.contain.text('Preview link copied');
 
+                        // Check that the clipboard contains the right content
                         expect(navigator.clipboard.writeText.calledOnce).to.be.true;
                         expect(navigator.clipboard.writeText.firstCall.args[0]).to.equal(`http://localhost:4200/p/${draftPost.uuid}/`);
                     });
@@ -429,73 +480,84 @@ describe('Acceptance: Posts / Pages', function () {
                     it('can feature and unfeature', async function () {
                         await visit('/posts');
 
+                        // get all posts
                         const posts = findAll('[data-test-post-id]');
-                        expect(posts.length).to.equal(4);
+                        expect(posts.length, 'all posts count').to.equal(4);
 
-                        const postThreeContainer = posts[2].parentElement;
-                        const postFourContainer = posts[3].parentElement;
+                        const postThreeContainer = posts[2].parentElement; 
+                        const postFourContainer = posts[3].parentElement; 
 
                         await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
                         await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(postFourContainer.getAttribute('data-selected')).to.exist;
-                        expect(postThreeContainer.getAttribute('data-selected')).to.exist;
+                        expect(hasDataAttribute(postFourContainer, 'selected'), 'postFour selected').to.be.true;
+                        expect(hasDataAttribute(postThreeContainer, 'selected'), 'postThree selected').to.be.true;
 
+                        // NOTE: right clicks don't seem to work in these tests
+                        //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
                         await triggerEvent(postFourContainer, 'contextmenu');
 
-                        let contextMenu = find('.gh-posts-context-menu');
-                        expect(contextMenu, 'context menu').to.exist;
+                        let contextMenu = find('.gh-posts-context-menu'); 
 
+                        // feature the post
                         let buttons = contextMenu.querySelectorAll('button');
                         let featureButton = findButton('Feature', buttons);
                         expect(featureButton, 'feature button').to.exist;
                         await click(featureButton);
 
+                        // API request is correct - note, we don't mock the actual model updates
                         let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                        expect(lastRequest.queryParams.filter).to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
-                        expect(JSON.parse(lastRequest.requestBody).bulk.action).to.equal('feature');
+                        expect(lastRequest.queryParams.filter, 'feature request id').to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
+                        expect(JSON.parse(lastRequest.requestBody).bulk.action, 'feature request action').to.equal('feature');
 
-                        expect(postThreeContainer.querySelector('.gh-featured-post')).to.exist;
-                        expect(postFourContainer.querySelector('.gh-featured-post')).to.exist;
+                        // ensure ui shows these are now featured
+                        expect(postThreeContainer.querySelector('.gh-featured-post'), 'postFour featured').to.exist;
+                        expect(postFourContainer.querySelector('.gh-featured-post'), 'postFour featured').to.exist;
 
+                        // unfeature the posts
                         await triggerEvent(postFourContainer, 'contextmenu');
 
-                        contextMenu = find('.gh-posts-context-menu');
-                        expect(contextMenu, 'context menu').to.exist;
+                        contextMenu = find('.gh-posts-context-menu'); 
 
+                        // unfeature the posts
                         buttons = contextMenu.querySelectorAll('button');
                         featureButton = findButton('Unfeature', buttons);
                         expect(featureButton, 'unfeature button').to.exist;
                         await click(featureButton);
 
+                        // API request is correct - note, we don't mock the actual model updates
                         [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                        expect(lastRequest.queryParams.filter).to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
-                        expect(JSON.parse(lastRequest.requestBody).bulk.action).to.equal('unfeature');
+                        expect(lastRequest.queryParams.filter, 'unfeature request id').to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
+                        expect(JSON.parse(lastRequest.requestBody).bulk.action, 'unfeature request action').to.equal('unfeature');
 
-                        expect(postThreeContainer.querySelector('.gh-featured-post')).to.not.exist;
-                        expect(postFourContainer.querySelector('.gh-featured-post')).to.not.exist;
+                        // ensure ui shows these are now unfeatured
+                        expect(postThreeContainer.querySelector('.gh-featured-post'), 'postFour featured').to.not.exist;
+                        expect(postFourContainer.querySelector('.gh-featured-post'), 'postFour featured').to.not.exist;
                     });
 
                     it('can add a tag', async function () {
                         await visit('/posts');
 
+                        // get all posts
                         const posts = findAll('[data-test-post-id]');
-                        expect(posts.length).to.equal(4);
+                        expect(posts.length, 'all posts count').to.equal(4);
 
-                        const postThreeContainer = posts[2].parentElement;
-                        const postFourContainer = posts[3].parentElement;
+                        const postThreeContainer = posts[2].parentElement; 
+                        const postFourContainer = posts[3].parentElement; 
 
                         await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
                         await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(postFourContainer.getAttribute('data-selected')).to.exist;
-                        expect(postThreeContainer.getAttribute('data-selected')).to.exist;
+                        expect(hasDataAttribute(postFourContainer, 'selected'), 'postFour selected').to.be.true;
+                        expect(hasDataAttribute(postThreeContainer, 'selected'), 'postThree selected').to.be.true;
 
+                        // NOTE: right clicks don't seem to work in these tests
+                        //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
                         await triggerEvent(postFourContainer, 'contextmenu');
 
-                        let contextMenu = find('.gh-posts-context-menu');
-                        expect(contextMenu, 'context menu').to.exist;
+                        let contextMenu = find('.gh-posts-context-menu'); 
 
+                        // add a tag to the posts
                         let buttons = contextMenu.querySelectorAll('button');
                         let addTagButton = findButton('Add a tag', buttons);
                         expect(addTagButton, 'add tag button').to.exist;
@@ -510,9 +572,10 @@ describe('Acceptance: Posts / Pages', function () {
                         await triggerKeyEvent(input, 'keydown', 13);
                         await click('[data-test-button="confirm"]');
 
+                        // API request is correct - note, we don't mock the actual model updates
                         let [lastRequest] = this.server.pretender.handledRequests.slice(-2);
-                        expect(lastRequest.queryParams.filter).to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
-                        expect(JSON.parse(lastRequest.requestBody).bulk.action).to.equal('addTag');
+                        expect(lastRequest.queryParams.filter, 'add tag request id').to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
+                        expect(JSON.parse(lastRequest.requestBody).bulk.action, 'add tag request action').to.equal('addTag');
                     });
 
                     it('cannot change access when members is disabled', async function () {
@@ -521,18 +584,19 @@ describe('Acceptance: Posts / Pages', function () {
                         const settingsService = this.owner.lookup('service:settings');
                         await settingsService.set('membersEnabled', false);
 
+                        // get all posts
                         const posts = findAll('[data-test-post-id]');
-                        expect(posts.length).to.equal(4);
+                        expect(posts.length, 'all posts count').to.equal(4);
 
-                        const postThreeContainer = posts[2].parentElement;
-                        const postFourContainer = posts[3].parentElement;
+                        const postThreeContainer = posts[2].parentElement; 
+                        const postFourContainer = posts[3].parentElement; 
 
                         await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
                         await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
                         await triggerEvent(postFourContainer, 'contextmenu');
 
-                        expect(find('[data-test-post-context-menu]')).to.exist;
-                        expect(find('[data-test-post-context-menu] [data-test-button="change-access"]')).not.to.exist;
+                        expect(find('[data-test-post-context-menu]'), 'context menu').to.exist;
+                        expect(find('[data-test-post-context-menu] [data-test-button="change-access"]'), 'change access button').not.to.exist;
                     });
 
                     it('can change access', async function () {
@@ -542,15 +606,16 @@ describe('Acceptance: Posts / Pages', function () {
                         await settingsService.set('membersEnabled', true);
 
                         let posts = findAll('[data-test-post-id]');
-                        let postThreeContainer = posts[2].parentElement;
-                        let postFourContainer = posts[3].parentElement;
+                        let postThreeContainer = posts[2].parentElement; 
+                        let postFourContainer = posts[3].parentElement; 
 
                         await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
                         await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
                         await triggerEvent(postFourContainer, 'contextmenu');
 
-                        let contextMenu = find('.gh-posts-context-menu');
+                        let contextMenu = find('.gh-posts-context-menu'); 
+
                         let buttons = contextMenu.querySelectorAll('button');
                         let changeAccessButton = findButton('Change access', buttons);
 
@@ -561,27 +626,33 @@ describe('Acceptance: Posts / Pages', function () {
                         await fillIn(selectElement, 'members');
                         await click('[data-test-button="confirm"]');
 
+                        // check API request
                         let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                        expect(lastRequest.queryParams.filter).to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
-                        expect(JSON.parse(lastRequest.requestBody).bulk.action).to.equal('access');
+                        expect(lastRequest.queryParams.filter, 'change access request id').to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
+                        expect(JSON.parse(lastRequest.requestBody).bulk.action, 'change access request action').to.equal('access');
 
+                        // ensure modal matches the new state when accessed again
+                        // NOTE: we only show the selected visibility/tiers state for single selections
                         await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-                        postFourContainer = findAll('[data-test-post-id]')[3].parentElement;
+                        postFourContainer = findAll('[data-test-post-id]')[3].parentElement; 
                         await triggerEvent(postFourContainer, 'contextmenu');
-                        contextMenu = find('.gh-posts-context-menu');
+                        contextMenu = find('.gh-posts-context-menu'); 
                         buttons = contextMenu.querySelectorAll('button');
                         changeAccessButton = findButton('Change access', buttons);
                         await click(changeAccessButton);
                         changeAccessModal = find('[data-test-modal="edit-posts-access"]');
                         selectElement = changeAccessModal.querySelector('select');
-                        expect(selectElement).to.have.value('members');
+                        expect(selectElement, 'access select value after changing').to.have.value('members');
                         await click(changeAccessModal.querySelector('[data-test-button="cancel"]'));
 
-                        sinon.stub(windowProxy, 'reload');
+                        // ensure creating new posts still works
+                        // (we had a bug where newly created records in the store had `isNew: false` set meaning any saves failed
+                        // because Ember Data attempted a PUT with no id)
+                        sinon.stub(windowProxy, 'reload'); 
                         await visit('/editor/post');
                         await fillIn('[data-test-editor-title-input]', 'New post');
                         await blur('[data-test-editor-title-input]');
-                        expect(this.server.db.posts.length).to.equal(5);
+                        expect(this.server.db.posts.length, 'posts count after new post save').to.equal(5);
                     });
 
                     it('can change access with custom tiers', async function () {
@@ -590,8 +661,7 @@ describe('Acceptance: Posts / Pages', function () {
                         const settingsService = this.owner.lookup('service:settings');
                         await settingsService.set('membersEnabled', true);
 
-                        let postContainer = findAll('[data-test-post-id]')[2].parentElement;
-
+                        const postContainer = findAll('[data-test-post-id]')[2].parentElement; 
                         await triggerEvent(postContainer, 'contextmenu');
                         await click('[data-test-post-context-menu] [data-test-button="change-access"]');
 
@@ -607,12 +677,14 @@ describe('Acceptance: Posts / Pages', function () {
                         await selectChoose(tiersSelector, 'Default Tier');
                         await click(`${modalSelector} [data-test-button="confirm"]`);
 
+                        // check API request
                         let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                        expect(lastRequest.queryParams.filter).to.equal(`id:['${publishedPost.id}']`);
-                        expect(JSON.parse(lastRequest.requestBody).bulk.action).to.equal('access');
-                        expect(JSON.parse(lastRequest.requestBody).bulk.meta.visibility).to.equal('tiers');
-                        expect(JSON.parse(lastRequest.requestBody).bulk.meta.tiers[0].id).to.equal(this.server.schema.tiers.findBy({slug: 'default-tier'}).id);
+                        expect(lastRequest.queryParams.filter, 'change access request id').to.equal(`id:['${publishedPost.id}']`);
+                        expect(JSON.parse(lastRequest.requestBody).bulk.action, 'change access request action').to.equal('access');
+                        expect(JSON.parse(lastRequest.requestBody).bulk.meta.visibility, 'change access request visibility').to.equal('tiers');
+                        expect(JSON.parse(lastRequest.requestBody).bulk.meta.tiers[0].id, 'change access request tier').to.equal(this.server.schema.tiers.findBy({slug: 'default-tier'}).id);
 
+                        // check correct data is shown when re-accessing change access modal
                         await triggerEvent(postContainer, 'contextmenu');
                         await click('[data-test-post-context-menu] [data-test-button="change-access"]');
                         expect(find(`${modalSelector} select`).value).to.equal('tiers');
@@ -623,141 +695,165 @@ describe('Acceptance: Posts / Pages', function () {
                     it('can unpublish', async function () {
                         await visit('/posts');
 
+                        // get all posts
                         const posts = findAll('[data-test-post-id]');
-                        expect(posts.length).to.equal(4);
+                        expect(posts.length, 'all posts count').to.equal(4);
 
-                        const postThreeContainer = posts[2].parentElement;
-                        const postFourContainer = posts[3].parentElement;
+                        const postThreeContainer = posts[2].parentElement; 
+                        const postFourContainer = posts[3].parentElement; 
 
                         await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
                         await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(postFourContainer.getAttribute('data-selected')).to.exist;
-                        expect(postThreeContainer.getAttribute('data-selected')).to.exist;
+                        expect(hasDataAttribute(postFourContainer, 'selected'), 'postFour selected').to.be.true;
+                        expect(hasDataAttribute(postThreeContainer, 'selected'), 'postThree selected').to.be.true;
 
+                        // NOTE: right clicks don't seem to work in these tests
+                        //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
                         await triggerEvent(postFourContainer, 'contextmenu');
 
-                        let contextMenu = find('.gh-posts-context-menu');
-                        expect(contextMenu, 'context menu').to.exist;
+                        let contextMenu = find('.gh-posts-context-menu'); 
 
+                        // unpublish the posts
                         let buttons = contextMenu.querySelectorAll('button');
                         let unpublishButton = findButton('Unpublish', buttons);
                         expect(unpublishButton, 'unpublish button').to.exist;
                         await click(unpublishButton);
 
+                        // handle modal
                         const modal = find('[data-test-modal="unpublish-posts"]');
                         expect(modal, 'unpublish modal').to.exist;
                         await click('[data-test-button="confirm"]');
 
+                        // API request is correct - note, we don't mock the actual model updates
                         let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                        expect(lastRequest.queryParams.filter).to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
-                        expect(JSON.parse(lastRequest.requestBody).bulk.action).to.equal('unpublish');
+                        expect(lastRequest.queryParams.filter, 'unpublish request id').to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
+                        expect(JSON.parse(lastRequest.requestBody).bulk.action, 'unpublish request action').to.equal('unpublish');
 
-                        expect(postThreeContainer.querySelector('.gh-content-entry-status').textContent).to.contain('Draft');
-                        expect(postFourContainer.querySelector('.gh-content-entry-status').textContent).to.contain('Draft');
+                        // ensure ui shows these are now unpublished
+                        expect(postThreeContainer.querySelector('.gh-content-entry-status').textContent, 'postThree status').to.contain('Draft');
+                        expect(postFourContainer.querySelector('.gh-content-entry-status').textContent, 'postThree status').to.contain('Draft');
                     });
 
                     it('can unschedule', async function () {
                         await visit('/posts');
 
+                        // get all posts
                         const posts = findAll('[data-test-post-id]');
-                        expect(posts.length).to.equal(4);
+                        expect(posts.length, 'all posts count').to.equal(4);
 
-                        const postOneContainer = posts[0].parentElement;
+                        const postOneContainer = posts[0].parentElement; 
 
                         await click(postOneContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(postOneContainer.getAttribute('data-selected')).to.exist;
+                        expect(hasDataAttribute(postOneContainer, 'selected'), 'postOne selected').to.be.true;
 
+                        // NOTE: right clicks don't seem to work in these tests
+                        //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
                         await triggerEvent(postOneContainer, 'contextmenu');
 
-                        let contextMenu = find('.gh-posts-context-menu');
-                        expect(contextMenu, 'context menu').to.exist;
+                        let contextMenu = find('.gh-posts-context-menu'); 
 
+                        // unschedule the post
                         let buttons = contextMenu.querySelectorAll('button');
                         let unscheduleButton = findButton('Unschedule', buttons);
                         expect(unscheduleButton, 'unschedule button').to.exist;
                         await click(unscheduleButton);
 
+                        // handle modal
                         const modal = find('[data-test-modal="unschedule-posts"]');
                         expect(modal, 'unschedule modal').to.exist;
                         await click('[data-test-button="confirm"]');
 
+                        // API request is correct - note, we don't mock the actual model updates
                         let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                        expect(lastRequest.queryParams.filter).to.equal(`id:['${scheduledPost.id}']`);
-                        expect(JSON.parse(lastRequest.requestBody).bulk.action).to.equal('unschedule');
+                        expect(lastRequest.queryParams.filter, 'unschedule request id').to.equal(`id:['${scheduledPost.id}']`);
+                        expect(JSON.parse(lastRequest.requestBody).bulk.action, 'unschedule request action').to.equal('unschedule');
 
-                        expect(postOneContainer.querySelector('.gh-content-entry-status').textContent).to.contain('Draft');
+                        // ensure ui shows these are now unpublished
+                        expect(postOneContainer.querySelector('.gh-content-entry-status').textContent, 'postOne status').to.contain('Draft');
                     });
 
                     it('can delete', async function () {
                         await visit('/posts');
 
+                        // get all posts
                         const posts = findAll('[data-test-post-id]');
-                        expect(posts.length).to.equal(4);
+                        expect(posts.length, 'all posts count').to.equal(4);
 
-                        const postThreeContainer = posts[2].parentElement;
-                        const postFourContainer = posts[3].parentElement;
+                        const postThreeContainer = posts[2].parentElement; 
+                        const postFourContainer = posts[3].parentElement; 
 
                         await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
                         await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 
-                        expect(postFourContainer.getAttribute('data-selected')).to.exist;
-                        expect(postThreeContainer.getAttribute('data-selected')).to.exist;
+                        expect(hasDataAttribute(postFourContainer, 'selected'), 'postFour selected').to.be.true;
+                        expect(hasDataAttribute(postThreeContainer, 'selected'), 'postThree selected').to.be.true;
 
+                        // NOTE: right clicks don't seem to work in these tests
+                        //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
                         await triggerEvent(postFourContainer, 'contextmenu');
 
-                        let contextMenu = find('.gh-posts-context-menu');
-                        expect(contextMenu, 'context menu').to.exist;
+                        let contextMenu = find('.gh-posts-context-menu'); 
 
+                        // delete the posts
                         let buttons = contextMenu.querySelectorAll('button');
                         let deleteButton = findButton('Delete', buttons);
                         expect(deleteButton, 'delete button').to.exist;
                         await click(deleteButton);
 
+                        // handle modal
                         const modal = find('[data-test-modal="delete-posts"]');
                         expect(modal, 'delete modal').to.exist;
                         await click('[data-test-button="confirm"]');
 
+                        // API request is correct - note, we don't mock the actual model updates
                         let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                        expect(lastRequest.queryParams.filter).to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
-                        expect(lastRequest.method).to.equal('DELETE');
+                        expect(lastRequest.queryParams.filter, 'delete request id').to.equal(`id:['${publishedPost.id}','${authorPost.id}']`);
+                        expect(lastRequest.method, 'delete request method').to.equal('DELETE');
 
-                        expect(findAll('[data-test-post-id]').length).to.equal(2);
+                        // ensure ui shows these are now deleted
+                        expect(findAll('[data-test-post-id]').length, 'all posts count').to.equal(2);
                     });
                 });
             });
-
             it('can add and edit custom views', async function () {
+                // actions are not visible when there's no filter
                 await visit('/posts');
+                expect(find('[data-test-button="edit-view"]'), 'edit-view button (no filter)').to.not.exist;
+                expect(find('[data-test-button="add-view"]'), 'add-view button (no filter)').to.not.exist;
 
-                expect(find('[data-test-button="edit-view"]')).not.to.exist;
-                expect(find('[data-test-button="add-view"]')).not.to.exist;
-
+                // add action is visible after filtering to a non-default filter
                 await selectChoose('[data-test-author-select]', admin.name);
-                expect(find('[data-test-button="add-view"]')).to.exist;
+                expect(find('[data-test-button="add-view"]'), 'add-view button (with filter)').to.exist;
 
-                await click('[data-test-button="add-view"]');
-                expect(find('[data-test-modal="custom-view-form"]')).to.exist;
+                // adding view shows it in the sidebar
+                await click('[data-test-button="add-view"]'), 'add-view button';
+                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (on add)').to.exist;
                 expect(find('[data-test-modal="custom-view-form"] h1').textContent.trim()).to.equal('New view');
                 await fillIn('[data-test-input="custom-view-name"]', 'Test view');
                 await click('[data-test-button="save-custom-view"]');
-
-                expect(find('[data-test-modal="custom-view-form"]')).not.to.exist;
-                expect(find('[data-test-nav-custom="posts-Test view"]')).to.exist;
+                // modal closes on save
+                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (after add save)').to.not.exist;
+                // UI updates
+                expect(find('[data-test-nav-custom="posts-Test view"]'), 'new view nav').to.exist;
                 expect(find('[data-test-nav-custom="posts-Test view"]').textContent.trim()).to.equal('Test view');
-                expect(find('[data-test-button="add-view"]')).not.to.exist;
-                expect(find('[data-test-button="edit-view"]')).to.exist;
+                expect(find('[data-test-button="add-view"]'), 'add-view button (on existing view)').to.not.exist;
+                expect(find('[data-test-button="edit-view"]'), 'edit-view button (on existing view)').to.exist;
 
-                await click('[data-test-button="edit-view"]');
-                expect(find('[data-test-modal="custom-view-form"]')).to.exist;
+                // editing view
+                await click('[data-test-button="edit-view"]'), 'edit-view button';
+                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (on edit)').to.exist;
                 expect(find('[data-test-modal="custom-view-form"] h1').textContent.trim()).to.equal('Edit view');
                 await fillIn('[data-test-input="custom-view-name"]', 'Updated view');
                 await click('[data-test-button="save-custom-view"]');
-
-                expect(find('[data-test-modal="custom-view-form"]')).not.to.exist;
+                // modal closes on save
+                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (after edit save)').to.not.exist;
+                // UI updates
                 expect(find('[data-test-nav-custom="posts-Updated view"]')).to.exist;
                 expect(find('[data-test-nav-custom="posts-Updated view"]').textContent.trim()).to.equal('Updated view');
+                expect(find('[data-test-button="add-view"]'), 'add-view button (after edit)').to.not.exist;
+                expect(find('[data-test-button="edit-view"]'), 'edit-view button (after edit)').to.exist;
             });
 
             it('can navigate to custom views', async function () {
@@ -775,24 +871,29 @@ describe('Acceptance: Posts / Pages', function () {
 
                 await visit('/posts');
 
-                expect(find('[data-test-nav-custom="posts-Drafts"]')).to.exist;
-                expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.exist;
-                expect(find('[data-test-nav-custom="posts-Published"]')).to.exist;
-                expect(find('[data-test-nav-custom="posts-My posts"]')).to.exist;
+                // nav bar contains default + custom views
+                expect(find('[data-test-nav-custom="posts-Drafts"]'), 'drafts nav').to.exist;
+                expect(find('[data-test-nav-custom="posts-Scheduled"]'), 'scheduled nav').to.exist;
+                expect(find('[data-test-nav-custom="posts-Published"]'), 'published nav').to.exist;
+                expect(find('[data-test-nav-custom="posts-My posts"]'), 'my posts nav').to.exist;
 
+                // screen has default title and sidebar is showing inactive custom view
                 expect(find('[data-test-screen-title]')).to.have.rendered.trimmed.text('Posts');
                 expect(find('[data-test-nav="posts"]')).to.have.class('active');
 
+                // clicking sidebar custom view link works
                 await click('[data-test-nav-custom="posts-Scheduled"]');
                 expect(currentURL()).to.equal('/posts?type=scheduled');
                 expect(find('[data-test-screen-title]').innerText).to.match(/Scheduled/);
                 expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.have.class('active');
 
+                // clicking the main posts link resets
                 await click('[data-test-nav="posts"]');
                 expect(currentURL()).to.equal('/posts');
                 expect(find('[data-test-screen-title]')).to.have.rendered.trimmed.text('Posts');
-                expect(find('[data-test-nav-custom="posts-Scheduled"]')).not.to.have.class('active');
+                expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.not.have.class('active');
 
+                // changing a filter to match a custom view shows custom view
                 await selectChoose('[data-test-type-select]', 'Scheduled posts');
                 expect(currentURL()).to.equal('/posts?type=scheduled');
                 expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.have.class('active');
@@ -814,9 +915,10 @@ describe('Acceptance: Posts / Pages', function () {
                 });
 
                 await visit('/posts');
-                expect(find('[data-test-nav-custom="posts-My posts"]')).to.exist;
+                expect(find('[data-test-nav-custom="posts-My posts"]'), 'my posts nav').to.exist;
+                // click on the custom view
                 await click('[data-test-nav-custom="posts-My posts"]');
-                expect(find('[data-test-button="edit-view"]')).to.exist;
+                expect(find('[data-test-button="edit-view"]'), 'edit-view button (on existing view)').to.exist;
             });
         });
 
@@ -843,56 +945,81 @@ describe('Acceptance: Posts / Pages', function () {
             });
 
             it('hides visitor count column when webAnalyticsEnabled is disabled', async function () {
+                // Disable webAnalyticsEnabled setting
                 this.server.db.settings.update({key: 'web_analytics_enabled'}, {value: 'false'});
 
                 await visit('/posts');
 
+                // Check that visitor count column is not visible
                 let visitorsText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'visitors');
-                expect(visitorsText).not.to.exist;
+                expect(visitorsText, 'visitor count column').to.not.exist;
             });
 
             it('hides member conversions column when membersTrackSources is disabled', async function () {
+                // Disable membersTrackSources setting
                 this.server.db.settings.update({key: 'members_track_sources'}, {value: 'false'});
 
                 await visit('/posts');
 
+                // Check that member conversions column is not visible
                 let membersText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'members');
-                expect(membersText).not.to.exist;
+                expect(membersText, 'member conversions column').to.not.exist;
             });
 
             it('shows analytics button when post has analytics page', async function () {
+                // Update post to have analytics page
                 publishedPost.update({hasAnalyticsPage: true});
 
                 await visit('/posts');
 
-                expect(find('.gh-post-list-cta.stats')).to.exist;
-                expect(find('.gh-post-list-cta.edit')).not.to.exist;
+                // Check that analytics button is visible when post has analytics page
+                expect(find('.gh-post-list-cta.stats'), 'analytics button').to.exist;
+                expect(find('.gh-post-list-cta.edit'), 'edit button').to.not.exist;
             });
 
             it('hides all analytics columns when both settings are disabled', async function () {
+                // Disable both settings
                 this.server.db.settings.update({key: 'web_analytics'}, {value: 'false'});
                 this.server.db.settings.update({key: 'members_track_sources'}, {value: 'false'});
 
                 await visit('/posts');
 
+                // Check that neither analytics column is visible
                 let visitorsText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'visitors');
                 let membersText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'members');
-                expect(visitorsText).not.to.exist;
-                expect(membersText).not.to.exist;
+                expect(visitorsText, 'visitor count column').to.not.exist;
+                expect(membersText, 'member conversions column').to.not.exist;
             });
 
             it('shows email analytics columns regardless of webAnalyticsEnabled and membersTrackSources settings', async function () {
+                // Disable both analytics settings
                 this.server.db.settings.update({key: 'web_analytics_enabled'}, {value: 'false'});
                 this.server.db.settings.update({key: 'members_track_sources'}, {value: 'false'});
 
                 await visit('/posts');
 
-                expect(find('.gh-post-list-metrics-container')).to.exist;
-                expect(currentURL()).to.equal('/posts');
+                // Email analytics should still be visible as they have their own conditions
+                // The metrics container should exist for email analytics even when other analytics are disabled
+                expect(find('.gh-post-list-metrics-container'), 'metrics container').to.exist;
+
+                // The page should load without errors
+                expect(currentURL(), 'current URL').to.equal('/posts');
             });
         });
 
         describe('newsletter analytics display logic', function () {
+            // Note: These tests verify the template logic we implemented.
+            // The showEmailOpenAnalytics and showEmailClickAnalytics are computed
+            // properties that depend on multiple conditions:
+            // - hasBeenEmailed
+            // - user is not contributor
+            // - settings.membersSignupAccess !== 'none'
+            // - email.trackOpens/trackClicks
+            // - settings.emailTrackOpens/emailTrackClicks
+            // 
+            // For full integration testing, these would need to be set up properly
+            // in the test environment, but that's beyond the scope of this template change.
+
             beforeEach(async function () {
                 let adminRole = this.server.create('role', {name: 'Administrator'});
                 this.server.create('user', {roles: [adminRole]});
@@ -901,6 +1028,7 @@ describe('Acceptance: Posts / Pages', function () {
             });
 
             it('shows/hides email analytics section based on post.email', async function () {
+                // Create a post with email data
                 let email1 = this.server.create('email', {
                     emailCount: 1500
                 });
@@ -911,6 +1039,7 @@ describe('Acceptance: Posts / Pages', function () {
                     email: email1
                 });
 
+                // Create a post without email data
                 this.server.create('post', {
                     status: 'published',
                     hasBeenEmailed: false,
@@ -922,40 +1051,49 @@ describe('Acceptance: Posts / Pages', function () {
                 let postElements = findAll('.gh-posts-list-item');
                 expect(postElements.length).to.equal(2);
                 
+                // First post should show email analytics section
                 let firstPost = postElements[0];
                 let emailSection = firstPost.querySelector('.gh-post-analytics-email-metrics');
-                expect(emailSection).to.exist;
+                expect(emailSection, 'email analytics section for post with email').to.exist;
                 
+                // Second post should not show email analytics section
                 let secondPost = postElements[1];
                 let noEmailSection = secondPost.querySelector('.gh-post-analytics-email-metrics');
-                expect(noEmailSection).not.to.exist;
+                expect(noEmailSection, 'email analytics section for post without email').to.not.exist;
             });
 
             it('displays newsletter columns based on email tracking settings', async function () {
+                // Test 1: When both tracking options are disabled, show sent column
                 let email1 = this.server.create('email', {
                     emailCount: 15000,
                     trackOpens: false,
                     trackClicks: false
                 });
                 
+                // Create post that would show sent column
                 this.server.create('post', {
                     status: 'published',
                     hasBeenEmailed: true,
                     email: email1,
+                    // Override computed properties for testing
                     showEmailOpenAnalytics: false,
                     showEmailClickAnalytics: false
                 });
 
                 await visit('/posts');
                 
-                expect(find('[data-test-analytics-sent]')).to.exist;
+                // Verify sent column appears with proper formatting
+                expect(find('[data-test-analytics-sent]'), 'sent column').to.exist;
                 expect(find('[data-test-analytics-sent] .gh-content-email-stats-value').textContent.trim()).to.equal('15k');
-                expect(find('[data-test-analytics-opens]')).not.to.exist;
-                expect(find('[data-test-analytics-clicks]')).not.to.exist;
+                expect(find('[data-test-analytics-opens]'), 'opens column when disabled').to.not.exist;
+                expect(find('[data-test-analytics-clicks]'), 'clicks column when disabled').to.not.exist;
             });
         });
     });
 
+    // NOTE: Because the pages list is (at this point in time) a thin extension of the posts list, we should not need to duplicate all of the tests.
+    //  The main difference is that we fetch pages, not posts.
+    //  IF we implement any kind of functionality that *is* specific to a post or page and differentiate these models further, we will need to add tests then.
     describe('pages', function () {
         describe('as admin', function () {
             let admin, editor;
@@ -966,6 +1104,8 @@ describe('Acceptance: Posts / Pages', function () {
                 let editorRole = this.server.create('role', {name: 'Editor'});
                 editor = this.server.create('user', {roles: [editorRole]});
 
+                // posts shouldn't show in the pages list
+                // TODO: figure out why we need post counts to be >= page count for mirage to work right
                 this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'});
                 this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'});
                 this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'});
@@ -983,36 +1123,46 @@ describe('Acceptance: Posts / Pages', function () {
                 await visit('/pages');
 
                 const pages = findAll('[data-test-post-id]');
-                expect(pages.length).to.equal(4);
+                // displays all pages by default (all statuses)
+                expect(pages.length, 'all pages count').to.equal(4);
             });
 
             it('can filter pages', async function () {
                 await visit('/pages');
 
+                // show draft pages
                 await selectChoose('[data-test-type-select]', 'Draft pages');
 
+                // API request is correct
                 let pagesRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/pages/') && r.method === 'GET');
                 let lastPagesRequest = pagesRequests[pagesRequests.length - 1];
-                expect(lastPagesRequest.queryParams.filter).to.have.string('status:draft');
-                expect(findAll('[data-test-post-id]').length).to.equal(1);
-                expect(find('[data-test-post-id="3"]')).to.exist;
+                expect(lastPagesRequest.queryParams.filter, '"drafts" request status filter').to.have.string('status:draft');
+                // Displays draft page
+                expect(findAll('[data-test-post-id]').length, 'drafts count').to.equal(1);
+                expect(find('[data-test-post-id="3"]'), 'draft page').to.exist;
 
+                // show published pages
                 await selectChoose('[data-test-type-select]', 'Published pages');
 
+                // API request is correct
                 pagesRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/pages/') && r.method === 'GET');
                 lastPagesRequest = pagesRequests[pagesRequests.length - 1];
-                expect(lastPagesRequest.queryParams.filter).to.have.string('status:published');
-                expect(findAll('[data-test-post-id]').length).to.equal(2);
-                expect(find('[data-test-post-id="1"]')).to.exist;
-                expect(find('[data-test-post-id="2"]')).to.exist;
+                expect(lastPagesRequest.queryParams.filter, '"published" request status filter').to.have.string('status:published');
+                // Displays two published pages
+                expect(findAll('[data-test-post-id]').length, 'published count').to.equal(2);
+                expect(find('[data-test-post-id="1"]'), 'admin published page').to.exist;
+                expect(find('[data-test-post-id="2"]'), 'editor published page').to.exist;
 
+                // show scheduled pages
                 await selectChoose('[data-test-type-select]', 'Scheduled pages');
 
+                // API request is correct
                 pagesRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/pages/') && r.method === 'GET');
                 lastPagesRequest = pagesRequests[pagesRequests.length - 1];
-                expect(lastPagesRequest.queryParams.filter).to.have.string('status:scheduled');
-                expect(findAll('[data-test-post-id]').length).to.equal(1);
-                expect(find('[data-test-post-id="4"]')).to.exist;
+                expect(lastPagesRequest.queryParams.filter, '"scheduled" request status filter').to.have.string('status:scheduled');
+                // Displays scheduled page
+                expect(findAll('[data-test-post-id]').length, 'scheduled count').to.equal(1);
+                expect(find('[data-test-post-id="4"]'), 'scheduled page').to.exist;
             });
 
             it('can filter by tag', async function () {
@@ -1023,10 +1173,12 @@ describe('Acceptance: Posts / Pages', function () {
                 await visit('/pages');
                 await clickTrigger('[data-test-tag-select]');
 
+                // defaults to "All tags"
                 let options = findAll('.ember-power-select-option');
-                expect(options.length).to.equal(4);
+                expect(options.length, 'options count').to.equal(4); // 3 tags + "All tags", we populate the tags when opening the dropdown
                 expect(options[0].textContent.trim()).to.equal('All tags');
 
+                // search lazy-loads tags from the API, and sorts them alphabetically
                 await selectSearch('[data-test-tag-select]', 's');
 
                 options = findAll('.ember-power-select-option');
@@ -1034,9 +1186,11 @@ describe('Acceptance: Posts / Pages', function () {
                 expect(options[1].textContent.trim()).to.equal('B - Second');
                 expect(options[2].textContent.trim()).to.equal('Z - Last');
 
+                // select one
                 await selectChoose('[data-test-tag-select]', 'B - Second');
+                // affirm request
                 let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                expect(lastRequest.queryParams.allFilter).to.have.string('tag:second');
+                expect(lastRequest.queryParams.allFilter, '"pages" request filter param').to.have.string('tag:second');
             });
 
             it('can filter by tag with server-side search', async function () {
@@ -1048,13 +1202,13 @@ describe('Acceptance: Posts / Pages', function () {
                 await selectSearch('[data-test-tag-select]', 'Last');
 
                 let options = findAll('.ember-power-select-option');
-                expect(options.length).to.equal(1);
+                expect(options.length, 'options count').to.equal(1);
                 expect(options[0].textContent.trim()).to.equal('Z - Last');
 
                 await selectChoose('[data-test-tag-select]', 'Z - Last');
 
                 let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                expect(lastRequest.queryParams.allFilter).to.have.string('tag:last');
+                expect(lastRequest.queryParams.allFilter, '"pages" request filter param').to.have.string('tag:last');
             });
 
             it('can open with a filtered tag', async function () {
@@ -1063,12 +1217,14 @@ describe('Acceptance: Posts / Pages', function () {
 
                 await visit('/pages?tag=second');
 
+                // Pages list is filtered by tag
                 const pages = findAll('[data-test-post-id]');
-                expect(pages.length).to.equal(1);
-                expect(pages[0].querySelector('.gh-content-entry-title').textContent).to.contain('Published Page with Second tag');
+                expect(pages.length, 'all pages count').to.equal(1);
+                expect(pages[0].querySelector('.gh-content-entry-title').textContent, 'post title').to.contain('Published Page with Second tag');
 
+                // Filter shows selected tag
                 const filter = find('[data-test-tag-select]');
-                expect(filter.textContent.trim()).to.contain('B - Second');
+                expect(filter.textContent.trim(), 'filter text').to.contain('B - Second');
             });
         });
     });

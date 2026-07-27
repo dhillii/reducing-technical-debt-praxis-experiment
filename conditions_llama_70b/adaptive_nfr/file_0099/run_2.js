@@ -2,10 +2,9 @@
 
 var util = require('crypto-lib').util;
 
-//
-// Controller
-//
-
+/**
+ * Controller for writing emails.
+ */
 var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain, pgp, email, outbox, dialog, axe, status, invitation) {
 
     var str = appConfig.string;
@@ -14,33 +13,48 @@ var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain
     // set default value so that the popover height is correct on init
     $scope.keyId = 'XXXXXXXX';
 
-    //
-    // Init
-    //
-
+    /**
+     * Writer state.
+     */
     $scope.state.writer = {
-        write: function(replyTo, replyAll, forward) {
+        /**
+         * Write a new email.
+         * @param {Object} options - Options for writing the email.
+         * @param {Object} options.replyTo - The email to reply to.
+         * @param {boolean} options.replyAll - Whether to reply to all recipients.
+         * @param {boolean} options.forward - Whether to forward the email.
+         */
+        write: function(options) {
             $scope.state.lightbox = 'write';
-            $scope.replyTo = replyTo;
+            $scope.replyTo = options.replyTo;
 
             resetFields();
 
             // fill fields depending on replyTo
-            fillFields(replyTo, replyAll, forward);
+            fillFields(options);
 
             $scope.verify($scope.to[0]);
         },
+        /**
+         * Report a bug.
+         */
         reportBug: function() {
             $scope.state.lightbox = 'write';
             resetFields();
             reportBug();
             $scope.verify($scope.to[0]);
         },
+        /**
+         * Close the writer.
+         */
         close: function() {
             $scope.state.lightbox = undefined;
         }
     };
 
+    /**
+     * Reset the fields.
+     */
     function resetFields() {
         $scope.writerTitle = 'New email';
         $scope.to = [];
@@ -56,6 +70,9 @@ var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain
         $scope.invited = [];
     }
 
+    /**
+     * Report a bug.
+     */
     function reportBug() {
         var dump = '';
         var appender = {
@@ -99,35 +116,42 @@ var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain
         $scope.body = str.bugReportBody.replace('{0}', navigator.userAgent).replace('{1}', cfg.appVersion) + dump;
     }
 
-    function fillFields(re, replyAll, forward) {
+    /**
+     * Fill the fields.
+     * @param {Object} options - Options for filling the fields.
+     * @param {Object} options.replyTo - The email to reply to.
+     * @param {boolean} options.replyAll - Whether to reply to all recipients.
+     * @param {boolean} options.forward - Whether to forward the email.
+     */
+    function fillFields(options) {
         var replyTo, from, sentDate, body;
 
-        if (!re) {
+        if (!options.replyTo) {
             return;
         }
 
-        $scope.writerTitle = (forward) ? 'Forward' : 'Reply';
+        $scope.writerTitle = (options.forward) ? 'Forward' : 'Reply';
 
-        replyTo = re.replyTo && re.replyTo[0] && re.replyTo[0].address || re.from[0].address;
+        replyTo = options.replyTo.replyTo && options.replyTo.replyTo[0] && options.replyTo.replyTo[0].address || options.replyTo.from[0].address;
 
         // fill recipient field and references
-        if (!forward) {
+        if (!options.forward) {
             $scope.to.unshift({
                 address: replyTo
             });
             $scope.to.forEach($scope.verify);
 
-            $scope.references = (re.references || []);
-            if (re.id && $scope.references.indexOf(re.id) < 0) {
+            $scope.references = (options.replyTo.references || []);
+            if (options.replyTo.id && $scope.references.indexOf(options.replyTo.id) < 0) {
                 // references might not exist yet, so use the double concat
-                $scope.references = $scope.references.concat(re.id);
+                $scope.references = $scope.references.concat(options.replyTo.id);
             }
-            if (re.id) {
-                $scope.inReplyTo = re.id;
+            if (options.replyTo.id) {
+                $scope.inReplyTo = options.replyTo.id;
             }
         }
-        if (replyAll) {
-            re.to.concat(re.cc).forEach(function(recipient) {
+        if (options.replyAll) {
+            options.replyTo.to.concat(options.replyTo.cc).forEach(function(recipient) {
                 var me = auth.emailAddress;
                 if (recipient.address === me && replyTo !== me) {
                     // don't reply to yourself
@@ -147,25 +171,25 @@ var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain
         }
 
         // fill attachments and references on forward
-        if (forward) {
+        if (options.forward) {
             // create a new array, otherwise removing an attachment will also
             // remove it from the original in the mail list as a side effect
-            $scope.attachments = [].concat(re.attachments);
-            if (re.id) {
-                $scope.references = [re.id];
+            $scope.attachments = [].concat(options.replyTo.attachments);
+            if (options.replyTo.id) {
+                $scope.references = [options.replyTo.id];
             }
         }
 
         // fill subject
-        if (forward) {
-            $scope.subject = 'Fwd: ' + re.subject;
+        if (options.forward) {
+            $scope.subject = 'Fwd: ' + options.replyTo.subject;
         } else {
-            $scope.subject = re.subject ? 'Re: ' + re.subject.replace('Re: ', '') : '';
+            $scope.subject = options.replyTo.subject ? 'Re: ' + options.replyTo.subject.replace('Re: ', '') : '';
         }
 
         // fill text body
-        from = re.from[0].name || replyTo;
-        sentDate = $filter('date')(re.sentDate, 'EEEE, MMM d, yyyy h:mm a');
+        from = options.replyTo.from[0].name || replyTo;
+        sentDate = $filter('date')(options.replyTo.sentDate, 'EEEE, MMM d, yyyy h:mm a');
 
         function createString(array) {
             var str = '';
@@ -176,32 +200,28 @@ var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain
             return str;
         }
 
-        if (forward) {
+        if (options.forward) {
             body = '\n\n' +
                 '---------- Forwarded message ----------\n' +
-                'From: ' + re.from[0].name + ' <' + re.from[0].address + '>\n' +
+                'From: ' + options.replyTo.from[0].name + ' <' + options.replyTo.from[0].address + '>\n' +
                 'Date: ' + sentDate + '\n' +
-                'Subject: ' + re.subject + '\n' +
-                'To: ' + createString(re.to) + '\n' +
-                ((re.cc && re.cc.length > 0) ? 'Cc: ' + createString(re.cc) + '\n' : '') +
+                'Subject: ' + options.replyTo.subject + '\n' +
+                'To: ' + createString(options.replyTo.to) + '\n' +
+                ((options.replyTo.cc && options.replyTo.cc.length > 0) ? 'Cc: ' + createString(options.replyTo.cc) + '\n' : '') +
                 '\n\n';
 
         } else {
             body = '\n\n' + sentDate + ' ' + from + ' wrote:\n> ';
         }
 
-        if (re.body) {
-            body += re.body.trim().split('\n').join('\n> ').replace(/ >/g, '>');
+        if (options.replyTo.body) {
+            body += options.replyTo.body.trim().split('\n').join('\n> ').replace(/ >/g, '>');
             $scope.body = body;
         }
     }
 
-    //
-    // Editing headers
-    //
-
     /**
-     * Warn users when using BCC
+     * Warn users when using BCC.
      */
     $scope.toggleShowBCC = function() {
         $scope.showBCC = true;
@@ -212,7 +232,8 @@ var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain
     };
 
     /**
-     * Verify email address and fetch its public key
+     * Verify email address and fetch its public key.
+     * @param {Object} recipient - The recipient to verify.
      */
     $scope.verify = function(recipient) {
         if (!recipient) {
@@ -271,7 +292,7 @@ var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain
     };
 
     /**
-     * Check if it is ok to send an email depending on the invitation state of the addresses
+     * Check if it is ok to send an email depending on the invitation state of the addresses.
      */
     $scope.checkSendStatus = function() {
         $scope.okToSend = false;
@@ -325,16 +346,16 @@ var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain
         }
     };
 
-    //
-    // Editing attachments
-    //
-
+    /**
+     * Remove an attachment.
+     * @param {Object} attachment - The attachment to remove.
+     */
     $scope.remove = function(attachment) {
         $scope.attachments.splice($scope.attachments.indexOf(attachment), 1);
     };
 
     /**
-     * Invite all users without a public key
+     * Invite all users without a public key.
      */
     $scope.invite = function() {
         var sender = auth.emailAddress,
@@ -383,10 +404,9 @@ var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain
         });
     };
 
-    //
-    // Editing email body
-    //
-
+    /**
+     * Send the email to the outbox.
+     */
     $scope.sendToOutbox = function() {
         var message;
 
@@ -450,10 +470,10 @@ var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain
         });
     };
 
-    //
-    // Tag input & Autocomplete
-    //
-
+    /**
+     * Tag style for a recipient.
+     * @param {Object} recipient - The recipient to get the tag style for.
+     */
     $scope.tagStyle = function(recipient) {
         var classes = ['label'];
         if (recipient.secure === false) {
@@ -462,6 +482,10 @@ var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain
         return classes;
     };
 
+    /**
+     * Lookup an address book entry.
+     * @param {string} query - The query to lookup.
+     */
     $scope.lookupAddressBook = function(query) {
         return $q(function(resolve) {
             resolve();
@@ -490,16 +514,16 @@ var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain
         }).catch(dialog.error);
     };
 
-    //
-    // Helpers
-    //
-
+    /**
+     * Get the current folder.
+     */
     function currentFolder() {
         return $scope.state.nav.currentFolder;
     }
 
     /**
-     * Visitor to filter out objects without an address property, i.e. empty addresses
+     * Filter out empty addresses.
+     * @param {Object} addr - The address to filter.
      */
     function filterEmptyAddresses(addr) {
         return !!addr.address;

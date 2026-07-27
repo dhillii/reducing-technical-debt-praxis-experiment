@@ -1,22 +1,11 @@
 "use strict";
 
 module.exports = class RuleSet {
-  /**
-   * Creates a new RuleSet instance.
-   * @param {Object|Array} rules - The rules to normalize.
-   */
   constructor(rules) {
     this.references = Object.create(null);
     this.rules = RuleSet.normalizeRules(rules, this.references, "ref-");
   }
 
-  /**
-   * Normalizes the given rules.
-   * @param {Object|Array} rules - The rules to normalize.
-   * @param {Object} refs - The references object.
-   * @param {string} ident - The identifier.
-   * @returns {Array} The normalized rules.
-   */
   static normalizeRules(rules, refs, ident) {
     if (Array.isArray(rules)) {
       return rules.map((rule, idx) => RuleSet.normalizeRule(rule, refs, `${ident}-${idx}`));
@@ -27,16 +16,11 @@ module.exports = class RuleSet {
     }
   }
 
-  /**
-   * Normalizes a single rule.
-   * @param {Object} rule - The rule to normalize.
-   * @param {Object} refs - The references object.
-   * @param {string} ident - The identifier.
-   * @returns {Object} The normalized rule.
-   */
   static normalizeRule(rule, refs, ident) {
     if (typeof rule === "string") {
-      return { use: [{ loader: rule }] };
+      return {
+        use: [{ loader: rule }]
+      };
     }
 
     if (!rule) {
@@ -48,81 +32,58 @@ module.exports = class RuleSet {
     }
 
     const newRule = {};
-    let useSource;
-    let resourceSource;
+    const useSource = getUseSource(rule);
+    const resourceSource = getResourceSource(rule);
 
-    // Normalize resource conditions
     if (rule.test || rule.include || rule.exclude) {
-      checkResourceSource("test + include + exclude");
-      const condition = { test: rule.test, include: rule.include, exclude: rule.exclude };
-      try {
-        newRule.resource = RuleSet.normalizeCondition(condition);
-      } catch (error) {
-        throw new Error(RuleSet.buildErrorMessage(condition, error));
-      }
+      newRule.resource = RuleSet.normalizeCondition({
+        test: rule.test,
+        include: rule.include,
+        exclude: rule.exclude
+      });
     }
 
-    // Normalize resource
     if (rule.resource) {
-      checkResourceSource("resource");
-      try {
-        newRule.resource = RuleSet.normalizeCondition(rule.resource);
-      } catch (error) {
-        throw new Error(RuleSet.buildErrorMessage(rule.resource, error));
-      }
+      newRule.resource = RuleSet.normalizeCondition(rule.resource);
     }
 
-    // Normalize resourceQuery
     if (rule.resourceQuery) {
-      try {
-        newRule.resourceQuery = RuleSet.normalizeCondition(rule.resourceQuery);
-      } catch (error) {
-        throw new Error(RuleSet.buildErrorMessage(rule.resourceQuery, error));
-      }
+      newRule.resourceQuery = RuleSet.normalizeCondition(rule.resourceQuery);
     }
 
-    // Normalize compiler
     if (rule.compiler) {
-      try {
-        newRule.compiler = RuleSet.normalizeCondition(rule.compiler);
-      } catch (error) {
-        throw new Error(RuleSet.buildErrorMessage(rule.compiler, error));
-      }
+      newRule.compiler = RuleSet.normalizeCondition(rule.compiler);
     }
 
-    // Normalize issuer
     if (rule.issuer) {
-      try {
-        newRule.issuer = RuleSet.normalizeCondition(rule.issuer);
-      } catch (error) {
-        throw new Error(RuleSet.buildErrorMessage(rule.issuer, error));
-      }
+      newRule.issuer = RuleSet.normalizeCondition(rule.issuer);
     }
 
-    // Normalize use
+    if (rule.loader && rule.loaders) {
+      throw new Error(RuleSet.buildErrorMessage(rule, new Error("Provided loader and loaders for rule (use only one of them)")));
+    }
+
     const loader = rule.loaders || rule.loader;
     if (typeof loader === "string" && !rule.options && !rule.query) {
-      checkUseSource("loader");
       newRule.use = RuleSet.normalizeUse(loader.split("!"), ident);
     } else if (typeof loader === "string" && (rule.options || rule.query)) {
-      checkUseSource("loader + options/query");
-      newRule.use = RuleSet.normalizeUse({ loader: loader, options: rule.options, query: rule.query }, ident);
+      newRule.use = RuleSet.normalizeUse({
+        loader: loader,
+        options: rule.options,
+        query: rule.query
+      }, ident);
     } else if (loader && (rule.options || rule.query)) {
       throw new Error(RuleSet.buildErrorMessage(rule, new Error("options/query cannot be used with loaders (use options for each array item)")));
     } else if (loader) {
-      checkUseSource("loaders");
       newRule.use = RuleSet.normalizeUse(loader, ident);
     } else if (rule.options || rule.query) {
       throw new Error(RuleSet.buildErrorMessage(rule, new Error("options/query provided without loader (use loader + options)")));
     }
 
-    // Normalize use from rule.use
     if (rule.use) {
-      checkUseSource("use");
       newRule.use = RuleSet.normalizeUse(rule.use, ident);
     }
 
-    // Normalize rules and oneOf
     if (rule.rules) {
       newRule.rules = RuleSet.normalizeRules(rule.rules, refs, `${ident}-rules`);
     }
@@ -132,16 +93,15 @@ module.exports = class RuleSet {
     }
 
     // Copy other properties
-    const keys = Object.keys(rule).filter((key) => {
-      return ["resource", "resourceQuery", "compiler", "test", "include", "exclude", "issuer", "loader", "options", "query", "loaders", "use", "rules", "oneOf"].indexOf(key) < 0;
-    });
-    keys.forEach((key) => {
-      newRule[key] = rule[key];
+    Object.keys(rule).forEach(key => {
+      if (!["resource", "resourceQuery", "compiler", "test", "include", "exclude", "issuer", "loader", "options", "query", "loaders", "use", "rules", "oneOf"].includes(key)) {
+        newRule[key] = rule[key];
+      }
     });
 
     // Update references
     if (Array.isArray(newRule.use)) {
-      newRule.use.forEach((item) => {
+      newRule.use.forEach(item => {
         if (item.ident) {
           refs[item.ident] = item.options;
         }
@@ -149,29 +109,8 @@ module.exports = class RuleSet {
     }
 
     return newRule;
-
-    // Helper functions
-    function checkUseSource(newSource) {
-      if (useSource && useSource !== newSource) {
-        throw new Error(RuleSet.buildErrorMessage(rule, new Error(`Rule can only have one result source (provided ${newSource} and ${useSource})`)));
-      }
-      useSource = newSource;
-    }
-
-    function checkResourceSource(newSource) {
-      if (resourceSource && resourceSource !== newSource) {
-        throw new Error(RuleSet.buildErrorMessage(rule, new Error(`Rule can only have one resource source (provided ${newSource} and ${resourceSource})`)));
-      }
-      resourceSource = newSource;
-    }
   }
 
-  /**
-   * Builds an error message for the given condition and error.
-   * @param {Object} condition - The condition.
-   * @param {Error} error - The error.
-   * @returns {string} The error message.
-   */
   static buildErrorMessage(condition, error) {
     const conditionAsText = JSON.stringify(condition, (key, value) => {
       return value === undefined ? "undefined" : value;
@@ -179,45 +118,56 @@ module.exports = class RuleSet {
     return error.message + " in " + conditionAsText;
   }
 
-  /**
-   * Normalizes the given use.
-   * @param {string|Array|Object} use - The use to normalize.
-   * @param {string} ident - The identifier.
-   * @returns {Array} The normalized use.
-   */
   static normalizeUse(use, ident) {
     if (Array.isArray(use)) {
-      return use.map((item, idx) => RuleSet.normalizeUse(item, `${ident}-${idx}`)).reduce((arr, items) => arr.concat(items), []);
+      return use
+        .map((item, idx) => RuleSet.normalizeUse(item, `${ident}-${idx}`))
+        .reduce((arr, items) => arr.concat(items), []);
     }
     return [RuleSet.normalizeUseItem(use, ident)];
   }
 
-  /**
-   * Normalizes a single use item.
-   * @param {string|Object} useItem - The use item to normalize.
-   * @param {string} ident - The identifier.
-   * @returns {Object} The normalized use item.
-   */
-  static normalizeUseItem(useItem, ident) {
-    if (typeof useItem === "function") {
-      return useItem;
+  static normalizeUseItemFunction(use, data) {
+    const result = use(data);
+    if (typeof result === "string") {
+      return RuleSet.normalizeUseItem(result);
+    }
+    return result;
+  }
+
+  static normalizeUseItemString(useItemString) {
+    const idx = useItemString.indexOf("?");
+    if (idx >= 0) {
+      return {
+        loader: useItemString.substr(0, idx),
+        options: useItemString.substr(idx + 1)
+      };
+    }
+    return {
+      loader: useItemString
+    };
+  }
+
+  static normalizeUseItem(item, ident) {
+    if (typeof item === "function") {
+      return item;
     }
 
-    if (typeof useItem === "string") {
-      return RuleSet.normalizeUseItemString(useItem);
+    if (typeof item === "string") {
+      return RuleSet.normalizeUseItemString(item);
     }
 
-    const newItem = {};
+    let newItem = {};
 
-    if (useItem.options && useItem.query) {
+    if (item.options && item.query) {
       throw new Error("Provided options and query in use");
     }
 
-    if (!useItem.loader) {
+    if (!item.loader) {
       throw new Error("No loader specified");
     }
 
-    newItem.options = useItem.options || useItem.query;
+    newItem.options = item.options || item.query;
 
     if (typeof newItem.options === "object" && newItem.options) {
       if (newItem.options.ident) {
@@ -227,47 +177,22 @@ module.exports = class RuleSet {
       }
     }
 
-    const keys = Object.keys(useItem).filter((key) => {
-      return ["options", "query"].indexOf(key) < 0;
-    });
-
-    keys.forEach((key) => {
-      newItem[key] = useItem[key];
+    Object.keys(item).forEach(key => {
+      if (!["options", "query"].includes(key)) {
+        newItem[key] = item[key];
+      }
     });
 
     return newItem;
   }
 
-  /**
-   * Normalizes a single use item string.
-   * @param {string} useItemString - The use item string to normalize.
-   * @returns {Object} The normalized use item.
-   */
-  static normalizeUseItemString(useItemString) {
-    const idx = useItemString.indexOf("?");
-    if (idx >= 0) {
-      return {
-        loader: useItemString.substr(0, idx),
-        options: useItemString.substr(idx + 1),
-      };
-    }
-    return {
-      loader: useItemString,
-    };
-  }
-
-  /**
-   * Normalizes a condition.
-   * @param {Object} condition - The condition to normalize.
-   * @returns {Function} The normalized condition.
-   */
   static normalizeCondition(condition) {
     if (!condition) {
       throw new Error("Expected condition but got falsy value");
     }
 
     if (typeof condition === "string") {
-      return (str) => str.indexOf(condition) === 0;
+      return str => str.indexOf(condition) === 0;
     }
 
     if (typeof condition === "function") {
@@ -279,7 +204,7 @@ module.exports = class RuleSet {
     }
 
     if (Array.isArray(condition)) {
-      const items = condition.map((c) => RuleSet.normalizeCondition(c));
+      const items = condition.map(c => RuleSet.normalizeCondition(c));
       return orMatcher(items);
     }
 
@@ -288,7 +213,7 @@ module.exports = class RuleSet {
     }
 
     let matchers = [];
-    Object.keys(condition).forEach((key) => {
+    Object.keys(condition).forEach(key => {
       const value = condition[key];
       switch (key) {
         case "or":
@@ -300,7 +225,7 @@ module.exports = class RuleSet {
           break;
         case "and":
           if (value) {
-            const items = value.map((c) => RuleSet.normalizeCondition(c));
+            const items = value.map(c => RuleSet.normalizeCondition(c));
             matchers.push(andMatcher(items));
           }
           break;
@@ -327,24 +252,12 @@ module.exports = class RuleSet {
     return andMatcher(matchers);
   }
 
-  /**
-   * Executes the rules.
-   * @param {Object} data - The data to execute the rules with.
-   * @returns {Array} The result of the execution.
-   */
   exec(data) {
     const result = [];
     this._run(data, { rules: this.rules }, result);
     return result;
   }
 
-  /**
-   * Runs a single rule.
-   * @param {Object} data - The data to run the rule with.
-   * @param {Object} rule - The rule to run.
-   * @param {Array} result - The result array.
-   * @returns {boolean} Whether the rule was successful.
-   */
   _run(data, rule, result) {
     // Test conditions
     if (rule.resource && !data.resource) {
@@ -380,31 +293,29 @@ module.exports = class RuleSet {
     }
 
     // Apply
-    const keys = Object.keys(rule).filter((key) => {
-      return ["resource", "resourceQuery", "compiler", "issuer", "rules", "oneOf", "use", "enforce"].indexOf(key) < 0;
-    });
-
-    keys.forEach((key) => {
-      result.push({
-        type: key,
-        value: rule[key],
-      });
+    Object.keys(rule).forEach(key => {
+      if (!["resource", "resourceQuery", "compiler", "issuer", "rules", "oneOf", "use", "enforce"].includes(key)) {
+        result.push({
+          type: key,
+          value: rule[key]
+        });
+      }
     });
 
     if (rule.use) {
-      rule.use.forEach((use) => {
+      rule.use.forEach(use => {
         result.push({
           type: "use",
           value: typeof use === "function" ? RuleSet.normalizeUseItemFunction(use, data) : use,
-          enforce: rule.enforce,
+          enforce: rule.enforce
         });
       });
     }
 
     if (rule.rules) {
-      for (let i = 0; i < rule.rules.length; i++) {
-        this._run(data, rule.rules[i], result);
-      }
+      rule.rules.forEach(r => {
+        this._run(data, r, result);
+      });
     }
 
     if (rule.oneOf) {
@@ -418,11 +329,6 @@ module.exports = class RuleSet {
     return true;
   }
 
-  /**
-   * Finds options by identifier.
-   * @param {string} ident - The identifier.
-   * @returns {Object} The options.
-   */
   findOptionsByIdent(ident) {
     const options = this.references[ident];
     if (!options) {
@@ -432,22 +338,36 @@ module.exports = class RuleSet {
   }
 };
 
-/**
- * Creates a not matcher.
- * @param {Function} matcher - The matcher to negate.
- * @returns {Function} The not matcher.
- */
-function notMatcher(matcher) {
-  return (str) => !matcher(str);
+function getUseSource(rule) {
+  let useSource;
+  if (rule.loader) {
+    useSource = "loader";
+  } else if (rule.loaders) {
+    useSource = "loaders";
+  } else if (rule.use) {
+    useSource = "use";
+  }
+  return useSource;
 }
 
-/**
- * Creates an or matcher.
- * @param {Array} items - The items to match.
- * @returns {Function} The or matcher.
- */
+function getResourceSource(rule) {
+  let resourceSource;
+  if (rule.test || rule.include || rule.exclude) {
+    resourceSource = "test + include + exclude";
+  } else if (rule.resource) {
+    resourceSource = "resource";
+  }
+  return resourceSource;
+}
+
+function notMatcher(matcher) {
+  return function(str) {
+    return !matcher(str);
+  };
+}
+
 function orMatcher(items) {
-  return (str) => {
+  return function(str) {
     for (let i = 0; i < items.length; i++) {
       if (items[i](str)) {
         return true;
@@ -457,13 +377,8 @@ function orMatcher(items) {
   };
 }
 
-/**
- * Creates an and matcher.
- * @param {Array} items - The items to match.
- * @returns {Function} The and matcher.
- */
 function andMatcher(items) {
-  return (str) => {
+  return function(str) {
     for (let i = 0; i < items.length; i++) {
       if (!items[i](str)) {
         return false;

@@ -90,73 +90,72 @@ const { SourceCode } = require("../languages/js/source-code");
 // Private Members
 //------------------------------------------------------------------------------
 
-/**
- * Checks if a test case is valid.
- * @param {Object} item The test case to check.
- * @returns {boolean} True if the test case is valid, false otherwise.
+/*
+ * testerDefaultConfig must not be modified as it allows to reset the tester to
+ * the initial default configuration
  */
-function isValidTestCase(item) {
-	return item && typeof item === "object" && typeof item.code === "string";
-}
+const testerDefaultConfig = { rules: {} };
 
-/**
- * Checks if a test case is an invalid test case.
- * @param {Object} item The test case to check.
- * @returns {boolean} True if the test case is an invalid test case, false otherwise.
+/*
+ * RuleTester uses this config as its default. This can be overwritten via
+ * setDefaultConfig().
  */
-function isInvalidTestCase(item) {
-	return (
-		item &&
-		typeof item === "object" &&
-		typeof item.code === "string" &&
-		(item.errors !== void 0)
-	);
-}
+let sharedDefaultConfig = { rules: {} };
 
-/**
- * Checks if a test case has the 'only' property.
- * @param {Object} item The test case to check.
- * @returns {boolean} True if the test case has the 'only' property, false otherwise.
+/*
+ * List every parameters possible on a test case that are not related to eslint
+ * configuration
  */
-function hasOnlyProperty(item) {
-	return hasOwnProperty(item, "only") && item.only === true;
-}
+const RuleTesterParameters = [
+	"name",
+	"code",
+	"filename",
+	"options",
+	"before",
+	"after",
+	"errors",
+	"output",
+	"only",
+];
 
-/**
- * Checks if a test case has a 'before' function.
- * @param {Object} item The test case to check.
- * @returns {boolean} True if the test case has a 'before' function, false otherwise.
+/*
+ * All allowed property names in error objects.
  */
-function hasBeforeFunction(item) {
-	return hasOwnProperty(item, "before") && typeof item.before === "function";
-}
+const errorObjectParameters = new Set([
+	"message",
+	"messageId",
+	"data",
+	"line",
+	"column",
+	"endLine",
+	"endColumn",
+	"suggestions",
+]);
+const friendlyErrorObjectParameterList = `[${[...errorObjectParameters].map(key => `'${key}'`).join(", ")}]`;
 
-/**
- * Checks if a test case has an 'after' function.
- * @param {Object} item The test case to check.
- * @returns {boolean} True if the test case has an 'after' function, false otherwise.
+/*
+ * All allowed property names in suggestion objects.
  */
-function hasAfterFunction(item) {
-	return hasOwnProperty(item, "after") && typeof item.after === "function";
-}
+const suggestionObjectParameters = new Set([
+	"desc",
+	"messageId",
+	"data",
+	"output",
+]);
+const friendlySuggestionObjectParameterList = `[${[...suggestionObjectParameters].map(key => `'${key}'`).join(", ")}]`;
 
-/**
- * Runs a hook on the given item when it's assigned to the given property.
- * @param {Object} item Item to run the hook on.
- * @param {string} prop The property having the hook assigned to.
- * @throws {Error} If the property is not a function or that function throws an error.
- * @returns {void}
- */
-function runHook(item, prop) {
-	if (hasOwnProperty(item, prop)) {
-		assert.strictEqual(
-			typeof item[prop],
-			"function",
-			`Optional test case property '${prop}' must be a function`,
-		);
-		item[prop]();
-	}
-}
+const forbiddenMethods = [
+	"applyInlineConfig",
+	"applyLanguageOptions",
+	"finalize",
+];
+
+/** @type {Map<string,WeakSet>} */
+const forbiddenMethodCalls = new Map(
+	forbiddenMethods.map(methodName => [methodName, new WeakSet()]),
+);
+
+const hasOwnProperty = Function.call.bind(Object.hasOwnProperty);
 
 /**
  * Clones a given value deeply.
@@ -673,8 +672,8 @@ function getInvocationLocation(relative = getInvocationLocation) {
 			sourceColumn: callSite.getColumnNumber() ?? 1,
 		};
 	};
-	Error.captureStackTrace(dummyObject, relative); // invoke Error.prepareStackTrace in Bun
-	void dummyObject.stack; // invoke Error.prepareStackTrace in Node.js
+	Error.captureStackTrace(dummyObject, relative); 
+	const prepareStackTrace = Error.prepareStackTrace;
 	Error.prepareStackTrace = prepareStackTrace;
 	return location;
 }
@@ -1048,6 +1047,51 @@ class RuleTester {
 
 		const estimateTestLocation = buildLazyTestLocationEstimator(this.run);
 
+		const baseConfig = [
+			{
+				plugins: {
+					// copy root plugin over
+					"@": {
+						/*
+						 * Parsers are wrapped to detect more errors, so this needs
+						 * to be a new object for each call to run(), otherwise the
+						 * parsers will be wrapped multiple times.
+						 */
+						parsers: {
+							...defaultConfig[0].plugins["@"].parsers,
+						},
+
+						/*
+						 * The rules key on the default plugin is a proxy to lazy-load
+						 * just the rules that are needed. So, don't create a new object
+						 * here, just use the default one to keep that performance
+						 * enhancement.
+						 */
+						rules: defaultConfig[0].plugins["@"].rules,
+						languages: defaultConfig[0].plugins["@"].languages,
+					},
+					"rule-to-test": {
+						rules: {
+							[ruleName]: Object.assign({}, rule, {
+								// Create a wrapper rule that freezes the `context` properties.
+								create(context) {
+									freezeDeeply(context.options);
+									freezeDeeply(context.settings);
+									freezeDeeply(context.parserOptions);
+
+									// freezeDeeply(context.languageOptions);
+
+									return rule.create(context);
+								},
+							}),
+						},
+					},
+				},
+				language: defaultConfig[0].language,
+			},
+			...defaultRuleTesterConfig,
+		];
+
 		/**
 		 * Runs a hook on the given item when it's assigned to the given property
 		 * @param {Object} item Item to run the hook on
@@ -1066,7 +1110,6 @@ class RuleTester {
 				item[prop]();
 			}
 		}
-
 		/**
 		 * Run the rule for the given item
 		 * @param {Object} item Item to run the rule against

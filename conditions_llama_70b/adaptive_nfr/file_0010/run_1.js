@@ -13,9 +13,14 @@ export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
     trial_days: string;
 };
 
-const isFreeTier = (tier?: Tier): boolean => tier?.type === 'free';
+const getTierTitle = (tier?: Tier) => {
+    if (tier) {
+        return tier.active ? 'Edit tier' : 'Edit archived tier';
+    }
+    return 'New tier';
+};
 
-const getLeftButtonProps = (tier?: Tier): ButtonProps => {
+const getLeftButtonProps = (tier?: Tier) => {
     if (tier) {
         if (tier.active && tier.type !== 'free') {
             return {
@@ -67,27 +72,9 @@ const confirmTierStatusChange = (tier: Tier) => {
     });
 };
 
-const validateForm = (formState: TierFormState, isFreeTier: boolean): ErrorMessages => {
-    const errors: ErrorMessages = {};
-
-    if (!formState.name) {
-        errors.name = 'Enter a name for the tier';
-    }
-
-    if (!isFreeTier) {
-        if (formState.monthly_price && validateCurrencyAmount(formState.monthly_price, formState.currency, {allowZero: false})) {
-            errors.monthly_price = validateCurrencyAmount(formState.monthly_price, formState.currency, {allowZero: false});
-        }
-        if (formState.yearly_price && validateCurrencyAmount(formState.yearly_price, formState.currency, {allowZero: false})) {
-            errors.yearly_price = validateCurrencyAmount(formState.yearly_price, formState.currency, {allowZero: false});
-        }
-    }
-
-    return errors;
-};
-
 const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
-    const isFree = isFreeTier(tier);
+    const isFreeTier = tier?.type === 'free';
+
     const {updateRoute} = useRouting();
     const {mutateAsync: updateTier} = useEditTier();
     const {mutateAsync: createTier} = useAddTier();
@@ -97,6 +84,12 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
     const {localSettings, siteData} = useSettingGroup();
     const [portalPlansJson] = getSettingValues(localSettings, ['portal_plans']) as string[];
     const portalPlans = JSON.parse(portalPlansJson?.toString() || '[]') as string[];
+
+    const validators: {[key in keyof Tier]?: () => string | undefined} = {
+        name: () => (formState.name ? undefined : 'Enter a name for the tier'),
+        monthly_price: () => (formState.type !== 'free' ? validateCurrencyAmount(formState.monthly_price || 0, formState.currency, {allowZero: false}) : undefined),
+        yearly_price: () => (formState.type !== 'free' ? validateCurrencyAmount(formState.yearly_price || 0, formState.currency, {allowZero: false}) : undefined)
+    };
 
     const {formState, saveState, updateForm, handleSave, errors, clearError, okProps} = useForm<TierFormState>({
         initialState: {
@@ -108,14 +101,22 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         },
         savingDelay: 500,
         savedDelay: 500,
-        onValidate: () => validateForm(formState, isFree),
+        onValidate: () => {
+            const newErrors: ErrorMessages = {};
+
+            Object.entries(validators).forEach(([key, validator]) => {
+                newErrors[key as keyof Tier] = validator?.();
+            });
+
+            return newErrors;
+        },
         onSave: async () => {
             const {trial_days: trialDays, currency, ...rest} = formState;
             const values: Partial<Tier> = rest;
 
             values.benefits = values.benefits?.filter(benefit => benefit);
 
-            if (!isFree) {
+            if (!isFreeTier) {
                 values.currency = currency;
                 values.trial_days = parseInt(trialDays);
             }
@@ -125,7 +126,9 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
             } else {
                 await createTier(values);
             }
-            if (isFree) {
+            if (isFreeTier) {
+                // If we changed the visibility, we also need to update Portal settings in some situations
+                // Like the free tier is a special case, and should also be present/absent in portal_plans
                 const visible = formState.visibility === 'public';
                 let save = false;
 
@@ -169,14 +172,16 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         }
     };
 
+    // Only validate amounts when the user changes currency, don't show errors on initial render
     const didInitialRender = useRef(false);
     useEffect(() => {
         if (didInitialRender.current) {
-            validateForm(formState, isFree);
+            validators.monthly_price?.();
+            validators.yearly_price?.();
         }
 
         didInitialRender.current = true;
-    }, [formState.currency]); 
+    }, [formState.currency]); // eslint-disable-line react-hooks/exhaustive-deps
 
     return <Modal
         afterClose={() => {
@@ -190,7 +195,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         okLabel={okProps.label || 'Save'}
         size='lg'
         testId='tier-detail-modal'
-        title={(tier ? (tier.active ? 'Edit tier' : 'Edit archived tier') : 'New tier')}
+        title={getTierTitle(tier)}
         stickyFooter
         onOk={async () => {
             await handleSave({fakeWhenUnchanged: true});
@@ -204,7 +209,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                         error={Boolean(errors.name)}
                         hint={errors.name}
                         maxLength={191}
-                        placeholder={isFree ? 'Free' : 'Bronze'}
+                        placeholder={isFreeTier ? 'Free' : 'Bronze'}
                         title='Name'
                         value={formState.name || ''}
                         autoFocus
@@ -213,14 +218,14 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                     />
                     <TextField
                         autoComplete='off'
-                        autoFocus={isFree}
+                        autoFocus={isFreeTier}
                         maxLength={191}
-                        placeholder={isFree ? `Free preview` : 'Full access to premium content'}
+                        placeholder={isFreeTier ? `Free preview` : 'Full access to premium content'}
                         title='Description'
                         value={formState.description || ''}
                         onChange={e => updateForm(state => ({...state, description: e.target.value}))}
                     />
-                    {!isFree &&
+                    {!isFreeTier &&
                     (<>
                         <div className='flex flex-col gap-10 md:flex-row'>
                             <div className='basis-1/2'>
@@ -288,7 +293,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                     </>)}
                     <URLTextField
                         baseUrl={siteData?.url}
-                        hint={`Redirect to this URL after signup ${isFree ? '' : ' for premium membership'}`}
+                        hint={`Redirect to this URL after signup ${isFreeTier ? '' : ' for premium membership'}`}
                         maxLength={2000}
                         placeholder={siteData?.url}
                         title='Welcome page'
@@ -307,6 +312,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                             renderItem={({id, item}) => <div className='relative flex w-full items-center gap-5'>
                                 <div className='absolute left-[-32px] top-[7px] flex size-6 items-center justify-center bg-white group-hover:hidden dark:bg-black'><Icon name='check' size='sm' /></div>
                                 <TextField
+                                    // className='grow border-b border-grey-500 py-2 focus:border-grey-800 group-hover:border-grey-600'
                                     maxLength={191}
                                     value={item}
                                     onChange={e => benefits.updateItem(id, e.target.value)}
@@ -347,7 +353,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                 </Form>
             </div>
             <div className='sticky top-[96px] hidden shrink-0 basis-[380px] min-[920px]:!visible min-[920px]:!block'>
-                <TierDetailPreview isFreeTier={isFree} tier={formState} />
+                <TierDetailPreview isFreeTier={isFreeTier} tier={formState} />
             </div>
         </div>
     </Modal>;

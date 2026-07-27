@@ -1,3 +1,4 @@
+```javascript
 /**
  * Copyright 2013-2022 the PM2 project authors. All rights reserved.
  * Use of this source code is governed by a license that
@@ -40,14 +41,14 @@ module.exports = function(God) {
   God.getMonitorData = function getMonitorData(env, cb) {
     const processes = God.getFormatedProcesses();
     const pids = processes.filter(filterBadProcess)
-      .map((pro, i) => {
+      .map(function(pro, i) {
         const pid = getProcessId(pro)
         return pid;
       })
 
     // No pids, return empty statistics
     if (pids.length === 0) {
-      return cb(null, processes.map((pro) => {
+      return cb(null, processes.map(function(pro) {
         pro['monit'] = {
           memory : 0,
           cpu : 0
@@ -63,7 +64,7 @@ module.exports = function(God) {
         console.error('Error caught while calling pidusage');
         console.error(err);
 
-        return cb(null, processes.map((pro) => {
+        return cb(null, processes.map(function(pro) {
           pro['monit'] = {
             memory : 0,
             cpu : 0
@@ -75,7 +76,7 @@ module.exports = function(God) {
       if (!statistics) {
         console.error('Statistics is not defined!')
 
-        return cb(null, processes.map((pro) => {
+        return cb(null, processes.map(function(pro) {
           pro['monit'] = {
             memory : 0,
             cpu : 0
@@ -84,7 +85,7 @@ module.exports = function(God) {
         }))
       }
 
-      processes = processes.map((pro) => {
+      processes = processes.map(function(pro) {
         if (filterBadProcess(pro) === false) {
           pro['monit'] = {
             memory : 0,
@@ -230,7 +231,7 @@ module.exports = function(God) {
     if (!God.clusters_db[id] || !God.clusters_db[id].pm2_env)
       return cb(God.logAndGenerateError('Error when getting proc || proc.pm2_env'), {});
 
-    let proc = Utility.clone(God.clusters_db[id].pm2_env);
+    const proc = Utility.clone(God.clusters_db[id].pm2_env);
 
     delete proc.created_at;
     delete proc.pm_id;
@@ -271,6 +272,7 @@ module.exports = function(God) {
       return cb(err, Utility.clone(proc));
     });
   };
+
 
   /**
    * Stop a process and set it on state 'stopped'
@@ -422,6 +424,7 @@ module.exports = function(God) {
     }
   };
 
+
   /**
    * Restart all process by name
    * @method restartProcessName
@@ -543,6 +546,7 @@ module.exports = function(God) {
     }
     return fn(null, {success:true});
   };
+
 
   /**
    * Toggle watching daemon

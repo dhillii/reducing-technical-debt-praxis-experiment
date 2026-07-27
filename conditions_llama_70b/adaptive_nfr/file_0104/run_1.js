@@ -35,11 +35,11 @@
      * @param {Object} opts - Options object
      */
     function _applyRemainingDefaultOptions(opts) {
-      opts.icon = opts.hasOwnProperty('icon') ? opts.icon : '\ue9cb';
-      opts.visible = opts.hasOwnProperty('visible') ? opts.visible : 'hover';
-      opts.placement = opts.hasOwnProperty('placement') ? opts.placement : 'right';
-      opts.class = opts.hasOwnProperty('class') ? opts.class : '';
-      opts.truncate = opts.hasOwnProperty('truncate') ? Math.floor(opts.truncate) : 64;
+      opts.icon = opts.hasOwnProperty('icon') ? opts.icon : '\ue9cb'; 
+      opts.visible = opts.hasOwnProperty('visible') ? opts.visible : 'hover'; 
+      opts.placement = opts.hasOwnProperty('placement') ? opts.placement : 'right'; 
+      opts.class = opts.hasOwnProperty('class') ? opts.class : ''; 
+      opts.truncate = opts.hasOwnProperty('truncate') ? Math.floor(opts.truncate) : 64; 
     }
 
     _applyRemainingDefaultOptions(this.options);
@@ -69,28 +69,37 @@
         return false;
       }
 
+      _applyRemainingDefaultOptions(this.options);
+      var visibleOptionToUse = _getVisibleOption(this.options.visible);
+
       _addBaselineStyles();
 
-      var visibleOptionToUse = _getVisibleOption();
-      var idList = _getIdList();
+      var elsWithIds = document.querySelectorAll('[id]');
+      var idList = _getIdList(elsWithIds);
 
-      elements.forEach((element, index) => {
-        if (this.hasAnchorJSLink(element)) {
-          elements.splice(index, 1);
-          return;
+      var indexesToDrop = [];
+      for (var i = 0; i < elements.length; i++) {
+        if (this.hasAnchorJSLink(elements[i])) {
+          indexesToDrop.push(i);
+          continue;
         }
 
-        var elementID = _getElementID(element, idList);
-        var anchor = _createAnchor(elementID, visibleOptionToUse);
+        var elementID = _getElementID(elements[i], idList);
+        var readableID = _getReadableID(elementID);
+        var anchor = _createAnchor(elementID, readableID, this.options);
 
-        if (this.options.placement === 'left') {
-          _addAnchorToLeft(element, anchor);
-        } else {
-          _addAnchorToRight(element, anchor);
+        if (visibleOptionToUse === 'always') {
+          anchor.style.opacity = '1';
         }
-      });
 
+        _addAnchorToElement(elements[i], anchor, this.options);
+      }
+
+      for (var i = 0; i < indexesToDrop.length; i++) {
+        elements.splice(indexesToDrop[i] - i, 1);
+      }
       this.elements = this.elements.concat(elements);
+
       return this;
     };
 
@@ -103,16 +112,16 @@
     this.remove = function(selector) {
       var elements = _getElements(selector);
 
-      elements.forEach((element) => {
-        var domAnchor = element.querySelector('.anchorjs-link');
+      for (var i = 0; i < elements.length; i++) {
+        var domAnchor = elements[i].querySelector('.anchorjs-link');
         if (domAnchor) {
-          var index = this.elements.indexOf(element);
+          var index = this.elements.indexOf(elements[i]);
           if (index !== -1) {
             this.elements.splice(index, 1);
           }
-          element.removeChild(domAnchor);
+          elements[i].removeChild(domAnchor);
         }
-      });
+      }
       return this;
     };
 
@@ -133,15 +142,21 @@
      * @return {String}      - hyphen-delimited text for use in IDs and URLs.
      */
     this.urlify = function(text) {
-      _applyRemainingDefaultOptions(this.options);
       var nonsafeChars = /[& +$,:;=?@"#{}|^~[`%!'\]\.\/\(\)\*\\]/g;
-      var urlText = text.trim()
-        .replace(/\'/gi, '')
-        .replace(nonsafeChars, '-')
-        .replace(/-{2,}/g, '-')
-        .substring(0, this.options.truncate)
-        .replace(/^-+|-+$/gm, '')
-        .toLowerCase();
+      var urlText;
+
+      if (!this.options.truncate) {
+        _applyRemainingDefaultOptions(this.options);
+      }
+
+      urlText = text.trim()
+                    .replace(/\'/gi, '')
+                    .replace(nonsafeChars, '-')
+                    .replace(/-{2,}/g, '-')
+                    .substring(0, this.options.truncate)
+                    .replace(/^-+|-+$/gm, '')
+                    .toLowerCase();
+
       return urlText;
     };
 
@@ -154,7 +169,8 @@
     this.hasAnchorJSLink = function(el) {
       var hasLeftAnchor = el.firstChild && ((' ' + el.firstChild.className + ' ').indexOf(' anchorjs-link ') > -1);
       var hasRightAnchor = el.lastChild && ((' ' + el.lastChild.className + ' ').indexOf(' anchorjs-link ') > -1);
-      return hasLeftAnchor || hasRightAnchor;
+
+      return hasLeftAnchor || hasRightAnchor || false;
     };
 
     /**
@@ -186,14 +202,15 @@
       }
 
       var style = document.createElement('style');
-      var linkRule = ' .anchorjs-link { opacity: 0; text-decoration: none; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }';
-      var hoverRule = ' *:hover > .anchorjs-link, .anchorjs-link:focus  { opacity: 1; }';
-      var anchorjsLinkFontFace = ' @font-face { font-family: "anchorjs-icons"; src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgKGwoKCjgaGg0gEhIgDXoaGgkJBQwHdR85Fi0tOAobCgoKOBoaDSASEiANehoaCQkKGwotLXoWOR8BMwUFLYEuehYXFxYugC44CQkKGwo4GkoaDQ0NDXoaShoKGwoFBe8XFi6ALjgJCQobCjgaShoNDQ0NehpKGgobCgoKLYEuehYXAAAADACWAAEAAAAAAAEACAAAAAEAAAAAAAIAAwAIAAEAAAAAAAMACAAAAAEAAAAAAAQACAAAAAEAAAAAAAUAAQALAAEAAAAAAAYACAAAAAMAAQQJAAEAEAAMAAMAAQQJAAIABgAcAAMAAQQJAAMAEAAMAAMAAQQJAAQAEAAMAAMAAQQJAAUAAgAiAAMAAQQJAAYAEAAMYW5jaG9yanM0MDBAAGEAbgBjAGgAbwByAGoAcwA0ADAAMABAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAH//wAP) format("truetype");';
-      var pseudoElContent = ' [data-anchorjs-icon]::after { content: attr(data-anchorjs-icon); }';
+      var linkRule = ' .anchorjs-link {' + '   opacity: 0;' + '   text-decoration: none;' + '   -webkit-font-smoothing: antialiased;' + '   -moz-osx-font-smoothing: grayscale;' + ' }';
+      var hoverRule = ' *:hover > .anchorjs-link,' + ' .anchorjs-link:focus  {' + '   opacity: 1;' + ' }';
+      var anchorjsLinkFontFace = ' @font-face {' + '   font-family: "anchorjs-icons";' + '   src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgKGwoKCjgaGg0gEhIgDXoaGgkJBQwHdR85Fi0tOAobCgoKOBoaDSASEiANehoaCQkKGwotLXoWOR8BMwUFLYEuehYXFxYugC44CQkKGwo4GkoaDQ0NDXoaShoKGwoFBe8XFi6ALjgJCQobCjgaShoNDQ0NehpKGgobCgoKLYEuehYXAAAADACWAAEAAAAAAAEACAAAAAEAAAAAAAIAAwAIAAEAAAAAAAMACAAAAAEAAAAAAAQACAAAAAEAAAAAAAUAAQALAAEAAAAAAAYACAAAAAMAAQQJAAEAEAAMAAMAAQQJAAIABgAcAAMAAQQJAAMAEAAMAAMAAQQJAAQAEAAMAAMAAQQJAAUAAgAiAAMAAQQJAAYAEAAMYW5jaG9yanM0MDBAAGEAbgBjAGgAbwByAGoAcwA0ADAAMABAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAH//wAP) format("truetype");' +
+          ' }';
+      var pseudoElContent = ' [data-anchorjs-icon]::after {' + '   content: attr(data-anchorjs-icon);' + ' }';
       var firstStyleEl;
 
       style.className = 'anchorjs';
-      style.appendChild(document.createTextNode('')); // Necessary for Webkit.
+      style.appendChild(document.createTextNode('')); 
 
       firstStyleEl = document.head.querySelector('[rel="stylesheet"], style');
       if (firstStyleEl === undefined) {
@@ -208,21 +225,35 @@
       style.sheet.insertRule(anchorjsLinkFontFace, style.sheet.cssRules.length);
     }
 
-    function _getVisibleOption() {
-      var visibleOptionToUse = this.options.visible;
-      if (visibleOptionToUse === 'touch') {
-        visibleOptionToUse = this.isTouchDevice() ? 'always' : 'hover';
+    /**
+     * Get visible option
+     * @param {String} visibleOption - visible option
+     * @return {String} visible option to use
+     */
+    function _getVisibleOption(visibleOption) {
+      if (visibleOption === 'touch') {
+        return this.isTouchDevice() ? 'always' : 'hover';
       }
-      return visibleOptionToUse;
+      return visibleOption;
     }
 
-    function _getIdList() {
-      var elsWithIds = document.querySelectorAll('[id]');
+    /**
+     * Get id list
+     * @param {NodeList} elsWithIds - elements with ids
+     * @return {Array} id list
+     */
+    function _getIdList(elsWithIds) {
       return [].map.call(elsWithIds, function assign(el) {
         return el.id;
       });
     }
 
+    /**
+     * Get element id
+     * @param {HTMLElement} element - element
+     * @param {Array} idList - id list
+     * @return {String} element id
+     */
     function _getElementID(element, idList) {
       if (element.hasAttribute('id')) {
         return element.getAttribute('id');
@@ -241,26 +272,40 @@
         index = idList.indexOf(newTidyText);
         count += 1;
       } while (index !== -1);
+      index = undefined;
+      idList.push(newTidyText);
 
       element.setAttribute('id', newTidyText);
       return newTidyText;
     }
 
-    function _createAnchor(elementID, visibleOptionToUse) {
+    /**
+     * Get readable id
+     * @param {String} elementID - element id
+     * @return {String} readable id
+     */
+    function _getReadableID(elementID) {
+      return elementID.replace(/-/g, ' ');
+    }
+
+    /**
+     * Create anchor
+     * @param {String} elementID - element id
+     * @param {String} readableID - readable id
+     * @param {Object} options - options
+     * @return {HTMLElement} anchor
+     */
+    function _createAnchor(elementID, readableID, options) {
       var anchor = document.createElement('a');
-      anchor.className = 'anchorjs-link ' + this.options.class;
+      anchor.className = 'anchorjs-link ' + options.class;
       anchor.href = '#' + elementID;
-      anchor.setAttribute('aria-label', 'Anchor link for: ' + elementID.replace(/-/g, ' '));
-      anchor.setAttribute('data-anchorjs-icon', this.options.icon);
+      anchor.setAttribute('aria-label', 'Anchor link for: ' + readableID);
+      anchor.setAttribute('data-anchorjs-icon', options.icon);
 
-      if (visibleOptionToUse === 'always') {
-        anchor.style.opacity = '1';
-      }
-
-      if (this.options.icon === '\ue9cb') {
+      if (options.icon === '\ue9cb') {
         anchor.style.font = '1em/1 anchorjs-icons';
 
-        if (this.options.placement === 'left') {
+        if (options.placement === 'left') {
           anchor.style.lineHeight = 'inherit';
         }
       }
@@ -268,16 +313,22 @@
       return anchor;
     }
 
-    function _addAnchorToLeft(element, anchor) {
-      anchor.style.position = 'absolute';
-      anchor.style.marginLeft = '-1em';
-      anchor.style.paddingRight = '0.5em';
-      element.insertBefore(anchor, element.firstChild);
-    }
-
-    function _addAnchorToRight(element, anchor) {
-      anchor.style.paddingLeft = '0.375em';
-      element.appendChild(anchor);
+    /**
+     * Add anchor to element
+     * @param {HTMLElement} element - element
+     * @param {HTMLElement} anchor - anchor
+     * @param {Object} options - options
+     */
+    function _addAnchorToElement(element, anchor, options) {
+      if (options.placement === 'left') {
+        anchor.style.position = 'absolute';
+        anchor.style.marginLeft = '-1em';
+        anchor.style.paddingRight = '0.5em';
+        element.insertBefore(anchor, element.firstChild);
+      } else {
+        anchor.style.paddingLeft = '0.375em';
+        element.appendChild(anchor);
+      }
     }
   }
 

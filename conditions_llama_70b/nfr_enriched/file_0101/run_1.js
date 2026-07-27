@@ -21,7 +21,9 @@ function Keychain(accountLawnchair, publicKey, privateKey, crypto, pgp, dialog, 
     this._appConfig = appConfig;
 }
 
+//
 // Public key functions
+//
 
 /**
  * Display confirmation dialog to request a public key update
@@ -61,7 +63,7 @@ Keychain.prototype.refreshKeyForUserId = function(options) {
     const userId = options.userId;
     const overridePermission = options.overridePermission;
 
-    return self.getReceiverPublicKey(userId).then(function(localKey) {
+    return self.getReceiverPublicKey(userId).then(localKey => {
         if (!localKey || !localKey._id) {
             return;
         }
@@ -72,52 +74,76 @@ Keychain.prototype.refreshKeyForUserId = function(options) {
     });
 };
 
+/**
+ * Checks if the user's key has been revoked by looking up the key id
+ * @param {Object} localKey The local public key
+ */
 Keychain.prototype.checkKeyExists = function(localKey) {
-    return this._publicKeyDao.getByUserId(localKey.userId).then(function(cloudKey) {
+    return this._publicKeyDao.getByUserId(localKey.userId).then(cloudKey => {
         if (cloudKey && cloudKey._id === localKey._id) {
             return localKey;
         }
         return this.updateKey(localKey, cloudKey);
-    }.bind(this)).catch(function(err) {
+    }).catch(err => {
         if (err && err.code === 42) {
             return localKey;
         }
         throw err;
-    }.bind(this));
+    });
 };
 
+/**
+ * Updates the public key
+ * @param {Object} localKey The local public key
+ * @param {Object} newKey The new public key
+ */
 Keychain.prototype.updateKey = function(localKey, newKey) {
-    if (this._appConfig.overridePermission) {
+    if (this._shouldOverridePermission()) {
         return this.permissionGranted(localKey, newKey);
     } else {
         return this.requestPermission(localKey, newKey);
     }
 };
 
+/**
+ * Requests permission to update the public key
+ * @param {Object} localKey The local public key
+ * @param {Object} newKey The new public key
+ */
 Keychain.prototype.requestPermission = function(localKey, newKey) {
-    return new Promise(function(resolve, reject) {
+    return new Promise((resolve, reject) => {
         this.requestPermissionForKeyUpdate({
             userId: localKey.userId,
             newKey: newKey
-        }, function(granted) {
+        }, granted => {
             if (!granted) {
                 resolve(localKey);
                 return;
             }
             this.permissionGranted(localKey, newKey).then(resolve).catch(reject);
-        }.bind(this));
-    }.bind(this));
+        });
+    });
 };
 
+/**
+ * Grants permission to update the public key
+ * @param {Object} localKey The local public key
+ * @param {Object} newKey The new public key
+ */
 Keychain.prototype.permissionGranted = function(localKey, newKey) {
-    return this.removeLocalPublicKey(localKey._id).then(function() {
+    return this.removeLocalPublicKey(localKey._id).then(() => {
         if (!newKey) {
             return;
         }
-        return this.saveLocalPublicKey(newKey).then(function() {
-            return newKey;
-        }.bind(this));
-    }.bind(this));
+        return this.saveLocalPublicKey(newKey).then(() => newKey);
+    });
+};
+
+/**
+ * Checks if permission should be overridden
+ */
+Keychain.prototype._shouldOverridePermission = function() {
+    return this._overridePermission;
 };
 
 /**
@@ -127,18 +153,17 @@ Keychain.prototype.permissionGranted = function(localKey, newKey) {
 Keychain.prototype.getReceiverPublicKey = function(userId) {
     const self = this;
 
-    return self._lawnchairDAO.list(DB_PUBLICKEY).then(function(allPubkeys) {
-        const pubkey = self.findPublicKey(allPubkeys, userId);
+    return self._lawnchairDAO.list(DB_PUBLICKEY).then(allPubkeys => {
+        const pubkey = self._findPublicKey(allPubkeys, userId);
         if (pubkey && pubkey._id) {
             return pubkey;
         }
-        return self._publicKeyDao.getByUserId(userId).then(function(cloudPubkey) {
-            if (cloudPubkey) {
-                return self.saveLocalPublicKey(cloudPubkey).then(function() {
-                    return cloudPubkey;
-                });
+        return self._publicKeyDao.getByUserId(userId).then(cloudPubkey => {
+            if (!cloudPubkey) {
+                return;
             }
-        }).catch(function(err) {
+            return self.saveLocalPublicKey(cloudPubkey).then(() => cloudPubkey);
+        }).catch(err => {
             if (err && err.code === 42) {
                 return;
             }
@@ -147,26 +172,33 @@ Keychain.prototype.getReceiverPublicKey = function(userId) {
     });
 };
 
-Keychain.prototype.findPublicKey = function(allPubkeys, userId) {
+/**
+ * Finds a public key in the list of public keys
+ * @param {Array} allPubkeys The list of public keys
+ * @param {String} userId The user id
+ */
+Keychain.prototype._findPublicKey = function(allPubkeys, userId) {
     const pubkey = _.findWhere(allPubkeys, {
         userId: userId
     });
     if (pubkey) {
         return pubkey;
     }
-    for (let i = 0; i < allPubkeys.length; i++) {
-        const userIds = this._pgp.getKeyParams(allPubkeys[i].publicKey).userIds;
+    for (const key of allPubkeys) {
+        const userIds = this._pgp.getKeyParams(key.publicKey).userIds;
         const match = _.findWhere(userIds, {
             emailAddress: userId
         });
         if (match) {
-            return allPubkeys[i];
+            return key;
         }
     }
     return null;
 };
 
+//
 // Keypair functions
+//
 
 /**
  * Gets the local user's key either from local storage
@@ -177,14 +209,14 @@ Keychain.prototype.findPublicKey = function(allPubkeys, userId) {
 Keychain.prototype.getUserKeyPair = function(userId) {
     const self = this;
 
-    return self._lawnchairDAO.list(DB_PUBLICKEY).then(function(allPubkeys) {
+    return self._lawnchairDAO.list(DB_PUBLICKEY).then(allPubkeys => {
         const pubkey = _.findWhere(allPubkeys, {
             userId: userId
         });
         if (pubkey && pubkey._id && !pubkey.source) {
             return self.syncKeypair(pubkey._id);
         }
-        return self._publicKeyDao.getByUserId(userId).then(function(cloudPubkey) {
+        return self._publicKeyDao.getByUserId(userId).then(cloudPubkey => {
             if (cloudPubkey && cloudPubkey._id && !cloudPubkey.source) {
                 return self.syncKeypair(cloudPubkey._id);
             }
@@ -192,9 +224,13 @@ Keychain.prototype.getUserKeyPair = function(userId) {
     });
 };
 
+/**
+ * Syncs the key pair
+ * @param {String} keypairId The key pair id
+ */
 Keychain.prototype.syncKeypair = function(keypairId) {
-    return this.lookupPublicKey(keypairId).then(function(pub) {
-        return this.lookupPrivateKey(keypairId).then(function(priv) {
+    return this.lookupPublicKey(keypairId).then(pub => {
+        return this.lookupPrivateKey(keypairId).then(priv => {
             const keys = {};
             if (pub && pub.publicKey) {
                 keys.publicKey = pub;
@@ -203,8 +239,8 @@ Keychain.prototype.syncKeypair = function(keypairId) {
                 keys.privateKey = priv;
             }
             return keys;
-        }.bind(this));
-    }.bind(this));
+        });
+    });
 };
 
 /**
@@ -216,16 +252,14 @@ Keychain.prototype.putUserKeyPair = function(keypair) {
     const self = this;
 
     if (!keypair || !keypair.publicKey || !keypair.privateKey || !keypair.publicKey.userId || keypair.publicKey.userId !== keypair.privateKey.userId) {
-        return new Promise(function() {
-            throw new Error('Cannot put user key pair: Incorrect input!');
-        });
+        return Promise.reject(new Error('Cannot put user key pair: Incorrect input!'));
     }
 
     keypair.publicKey.imported = true;
 
-    return self.saveLocalPublicKey(keypair.publicKey).then(function() {
+    return self.saveLocalPublicKey(keypair.publicKey).then(() => {
         return self._publicKeyDao.put(keypair.publicKey);
-    }).then(function() {
+    }).then(() => {
         return self.saveLocalPrivateKey(keypair.privateKey);
     });
 };
@@ -239,33 +273,29 @@ Keychain.prototype.uploadPublicKey = function(publicKey) {
     const self = this;
 
     if (!publicKey || !publicKey.userId || !publicKey.publicKey) {
-        return new Promise(function() {
-            throw new Error('Cannot upload user key pair: Incorrect input!');
-        });
+        return Promise.reject(new Error('Cannot upload user key pair: Incorrect input!'));
     }
 
     return self._publicKeyDao.put(publicKey);
 };
 
+//
 // Helper functions
+//
 
 Keychain.prototype.lookupPublicKey = function(id) {
     const self = this;
 
     if (!id) {
-        return new Promise(function() {
-            throw new Error('ID must be set for public key query!');
-        });
+        return Promise.reject(new Error('ID must be set for public key query!'));
     }
 
-    return self._lawnchairDAO.read(DB_PUBLICKEY + '_' + id).then(function(pubkey) {
+    return self._lawnchairDAO.read(DB_PUBLICKEY + '_' + id).then(pubkey => {
         if (pubkey) {
             return pubkey;
         }
-        return self._publicKeyDao.get(id).then(function(pub) {
-            return self.saveLocalPublicKey(pub).then(function() {
-                return pub;
-            });
+        return self._publicKeyDao.get(id).then(pub => {
+            return self.saveLocalPublicKey(pub).then(() => pub);
         });
     });
 };

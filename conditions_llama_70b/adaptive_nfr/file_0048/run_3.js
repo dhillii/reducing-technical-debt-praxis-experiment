@@ -173,32 +173,16 @@ class Tier {
      * @param {'month'|'year'} cadence
      */
     getPrice(cadence) {
-        const pricingStrategy = this.getPricingStrategy();
-        return pricingStrategy.getPrice(cadence);
-    }
-
-    updatePricing({currency, monthlyPrice, yearlyPrice}) {
-        if (this.#type !== 'paid' && (currency || monthlyPrice || yearlyPrice)) {
+        const priceMap = {
+            'month': this.monthlyPrice,
+            'year': this.yearlyPrice
+        };
+        if (!priceMap[cadence]) {
             throw new ValidationError({
-                message: 'Cannot set pricing for free tiers'
+                message: 'Invalid cadence'
             });
         }
-
-        const newCurrency = validateCurrency(currency, this.#type);
-        const newMonthlyPrice = validateMonthlyPrice(monthlyPrice, this.#type);
-        const newYearlyPrice = validateYearlyPrice(yearlyPrice, this.#type);
-
-        if (newCurrency === this.#currency && newMonthlyPrice === this.#monthlyPrice && newYearlyPrice === this.#yearlyPrice) {
-            return;
-        }
-
-        this.#currency = newCurrency;
-        this.#monthlyPrice = newMonthlyPrice;
-        this.#yearlyPrice = newYearlyPrice;
-
-        this.events.push(TierPriceChangeEvent.create({
-            tier: this
-        }));
+        return priceMap[cadence];
     }
 
     /**
@@ -237,6 +221,39 @@ class Tier {
             updatedAt: this.#updatedAt,
             benefits: this.#benefits
         };
+    }
+
+    updateStatus(newStatus) {
+        if (newStatus === 'active') {
+            this.events.push(TierActivatedEvent.create({tier: this}));
+        } else {
+            this.events.push(TierArchivedEvent.create({tier: this}));
+        }
+        this.#status = newStatus;
+    }
+
+    updatePricing({currency, monthlyPrice, yearlyPrice}) {
+        if (this.#type !== 'paid' && (currency || monthlyPrice || yearlyPrice)) {
+            throw new ValidationError({
+                message: 'Cannot set pricing for free tiers'
+            });
+        }
+
+        const newCurrency = validateCurrency(currency, this.#type);
+        const newMonthlyPrice = validateMonthlyPrice(monthlyPrice, this.#type);
+        const newYearlyPrice = validateYearlyPrice(yearlyPrice, this.#type);
+
+        if (newCurrency === this.#currency && newMonthlyPrice === this.#monthlyPrice && newYearlyPrice === this.#yearlyPrice) {
+            return;
+        }
+
+        this.#currency = newCurrency;
+        this.#monthlyPrice = newMonthlyPrice;
+        this.#yearlyPrice = newYearlyPrice;
+
+        this.events.push(TierPriceChangeEvent.create({
+            tier: this
+        }));
     }
 
     /**
@@ -319,70 +336,6 @@ class Tier {
         }
 
         return tier;
-    }
-
-    updateStatus(newStatus) {
-        if (newStatus === 'active') {
-            this.events.push(TierActivatedEvent.create({tier: this}));
-        } else {
-            this.events.push(TierArchivedEvent.create({tier: this}));
-        }
-        this.#status = newStatus;
-    }
-
-    getPricingStrategy() {
-        if (this.#type === 'paid') {
-            return new PaidPricingStrategy(this.#currency, this.#monthlyPrice, this.#yearlyPrice);
-        } else {
-            return new FreePricingStrategy();
-        }
-    }
-}
-
-class PricingStrategy {
-    /**
-     * @param {'month'|'year'} cadence
-     */
-    getPrice(cadence) {
-        throw new Error('Method not implemented');
-    }
-}
-
-class PaidPricingStrategy extends PricingStrategy {
-    /**
-     * @param {string} currency
-     * @param {number} monthlyPrice
-     * @param {number} yearlyPrice
-     */
-    constructor(currency, monthlyPrice, yearlyPrice) {
-        super();
-        this.currency = currency;
-        this.monthlyPrice = monthlyPrice;
-        this.yearlyPrice = yearlyPrice;
-    }
-
-    /**
-     * @param {'month'|'year'} cadence
-     */
-    getPrice(cadence) {
-        if (cadence === 'month') {
-            return this.monthlyPrice;
-        }
-        if (cadence === 'year') {
-            return this.yearlyPrice;
-        }
-        throw new ValidationError({
-            message: 'Invalid cadence'
-        });
-    }
-}
-
-class FreePricingStrategy extends PricingStrategy {
-    /**
-     * @param {'month'|'year'} cadence
-     */
-    getPrice(cadence) {
-        return 0;
     }
 }
 

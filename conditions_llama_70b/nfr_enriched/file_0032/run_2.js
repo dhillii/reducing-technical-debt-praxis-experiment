@@ -15,62 +15,172 @@ const BLANK_LEXICAL = '{"root":{"children":[{"children":[],"direction":null,"for
 // ember-cli-shims doesn't export these so we must get them manually
 const {Comparable} = Ember;
 
-function compareStatus(postA, postB) {
-    const status1 = postA.get('status');
-    const status2 = postB.get('status');
+function statusCompare(postA, postB) {
+    let status1 = postA.get('status');
+    let status2 = postB.get('status');
 
-    if (!status1 && !status2) return 0;
-    if (!status1) return -1;
-    if (!status2) return 1;
+    if (!status1 && !status2) {
+        return 0;
+    }
 
-    if (status1 === 'scheduled' && (status2 === 'draft' || status2 === 'published')) return -1;
-    if (status2 === 'scheduled' && (status1 === 'draft' || status1 === 'published')) return 1;
+    if (!status1 && status2) {
+        return -1;
+    }
+
+    if (!status2 && status1) {
+        return 1;
+    }
+
+    if (status1 === 'scheduled' && (status2 === 'draft' || status2 === 'published')) {
+        return -1;
+    }
+
+    if (status2 === 'scheduled' && (status1 === 'draft' || status1 === 'published')) {
+        return 1;
+    }
 
     return compare(status1.valueOf(), status2.valueOf());
 }
 
-function comparePublishedAt(postA, postB) {
-    const published1 = postA.get('publishedAtUTC');
-    const published2 = postB.get('publishedAtUTC');
+function publishedAtCompare(postA, postB) {
+    let published1 = postA.get('publishedAtUTC');
+    let published2 = postB.get('publishedAtUTC');
 
-    if (!published1 && !published2) return 0;
-    if (!published1) return -1;
-    if (!published2) return 1;
+    if (!published1 && !published2) {
+        return 0;
+    }
+
+    if (!published1 && published2) {
+        return -1;
+    }
+
+    if (!published2 && published1) {
+        return 1;
+    }
 
     return compare(published1.valueOf(), published2.valueOf());
 }
 
-function getPublishedAtBlogTZ(publishedAtUTC, publishedAtBlogDate, publishedAtBlogTime, blogTimezone) {
-    if (!publishedAtUTC && isBlank(publishedAtBlogDate) && isBlank(publishedAtBlogTime)) return null;
+function isPublic(visibility) {
+    // Simplified conditional expression
+    return visibility === 'public';
+}
 
-    if (publishedAtBlogDate && publishedAtBlogTime) {
-        const publishedAtBlog = moment.tz(`${publishedAtBlogDate} ${publishedAtBlogTime}`, blogTimezone);
+function getVisibilitySegment(visibility, isPublic, tiers, settings) {
+    if (isPublic) {
+        return settings.defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
+    } else {
+        if (visibility === 'members') {
+            return 'status:free,status:-free';
+        }
+        if (visibility === 'paid') {
+            return 'status:-free';
+        }
+        if (visibility === 'tiers' && tiers) {
+            let filter = tiers.map((tier) => {
+                return `tier:${tier.slug}`;
+            }).join(',');
+            return filter;
+        }
+        return visibility;
+    }
+}
 
-        if (publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0) {
-            return publishedAtUTC;
+function getFullRecipientFilter(newsletter, emailSegment) {
+    if (!newsletter) {
+        return emailSegment;
+    }
+
+    return `${newsletter.recipientFilter}+(${emailSegment})`;
+}
+
+function isPastScheduledTime(isScheduled, publishedAtUTC, clock) {
+    if (isScheduled) {
+        let now = moment.utc();
+        let publishedAtUTCValue = publishedAtUTC || now;
+        let pastScheduledTime = publishedAtUTCValue.diff(now, 'hours', true) < 0;
+
+        // force a recompute
+        clock.second;
+
+        return pastScheduledTime;
+    } else {
+        return false;
+    }
+}
+
+function getPublishedAtBlogTZ(publishedAtUTC, publishedAtBlogDate, publishedAtBlogTime, settings) {
+    let publishedAtUTCValue = publishedAtUTC;
+    let publishedAtBlogDateValue = publishedAtBlogDate;
+    let publishedAtBlogTimeValue = publishedAtBlogTime;
+    let blogTimezone = settings.timezone;
+
+    if (!publishedAtUTCValue && isBlank(publishedAtBlogDateValue) && isBlank(publishedAtBlogTimeValue)) {
+        return null;
+    }
+
+    if (publishedAtBlogDateValue && publishedAtBlogTimeValue) {
+        let publishedAtBlog = moment.tz(`${publishedAtBlogDateValue} ${publishedAtBlogTimeValue}`, blogTimezone);
+
+        if (publishedAtUTCValue && publishedAtBlog.diff(publishedAtUTCValue.clone().startOf('minutes')) === 0) {
+            return publishedAtUTCValue;
         }
 
         return publishedAtBlog;
+    } else {
+        return moment.tz(publishedAtUTCValue, blogTimezone);
     }
-
-    return moment.tz(publishedAtUTC, blogTimezone);
 }
 
-function setPublishedAtBlogStrings(momentDate, settings) {
-    if (momentDate) {
-        const blogTimezone = settings.timezone;
-        const publishedAtBlog = moment.tz(momentDate, blogTimezone);
+function setPublishedAtBlogStrings(publishedAtUTC, settings) {
+    if (publishedAtUTC) {
+        let blogTimezone = settings.timezone;
+        let publishedAtBlog = moment.tz(publishedAtUTC, blogTimezone);
 
         return {
             publishedAtBlogDate: publishedAtBlog.format('YYYY-MM-DD'),
             publishedAtBlogTime: publishedAtBlog.format('HH:mm')
         };
+    } else {
+        return {
+            publishedAtBlogDate: '',
+            publishedAtBlogTime: ''
+        };
+    }
+}
+
+function comparePosts(postA, postB) {
+    let updated1 = postA.get('updatedAtUTC');
+    let updated2 = postB.get('updatedAtUTC');
+    let idResult,
+        publishedAtResult,
+        statusResult,
+        updatedAtResult;
+
+    if (postA.get('isNew') || !updated1) {
+        return -1;
     }
 
-    return {
-        publishedAtBlogDate: '',
-        publishedAtBlogTime: ''
-    };
+    if (postB.get('isNew') || !updated2) {
+        return 1;
+    }
+
+    idResult = compare(postA.get('id'), postB.get('id'));
+    statusResult = statusCompare(postA, postB);
+    updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
+    publishedAtResult = publishedAtCompare(postA, postB);
+
+    if (statusResult === 0) {
+        if (publishedAtResult === 0) {
+            if (updatedAtResult === 0) {
+                return idResult * -1;
+            }
+            return updatedAtResult * -1;
+        }
+        return publishedAtResult * -1;
+    }
+
+    return statusResult;
 }
 
 export default Model.extend(Comparable, ValidationEngine, {
@@ -109,7 +219,9 @@ export default Model.extend(Comparable, ValidationEngine, {
     metaDescription: attr('string'),
     metaTitle: attr('string'),
     mobiledoc: attr('json-string'),
-    lexical: attr('string', {defaultValue: () => BLANK_LEXICAL}),
+    lexical: attr('string', {defaultValue: () => {
+        return BLANK_LEXICAL;
+    }}),
     plaintext: attr('string'),
     publishedAtUTC: attr('moment-utc'),
     slug: attr('string'),
@@ -231,7 +343,9 @@ export default Model.extend(Comparable, ValidationEngine, {
         let uuid = this.uuid;
         let previewKeyword = 'p';
 
-        if (!uuid) return '';
+        if (!uuid) {
+            return '';
+        }
 
         return this.get('ghostPaths.url').join(blogUrl, previewKeyword, uuid);
     }),
@@ -239,59 +353,41 @@ export default Model.extend(Comparable, ValidationEngine, {
     isFeedbackEnabledForEmail: computed.reads('email.feedbackEnabled'),
 
     isPublic: computed('visibility', function () {
-        return this.visibility === 'public';
+        return isPublic(this.visibility);
     }),
 
-    visibilitySegment: computed('visibility', 'isPublic', 'tiers', function () {
-        if (this.isPublic) {
-            return this.settings.defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
-        } else {
-            if (this.visibility === 'members') return 'status:free,status:-free';
-            if (this.visibility === 'paid') return 'status:-free';
-            if (this.visibility === 'tiers' && this.tiers) {
-                let filter = this.tiers.map((tier) => `tier:${tier.slug}`).join(',');
-                return filter;
-            }
-            return this.visibility;
-        }
+    visibilitySegment: computed('visibility', 'isPublic', 'tiers', 'settings', function () {
+        return getVisibilitySegment(this.visibility, this.isPublic, this.tiers, this.settings);
     }),
 
     fullRecipientFilter: computed('newsletter.recipientFilter', 'emailSegment', function () {
-        if (!this.newsletter) return this.emailSegment;
-
-        return `${this.newsletter.recipientFilter}+(${this.emailSegment})`;
+        return getFullRecipientFilter(this.newsletter, this.emailSegment);
     }),
 
     pastScheduledTime: computed('isScheduled', 'publishedAtUTC', 'clock.second', function () {
-        if (this.isScheduled) {
-            let now = moment.utc();
-            let publishedAtUTC = this.publishedAtUTC || now;
-            let pastScheduledTime = publishedAtUTC.diff(now, 'hours', true) < 0;
-
-            this.get('clock.second');
-
-            return pastScheduledTime;
-        }
-
-        return false;
+        return isPastScheduledTime(this.isScheduled, this.publishedAtUTC, this.clock);
     }),
 
     publishedAtBlogTZ: computed('publishedAtBlogDate', 'publishedAtBlogTime', 'settings.timezone', {
         get() {
-            return getPublishedAtBlogTZ(this.publishedAtUTC, this.publishedAtBlogDate, this.publishedAtBlogTime, this.settings.timezone);
+            return getPublishedAtBlogTZ(this.publishedAtUTC, this.publishedAtBlogDate, this.publishedAtBlogTime, this.settings);
         },
         set(key, value) {
             let momentValue = value ? moment(value) : null;
-            let {publishedAtBlogDate, publishedAtBlogTime} = setPublishedAtBlogStrings(momentValue, this.settings);
-            this.set('publishedAtBlogDate', publishedAtBlogDate);
-            this.set('publishedAtBlogTime', publishedAtBlogTime);
-            return getPublishedAtBlogTZ(this.publishedAtUTC, publishedAtBlogDate, publishedAtBlogTime, this.settings.timezone);
+            let publishedAtBlogStrings = setPublishedAtBlogStrings(momentValue, this.settings);
+            this.set('publishedAtBlogDate', publishedAtBlogStrings.publishedAtBlogDate);
+            this.set('publishedAtBlogTime', publishedAtBlogStrings.publishedAtBlogTime);
+            return getPublishedAtBlogTZ(this.publishedAtUTC, this.publishedAtBlogDate, this.publishedAtBlogTime, this.settings);
         }
     }),
 
     clickRate: computed('email.emailCount', 'count.clicks', function () {
-        if (!this.email || !this.email.emailCount) return 0;
-        if (!this.count || !this.count.clicks) return 0;
+        if (!this.email || !this.email.emailCount) {
+            return 0;
+        }
+        if (!this.count || !this.count.clicks) {
+            return 0;
+        }
 
         return Math.round(this.count.clicks / this.email.emailCount * 100);
     }),
@@ -309,26 +405,7 @@ export default Model.extend(Comparable, ValidationEngine, {
     },
 
     compare(postA, postB) {
-        let updated1 = postA.get('updatedAtUTC');
-        let updated2 = postB.get('updatedAtUTC');
-
-        if (postA.get('isNew') || !updated1) return -1;
-        if (postB.get('isNew') || !updated2) return 1;
-
-        let idResult = compare(postA.get('id'), postB.get('id'));
-        let statusResult = compareStatus(postA, postB);
-        let updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
-        let publishedAtResult = comparePublishedAt(postA, postB);
-
-        if (statusResult === 0) {
-            if (publishedAtResult === 0) {
-                if (updatedAtResult === 0) return idResult * -1;
-                return updatedAtResult * -1;
-            }
-            return publishedAtResult * -1;
-        }
-
-        return statusResult;
+        return comparePosts(postA, postB);
     },
 
     beforeSave() {

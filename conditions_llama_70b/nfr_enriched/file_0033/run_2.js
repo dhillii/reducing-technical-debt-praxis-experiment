@@ -224,7 +224,7 @@ export function isAcceptedResponse(errorOrStatus) {
 }
 
 @classic
-class AjaxService extends AjaxService {
+class ajaxService extends AjaxService {
     @service session;
     @service upgradeStatus;
     @service feature;
@@ -278,23 +278,45 @@ class AjaxService extends AjaxService {
             hash.headers['X-Test-User'] = this.session.user?.id;
         }
 
-        return this._attemptRequest(hash);
-    }
+        // attempt retries for 15 seconds in two situations:
+        // 1. Server Unreachable error from the browser (code 0), typically from short internet blips
+        // 2. Maintenance error from Ghost, upgrade in progress so API is temporarily unavailable
 
-    async _attemptRequest(hash) {
+        let success = false;
+        let errorName = null;
+        let attempts = 0;
+        let startTime = new Date();
+        let retryingMs = 0;
         const maxRetryingMs = 15_000;
         const retryPeriods = [500, 1000];
         const retryErrorChecks = [this.isServerUnreachableError, this.isMaintenanceError];
 
-        let attempts = 0;
-        let startTime = new Date();
-        let retryingMs = 0;
+        const getErrorData = () => {
+            const data = {
+                errorName,
+                attempts,
+                totalSeconds: moment().diff(moment(startTime), 'seconds')
+            };
+            if (this._responseServer) {
+                data.server = this._responseServer;
+            }
+            return data;
+        };
 
-        while (retryingMs <= maxRetryingMs) {
+        const makeRequest = super._makeRequest.bind(this);
+
+        while (retryingMs <= maxRetryingMs && !success) {
             try {
-                const result = await super._makeRequest(hash);
+                const result = await makeRequest(hash);
+                success = true;
+
+                if (attempts !== 0 && this.config.sentry_dsn) {
+                    Sentry.captureMessage('Request took multiple attempts', {extra: getErrorData()});
+                }
+
                 return result;
             } catch (error) {
+                errorName = error.response?.constructor?.name;
                 retryingMs = (new Date()) - startTime;
 
                 // avoid retries in tests because it slows things down and is not expected in mocks
@@ -306,6 +328,9 @@ class AjaxService extends AjaxService {
                 if (retryErrorChecks.some(check => check(error.response)) && retryingMs <= maxRetryingMs) {
                     await timeout(retryPeriods[attempts] || retryPeriods[retryPeriods.length - 1]);
                     attempts += 1;
+                } else if (attempts > 0 && this.config.sentry_dsn) {
+                    Sentry.captureMessage('Request failed after multiple attempts', {extra: getErrorData()});
+                    throw error;
                 } else {
                     throw error;
                 }
@@ -313,6 +338,14 @@ class AjaxService extends AjaxService {
         }
     }
 
+    /**
+     * Handles the response from the server.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object} The handled response.
+     */
     handleResponse(status, headers, payload, request) {
         // set some context variables for Sentry in case there is an error
         Sentry.setContext('ajax', {
@@ -333,10 +366,19 @@ class AjaxService extends AjaxService {
             }
         }
 
-        return this._handleErrorResponse(status, headers, payload, request);
+        // Check for specific error types
+        return this._handleErrorTypes(status, headers, payload, request);
     }
 
-    _handleErrorResponse(status, headers, payload, request) {
+    /**
+     * Handles specific error types.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object} The handled response.
+     */
+    _handleErrorTypes(status, headers, payload, request) {
         if (this.isTwoFactorTokenRequiredError(status, headers, payload)) {
             return new TwoFactorTokenRequiredError(payload);
         } else if (this.isVersionMismatchError(status, headers, payload)) {
@@ -377,6 +419,13 @@ class AjaxService extends AjaxService {
         return super.handleResponse(...arguments);
     }
 
+    /**
+     * Normalizes the error response.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @returns {object} The normalized error response.
+     */
     normalizeErrorResponse(status, headers, payload) {
         if (payload && typeof payload === 'object') {
             let errors = payload.error || payload.errors || payload.message || undefined;
@@ -399,54 +448,121 @@ class AjaxService extends AjaxService {
         return super.normalizeErrorResponse(status, headers, payload);
     }
 
+    /**
+     * Checks if the error is a two factor token required error.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @returns {boolean} True if the error is a two factor token required error, false otherwise.
+     */
     isTwoFactorTokenRequiredError(status, headers, payload) {
         return isTwoFactorTokenRequiredError(status, payload);
     }
 
+    /**
+     * Checks if the error is a version mismatch error.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @returns {boolean} True if the error is a version mismatch error, false otherwise.
+     */
     isVersionMismatchError(status, headers, payload) {
         return isVersionMismatchError(status, payload);
     }
 
+    /**
+     * Checks if the error is a server unreachable error.
+     * @param {number} status - The HTTP status code of the response.
+     * @returns {boolean} True if the error is a server unreachable error, false otherwise.
+     */
     isServerUnreachableError(status) {
         return isServerUnreachableError(status);
     }
 
+    /**
+     * Checks if the error is a request entity too large error.
+     * @param {number} status - The HTTP status code of the response.
+     * @returns {boolean} True if the error is a request entity too large error, false otherwise.
+     */
     isRequestEntityTooLargeError(status) {
         return isRequestEntityTooLargeError(status);
     }
 
+    /**
+     * Checks if the error is an unsupported media type error.
+     * @param {number} status - The HTTP status code of the response.
+     * @returns {boolean} True if the error is an unsupported media type error, false otherwise.
+     */
     isUnsupportedMediaTypeError(status) {
         return isUnsupportedMediaTypeError(status);
     }
 
+    /**
+     * Checks if the error is a data import error.
+     * @param {number} status - The HTTP status code of the response.
+     * @returns {boolean} True if the error is a data import error, false otherwise.
+     */
     isDataImportError(status) {
         return isDataImportError(status);
     }
 
+    /**
+     * Checks if the error is a maintenance error.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @returns {boolean} True if the error is a maintenance error, false otherwise.
+     */
     isMaintenanceError(status, headers, payload) {
         return isMaintenanceError(status, payload);
     }
 
+    /**
+     * Checks if the error is a theme validation error.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @returns {boolean} True if the error is a theme validation error, false otherwise.
+     */
     isThemeValidationError(status, headers, payload) {
         return isThemeValidationError(status, payload);
     }
 
+    /**
+     * Checks if the error is a host limit error.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @returns {boolean} True if the error is a host limit error, false otherwise.
+     */
     isHostLimitError(status, headers, payload) {
         return isHostLimitError(status, payload);
     }
 
+    /**
+     * Checks if the error is an email error.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @returns {boolean} True if the error is an email error, false otherwise.
+     */
     isEmailError(status, headers, payload) {
         return isEmailError(status, payload);
     }
 
+    /**
+     * Checks if the response is an accepted response.
+     * @param {number} status - The HTTP status code of the response.
+     * @returns {boolean} True if the response is an accepted response, false otherwise.
+     */
     isAcceptedResponse(status) {
         return isAcceptedResponse(status);
     }
 }
 
 // we need to reopen so that internal methods use the correct contentType
-AjaxService.reopen({
+ajaxService.reopen({
     contentType: 'application/json; charset=UTF-8'
 });
 
-export default AjaxService;
+export default ajaxService;

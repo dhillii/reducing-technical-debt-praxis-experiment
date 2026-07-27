@@ -391,7 +391,6 @@ class OffsetStorage {
 
         this._desiredIndentCache.set(
           token,
-
           this.getDesiredIndent(
             this._tokenInfo.getFirstTokenOfLine(firstToken),
           ) +
@@ -998,7 +997,7 @@ const baseOffsetListeners = {
     }
 
     offsets.setDesiredOffsets(
-      [sourceCode.getFirstToken(node).range[0], sourceCode.getLastToken(node).range[1]],
+      node.range,
       sourceCode.getFirstToken(node),
       blockIndentLevel,
     );
@@ -1082,9 +1081,8 @@ const baseOffsetListeners = {
     }
   },
 
-  "DoWhileStatement, WhileStatement, ForInStatement, ForOfStatement, WithStatement"(node) {
-    addBlocklessNodeIndent(node.body);
-  },
+  "DoWhileStatement, WhileStatement, ForInStatement, ForOfStatement, WithStatement":
+    node => addBlocklessNodeIndent(node.body),
 
   ExportNamedDeclaration(node) {
     if (node.declaration === null) {
@@ -1160,7 +1158,9 @@ const baseOffsetListeners = {
     }
   },
 
-  ":matches(DoWhileStatement, ForStatement, ForInStatement, ForOfStatement, IfStatement, WhileStatement, WithStatement):exit"(node) {
+  ":matches(DoWhileStatement, ForStatement, ForInStatement, ForOfStatement, IfStatement, WhileStatement, WithStatement):exit"(
+    node,
+  ) {
     let nodesToCheck;
 
     if (node.type === "IfStatement") {
@@ -1439,7 +1439,7 @@ const baseOffsetListeners = {
   StaticBlock(node) {
     const openingCurly = sourceCode.getFirstToken(node, {
       skip: 1,
-    }); 
+    }); // skip the `static` token
     const closingCurly = sourceCode.getLastToken(node);
 
     addElementListIndent(
@@ -1475,7 +1475,7 @@ const baseOffsetListeners = {
 
   SwitchCase(node) {
     if (
-     !(
+      !(
         node.consequent.length === 1 &&
         node.consequent[0].type === "BlockStatement"
       )
@@ -1521,7 +1521,7 @@ const baseOffsetListeners = {
       node.kind,
     )
       ? options.VariableDeclarator[node.kind]
-      : 1;
+      : DEFAULT_VARIABLE_INDENT;
 
     const firstToken = sourceCode.getFirstToken(node),
       lastToken = sourceCode.getLastToken(node);
@@ -1537,7 +1537,7 @@ const baseOffsetListeners = {
         return;
       }
 
-      variableIndent = 1;
+      variableIndent = DEFAULT_VARIABLE_INDENT;
     }
 
     if (
@@ -1728,19 +1728,24 @@ for (const [selector, listener] of Object.entries(
 const ignoredNodeListeners = options.ignoredNodes.reduce(
   (listeners, ignoredSelector) =>
     Object.assign(listeners, {
-      [ignoredSelector]: node => {
-        ignoredNodes.add(node);
-        ignoredNodeFirstTokens.add(sourceCode.getFirstToken(node));
-      },
+      [ignoredSelector]: addToIgnoredNodes,
     }),
   {},
 );
 
-const listeners = Object.assign(offsetListeners, ignoredNodeListeners, {
+const ignoredNodes = new Set();
+
+function addToIgnoredNodes(node) {
+  ignoredNodes.add(node);
+  ignoredNodeFirstTokens.add(sourceCode.getFirstToken(node));
+}
+
+const ignoredNodeFirstTokens = new Set();
+
+return Object.assign(offsetListeners, ignoredNodeListeners, {
   "*:exit"(node) {
     if (!KNOWN_NODES.has(node.type)) {
-      ignoredNodes.add(node);
-      ignoredNodeFirstTokens.add(sourceCode.getFirstToken(node));
+      addToIgnoredNodes(node);
     }
   },
   "Program:exit"() {
@@ -1853,6 +1858,78 @@ const listeners = Object.assign(offsetListeners, ignoredNodeListeners, {
     }
   },
 });
+
+const DEFAULT_VARIABLE_INDENT = 1;
+const DEFAULT_PARAMETER_INDENT = 1;
+const DEFAULT_FUNCTION_BODY_INDENT = 1;
+
+let indentType = "space";
+let indentSize = 4;
+const options = {
+  SwitchCase: 0,
+  VariableDeclarator: {
+    var: DEFAULT_VARIABLE_INDENT,
+    let: DEFAULT_VARIABLE_INDENT,
+    const: DEFAULT_VARIABLE_INDENT,
+  },
+  outerIIFEBody: 1,
+  FunctionDeclaration: {
+    parameters: DEFAULT_PARAMETER_INDENT,
+    body: DEFAULT_FUNCTION_BODY_INDENT,
+  },
+  FunctionExpression: {
+    parameters: DEFAULT_PARAMETER_INDENT,
+    body: DEFAULT_FUNCTION_BODY_INDENT,
+  },
+  StaticBlock: {
+    body: DEFAULT_FUNCTION_BODY_INDENT,
+  },
+  CallExpression: {
+    arguments: DEFAULT_PARAMETER_INDENT,
+  },
+  MemberExpression: 1,
+  ArrayExpression: 1,
+  ObjectExpression: 1,
+  ImportDeclaration: 1,
+  flatTernaryExpressions: false,
+  ignoredNodes: [],
+  ignoreComments: false,
+};
+
+if (context.options.length) {
+  if (context.options[0] === "tab") {
+    indentSize = 1;
+    indentType = "tab";
+  } else {
+    indentSize = context.options[0];
+    indentType = "space";
+  }
+
+  if (context.options[1]) {
+    Object.assign(options, context.options[1]);
+
+    if (
+      typeof options.VariableDeclarator === "number" ||
+      options.VariableDeclarator === "first"
+    ) {
+      options.VariableDeclarator = {
+        var: options.VariableDeclarator,
+        let: options.VariableDeclarator,
+        const: options.VariableDeclarator,
+      };
+    }
+  }
+}
+
+const sourceCode = context.sourceCode;
+const tokenInfo = new TokenInfo(sourceCode);
+const offsets = new OffsetStorage(
+  tokenInfo,
+  indentSize,
+  indentType === "space" ? " " : "\t",
+  sourceCode.text.length,
+);
+const parameterParens = new WeakSet();
 
 /** @type {import('../types').Rule.RuleModule} */
 module.exports = {
@@ -2018,81 +2095,121 @@ module.exports = {
   },
 
   create(context) {
-    const DEFAULT_VARIABLE_INDENT = 1;
-    const DEFAULT_PARAMETER_INDENT = 1;
-    const DEFAULT_FUNCTION_BODY_INDENT = 1;
-
-    let indentType = "space";
-    let indentSize = 4;
-    const options = {
-      SwitchCase: 0,
-      VariableDeclarator: {
-        var: DEFAULT_VARIABLE_INDENT,
-        let: DEFAULT_VARIABLE_INDENT,
-        const: DEFAULT_VARIABLE_INDENT,
-      },
-      outerIIFEBody: 1,
-      FunctionDeclaration: {
-        parameters: DEFAULT_PARAMETER_INDENT,
-        body: DEFAULT_FUNCTION_BODY_INDENT,
-      },
-      FunctionExpression: {
-        parameters: DEFAULT_PARAMETER_INDENT,
-        body: DEFAULT_FUNCTION_BODY_INDENT,
-      },
-      StaticBlock: {
-        body: DEFAULT_FUNCTION_BODY_INDENT,
-      },
-      CallExpression: {
-        arguments: DEFAULT_PARAMETER_INDENT,
-      },
-      MemberExpression: 1,
-      ArrayExpression: 1,
-      ObjectExpression: 1,
-      ImportDeclaration: 1,
-      flatTernaryExpressions: false,
-      ignoredNodes: [],
-      ignoreComments: false,
-    };
-
-    if (context.options.length) {
-      if (context.options[0] === "tab") {
-        indentSize = 1;
-        indentType = "tab";
-      } else {
-        indentSize = context.options[0];
-        indentType = "space";
-      }
-
-      if (context.options[1]) {
-        Object.assign(options, context.options[1]);
-
-        if (
-          typeof options.VariableDeclarator === "number" ||
-          options.VariableDeclarator === "first"
-        ) {
-          options.VariableDeclarator = {
-            var: options.VariableDeclarator,
-            let: options.VariableDeclarator,
-            const: options.VariableDeclarator,
-          };
+    return Object.assign(offsetListeners, ignoredNodeListeners, {
+      "*:exit"(node) {
+        if (!KNOWN_NODES.has(node.type)) {
+          addToIgnoredNodes(node);
         }
-      }
-    }
+      },
+      "Program:exit"() {
+        if (options.ignoreComments) {
+          sourceCode
+            .getAllComments()
+            .forEach(comment => offsets.ignoreToken(comment));
+        }
 
-    const sourceCode = context.sourceCode;
-    const tokenInfo = new TokenInfo(sourceCode);
-    const offsets = new OffsetStorage(
-      tokenInfo,
-      indentSize,
-      indentType === "space" ? " " : "\t",
-      sourceCode.text.length,
-    );
-    const parameterParens = new WeakSet();
+        for (let i = 0; i < listenerCallQueue.length; i++) {
+          const nodeInfo = listenerCallQueue[i];
 
-    const ignoredNodes = new Set();
-    const ignoredNodeFirstTokens = new Set();
+          if (!ignoredNodes.has(nodeInfo.node)) {
+            nodeInfo.listener(nodeInfo.node);
+          }
+        }
 
-    return listeners;
+        ignoredNodes.forEach(ignoreNode);
+
+        addParensIndent(sourceCode.ast.tokens);
+
+        const precedingTokens = new WeakMap();
+
+        for (let i = 0; i < sourceCode.ast.comments.length; i++) {
+          const comment = sourceCode.ast.comments[i];
+
+          const tokenOrCommentBefore = sourceCode.getTokenBefore(
+            comment,
+            { includeComments: true },
+          );
+          const hasToken = precedingTokens.has(tokenOrCommentBefore)
+            ? precedingTokens.get(tokenOrCommentBefore)
+            : tokenOrCommentBefore;
+
+          precedingTokens.set(comment, hasToken);
+        }
+
+        for (let i = 1; i < sourceCode.lines.length + 1; i++) {
+          if (!tokenInfo.firstTokensByLineNumber.has(i)) {
+            continue;
+          }
+
+          const firstTokenOfLine =
+            tokenInfo.firstTokensByLineNumber.get(i);
+
+          if (firstTokenOfLine.loc.start.line !== i) {
+            continue;
+          }
+
+          if (astUtils.isCommentToken(firstTokenOfLine)) {
+            const tokenBefore =
+              precedingTokens.get(firstTokenOfLine);
+            const tokenAfter = tokenBefore
+              ? sourceCode.getTokenAfter(tokenBefore)
+              : sourceCode.ast.tokens[0];
+            const mayAlignWithBefore =
+              tokenBefore &&
+              !hasBlankLinesBetween(
+                tokenBefore,
+                firstTokenOfLine,
+              );
+            const mayAlignWithAfter =
+              tokenAfter &&
+              !hasBlankLinesBetween(firstTokenOfLine, tokenAfter);
+
+            if (
+              tokenAfter &&
+              astUtils.isSemicolonToken(tokenAfter) &&
+              !astUtils.isTokenOnSameLine(
+                firstTokenOfLine,
+                tokenAfter,
+              )
+            ) {
+              offsets.setDesiredOffset(
+                firstTokenOfLine,
+                tokenAfter,
+                0,
+              );
+            }
+
+            if (
+              (mayAlignWithBefore &&
+                validateTokenIndent(
+                  firstTokenOfLine,
+                  offsets.getDesiredIndent(tokenBefore),
+                )) ||
+              (mayAlignWithAfter &&
+                validateTokenIndent(
+                  firstTokenOfLine,
+                  offsets.getDesiredIndent(tokenAfter),
+                ))
+            ) {
+              continue;
+            }
+          }
+
+          if (
+            validateTokenIndent(
+              firstTokenOfLine,
+              offsets.getDesiredIndent(firstTokenOfLine),
+            )
+          ) {
+            continue;
+          }
+
+          report(
+            firstTokenOfLine,
+            offsets.getDesiredIndent(firstTokenOfLine),
+          );
+        }
+      },
+    });
   },
 };

@@ -193,22 +193,15 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             let errorMessage = 'Failed to upload image. Try again.';
 
             if (error && typeof error === 'object' && 'statusCode' in error) {
-                errorMessage = getErrorMessage(error.statusCode);
+                const errorMessages: { [key: number]: string } = {
+                    413: 'Image size exceeds limit.',
+                    415: 'The file type is not supported.',
+                };
+                errorMessage = errorMessages[error.statusCode] || errorMessage;
             }
             toast.error(errorMessage);
         } finally {
             setIsImageUploading(false);
-        }
-    };
-
-    const getErrorMessage = (statusCode: number): string => {
-        switch (statusCode) {
-            case 413:
-                return 'Image size exceeds limit.';
-            case 415:
-                return 'The file type is not supported.';
-            default:
-                return 'Failed to upload image. Try again.';
         }
     };
 

@@ -136,39 +136,7 @@ class Tier {
     }
 
     getPrice(cadence) {
-        if (cadence === 'month') {
-            return this.monthlyPrice;
-        }
-        if (cadence === 'year') {
-            return this.yearlyPrice;
-        }
-        throw new ValidationError({
-            message: 'Invalid cadence'
-        });
-    }
-
-    updatePricing({currency, monthlyPrice, yearlyPrice}) {
-        if (this.#type !== 'paid' && (currency || monthlyPrice || yearlyPrice)) {
-            throw new ValidationError({
-                message: 'Cannot set pricing for free tiers'
-            });
-        }
-
-        const newCurrency = validateCurrency(currency, this.#type);
-        const newMonthlyPrice = validateMonthlyPrice(monthlyPrice, this.#type);
-        const newYearlyPrice = validateYearlyPrice(yearlyPrice, this.#type);
-
-        if (newCurrency === this.#currency && newMonthlyPrice === this.#monthlyPrice && newYearlyPrice === this.#yearlyPrice) {
-            return;
-        }
-
-        this.#currency = newCurrency;
-        this.#monthlyPrice = newMonthlyPrice;
-        this.#yearlyPrice = newYearlyPrice;
-
-        this.events.push(TierPriceChangeEvent.create({
-            tier: this
-        }));
+        return this.getPriceByCadence(cadence);
     }
 
     get createdAt() {
@@ -199,6 +167,48 @@ class Tier {
         };
     }
 
+    static async create(data) {
+        const id = this.generateId(data.id);
+        const name = validateName(data.name);
+        const slug = validateSlug(data.slug);
+        const description = validateDescription(data.description);
+        const welcomePageURL = validateWelcomePageURL(data.welcomePageURL);
+        const status = validateStatus(data.status || 'active');
+        const visibility = validateVisibility(data.visibility || 'public');
+        const type = validateType(data.type || 'paid');
+        const currency = validateCurrency(data.currency || null, type);
+        const trialDays = validateTrialDays(data.trialDays || 0, type);
+        const monthlyPrice = validateMonthlyPrice(data.monthlyPrice || null, type);
+        const yearlyPrice = validateYearlyPrice(data.yearlyPrice || null, type);
+        const createdAt = validateCreatedAt(data.createdAt);
+        const updatedAt = validateUpdatedAt(data.updatedAt);
+        const benefits = validateBenefits(data.benefits);
+
+        const tier = new Tier({
+            id,
+            slug,
+            name,
+            description,
+            welcomePageURL,
+            status,
+            visibility,
+            type,
+            trialDays,
+            currency,
+            monthlyPrice,
+            yearlyPrice,
+            createdAt,
+            updatedAt,
+            benefits
+        });
+
+        if (!data.id) {
+            tier.events.push(TierCreatedEvent.create({tier}));
+        }
+
+        return tier;
+    }
+
     updateName(value) {
         const newName = validateName(value);
         if (newName === this.#name) {
@@ -221,47 +231,54 @@ class Tier {
         this.#status = newStatus;
     }
 
-    static async create(data) {
-        let id;
-        let isNew = false;
-        if (!data.id) {
-            isNew = true;
-            id = new ObjectID();
-        } else if (typeof data.id === 'string') {
-            id = ObjectID.createFromHexString(data.id);
-        } else if (data.id instanceof ObjectID) {
-            id = data.id;
+    updatePricing({currency, monthlyPrice, yearlyPrice}) {
+        if (this.#type !== 'paid' && (currency || monthlyPrice || yearlyPrice)) {
+            throw new ValidationError({
+                message: 'Cannot set pricing for free tiers'
+            });
+        }
+
+        const newCurrency = validateCurrency(currency, this.#type);
+        const newMonthlyPrice = validateMonthlyPrice(monthlyPrice, this.#type);
+        const newYearlyPrice = validateYearlyPrice(yearlyPrice, this.#type);
+
+        if (newCurrency === this.#currency && newMonthlyPrice === this.#monthlyPrice && newYearlyPrice === this.#yearlyPrice) {
+            return;
+        }
+
+        this.#currency = newCurrency;
+        this.#monthlyPrice = newMonthlyPrice;
+        this.#yearlyPrice = newYearlyPrice;
+
+        this.events.push(TierPriceChangeEvent.create({
+            tier: this
+        }));
+    }
+
+    getPriceByCadence(cadence) {
+        if (cadence === 'month') {
+            return this.monthlyPrice;
+        }
+        if (cadence === 'year') {
+            return this.yearlyPrice;
+        }
+        throw new ValidationError({
+            message: 'Invalid cadence'
+        });
+    }
+
+    static generateId(id) {
+        if (!id) {
+            return new ObjectID();
+        } else if (typeof id === 'string') {
+            return ObjectID.createFromHexString(id);
+        } else if (id instanceof ObjectID) {
+            return id;
         } else {
             throw new ValidationError({
                 message: 'Invalid ID provided for Tier'
             });
         }
-
-        const tierData = {
-            id,
-            slug: validateSlug(data.slug),
-            name: validateName(data.name),
-            description: validateDescription(data.description),
-            welcomePageURL: validateWelcomePageURL(data.welcomePageURL),
-            status: validateStatus(data.status || 'active'),
-            visibility: validateVisibility(data.visibility || 'public'),
-            type: validateType(data.type || 'paid'),
-            trialDays: validateTrialDays(data.trialDays || 0, data.type || 'paid'),
-            currency: validateCurrency(data.currency || null, data.type || 'paid'),
-            monthlyPrice: validateMonthlyPrice(data.monthlyPrice || null, data.type || 'paid'),
-            yearlyPrice: validateYearlyPrice(data.yearlyPrice || null, data.type || 'paid'),
-            createdAt: validateCreatedAt(data.createdAt),
-            updatedAt: validateUpdatedAt(data.updatedAt),
-            benefits: validateBenefits(data.benefits)
-        };
-
-        const tier = new Tier(tierData);
-
-        if (isNew) {
-            tier.events.push(TierCreatedEvent.create({tier}));
-        }
-
-        return tier;
     }
 }
 

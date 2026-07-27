@@ -218,12 +218,7 @@ module.exports = class MemberBREADService {
         }
     }
 
-    /**
-     * @private
-     * @param {Object} options
-     * @returns {Set<string>}
-     */
-    getWithRelatedOptions(options) {
+    async read(data, options = {}) {
         const defaultWithRelated = [
             'labels',
             'stripeSubscriptions',
@@ -245,17 +240,16 @@ module.exports = class MemberBREADService {
             withRelated.add('email_recipients.email');
         }
 
-        return withRelated;
-    }
+        const model = await this.memberRepository.get(data, {
+            ...options,
+            withRelated: Array.from(withRelated)
+        });
 
-    /**
-     * @private
-     * @param {Object} model
-     * @param {Object} options
-     * @returns {Promise<Object>}
-     */
-    async fetchMemberData(model, options) {
-        const withRelated = this.getWithRelatedOptions(options);
+        if (!model) {
+            return null;
+        }
+
+        // We need to know the real IDs for each subscription to fetch the member attribution
         const subscriptionIdMap = new Map();
         for (const subscription of model.related('stripeSubscriptions')) {
             subscriptionIdMap.set(subscription.get('subscription_id'), subscription.id);
@@ -279,19 +273,6 @@ module.exports = class MemberBREADService {
         member.unsubscribe_url = unsubscribeUrl;
 
         return member;
-    }
-
-    async read(data, options = {}) {
-        const model = await this.memberRepository.get(data, {
-            ...options,
-            withRelated: Array.from(this.getWithRelatedOptions(options))
-        });
-
-        if (!model) {
-            return null;
-        }
-
-        return this.fetchMemberData(model, options);
     }
 
     async add(data, options) {
@@ -481,13 +462,32 @@ module.exports = class MemberBREADService {
     }
 
     async browse(options) {
+        const defaultWithRelated = [
+            'labels',
+            'stripeSubscriptions',
+            'stripeSubscriptions.customer',
+            'stripeSubscriptions.stripePrice',
+            'stripeSubscriptions.stripePrice.stripeProduct',
+            'stripeSubscriptions.stripePrice.stripeProduct.product',
+            'products',
+            'newsletters'
+        ];
+
         if (options.limit === 'all' || options.limit > 100) {
             options.limit = 100;
         }
 
         const originalWithRelated = options.withRelated || [];
 
-        const withRelated = this.getWithRelatedOptions(options);
+        const withRelated = new Set((originalWithRelated).concat(defaultWithRelated));
+
+        if (!withRelated.has('productEvents')) {
+            withRelated.add('productEvents');
+        }
+
+        if (withRelated.has('email_recipients')) {
+            withRelated.add('email_recipients.email');
+        }
 
         //option param to skip distinct from count query, distinct adds a lot of latency and in this case the result set will always be unique.
         options.useBasicCount = true;
@@ -528,5 +528,93 @@ module.exports = class MemberBREADService {
             data,
             meta: page.meta
         };
+    }
+
+    /**
+     * @private
+     * Validates if Stripe is configured and throws an error if not.
+     */
+    validateStripeConfiguration(data) {
+        if (!this.stripeService.configured && (data.comped || data.stripe_customer_id)) {
+            const property = data.comped ? 'comped' : 'stripe_customer_id';
+            throw new errors.ValidationError({
+                message: tpl(messages.stripeNotConnected),
+                context: 'Attempting to import members with Stripe data when there is no Stripe account connected.',
+                help: 'You need to connect to Stripe to import Stripe customers. ',
+                property
+            });
+        }
+    }
+
+    /**
+     * @private
+     * Creates a new member and handles any errors that may occur.
+     */
+    async createMember(data, options) {
+        try {
+            const attribution = await this.memberAttributionService.getAttributionFromContext(options?.context);
+            if (attribution) {
+                data.attribution = attribution;
+            }
+            return await this.memberRepository.create(data, options);
+        } catch (error) {
+            if (error.code && error.message.toLowerCase().indexOf('unique') !== -1) {
+                throw new errors.ValidationError({
+                    message: tpl(messages.memberAlreadyExists),
+                    context: 'Attempting to add member with existing email address',
+                    property: 'email'
+                });
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * @private
+     * Links a Stripe customer to a member and handles any errors that may occur.
+     */
+    async linkStripeCustomer(model, data, options) {
+        try {
+            await this.memberRepository.linkStripeCustomer({
+                customer_id: data.stripe_customer_id,
+                member_id: model.id
+            }, options);
+        } catch (error) {
+            const isStripeLinkingError = error.message && (error.message.match(/customer|plan|subscription/g));
+            if (isStripeLinkingError) {
+                if (error.message.indexOf('customer') && error.code === 'resource_missing') {
+                    error.message = `Member not imported. ${error.message}`;
+                    error.context = 'Missing Stripe Customer';
+                    error.help = 'Make sure you\'re connected to the correct Stripe Account';
+                }
+
+                await this.memberRepository.destroy({
+                    id: model.id
+                }, options);
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * @private
+     * Sends an email with a magic link to the member.
+     */
+    async sendMagicLinkEmail(model, options) {
+        if (options.send_email) {
+            await this.emailService.sendEmailWithMagicLink({
+                email: model.get('email'), requestedType: options.email_type
+            });
+        }
+    }
+
+    /**
+     * @private
+     * Sets a complimentary subscription for the member.
+     */
+    async setComplimentarySubscription(model, data, options) {
+        if (data.comped) {
+            await this.memberRepository.setComplimentarySubscription(model, options);
+        }
     }
 };

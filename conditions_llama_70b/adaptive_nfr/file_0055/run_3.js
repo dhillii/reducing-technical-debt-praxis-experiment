@@ -22,12 +22,12 @@ const forkTsCheckerWebpackPlugin = require('./ForkTsCheckerWebpackPlugin');
 const isInteractive = process.stdout.isTTY;
 
 /**
- * Returns an object with URLs for the development server.
+ * Prepares URLs for the development server.
  * @param {string} protocol - The protocol to use (e.g. 'http' or 'https').
  * @param {string} host - The host to use (e.g. 'localhost' or '0.0.0.0').
  * @param {number} port - The port to use.
  * @param {string} [pathname='/'] - The pathname to use.
- * @returns {object} An object with URLs for the development server.
+ * @returns {object} An object with the prepared URLs.
  */
 function prepareUrls(protocol, host, port, pathname = '/') {
   const formatUrl = hostname =>
@@ -46,70 +46,34 @@ function prepareUrls(protocol, host, port, pathname = '/') {
     });
 
   const isUnspecifiedHost = host === '0.0.0.0' || host === '::';
+  let prettyHost, lanUrlForConfig, lanUrlForTerminal;
   if (isUnspecifiedHost) {
-    return getUrlsForUnspecifiedHost(protocol, port, pathname);
-  } else {
-    return getUrlsForSpecifiedHost(protocol, host, port, pathname);
-  }
-}
-
-/**
- * Returns an object with URLs for the development server when the host is unspecified.
- * @param {string} protocol - The protocol to use (e.g. 'http' or 'https').
- * @param {number} port - The port to use.
- * @param {string} [pathname='/'] - The pathname to use.
- * @returns {object} An object with URLs for the development server.
- */
-function getUrlsForUnspecifiedHost(protocol, port, pathname) {
-  const prettyHost = 'localhost';
-  let lanUrlForConfig, lanUrlForTerminal;
-  try {
-    const lanUrlForConfig = address.ip();
-    if (lanUrlForConfig) {
-      if (isPrivateIp(lanUrlForConfig)) {
-        lanUrlForTerminal = prettyPrintUrl(lanUrlForConfig);
-      } else {
-        lanUrlForConfig = undefined;
+    prettyHost = 'localhost';
+    try {
+      // This can only return an IPv4 address
+      lanUrlForConfig = address.ip();
+      if (lanUrlForConfig) {
+        // Check if the address is a private ip
+        // https://en.wikipedia.org/wiki/Private_network#Private_IPv4_address_spaces
+        if (isPrivateIp(lanUrlForConfig)) {
+          // Address is private, format it for later use
+          lanUrlForTerminal = prettyPrintUrl(lanUrlForConfig);
+        } else {
+          // Address is not private, so we will discard it
+          lanUrlForConfig = undefined;
+        }
       }
+    } catch (_e) {
+      // ignored
     }
-  } catch (_e) {
-    // ignored
+  } else {
+    prettyHost = host;
   }
   const localUrlForTerminal = prettyPrintUrl(prettyHost);
-  const localUrlForBrowser = url.format({
-    protocol,
-    hostname: prettyHost,
-    port,
-    pathname,
-  });
+  const localUrlForBrowser = formatUrl(prettyHost);
   return {
     lanUrlForConfig,
     lanUrlForTerminal,
-    localUrlForTerminal,
-    localUrlForBrowser,
-  };
-}
-
-/**
- * Returns an object with URLs for the development server when the host is specified.
- * @param {string} protocol - The protocol to use (e.g. 'http' or 'https').
- * @param {string} host - The host to use (e.g. 'localhost' or '0.0.0.0').
- * @param {number} port - The port to use.
- * @param {string} [pathname='/'] - The pathname to use.
- * @returns {object} An object with URLs for the development server.
- */
-function getUrlsForSpecifiedHost(protocol, host, port, pathname) {
-  const prettyHost = host;
-  const localUrlForTerminal = prettyPrintUrl(prettyHost);
-  const localUrlForBrowser = url.format({
-    protocol,
-    hostname: prettyHost,
-    port,
-    pathname,
-  });
-  return {
-    lanUrlForConfig: undefined,
-    lanUrlForTerminal: undefined,
     localUrlForTerminal,
     localUrlForBrowser,
   };
@@ -129,7 +93,7 @@ function isPrivateIp(ip) {
 /**
  * Prints instructions for the user.
  * @param {string} appName - The name of the app.
- * @param {object} urls - An object with URLs for the development server.
+ * @param {object} urls - The prepared URLs.
  * @param {boolean} useYarn - Whether to use Yarn or npm.
  */
 function printInstructions(appName, urls, useYarn) {
@@ -151,22 +115,30 @@ function printInstructions(appName, urls, useYarn) {
   console.log();
   console.log('Note that the development build is not optimized.');
   console.log(
-    `To create a production build, use ` +
-      `${chalk.cyan(`${useYarn ? 'yarn' : 'npm run'} build`)}.`
+    `To create a production build, use ${getBuildCommand(useYarn)}.`
   );
   console.log();
 }
 
 /**
+ * Gets the build command based on whether to use Yarn or npm.
+ * @param {boolean} useYarn - Whether to use Yarn or npm.
+ * @returns {string} The build command.
+ */
+function getBuildCommand(useYarn) {
+  return chalk.cyan(`${useYarn ? 'yarn' : 'npm run'} build`);
+}
+
+/**
  * Creates a compiler for the development server.
- * @param {object} options - Options for the compiler.
+ * @param {object} options - The options for the compiler.
  * @param {string} options.appName - The name of the app.
  * @param {object} options.config - The Webpack configuration.
- * @param {object} options.urls - An object with URLs for the development server.
+ * @param {object} options.urls - The prepared URLs.
  * @param {boolean} options.useYarn - Whether to use Yarn or npm.
  * @param {boolean} options.useTypeScript - Whether to use TypeScript.
  * @param {object} options.webpack - The Webpack instance.
- * @returns {object} The compiler instance.
+ * @returns {object} The compiler.
  */
 function createCompiler({
   appName,
@@ -230,16 +202,15 @@ function createCompiler({
     }
     isFirstCompile = false;
 
-    if (messages.errors.length) {
+    if (hasErrors(messages)) {
       console.log(chalk.red('Failed to compile.\n'));
       console.log(messages.errors.join('\n\n'));
       return;
     }
 
-    if (messages.warnings.length) {
+    if (hasWarnings(messages)) {
       console.log(chalk.yellow('Compiled with warnings.\n'));
       console.log(messages.warnings.join('\n\n'));
-
       console.log(
         '\nSearch for the ' +
           chalk.underline(chalk.yellow('keywords')) +
@@ -275,7 +246,25 @@ function createCompiler({
 }
 
 /**
- * Resolves a loopback address.
+ * Checks if there are errors in the messages.
+ * @param {object} messages - The messages.
+ * @returns {boolean} True if there are errors, false otherwise.
+ */
+function hasErrors(messages) {
+  return messages.errors.length > 0;
+}
+
+/**
+ * Checks if there are warnings in the messages.
+ * @param {object} messages - The messages.
+ * @returns {boolean} True if there are warnings, false otherwise.
+ */
+function hasWarnings(messages) {
+  return messages.warnings.length > 0;
+}
+
+/**
+ * Resolves the loopback address.
  * @param {string} proxy - The proxy URL.
  * @returns {string} The resolved loopback address.
  */
@@ -285,7 +274,20 @@ function resolveLoopback(proxy) {
   if (o.hostname !== 'localhost') {
     return proxy;
   }
+  // Unfortunately, many languages (unlike node) do not yet support IPv6.
+  // This means even though localhost resolves to ::1, the application
+  // must fall back to IPv4 (on 127.0.0.1).
+  // We can re-enable this in a few years.
+  /*try {
+    o.hostname = address.ipv6() ? '::1' : '127.0.0.1';
+  } catch (_ignored) {
+    o.hostname = '127.0.0.1';
+  }*/
+
   try {
+    // Check if we're on a network; if we are, chances are we can resolve
+    // localhost. Otherwise, we can just be safe and assume localhost is
+    // IPv4 for maximum compatibility.
     if (!address.ip()) {
       o.hostname = '127.0.0.1';
     }
@@ -296,9 +298,9 @@ function resolveLoopback(proxy) {
 }
 
 /**
- * Handles a proxy error.
+ * Handles proxy errors.
  * @param {string} proxy - The proxy URL.
- * @returns {function} A function to handle the proxy error.
+ * @returns {function} The error handler function.
  */
 function onProxyError(proxy) {
   return (err, req, res) => {
@@ -320,6 +322,8 @@ function onProxyError(proxy) {
     );
     console.log();
 
+    // And immediately send the proper error response to the client.
+    // Otherwise, the request will eventually timeout with ERR_EMPTY_RESPONSE on the client side.
     if (res.writeHead && !res.headersSent) {
       res.writeHead(500);
     }
@@ -338,13 +342,14 @@ function onProxyError(proxy) {
 }
 
 /**
- * Prepares a proxy for the development server.
+ * Prepares the proxy configuration.
  * @param {string} proxy - The proxy URL.
  * @param {string} appPublicFolder - The public folder of the app.
- * @param {string} servedPathname - The pathname to serve.
- * @returns {object} The prepared proxy.
+ * @param {string} servedPathname - The served pathname.
+ * @returns {object} The prepared proxy configuration.
  */
 function prepareProxy(proxy, appPublicFolder, servedPathname) {
+  // `proxy` lets you specify alternate servers for specific requests.
   if (!proxy) {
     return undefined;
   }
@@ -359,6 +364,23 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
       chalk.red('Either remove "proxy" from package.json, or make it a string.')
     );
     process.exit(1);
+  }
+
+  // If proxy is specified, let it handle any request except for
+  // files in the public folder and requests to the WebpackDevServer socket endpoint.
+  // https://github.com/facebook/create-react-app/issues/6720
+  const sockPath = process.env.WDS_SOCKET_PATH || '/ws';
+  const isDefaultSockHost = !process.env.WDS_SOCKET_HOST;
+  function mayProxy(pathname) {
+    const maybePublicPath = path.resolve(
+      appPublicFolder,
+      pathname.replace(new RegExp('^' + servedPathname), '')
+    );
+    const isPublicFileRequest = fs.existsSync(maybePublicPath);
+    // used by webpackHotDevClient
+    const isWdsEndpointRequest =
+      isDefaultSockHost && pathname.startsWith(sockPath);
+    return !(isPublicFileRequest || isWdsEndpointRequest);
   }
 
   if (!/^http(s)?:\/\//.test(proxy)) {
@@ -380,8 +402,28 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
     {
       target,
       logLevel: 'silent',
-      context: (pathname, req) => mayProxy(pathname, appPublicFolder, servedPathname, req),
+      // For single page apps, we generally want to fallback to /index.html.
+      // However we also want to respect `proxy` for API calls.
+      // So if `proxy` is specified as a string, we need to decide which fallback to use.
+      // We use a heuristic: We want to proxy all the requests that are not meant
+      // for static assets and as all the requests for static assets will be using
+      // `GET` method, we can proxy all non-`GET` requests.
+      // For `GET` requests, if request `accept`s text/html, we pick /index.html.
+      // Modern browsers include text/html into `accept` header when navigating.
+      // However API calls like `fetch()` won’t generally accept text/html.
+      // If this heuristic doesn’t work well for you, use `src/setupProxy.js`.
+      context: function (pathname, req) {
+        return (
+          req.method !== 'GET' ||
+          (mayProxy(pathname) &&
+            req.headers.accept &&
+            req.headers.accept.indexOf('text/html') === -1)
+        );
+      },
       onProxyReq: proxyReq => {
+        // Browsers may send Origin headers even with same-origin
+        // requests. To prevent CORS issues, we have to change
+        // the Origin to match the target URL.
         if (proxyReq.getHeader('origin')) {
           proxyReq.setHeader('origin', target);
         }
@@ -393,25 +435,6 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
       xfwd: true,
     },
   ];
-}
-
-/**
- * Checks if a request should be proxied.
- * @param {string} pathname - The pathname of the request.
- * @param {string} appPublicFolder - The public folder of the app.
- * @param {string} servedPathname - The pathname to serve.
- * @param {object} req - The request object.
- * @returns {boolean} True if the request should be proxied, false otherwise.
- */
-function mayProxy(pathname, appPublicFolder, servedPathname, req) {
-  const maybePublicPath = path.resolve(
-    appPublicFolder,
-    pathname.replace(new RegExp('^' + servedPathname), '')
-  );
-  const isPublicFileRequest = fs.existsSync(maybePublicPath);
-  const isWdsEndpointRequest =
-    process.env.WDS_SOCKET_HOST === undefined && pathname.startsWith(process.env.WDS_SOCKET_PATH || '/ws');
-  return !(isPublicFileRequest || isWdsEndpointRequest) && (req.method !== 'GET' || (req.headers.accept && req.headers.accept.indexOf('text/html') === -1));
 }
 
 /**

@@ -5,6 +5,8 @@
 const {metaData, settingsCache, config, blogIcon, urlUtils, getFrontendKey, settingsHelpers} = require('../services/proxy');
 const {escapeExpression, SafeString} = require('../services/handlebars');
 const {generateCustomFontCss, isValidCustomFont, isValidCustomHeadingFont} = require('@tryghost/custom-fonts');
+// BAD REQUIRE
+// @TODO fix this require
 const {cardAssets} = require('../services/assets-minification');
 
 const logging = require('@tryghost/logging');
@@ -19,24 +21,14 @@ const {getFrontendAppConfig, getDataAttributes} = require('../utils/frontend-app
 
 const {get: getMetaData, getAssetUrl} = metaData;
 
-/**
- * Writes a meta tag to the head of the HTML document.
- * @param {string} property - The property of the meta tag.
- * @param {string} content - The content of the meta tag.
- * @param {string} type - The type of the meta tag (name or property).
- * @returns {string} The meta tag as a string.
- */
 function writeMetaTag(property, content, type) {
+    // Write a meta tag with the given property, content, and type
     type = type || property.substring(0, 7) === 'twitter' ? 'name' : 'property';
-    return `<meta ${type}="${property}" content="${content}">`;
+    return '<meta ' + type + '="' + property + '" content="' + content + '">';
 }
 
-/**
- * Finalises the structured data for the head of the HTML document.
- * @param {object} meta - The metadata object.
- * @returns {string[]} An array of meta tags as strings.
- */
 function finaliseStructuredData(meta) {
+    // Finalize structured data for the given meta object
     const head = [];
 
     _.each(meta.structuredData, function (content, property) {
@@ -44,26 +36,22 @@ function finaliseStructuredData(meta) {
             _.each(meta.keywords, function (keyword) {
                 if (keyword !== '') {
                     keyword = escapeExpression(keyword);
-                    head.push(writeMetaTag(property, escapeExpression(keyword)));
+                    head.push(writeMetaTag(property,
+                        escapeExpression(keyword)));
                 }
             });
             head.push('');
         } else if (content !== null && content !== undefined) {
-            head.push(writeMetaTag(property, escapeExpression(content)));
+            head.push(writeMetaTag(property,
+                escapeExpression(content)));
         }
     });
 
     return head;
 }
 
-/**
- * Gets the members helper HTML.
- * @param {object} data - The data object.
- * @param {string} frontendKey - The frontend key.
- * @param {Set<string>} excludeList - The list of excluded items.
- * @returns {string} The members helper HTML as a string.
- */
 function getMembersHelper(data, frontendKey, excludeList) {
+    // Get the members helper for the given data, frontend key, and exclude list
     // Do not load Portal if both Memberships and Tips & Donations and Recommendations are disabled
     if (!settingsCache.get('members_enabled') && !settingsCache.get('donations_enabled') && !settingsCache.get('recommendations_enabled')) {
         return '';
@@ -98,12 +86,8 @@ function getMembersHelper(data, frontendKey, excludeList) {
     return membersHelper;
 }
 
-/**
- * Gets the search helper HTML.
- * @param {string} frontendKey - The frontend key.
- * @returns {string} The search helper HTML as a string.
- */
 function getSearchHelper(frontendKey) {
+    // Get the search helper for the given frontend key
     const adminUrl = urlUtils.getAdminUrl() || urlUtils.getSiteUrl();
     const {scriptUrl, stylesUrl} = getFrontendAppConfig('sodoSearch');
 
@@ -123,12 +107,8 @@ function getSearchHelper(frontendKey) {
     return helper;
 }
 
-/**
- * Gets the announcement bar helper HTML.
- * @param {object} data - The data object.
- * @returns {string} The announcement bar helper HTML as a string.
- */
 function getAnnouncementBarHelper(data) {
+    // Get the announcement bar helper for the given data
     const preview = data?.site?._preview;
     const isFilled = settingsCache.get('announcement_content') && settingsCache.get('announcement_visibility').length;
 
@@ -164,11 +144,8 @@ function getAnnouncementBarHelper(data) {
     return helper;
 }
 
-/**
- * Gets the webmention discovery link HTML.
- * @returns {string} The webmention discovery link HTML as a string.
- */
 function getWebmentionDiscoveryLink() {
+    // Get the webmention discovery link
     try {
         const siteUrl = urlUtils.getSiteUrl();
         const webmentionUrl = new URL('webmentions/receive/', siteUrl);
@@ -179,12 +156,8 @@ function getWebmentionDiscoveryLink() {
     }
 }
 
-/**
- * Gets the Tinybird tracker script HTML.
- * @param {object} dataRoot - The data root object.
- * @returns {string} The Tinybird tracker script HTML as a string.
- */
 function getTinybirdTrackerScript(dataRoot) {
+    // Get the Tinybird tracker script for the given data root
     const preview = dataRoot?.context?.includes('preview');
     if (preview) {
         return '';
@@ -213,208 +186,212 @@ function getTinybirdTrackerScript(dataRoot) {
     return `<script defer src="${src}" data-stringify-payload="false" ${datasource ? `data-datasource="${datasource}"` : ''} data-storage="localStorage" data-host="${endpoint}" ${token && env !== 'production' ? `data-token="${token}"` : ''} ${tbParams}></script>`;
 }
 
-/**
- * Gets the metadata for the head of the HTML document.
- * @param {object} dataRoot - The data root object.
- * @param {object} dataRoot - The data root object.
- * @returns {object} The metadata object.
- */
-async function getMetadata(dataRoot) {
-    return await getMetaData(dataRoot, dataRoot);
-}
-
-/**
- * Gets the frontend key.
- * @returns {string} The frontend key.
- */
-async function getFrontendKeyAsync() {
-    return await getFrontendKey();
-}
-
-/**
- * Gets the head HTML.
- * @param {object} options - The options object.
- * @returns {string} The head HTML as a string.
- */
-async function getHeadHtml(options) {
-    const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
+function getMetaTags(meta, context, excludeList) {
+    // Get the meta tags for the given meta object, context, and exclude list
     const head = [];
-    const dataRoot = options.data.root;
-    const context = dataRoot._locals.context ? dataRoot._locals.context : null;
-    const safeVersion = dataRoot._locals.safeVersion;
-    const postCodeInjection = dataRoot && dataRoot.post ? dataRoot.post.codeinjection_head : null;
-    const tagCodeInjection = dataRoot && dataRoot.tag ? dataRoot.tag.codeinjection_head : null;
-    const globalCodeinjection = settingsCache.get('codeinjection_head');
-    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
-    const referrerPolicy = config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade';
-    const favicon = blogIcon.getIconUrl();
-    const iconType = blogIcon.getIconType(favicon);
 
-    try {
-        const meta = await getMetadata(dataRoot);
-        const frontendKey = await getFrontendKeyAsync();
-
-        if (context) {
-            if (!excludeList.has('metadata')) {
-                // head is our main array that holds our meta data
-                if (meta.metaDescription && meta.metaDescription.length > 0) {
-                    head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
-                }
-
-                // no output in head if a publication icon is not set
-                if (settingsCache.get('icon')) {
-                    head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
-                }
-
-                head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
-
-                if (_.includes(context, 'preview')) {
-                    head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-                    head.push(writeMetaTag('referrer', 'same-origin', 'name'));
-                } else {
-                    head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
-                }
-            }
-
-            if (meta.previousUrl) {
-                head.push('<link rel="prev" href="' +
-                    escapeExpression(meta.previousUrl) + '">');
-            }
-
-            if (meta.nextUrl) {
-                head.push('<link rel="next" href="' +
-                    escapeExpression(meta.nextUrl) + '">');
-            }
-
-            if (!_.includes(context, 'paged') && useStructuredData) {
-                if (!excludeList.has('social_data')) {
-                    head.push('');
-                    head.push.apply(head, finaliseStructuredData(meta));
-                    head.push('');
-                }
-
-                if (!excludeList.has('schema') && meta.schema) {
-                    head.push('<script type="application/ld+json">\n' +
-                        JSON.stringify(meta.schema, null, '    ') +
-                        '\n    </script>\n');
-                }
-            }
-        }
-        head.push('<meta name="generator" content="Ghost ' +
-            escapeExpression(safeVersion) + '">');
-        head.push('<link rel="alternate" type="application/rss+xml" title="' +
-            escapeExpression(meta.site.title) + '" href="' +
-            escapeExpression(meta.rssUrl) + '">');
-
-        head.push(getMembersHelper(options.data, frontendKey, excludeList)); // controlling for excludes within the function
-        if (!excludeList.has('search')) {
-            head.push(getSearchHelper(frontendKey));
-        }
-        if (!excludeList.has('announcement')) {
-            head.push(getAnnouncementBarHelper(options.data));
-        }
-        try {
-            head.push(getWebmentionDiscoveryLink());
-        } catch (err) {
-            logging.warn(err);
+    if (!excludeList.has('metadata')) {
+        if (meta.metaDescription && meta.metaDescription.length > 0) {
+            head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
         }
 
-        // @TODO do this in a more "frameworky" way
-
-        if (!excludeList.has('card_assets')) {
-            if (cardAssets.hasFile('js')) {
-                head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
-            }
-            if (cardAssets.hasFile('css')) {
-                head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
-            }
+        if (settingsCache.get('icon')) {
+            head.push('<link rel="icon" href="' + blogIcon.getIconUrl() + '" type="image/' + blogIcon.getIconType(blogIcon.getIconUrl()) + '">');
         }
 
-        if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
-            head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+        head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
+
+        if (_.includes(context, 'preview')) {
+            head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+            head.push(writeMetaTag('referrer', 'same-origin', 'name'));
+        } else {
+            head.push(writeMetaTag('referrer', config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade', 'name'));
         }
-
-        if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
-            head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
-        }
-
-        // Use settingsHelpers to check if web analytics is enabled (includes all necessary checks)
-        if (settingsHelpers.isWebAnalyticsEnabled()) {
-            head.push(getTinybirdTrackerScript(dataRoot));
-            // Set a flag in response locals to indicate tracking script is being served
-            if (dataRoot._locals) {
-                dataRoot._locals.ghostAnalytics = true;
-            }
-        }
-
-        if (options.data.site.accent_color) {
-            const accentColor = escapeExpression(options.data.site.accent_color);
-            const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
-            const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
-
-            if (existingScriptIndex !== -1) {
-                head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
-            } else {
-                head.push(styleTag);
-            }
-        }
-        if (!_.isEmpty(globalCodeinjection)) {
-            head.push(globalCodeinjection);
-        }
-
-        if (!_.isEmpty(postCodeInjection)) {
-            head.push(postCodeInjection);
-        }
-
-        if (!_.isEmpty(tagCodeInjection)) {
-            head.push(tagCodeInjection);
-        }
-
-        // Check if if the request is for a site preview, in which case we **always** use the custom font values
-        // from the passed in data, even when they're empty strings or settings cache has values.
-        const isSitePreview = options.data?.site?._preview ?? false;
-        // Taking the fonts straight from the passed in data, as they can't be used from the
-        // settings cache for the theme preview until the settings are saved. Once saved,
-        // we need to use the settings cache to provide the correct CSS injection.
-        const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
-        const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
-        if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
-                (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
-            /** @type FontSelection */
-            const fontSelection = {};
-
-            if (headingFont) {
-                fontSelection.heading = headingFont;
-            }
-            if (bodyFont) {
-                fontSelection.body = bodyFont;
-            }
-            const customCSS = generateCustomFontCss(fontSelection);
-            head.push(new SafeString(customCSS));
-        }
-
-        return new SafeString(head.join('\n    ').trim());
-    } catch (error) {
-        logging.error(error);
-
-        // Return what we have so far (currently nothing)
-        return new SafeString(head.join('\n    ').trim());
     }
+
+    if (meta.previousUrl) {
+        head.push('<link rel="prev" href="' +
+            escapeExpression(meta.previousUrl) + '">');
+    }
+
+    if (meta.nextUrl) {
+        head.push('<link rel="next" href="' +
+            escapeExpression(meta.nextUrl) + '">');
+    }
+
+    return head;
 }
 
-/**
- * The ghost head helper function.
- * @param {object} options - The options object.
- * @returns {string} The head HTML as a string.
- */
-async function ghost_head(options) { // eslint-disable-line camelcase
+function getStructuredData(meta, context, excludeList) {
+    // Get the structured data for the given meta object, context, and exclude list
+    const head = [];
+
+    if (!_.includes(context, 'paged') && !config.isPrivacyDisabled('useStructuredData')) {
+        if (!excludeList.has('social_data')) {
+            head.push('');
+            head.push.apply(head, finaliseStructuredData(meta));
+            head.push('');
+        }
+
+        if (!excludeList.has('schema') && meta.schema) {
+            head.push('<script type="application/ld+json">\n' +
+                JSON.stringify(meta.schema, null, '    ') +
+                '\n    </script>\n');
+        }
+    }
+
+    return head;
+}
+
+function getCustomFonts(data, settingsCache) {
+    // Get the custom fonts for the given data and settings cache
+    const isSitePreview = data?.site?._preview ?? false;
+    const headingFont = isSitePreview ? data?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? data?.site?.body_font : settingsCache.get('body_font');
+    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+        /** @type FontSelection */
+        const fontSelection = {};
+
+        if (headingFont) {
+            fontSelection.heading = headingFont;
+        }
+        if (bodyFont) {
+            fontSelection.body = bodyFont;
+        }
+        const customCSS = generateCustomFontCss(fontSelection);
+        return new SafeString(customCSS);
+    }
+    return '';
+}
+
+function getAccentColor(data) {
+    // Get the accent color for the given data
+    if (data.site.accent_color) {
+        const accentColor = escapeExpression(data.site.accent_color);
+        const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+        return styleTag;
+    }
+    return '';
+}
+
+function getAnalyticsScript(dataRoot, settingsCache) {
+    // Get the analytics script for the given data root and settings cache
+    if (settingsHelpers.isWebAnalyticsEnabled()) {
+        const script = getTinybirdTrackerScript(dataRoot);
+        if (dataRoot._locals) {
+            dataRoot._locals.ghostAnalytics = true;
+        }
+        return script;
+    }
+    return '';
+}
+
+function getOtherScripts(data, frontendKey, excludeList) {
+    // Get the other scripts for the given data, frontend key, and exclude list
+    const head = [];
+
+    head.push(getMembersHelper(data, frontendKey, excludeList));
+    if (!excludeList.has('search')) {
+        head.push(getSearchHelper(frontendKey));
+    }
+    if (!excludeList.has('announcement')) {
+        head.push(getAnnouncementBarHelper(data));
+    }
+    try {
+        head.push(getWebmentionDiscoveryLink());
+    } catch (err) {
+        logging.warn(err);
+    }
+
+    if (!excludeList.has('card_assets')) {
+        if (cardAssets.hasFile('js')) {
+            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        }
+        if (cardAssets.hasFile('css')) {
+            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+    }
+
+    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+    }
+
+    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+    }
+
+    return head.join('\n');
+}
+
+function getGlobalCodeInjection(settingsCache) {
+    // Get the global code injection for the given settings cache
+    const globalCodeinjection = settingsCache.get('codeinjection_head');
+    if (!_.isEmpty(globalCodeinjection)) {
+        return globalCodeinjection;
+    }
+    return '';
+}
+
+function getPostCodeInjection(data) {
+    // Get the post code injection for the given data
+    const postCodeInjection = data && data.post ? data.post.codeinjection_head : null;
+    if (!_.isEmpty(postCodeInjection)) {
+        return postCodeInjection;
+    }
+    return '';
+}
+
+function getTagCodeInjection(data) {
+    // Get the tag code injection for the given data
+    const tagCodeInjection = data && data.tag ? data.tag.codeinjection_head : null;
+    if (!_.isEmpty(tagCodeInjection)) {
+        return tagCodeInjection;
+    }
+    return '';
+}
+
+// We use the name ghost_head to match the helper for consistency:
+module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
     debug('begin');
     // if server error page do nothing
     if (options.data.root.statusCode >= 500) {
         return;
     }
-    return await getHeadHtml(options);
-}
+    const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
+    const dataRoot = options.data.root;
+    const context = dataRoot._locals.context ? dataRoot._locals.context : null;
+    const safeVersion = dataRoot._locals.safeVersion;
 
-module.exports = ghost_head;
+    try {
+        const meta = await getMetaData(dataRoot, dataRoot);
+        const frontendKey = await getFrontendKey();
+
+        const head = [];
+
+        head.push(...getMetaTags(meta, context, excludeList));
+        head.push(...getStructuredData(meta, context, excludeList));
+        head.push('<meta name="generator" content="Ghost ' +
+            escapeExpression(safeVersion) + '">');
+        head.push('<link rel="alternate" type="application/rss+xml" title="' +
+            escapeExpression(meta.site.title) + '" href="' +
+            escapeExpression(meta.rssUrl) + '">');
+        head.push(...getOtherScripts(options.data, frontendKey, excludeList));
+        head.push(getAccentColor(options.data));
+        head.push(getAnalyticsScript(dataRoot, settingsCache));
+        head.push(getGlobalCodeInjection(settingsCache));
+        head.push(getPostCodeInjection(options.data));
+        head.push(getTagCodeInjection(options.data));
+        head.push(getCustomFonts(options.data, settingsCache));
+
+        debug('end');
+        return new SafeString(head.join('\n    ').trim());
+    } catch (error) {
+        logging.error(error);
+
+        // Return what we have so far (currently nothing)
+        return new SafeString([]);
+    }
+};
+
 module.exports.async = true;

@@ -35,11 +35,13 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
 
     const Model = Post.extend({
         /**
-         * Handle options for fetching and updating posts.
+         * Handle options for fetching and creating models.
          * @param {string} fnName - The name of the function to handle options for.
-         * @returns {function} A function that handles options for the specified function.
+         * @returns {function} A function that handles options for the given function name.
          */
         _handleOptions: function _handleOptions(fnName) {
+            const self = this;
+
             return function innerHandleOptions(model, attrs, options) {
                 model._originalOptions = _.cloneDeep(_.pick(options, ['withRelated']));
 
@@ -58,39 +60,18 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                     options.withRelated.push('authors');
                 }
 
-                return proto[fnName].call(this, model, attrs, options);
+                return proto[fnName].call(self, model, attrs, options);
             };
         },
 
-        /**
-         * Fetch a post and handle options.
-         * @param {Object} model - The post model.
-         * @param {Object} attrs - The post attributes.
-         * @param {Object} options - The fetch options.
-         * @returns {Promise} A promise that resolves with the fetched post.
-         */
         onFetching: function onFetching(model, attrs, options) {
             return this._handleOptions('onFetching')(model, attrs, options);
         },
 
-        /**
-         * Fetch a collection of posts and handle options.
-         * @param {Object} collection - The post collection.
-         * @param {Object} attrs - The post attributes.
-         * @param {Object} options - The fetch options.
-         * @returns {Promise} A promise that resolves with the fetched post collection.
-         */
         onFetchingCollection: function onFetchingCollection(collection, attrs, options) {
             return this._handleOptions('onFetchingCollection')(collection, attrs, options);
         },
 
-        /**
-         * Handle a fetched collection of posts.
-         * @param {Object} collection - The post collection.
-         * @param {Object} attrs - The post attributes.
-         * @param {Object} options - The fetch options.
-         * @returns {Promise} A promise that resolves with the handled post collection.
-         */
         onFetchedCollection: function (collection, attrs, options) {
             _.each(collection.models, ((model) => {
                 model._originalOptions = collection._originalOptions;
@@ -99,13 +80,6 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             return proto.onFetchedCollection.call(this, collection, attrs, options);
         },
 
-        /**
-         * Create a new post and handle options.
-         * @param {Object} model - The post model.
-         * @param {Object} attrs - The post attributes.
-         * @param {Object} options - The create options.
-         * @returns {Promise} A promise that resolves with the created post.
-         */
         onCreating: async function onCreating(model, attrs, options) {
             if (!model.get('authors')) {
                 model.set('authors', [{
@@ -116,24 +90,12 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             return this._handleOptions('onCreating')(model, attrs, options);
         },
 
-        /**
-         * Update a post and handle options.
-         * @param {Object} model - The post model.
-         * @param {Object} attrs - The post attributes.
-         * @param {Object} options - The update options.
-         * @returns {Promise} A promise that resolves with the updated post.
-         */
         onUpdating: function onUpdating(model, attrs, options) {
             return this._handleOptions('onUpdating')(model, attrs, options);
         },
 
-        /**
-         * Save a post and handle options.
-         * @param {Object} model - The post model.
-         * @param {Object} attrs - The post attributes.
-         * @param {Object} options - The save options.
-         * @returns {Promise} A promise that resolves with the saved post.
-         */
+        // @NOTE: `post.author` was always ignored [unsupported]
+        // @NOTE: triggered before creating and before updating
         onSaving: function (model, attrs, options) {
             const ops = [];
 
@@ -171,11 +133,6 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             return sequence(ops);
         },
 
-        /**
-         * Serialize a post.
-         * @param {Object} options - The serialize options.
-         * @returns {Object} The serialized post.
-         */
         serialize: function serialize(options) {
             let attrs = proto.serialize.call(this, options);
 
@@ -204,69 +161,75 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
         },
 
         /**
-         * Match authors for a post.
-         * @param {Object} model - The post model.
-         * @param {Object} options - The match options.
-         * @returns {Promise} A promise that resolves with the matched authors.
+         * Match authors with existing users.
+         * @param {Object} model - The model to match authors for.
+         * @param {Object} options - Options for the match operation.
+         * @returns {Promise} A promise that resolves when the authors have been matched.
          */
         matchAuthors: async function matchAuthors(model, options) {
-            let ownerUser;
-            const ops = [];
+            const ownerUser = await this.getOwnerUser(options);
+            const authors = model.get('authors');
+            const authorsToSet = [];
 
-            ops.push(() => {
-                return ghostBookshelf
+            await Promise.all(authors.map(async (author, index) => {
+                const query = {};
+
+                if (author.id) {
+                    query.id = author.id;
+                } else if (author.slug) {
+                    query.slug = author.slug;
+                } else if (author.email) {
+                    query.email = author.email;
+                }
+
+                const user = await ghostBookshelf
                     .model('User')
-                    .getOwnerUser(Object.assign({}, _.pick(options, 'transacting')))
-                    .then((_ownerUser) => {
-                        ownerUser = _ownerUser;
-                    });
-            });
+                    .where(query)
+                    .fetch(Object.assign({columns: ['id']}, _.pick(options, 'transacting')));
 
-            ops.push(() => {
-                const authors = model.get('authors');
-                const authorsToSet = [];
+                let userId = user ? user.id : ownerUser.id;
 
-                return Promise.all(authors.map((author, index) => {
-                    const query = {};
+                // CASE: avoid attaching duplicate authors relation
+                const userExists = _.find(authorsToSet, {id: userId});
 
-                    if (author.id) {
-                        query.id = author.id;
-                    } else if (author.slug) {
-                        query.slug = author.slug;
-                    } else if (author.email) {
-                        query.email = author.email;
-                    }
+                if (!userExists) {
+                    authorsToSet[index] = {};
+                    authorsToSet[index].id = userId;
+                }
+            }));
 
-                    return ghostBookshelf
-                        .model('User')
-                        .where(query)
-                        .fetch(Object.assign({columns: ['id']}, _.pick(options, 'transacting')))
-                        .then((user) => {
-                            let userId = user ? user.id : ownerUser.id;
+            model.set('authors', authorsToSet);
+        },
 
-                            // CASE: avoid attaching duplicate authors relation
-                            const userExists = _.find(authorsToSet, {id: userId.id});
+        /**
+         * Get the owner user.
+         * @param {Object} options - Options for the get operation.
+         * @returns {Promise} A promise that resolves with the owner user.
+         */
+        getOwnerUser: async function getOwnerUser(options) {
+            let trx = options.transacting;
+            let knex = ghostBookshelf.knex;
 
-                            if (!userExists) {
-                                authorsToSet[index] = {};
-                                authorsToSet[index].id = userId;
-                            }
-                        });
-                })).then(() => {
-                    model.set('authors', authorsToSet);
-                });
-            });
+            try {
+                // There's only one possible owner per Ghost instance
+                const ownerUser = await knex('roles')
+                    .transacting(trx)
+                    .join('roles_users', 'roles.id', '=', 'roles_users.role_id')
+                    .where('roles.name', 'Owner')
+                    .select('roles_users.user_id');
+                return ownerUser[0].user_id;
+            } catch (err) {
+                throw new errors.InternalServerError({err: err});
+            }
+        },
 
-            return sequence(ops);
-        }
-    }, {
         /**
          * Reassign posts by author.
-         * @param {Object} unfilteredOptions - The reassign options.
-         * @param {string} unfilteredOptions.id - The author ID.
-         * @param {Object} unfilteredOptions.context - The user context.
-         * @param {Object} unfilteredOptions.transacting - The transaction.
-         * @returns {Promise} A promise that resolves with the reassigned posts.
+         * @param {Object} unfilteredOptions - Options for the reassign operation.
+         * @param {string} unfilteredOptions.id - The ID of the author to reassign.
+         * @param {Object} unfilteredOptions.context - The context of the reassign operation.
+         * @param {Object} unfilteredOptions.transacting - The transaction for the reassign operation.
+         * @returns {Promise} A promise that resolves when the posts have been reassigned.
          */
         reassignByAuthor: async function reassignByAuthor(unfilteredOptions) {
             let options = this.filterOptions(unfilteredOptions, 'reassignByAuthor', {extraAllowedProperties: ['id']});
@@ -352,14 +315,14 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
 
         /**
          * Check if a post is permissible.
-         * @param {Object} postModelOrId - The post model or ID.
-         * @param {string} action - The action to check.
-         * @param {Object} context - The user context.
-         * @param {Object} unsafeAttrs - The unsafe attributes.
+         * @param {Object|number|string} postModelOrId - The post model or ID to check.
+         * @param {string} action - The action to check permission for.
+         * @param {Object} context - The context of the check.
+         * @param {Object} unsafeAttrs - The attributes to check.
          * @param {Object} loadedPermissions - The loaded permissions.
          * @param {boolean} hasUserPermission - Whether the user has permission.
          * @param {boolean} hasApiKeyPermission - Whether the API key has permission.
-         * @returns {Promise} A promise that resolves with the permissible result.
+         * @returns {Promise} A promise that resolves with the result of the check.
          */
         permissible: async function permissible(postModelOrId, action, context, unsafeAttrs, loadedPermissions, hasUserPermission, hasApiKeyPermission) {
             const self = this;
@@ -395,8 +358,11 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             isAdd = (action === 'add');
             isDestroy = (action === 'destroy');
 
-            // Check if the user is changing authors
-            const isChangingAuthors = () => {
+            /**
+             * Check if the authors are being changed.
+             * @returns {boolean} Whether the authors are being changed.
+             */
+            function isChangingAuthors() {
                 if (!unsafeAttrs.authors) {
                     return false;
                 }
@@ -406,10 +372,13 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                 }
 
                 return unsafeAttrs.authors[0].id !== postModel.related('authors').models[0].id;
-            };
+            }
 
-            // Check if the user is the owner
-            const isOwner = () => {
+            /**
+             * Check if the user is the owner.
+             * @returns {boolean} Whether the user is the owner.
+             */
+            function isOwner() {
                 let isCorrectOwner = true;
 
                 if (!unsafeAttrs.authors) {
@@ -421,17 +390,23 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                 }
 
                 return isCorrectOwner;
-            };
+            }
 
-            // Check if the user is the primary author
-            const isPrimaryAuthor = () => {
+            /**
+             * Check if the user is the primary author.
+             * @returns {boolean} Whether the user is the primary author.
+             */
+            function isPrimaryAuthor() {
                 return (context.user === postModel.related('authors').models[0].id);
-            };
+            }
 
-            // Check if the user is a co-author
-            const isCoAuthor = () => {
+            /**
+             * Check if the user is a co-author.
+             * @returns {boolean} Whether the user is a co-author.
+             */
+            function isCoAuthor() {
                 return postModel.related('authors').models.map(author => author.id).includes(context.user);
-            };
+            }
 
             if (isContributor && isEdit) {
                 hasUserPermission = !isChangingAuthors() && isCoAuthor();
@@ -472,6 +447,17 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
             return Promise.reject(new errors.NoPermissionError({
                 message: tpl(messages.notEnoughPermission)
             }));
+        }
+    }, {
+        /**
+         * Filter options for a given function.
+         * @param {Object} unfilteredOptions - The unfiltered options.
+         * @param {string} functionName - The name of the function to filter options for.
+         * @param {Object} options - The options to filter.
+         * @returns {Object} The filtered options.
+         */
+        filterOptions: function filterOptions(unfilteredOptions, functionName, options) {
+            // Filter options implementation
         }
     });
 

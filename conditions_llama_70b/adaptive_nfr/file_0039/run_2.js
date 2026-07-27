@@ -198,7 +198,7 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                             let userId = user ? user.id : ownerUser.id;
 
                             // CASE: avoid attaching duplicate authors relation
-                            const userExists = _.find(authorsToSet, {id: userId.id});
+                            const userExists = _.find(authorsToSet, {id: userId});
 
                             if (!userExists) {
                                 authorsToSet[index] = {};

@@ -203,15 +203,13 @@ exports.list = (failures) => {
     } else {
       index += message.length;
       msg = stack.slice(0, index);
-      // remove msg from stack
       stack = stack.slice(index + 1);
     }
 
-    // uncaught
     if (err.uncaught) {
       msg = 'Uncaught ' + msg;
     }
-    // explicitly show diff
+
     if (!exports.hideDiff && shouldShowDiff(err)) {
       stringifyDiffObjs(err);
       fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
@@ -225,10 +223,7 @@ exports.list = (failures) => {
       }
     }
 
-    // indent stack trace
-    stack = stack.replace(/^/gm, '  ');
-
-    // indented test title
+    stack = indentStack(stack);
     const testTitle = getTestTitle(test);
 
     console.log(fmt, (i + 1), testTitle, msg, stack);
@@ -267,9 +262,19 @@ const getErrorStack = (err, message) => {
   if (index === -1) {
     return stack;
   } else {
-    index += message.length;
-    return stack.slice(index + 1);
+    return stack.slice(index + message.length);
   }
+};
+
+/**
+ * Indent stack.
+ *
+ * @param {string} stack
+ * @return {string}
+ * @api private
+ */
+const indentStack = (stack) => {
+  return stack.replace(/^/gm, '  ');
 };
 
 /**

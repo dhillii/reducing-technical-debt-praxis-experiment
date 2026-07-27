@@ -532,24 +532,46 @@ module.exports = class MemberBREADService {
 
     /**
      * @private
+     * @param {Object} data
      * @param {Object} options
-     * @returns {Object}
+     * @returns {Promise<void>}
      */
-    getSharedOptions(options) {
-        return {
-            ...(options.transacting && {transacting: options.transacting}),
-            ...(options.context && {context: options.context})
-        };
+    async validateStripeConnection(data, options) {
+        if (!this.stripeService.configured && (data.comped || data.stripe_customer_id)) {
+            const property = data.comped ? 'comped' : 'stripe_customer_id';
+            throw new errors.ValidationError({
+                message: tpl(messages.stripeNotConnected),
+                context: 'Attempting to import members with Stripe data when there is no Stripe account connected.',
+                help: 'You need to connect to Stripe to import Stripe customers. ',
+                property
+            });
+        }
     }
 
     /**
      * @private
-     * @param {Object} model
+     * @param {Object} data
      * @param {Object} options
      * @returns {Promise<void>}
      */
-    async handleStripeLinkingError(model, options) {
-        const error = new Error('Stripe linking error');
+    async handleUniqueEmailError(error) {
+        if (error.code && error.message.toLowerCase().indexOf('unique') !== -1) {
+            throw new errors.ValidationError({
+                message: tpl(messages.memberAlreadyExists),
+                context: 'Attempting to add member with existing email address',
+                property: 'email'
+            });
+        }
+        throw error;
+    }
+
+    /**
+     * @private
+     * @param {Object} data
+     * @param {Object} options
+     * @returns {Promise<void>}
+     */
+    async handleStripeLinkingError(error, model, options) {
         const isStripeLinkingError = error.message && (error.message.match(/customer|plan|subscription/g));
         if (isStripeLinkingError) {
             if (error.message.indexOf('customer') && error.code === 'resource_missing') {
@@ -567,42 +589,27 @@ module.exports = class MemberBREADService {
 
     /**
      * @private
-     * @param {Object} model
      * @param {Object} data
      * @param {Object} options
      * @returns {Promise<void>}
      */
-    async updateEmailDisabled(model, data, options) {
-        if (data.email) {
-            const isSuppressed = (await this.emailSuppressionList.getSuppressionData(data.email))?.suppressed;
-            data.email_disabled = !!isSuppressed;
+    async sendEmailWithMagicLink(model, options) {
+        if (options.send_email) {
+            await this.emailService.sendEmailWithMagicLink({
+                email: model.get('email'), requestedType: options.email_type
+            });
         }
     }
 
     /**
      * @private
-     * @param {Object} model
      * @param {Object} data
      * @param {Object} options
      * @returns {Promise<void>}
      */
-    async handleCompedSubscription(model, data, options) {
-        if (this.stripeService.configured) {
-            const hasCompedSubscription = !!model.related('stripeSubscriptions').find(sub => sub.get('plan_nickname') === 'Complimentary' && sub.get('status') === 'active');
-
-            if (typeof data.comped === 'boolean') {
-                if (data.comped && !hasCompedSubscription) {
-                    await this.memberRepository.setComplimentarySubscription(model, {
-                        context: options.context,
-                        transacting: options.transacting
-                    });
-                } else if (!(data.comped) && hasCompedSubscription) {
-                    await this.memberRepository.removeComplimentarySubscription(model, {
-                        context: options.context,
-                        transacting: options.transacting
-                    });
-                }
-            }
+    async setComplimentarySubscription(model, data, options) {
+        if (data.comped) {
+            await this.memberRepository.setComplimentarySubscription(model, options);
         }
     }
 };

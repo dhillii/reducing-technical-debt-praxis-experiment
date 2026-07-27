@@ -24,6 +24,8 @@ const he = require('he');
 
 const ignore = ['node_modules', '.git'];
 
+exports.inherits = require('util').inherits;
+
 /**
  * Escape special characters in the given string of html.
  *
@@ -31,9 +33,9 @@ const ignore = ['node_modules', '.git'];
  * @param  {string} html
  * @return {string}
  */
-function escapeHtml(html) {
+exports.escape = function (html) {
   return he.encode(String(html), { useNamedReferences: false });
-}
+};
 
 /**
  * Test if the given obj is type of string.
@@ -42,9 +44,9 @@ function escapeHtml(html) {
  * @param {Object} obj
  * @return {boolean}
  */
-function isString(obj) {
+exports.isString = function (obj) {
   return typeof obj === 'string';
-}
+};
 
 /**
  * Watch the given `files` for changes
@@ -54,17 +56,17 @@ function isString(obj) {
  * @param {Array} files
  * @param {Function} fn
  */
-function watchFiles(files, fn) {
+exports.watch = function (files, fn) {
   const options = { interval: 100 };
-  files.forEach((file) => {
+  files.forEach(function (file) {
     debug('file %s', file);
-    watchFile(file, options, (curr, prev) => {
+    watchFile(file, options, function (curr, prev) {
       if (prev.mtime < curr.mtime) {
         fn(file);
       }
     });
   });
-}
+};
 
 /**
  * Ignored files.
@@ -73,7 +75,7 @@ function watchFiles(files, fn) {
  * @param {string} path
  * @return {boolean}
  */
-function isIgnored(path) {
+function ignored (path) {
   return !~ignore.indexOf(path);
 }
 
@@ -86,22 +88,25 @@ function isIgnored(path) {
  * @param {Array} [ret=[]]
  * @return {Array}
  */
-function getFiles(dir, ext = ['js'], ret = []) {
+exports.files = function (dir, ext, ret) {
+  ret = ret || [];
+  ext = ext || ['js'];
+
   const re = new RegExp('\\.(' + ext.join('|') + ')$');
 
   readdirSync(dir)
-    .filter(isIgnored)
-    .forEach((path) => {
+    .filter(ignored)
+    .forEach(function (path) {
       path = join(dir, path);
       if (lstatSync(path).isDirectory()) {
-        getFiles(path, ext, ret);
+        exports.files(path, ext, ret);
       } else if (path.match(re)) {
         ret.push(path);
       }
     });
 
   return ret;
-}
+};
 
 /**
  * Compute a slug from the given `str`.
@@ -110,12 +115,12 @@ function getFiles(dir, ext = ['js'], ret = []) {
  * @param {string} str
  * @return {string}
  */
-function computeSlug(str) {
+exports.slug = function (str) {
   return str
     .toLowerCase()
     .replace(/ +/g, '-')
     .replace(/[^-\w]/g, '');
-}
+};
 
 /**
  * Strip the function definition from `str`, and re-indent for pre whitespace.
@@ -123,7 +128,7 @@ function computeSlug(str) {
  * @param {string} str
  * @return {string}
  */
-function cleanString(str) {
+exports.clean = function (str) {
   str = str
     .replace(/\r\n?|[\n\u2028\u2029]/g, '\n').replace(/^\uFEFF/, '')
     // (traditional)->  space/name     parameters    body     (lambda)-> parameters       body   multi-statement/single          keep body content
@@ -136,7 +141,7 @@ function cleanString(str) {
   str = str.replace(re, '');
 
   return str.trim();
-}
+};
 
 /**
  * Parse the given `qs`.
@@ -145,8 +150,8 @@ function cleanString(str) {
  * @param {string} qs
  * @return {Object}
  */
-function parseQuery(qs) {
-  return qs.replace('?', '').split('&').reduce((obj, pair) => {
+exports.parseQuery = function (qs) {
+  return qs.replace('?', '').split('&').reduce(function (obj, pair) {
     const i = pair.indexOf('=');
     const key = pair.slice(0, i);
     const val = pair.slice(++i);
@@ -156,7 +161,7 @@ function parseQuery(qs) {
 
     return obj;
   }, {});
-}
+};
 
 /**
  * Highlight the given string of `js`.
@@ -165,7 +170,7 @@ function parseQuery(qs) {
  * @param {string} js
  * @return {string}
  */
-function highlightJs(js) {
+function highlight (js) {
   return js
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -183,12 +188,12 @@ function highlightJs(js) {
  * @api private
  * @param {string} name
  */
-function highlightTags(name) {
+exports.highlightTags = function (name) {
   const code = document.getElementById('mocha').getElementsByTagName(name);
   for (let i = 0, len = code.length; i < len; ++i) {
-    code[i].innerHTML = highlightJs(code[i].innerHTML);
+    code[i].innerHTML = highlight(code[i].innerHTML);
   }
-}
+};
 
 /**
  * If a value could have properties, and has none, this function is called,
@@ -204,7 +209,7 @@ function highlightTags(name) {
  * @param {string} typeHint The type of the value
  * @returns {string}
  */
-function emptyRepresentation(value, typeHint) {
+function emptyRepresentation (value, typeHint) {
   switch (typeHint) {
     case 'function':
       return '[Function]';
@@ -238,7 +243,7 @@ function emptyRepresentation(value, typeHint) {
  * type(global) // 'global'
  * type(new String('foo') // 'object'
  */
-function getType(value) {
+const type = exports.type = function type (value) {
   if (value === undefined) {
     return 'undefined';
   } else if (value === null) {
@@ -249,7 +254,7 @@ function getType(value) {
   return Object.prototype.toString.call(value)
     .replace(/^\[.+\s(.+?)]$/, '$1')
     .toLowerCase();
-}
+};
 
 /**
  * Stringify `value`. Different behavior depending on type of value:
@@ -258,7 +263,7 @@ function getType(value) {
  * - If `value` is not an object, function or array, return result of `value.toString()` wrapped in double-quotes.
  * - If `value` is an *empty* object, function, or array, return result of function
  *   {@link emptyRepresentation}.
- * - If `value` has properties, call {@link canonicalize} on it, then return result of
+ * - If `value` has properties, call {@link exports.canonicalize} on it, then return result of
  *   JSON.stringify().
  *
  * @api private
@@ -266,8 +271,8 @@ function getType(value) {
  * @param {*} value
  * @return {string}
  */
-function stringifyValue(value) {
-  const typeHint = getType(value);
+exports.stringify = function (value) {
+  const typeHint = type(value);
 
   if (!~['object', 'array', 'function'].indexOf(typeHint)) {
     if (typeHint === 'buffer') {
@@ -280,7 +285,7 @@ function stringifyValue(value) {
     // IE7/IE8 has a bizarre String constructor; needs to be coerced
     // into an array and back to obj.
     if (typeHint === 'string' && typeof value === 'object') {
-      value = value.split('').reduce((acc, char, idx) => {
+      value = value.split('').reduce(function (acc, char, idx) {
         acc[idx] = char;
         return acc;
       }, {});
@@ -292,12 +297,12 @@ function stringifyValue(value) {
 
   for (const prop in value) {
     if (Object.prototype.hasOwnProperty.call(value, prop)) {
-      return jsonStringify(canonicalize(value, null, typeHint), 2).replace(/,(\n|$)/g, '$1');
+      return jsonStringify(exports.canonicalize(value, null, typeHint), 2).replace(/,(\n|$)/g, '$1');
     }
   }
 
   return emptyRepresentation(value, typeHint);
-}
+};
 
 /**
  * like JSON.stringify but more sense.
@@ -308,7 +313,7 @@ function stringifyValue(value) {
  * @param {number=} depth
  * @returns {*}
  */
-function jsonStringify(object, spaces, depth) {
+function jsonStringify (object, spaces, depth) {
   if (typeof spaces === 'undefined') {
     // primitive types
     return _stringify(object);
@@ -320,12 +325,12 @@ function jsonStringify(object, spaces, depth) {
   const end = Array.isArray(object) ? ']' : '}';
   const length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
   // `.repeat()` polyfill
-  function repeat(s, n) {
+  function repeat (s, n) {
     return new Array(n).join(s);
   }
 
-  function _stringify(val) {
-    switch (getType(val)) {
+  function _stringify (val) {
+    switch (type(val)) {
       case 'null':
       case 'undefined':
         val = '[' + val + ']';
@@ -395,13 +400,13 @@ function jsonStringify(object, spaces, depth) {
  * @param {string} [typeHint] Type hint
  * @return {(Object|Array|Function|string|undefined)}
  */
-function canonicalize(value, stack, typeHint) {
+exports.canonicalize = function canonicalize (value, stack, typeHint) {
   let canonicalizedObj;
   /* eslint-disable no-unused-vars */
   let prop;
   /* eslint-enable no-unused-vars */
-  typeHint = typeHint || getType(value);
-  function withStack(value, fn) {
+  typeHint = typeHint || type(value);
+  function withStack (value, fn) {
     stack.push(value);
     fn();
     stack.pop();
@@ -420,9 +425,9 @@ function canonicalize(value, stack, typeHint) {
       canonicalizedObj = value;
       break;
     case 'array':
-      withStack(value, () => {
-        canonicalizedObj = value.map((item) => {
-          return canonicalize(item, stack);
+      withStack(value, function () {
+        canonicalizedObj = value.map(function (item) {
+          return exports.canonicalize(item, stack);
         });
       });
       break;
@@ -440,9 +445,9 @@ function canonicalize(value, stack, typeHint) {
     /* falls through */
     case 'object':
       canonicalizedObj = canonicalizedObj || {};
-      withStack(value, () => {
-        Object.keys(value).sort().forEach((key) => {
-          canonicalizedObj[key] = canonicalize(value[key], stack);
+      withStack(value, function () {
+        Object.keys(value).sort().forEach(function (key) {
+          canonicalizedObj[key] = exports.canonicalize(value[key], stack);
         });
       });
       break;
@@ -458,7 +463,7 @@ function canonicalize(value, stack, typeHint) {
   }
 
   return canonicalizedObj;
-}
+};
 
 /**
  * Lookup file names at the given `path`.
@@ -469,7 +474,7 @@ function canonicalize(value, stack, typeHint) {
  * @param {boolean} recursive Whether or not to recurse into subdirectories.
  * @return {string[]} An array of paths.
  */
-function lookupFiles(path, extensions, recursive) {
+exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
   const files = [];
 
   if (!exists(path)) {
@@ -494,7 +499,7 @@ function lookupFiles(path, extensions, recursive) {
     return;
   }
 
-  readdirSync(path).forEach((file) => {
+  readdirSync(path).forEach(function (file) {
     file = join(path, file);
     try {
       const stat = statSync(file);
@@ -516,7 +521,7 @@ function lookupFiles(path, extensions, recursive) {
   });
 
   return files;
-}
+};
 
 /**
  * Generate an undefined error with a message warning the user.
@@ -524,9 +529,9 @@ function lookupFiles(path, extensions, recursive) {
  * @return {Error}
  */
 
-function undefinedError() {
+exports.undefinedError = function () {
   return new Error('Caught undefined error, did you throw without specifying what?');
-}
+};
 
 /**
  * Generate an undefined error if `err` is not defined.
@@ -535,9 +540,9 @@ function undefinedError() {
  * @return {Error}
  */
 
-function getError(err) {
-  return err || undefinedError();
-}
+exports.getError = function (err) {
+  return err || exports.undefinedError();
+};
 
 /**
  * @summary
@@ -548,7 +553,7 @@ function getError(err) {
  * (i.e: strip Mocha and internal node functions from stack trace).
  * @returns {Function}
  */
-function stackTraceFilter() {
+exports.stackTraceFilter = function () {
   // TODO: Replace with `process.browser`
   const is = typeof document === 'undefined' ? { node: true } : { browser: true };
   const slash = path.sep;
@@ -562,14 +567,14 @@ function stackTraceFilter() {
     slash = '/';
   }
 
-  function isMochaInternal(line) {
+  function isMochaInternal (line) {
     return (~line.indexOf('node_modules' + slash + 'mocha' + slash)) ||
       (~line.indexOf('node_modules' + slash + 'mocha.js')) ||
       (~line.indexOf('bower_components' + slash + 'mocha.js')) ||
       (~line.indexOf(slash + 'mocha.js'));
   }
 
-  function isNodeInternal(line) {
+  function isNodeInternal (line) {
     return (~line.indexOf('(timers.js:')) ||
       (~line.indexOf('(events.js:')) ||
       (~line.indexOf('(node.js:')) ||
@@ -578,10 +583,10 @@ function stackTraceFilter() {
       false;
   }
 
-  return (stack) => {
+  return function (stack) {
     stack = stack.split('\n');
 
-    stack = stack.reduce((list, line) => {
+    stack = stack.reduce(function (list, line) {
       if (isMochaInternal(line)) {
         return list;
       }
@@ -601,7 +606,7 @@ function stackTraceFilter() {
 
     return stack.join('\n');
   };
-}
+};
 
 /**
  * Crude, but effective.
@@ -609,38 +614,12 @@ function stackTraceFilter() {
  * @param {*} value
  * @returns {boolean} Whether or not `value` is a Promise
  */
-function isPromise(value) {
+exports.isPromise = function isPromise (value) {
   return typeof value === 'object' && typeof value.then === 'function';
-}
+};
 
 /**
  * It's a noop.
  * @api
  */
-function noop() {}
-
-const utils = {
-  escapeHtml,
-  isString,
-  watchFiles,
-  isIgnored,
-  getFiles,
-  computeSlug,
-  cleanString,
-  parseQuery,
-  highlightJs,
-  highlightTags,
-  emptyRepresentation,
-  getType,
-  stringifyValue,
-  jsonStringify,
-  canonicalize,
-  lookupFiles,
-  undefinedError,
-  getError,
-  stackTraceFilter,
-  isPromise,
-  noop,
-};
-
-module.exports = utils;
+exports.noop = function () {};

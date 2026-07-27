@@ -7,6 +7,7 @@
 const EventEmitter = require('events').EventEmitter;
 const Pending = require('./pending');
 const utils = require('./utils');
+const inherits = utils.inherits;
 const debug = require('debug')('mocha:runner');
 const Runnable = require('./runnable');
 const stackFilter = utils.stackTraceFilter();
@@ -83,7 +84,7 @@ Runner.immediately = global.setImmediate || process.nextTick;
 /**
  * Inherit from `EventEmitter.prototype`.
  */
-utils.inherits(Runner, EventEmitter);
+inherits(Runner, EventEmitter);
 
 /**
  * Run tests with full titles matching `re`. Updates runner.total
@@ -442,7 +443,7 @@ Runner.prototype.runTests = function (suite, fn) {
   const tests = suite.tests.slice();
   let test;
 
-  function hookErr(_, errSuite, after) {
+  function hookErr(err, errSuite, after) {
     // before/after Each hook for errSuite failed:
     const orig = self.suite;
 
@@ -554,6 +555,7 @@ Runner.prototype.runTests = function (suite, fn) {
           } else if (retry < test.retries()) {
             const clonedTest = test.clone();
             clonedTest.currentRetry(retry + 1);
+
             tests.unshift(clonedTest);
 
             // Early return + hook trigger so that it doesn't

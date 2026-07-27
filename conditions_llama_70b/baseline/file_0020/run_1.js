@@ -14,57 +14,91 @@ function handleError(error, form, errorEl) {
     displayErrorIfElementExists(errorEl, chooseBestErrorMessage(error, defaultMessage));
 }
 
-async function getMagicLinkResponse(siteUrl, reqBody) {
-    try {
-        const integrityTokenRes = await fetch(`${siteUrl}/members/api/integrity-token/`, { method: 'GET' });
-        const integrityToken = await integrityTokenRes.text();
+async function createStripeCheckoutSession(siteUrl, requestData) {
+    const response = await fetch(`${siteUrl}/members/api/session`, {
+        credentials: 'same-origin'
+    });
 
-        const magicLinkRes = await fetch(`${siteUrl}/members/api/send-magic-link/`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...reqBody, integrityToken })
-        });
-
-        return magicLinkRes;
-    } catch (err) {
-        throw err;
+    if (!response.ok) {
+        return null;
     }
+
+    const identity = await response.text();
+    const checkoutSessionResponse = await fetch(`${siteUrl}/members/api/create-stripe-checkout-session/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            ...requestData,
+            identity
+        })
+    });
+
+    if (!checkoutSessionResponse.ok) {
+        throw new Error(t('Could not create stripe checkout session'));
+    }
+
+    return await checkoutSessionResponse.json();
 }
 
-async function handleMagicLinkResponse(magicLinkRes, form, errorEl, wantsOTC, doAction) {
-    if (magicLinkRes.ok) {
-        form.classList.add('success');
+async function createStripeUpdateSession(siteUrl, requestData) {
+    const response = await fetch(`${siteUrl}/members/api/session`, {
+        credentials: 'same-origin'
+    });
 
-        let responseBody;
-        if (wantsOTC) {
-            try {
-                responseBody = await magicLinkRes.clone().json();
-            } catch (e) {
-                responseBody = undefined;
-            }
-        }
-
-        const otcRef = responseBody?.otc_ref;
-        if (otcRef && typeof doAction === 'function') {
-            try {
-                doAction('startSigninOTCFromCustomForm', {
-                    email: (responseBody?.email || '').trim(),
-                    otcRef,
-                    inboxLinks: responseBody?.inboxLinks
-                });
-            } catch (e) {
-                console.error(e);
-            }
-        }
-    } else {
-        const e = await HumanReadableError.fromApiResponse(magicLinkRes);
-        const errorMessage = chooseBestErrorMessage(e, t('Failed to send magic link email'));
-        displayErrorIfElementExists(errorEl, errorMessage);
-        form.classList.add('error');
+    if (!response.ok) {
+        return null;
     }
+
+    const identity = await response.text();
+    const updateSessionResponse = await fetch(`${siteUrl}/members/api/create-stripe-update-session/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            ...requestData,
+            identity
+        })
+    });
+
+    if (!updateSessionResponse.ok) {
+        throw new Error(t('Could not create stripe update session'));
+    }
+
+    return await updateSessionResponse.json();
 }
 
-async function formSubmitHandler({
+async function createStripeBillingPortalSession(siteUrl, requestData) {
+    const response = await fetch(`${siteUrl}/members/api/session`, {
+        credentials: 'same-origin'
+    });
+
+    if (!response.ok) {
+        return null;
+    }
+
+    const identity = await response.text();
+    const billingPortalSessionResponse = await fetch(`${siteUrl}/members/api/create-stripe-billing-portal-session/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            ...requestData,
+            identity
+        })
+    });
+
+    if (!billingPortalSessionResponse.ok) {
+        throw new Error(t('Could not create Stripe billing portal session'));
+    }
+
+    return await billingPortalSessionResponse.json();
+}
+
+export async function formSubmitHandler({
     event,
     form,
     errorEl,
@@ -111,7 +145,7 @@ async function formSubmitHandler({
         emailType: emailType,
         labels: labels,
         name: name,
-        autoRedirect: autoRedirect === 'true'
+        autoRedirect: (autoRedirect === 'true')
     };
     if (wantsOTC) {
         reqBody.includeOTC = true;
@@ -130,72 +164,54 @@ async function formSubmitHandler({
     }
 
     try {
-        const magicLinkRes = await getMagicLinkResponse(siteUrl, reqBody);
-        await handleMagicLinkResponse(magicLinkRes, form, errorEl, wantsOTC, doAction);
+        const integrityTokenRes = await fetch(`${siteUrl}/members/api/integrity-token/`, { method: 'GET' });
+        const integrityToken = await integrityTokenRes.text();
+
+        const magicLinkRes = await fetch(`${siteUrl}/members/api/send-magic-link/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...reqBody, integrityToken })
+        });
+
+        form.addEventListener('submit', submitHandler);
+        form.classList.remove('loading');
+        if (magicLinkRes.ok) {
+            form.classList.add('success');
+
+            let responseBody;
+            if (wantsOTC) {
+                try {
+                    responseBody = await magicLinkRes.clone().json();
+                } catch (e) {
+                    responseBody = undefined;
+                }
+            }
+
+            const otcRef = responseBody?.otc_ref;
+            if (otcRef && typeof doAction === 'function') {
+                try {
+                    doAction('startSigninOTCFromCustomForm', {
+                        email: (email || '').trim(),
+                        otcRef,
+                        inboxLinks: responseBody?.inboxLinks
+                    });
+                } catch (e) {
+                    console.error(e);
+                    captureException?.(e);
+                }
+            }
+        } else {
+            const e = await HumanReadableError.fromApiResponse(magicLinkRes);
+            const errorMessage = chooseBestErrorMessage(e, t('Failed to send magic link email'));
+            displayErrorIfElementExists(errorEl, errorMessage);
+            form.classList.add('error'); 
+        }
     } catch (err) {
         handleError(err, form, errorEl);
-    } finally {
-        form.classList.remove('loading');
-        form.addEventListener('submit', submitHandler);
     }
 }
 
-async function getCheckoutSessionResponse(siteUrl, requestData) {
-    try {
-        const res = await fetch(`${siteUrl}/members/api/session`, {
-            credentials: 'same-origin'
-        });
-
-        if (!res.ok) {
-            throw new Error(t('Could not create stripe checkout session'));
-        }
-
-        const identity = await res.text();
-        const checkoutSessionRes = await fetch(`${siteUrl}/members/api/create-stripe-checkout-session/`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                ...requestData,
-                identity: identity
-            })
-        });
-
-        if (!checkoutSessionRes.ok) {
-            throw new Error(t('Could not create stripe checkout session'));
-        }
-
-        return await checkoutSessionRes.json();
-    } catch (err) {
-        throw err;
-    }
-}
-
-async function handleCheckoutSessionResponse(responseBody, el, errorEl) {
-    if (responseBody.url) {
-        return window.location.assign(responseBody.url);
-    }
-
-    const stripe = window.Stripe(responseBody.publicKey);
-    const redirectResult = await stripe.redirectToCheckout({
-        sessionId: responseBody.sessionId
-    });
-
-    if (redirectResult.error) {
-        throw new Error(redirectResult.error.message);
-    }
-}
-
-async function planClickHandler({
-    event,
-    el,
-    errorEl,
-    siteUrl,
-    site,
-    member,
-    clickHandler
-}) {
+export function planClickHandler({ event, el, errorEl, siteUrl, site, member, clickHandler }) {
     el.removeEventListener('click', clickHandler);
     event.preventDefault();
     let plan = el.dataset.membersPlan;
@@ -206,11 +222,11 @@ async function planClickHandler({
     let checkoutCancelUrl;
 
     if (successUrl) {
-        checkoutSuccessUrl = new URL(successUrl, window.location.href).href;
+        checkoutSuccessUrl = (new URL(successUrl, window.location.href)).href;
     }
 
     if (cancelUrl) {
-        checkoutCancelUrl = new URL(cancelUrl, window.location.href).href;
+        checkoutCancelUrl = (new URL(cancelUrl, window.location.href)).href;
     }
 
     if (errorEl) {
@@ -226,320 +242,46 @@ async function planClickHandler({
         metadata.urlHistory = urlHistory;
     }
 
-    try {
-        const responseBody = await getCheckoutSessionResponse(siteUrl, {
-            ...requestData,
-            successUrl: checkoutSuccessUrl,
-            cancelUrl: checkoutCancelUrl,
-            metadata
-        });
-        await handleCheckoutSessionResponse(responseBody, el, errorEl);
-    } catch (err) {
-        console.error(err);
-        el.addEventListener('click', clickHandler);
-        el.classList.remove('loading');
-        if (errorEl) {
-            errorEl.innerText = err.message;
-        }
-        el.classList.add('error');
-    }
-}
+    const sessionData = {
+        ...requestData,
+        successUrl: checkoutSuccessUrl,
+        cancelUrl: checkoutCancelUrl,
+        metadata
+    };
 
-async function getBillingPortalSessionResponse(siteUrl, requestData) {
-    try {
-        const res = await fetch(`${siteUrl}/members/api/session`, {
-            credentials: 'same-origin'
-        });
-
-        if (!res.ok) {
-            throw new Error(t('Could not create Stripe billing portal session'));
-        }
-
-        const identity = await res.text();
-        const billingPortalSessionRes = await fetch(`${siteUrl}/members/api/create-stripe-billing-portal-session/`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                identity: identity,
-                ...requestData
-            })
-        });
-
-        if (!billingPortalSessionRes.ok) {
-            throw new Error(t('Could not create Stripe billing portal session'));
-        }
-
-        return await billingPortalSessionRes.json();
-    } catch (err) {
-        throw err;
-    }
-}
-
-async function handleBillingPortalSessionResponse(responseBody) {
-    return window.location.assign(responseBody.url);
-}
-
-async function handleEditBillingClick({
-    event,
-    el,
-    errorEl,
-    siteUrl,
-    membersSuccess,
-    membersCancel
-}) {
-    el.removeEventListener('click', event);
-    event.preventDefault();
-    if (errorEl) {
-        errorEl.innerText = '';
-    }
-    el.classList.add('loading');
-    let successUrl;
-    let cancelUrl;
-
-    if (membersSuccess) {
-        successUrl = new URL(membersSuccess, window.location.href).href;
-    }
-
-    if (membersCancel) {
-        cancelUrl = new URL(membersCancel, window.location.href).href;
-    }
-
-    try {
-        const responseBody = await getBillingPortalSessionResponse(siteUrl, {
-            successUrl: successUrl,
-            cancelUrl: cancelUrl
-        });
-        await handleBillingPortalSessionResponse(responseBody);
-    } catch (err) {
-        console.error(err);
-        el.addEventListener('click', event);
-        el.classList.remove('loading');
-        if (errorEl) {
-            errorEl.innerText = err.message;
-        }
-        el.classList.add('error');
-    }
-}
-
-async function handleManageBillingClick({
-    event,
-    el,
-    errorEl,
-    siteUrl,
-    membersReturn
-}) {
-    el.removeEventListener('click', event);
-    event.preventDefault();
-    if (errorEl) {
-        errorEl.innerText = '';
-    }
-    el.classList.add('loading');
-    let returnUrl;
-
-    if (membersReturn) {
-        returnUrl = new URL(membersReturn, window.location.href).href;
-    }
-
-    try {
-        const responseBody = await getBillingPortalSessionResponse(siteUrl, {
-            returnUrl: returnUrl
-        });
-        await handleBillingPortalSessionResponse(responseBody);
-    } catch (err) {
-        console.error(err);
-        el.addEventListener('click', event);
-        el.classList.remove('loading');
-        if (errorEl) {
-            errorEl.innerText = err.message;
-        }
-        el.classList.add('error');
-    }
-}
-
-async function handleSignoutClick({
-    event,
-    el,
-    siteUrl
-}) {
-    el.removeEventListener('click', event);
-    event.preventDefault();
-    el.classList.remove('error');
-    el.classList.add('loading');
-    try {
-        const res = await fetch(`${siteUrl}/members/api/session`, {
-            method: 'DELETE'
-        });
-
-        if (res.ok) {
-            window.location.replace(siteUrl);
-        } else {
-            el.addEventListener('click', event);
-            el.classList.remove('loading');
-            el.classList.add('error');
-        }
-    } catch (err) {
-        console.error(err);
-        el.addEventListener('click', event);
-        el.classList.remove('loading');
-        el.classList.add('error');
-    }
-}
-
-async function handleCancelSubscriptionClick({
-    event,
-    el,
-    errorEl,
-    siteUrl,
-    subscriptionId,
-    doAction,
-    offers
-}) {
-    event.preventDefault();
-
-    let errorElParent = el.parentElement.querySelector('[data-members-error]');
-
-    if (offers.some(offer => offer.redemption_type === 'retention')) {
-        doAction('openPopup', {
-            page: 'accountPlan',
-            pageData: {
-                subscriptionId,
-                action: 'cancel'
+    createStripeCheckoutSession(siteUrl, sessionData)
+        .then(responseBody => {
+            if (responseBody.url) {
+                return window.location.assign(responseBody.url);
             }
-        });
-
-        return;
-    }
-
-    el.removeEventListener('click', event);
-    el.classList.remove('error');
-    el.classList.add('loading');
-
-    if (errorElParent) {
-        errorElParent.innerText = '';
-    }
-
-    try {
-        const res = await fetch(`${siteUrl}/members/api/session`, {
-            credentials: 'same-origin'
-        });
-
-        if (!res.ok) {
-            throw new Error(t('Could not cancel subscription'));
-        }
-
-        const identity = await res.text();
-        const subscriptionRes = await fetch(`${siteUrl}/members/api/subscriptions/${subscriptionId}/`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                identity: identity,
-                smart_cancel: true
-            })
-        });
-
-        if (subscriptionRes.ok) {
-            window.location.reload();
-        } else {
-            el.addEventListener('click', event);
-            el.classList.remove('loading');
-            el.classList.add('error');
-
-            if (errorElParent) {
-                errorElParent.innerText = t('There was an error cancelling your subscription, please try again.');
+            const stripe = window.Stripe(responseBody.publicKey);
+            return stripe.redirectToCheckout({
+                sessionId: responseBody.sessionId
+            });
+        })
+        .then(redirectResult => {
+            if (redirectResult.error) {
+                throw new Error(redirectResult.error.message);
             }
-        }
-    } catch (err) {
-        console.error(err);
-        el.addEventListener('click', event);
-        el.classList.remove('loading');
-        el.classList.add('error');
-
-        if (errorElParent) {
-            errorElParent.innerText = t('There was an error cancelling your subscription, please try again.');
-        }
-    }
+        })
+        .catch(err => {
+            console.error(err);
+            el.addEventListener('click', clickHandler);
+            el.classList.remove('loading');
+            if (errorEl) {
+                errorEl.innerText = err.message;
+            }
+            el.classList.add('error');
+        });
 }
 
-async function handleContinueSubscriptionClick({
-    event,
-    el,
-    errorEl,
-    siteUrl,
-    subscriptionId
-}) {
-    el.removeEventListener('click', event);
-    event.preventDefault();
-    el.classList.remove('error');
-    el.classList.add('loading');
-
-    let errorElParent = el.parentElement.querySelector('[data-members-error]');
-
-    if (errorElParent) {
-        errorElParent.innerText = '';
-    }
-
-    try {
-        const res = await fetch(`${siteUrl}/members/api/session`, {
-            credentials: 'same-origin'
-        });
-
-        if (!res.ok) {
-            throw new Error(t('Could not continue subscription'));
-        }
-
-        const identity = await res.text();
-        const subscriptionRes = await fetch(`${siteUrl}/members/api/subscriptions/${subscriptionId}/`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                identity: identity,
-                cancel_at_period_end: false
-            })
-        });
-
-        if (subscriptionRes.ok) {
-            window.location.reload();
-        } else {
-            el.addEventListener('click', event);
-            el.classList.remove('loading');
-            el.classList.add('error');
-
-            if (errorElParent) {
-                errorElParent.innerText = t('There was an error continuing your subscription, please try again.');
-            }
-        }
-    } catch (err) {
-        console.error(err);
-        el.addEventListener('click', event);
-        el.classList.remove('loading');
-        el.classList.add('error');
-
-        if (errorElParent) {
-            errorElParent.innerText = t('There was an error continuing your subscription, please try again.');
-        }
-    }
-}
-
-export function handleDataAttributes({
-    siteUrl,
-    site = {},
-    member,
-    offers = [],
-    doAction,
-    captureException
-} = {}) {
+export function handleDataAttributes({ siteUrl, site = {}, member, offers = [], doAction, captureException } = {}) {
     if (!siteUrl) {
         return;
     }
 
     siteUrl = siteUrl.replace(/\/$/, '');
-    document.querySelectorAll('form[data-members-form]').forEach(form => {
+    Array.prototype.forEach.call(document.querySelectorAll('form[data-members-form]'), function (form) {
         let errorEl = form.querySelector('[data-members-error]');
         function submitHandler(event) {
             formSubmitHandler({ event, errorEl, form, siteUrl, submitHandler, doAction, captureException });
@@ -547,7 +289,7 @@ export function handleDataAttributes({
         form.addEventListener('submit', submitHandler);
     });
 
-    document.querySelectorAll('[data-members-plan]').forEach(el => {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-members-plan]'), function (el) {
         let errorEl = el.querySelector('[data-members-error]');
         function clickHandler(event) {
             planClickHandler({ el, event, errorEl, member, site, siteUrl, clickHandler });
@@ -555,48 +297,236 @@ export function handleDataAttributes({
         el.addEventListener('click', clickHandler);
     });
 
-    document.querySelectorAll('[data-members-edit-billing]').forEach(el => {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-members-edit-billing]'), function (el) {
         let errorEl = el.querySelector('[data-members-error]');
         let membersSuccess = el.dataset.membersSuccess;
         let membersCancel = el.dataset.membersCancel;
+        let successUrl;
+        let cancelUrl;
+
+        if (membersSuccess) {
+            successUrl = (new URL(membersSuccess, window.location.href)).href;
+        }
+
+        if (membersCancel) {
+            cancelUrl = (new URL(membersCancel, window.location.href)).href;
+        }
+
         function clickHandler(event) {
-            handleEditBillingClick({ event, el, errorEl, siteUrl, membersSuccess, membersCancel });
+            el.removeEventListener('click', clickHandler);
+            event.preventDefault();
+
+            if (errorEl) {
+                errorEl.innerText = '';
+            }
+            el.classList.add('loading');
+            const sessionData = {
+                successUrl,
+                cancelUrl
+            };
+
+            createStripeUpdateSession(siteUrl, sessionData)
+                .then(result => {
+                    let stripe = window.Stripe(result.publicKey);
+                    return stripe.redirectToCheckout({
+                        sessionId: result.sessionId
+                    });
+                })
+                .then(result => {
+                    if (result.error) {
+                        throw new Error(t(result.error.message));
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    el.addEventListener('click', clickHandler);
+                    el.classList.remove('loading');
+                    if (errorEl) {
+                        errorEl.innerText = err.message;
+                    }
+                    el.classList.add('error');
+                });
         }
         el.addEventListener('click', clickHandler);
     });
 
-    document.querySelectorAll('[data-members-manage-billing]').forEach(el => {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-members-manage-billing]'), function (el) {
         let errorEl = el.querySelector('[data-members-error]');
         let membersReturn = el.dataset.membersReturn;
+        let returnUrl;
+
+        if (membersReturn) {
+            returnUrl = (new URL(membersReturn, window.location.href)).href;
+        }
+
         function clickHandler(event) {
-            handleManageBillingClick({ event, el, errorEl, siteUrl, membersReturn });
+            el.removeEventListener('click', clickHandler);
+            event.preventDefault();
+
+            if (errorEl) {
+                errorEl.innerText = '';
+            }
+            el.classList.add('loading');
+            const sessionData = {
+                returnUrl
+            };
+
+            createStripeBillingPortalSession(siteUrl, sessionData)
+                .then(result => {
+                    return window.location.assign(result.url);
+                })
+                .catch(err => {
+                    console.error(err);
+                    el.addEventListener('click', clickHandler);
+                    el.classList.remove('loading');
+                    if (errorEl) {
+                        errorEl.innerText = err.message;
+                    }
+                    el.classList.add('error');
+                });
         }
         el.addEventListener('click', clickHandler);
     });
 
-    document.querySelectorAll('[data-members-signout]').forEach(el => {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-members-signout]'), function (el) {
         function clickHandler(event) {
-            handleSignoutClick({ event, el, siteUrl });
+            el.removeEventListener('click', clickHandler);
+            event.preventDefault();
+            el.classList.remove('error');
+            el.classList.add('loading');
+            fetch(`${siteUrl}/members/api/session`, {
+                method: 'DELETE'
+            })
+                .then(res => {
+                    if (res.ok) {
+                        window.location.replace(siteUrl);
+                    } else {
+                        el.addEventListener('click', clickHandler);
+                        el.classList.remove('loading');
+                        el.classList.add('error');
+                    }
+                });
         }
         el.addEventListener('click', clickHandler);
     });
 
-    const hasRetentionOffers = offers.some(offer => offer.redemption_type === 'retention');
+    const hasRetentionOffers = (offers || []).some(offer => offer.redemption_type === 'retention');
 
-    document.querySelectorAll('[data-members-cancel-subscription]').forEach(el => {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-members-cancel-subscription]'), function (el) {
         let errorEl = el.parentElement.querySelector('[data-members-error]');
-        let subscriptionId = el.dataset.membersCancelSubscription;
         function clickHandler(event) {
-            handleCancelSubscriptionClick({ event, el, errorEl, siteUrl, subscriptionId, doAction, offers });
+            event.preventDefault();
+
+            let subscriptionId = el.dataset.membersCancelSubscription;
+
+            if (hasRetentionOffers) {
+                doAction('openPopup', {
+                    page: 'accountPlan',
+                    pageData: {
+                        subscriptionId,
+                        action: 'cancel'
+                    }
+                });
+
+                return;
+            }
+
+            el.removeEventListener('click', clickHandler);
+            el.classList.remove('error');
+            el.classList.add('loading');
+
+            if (errorEl) {
+                errorEl.innerText = '';
+            }
+
+            fetch(`${siteUrl}/members/api/session`, {
+                credentials: 'same-origin'
+            })
+                .then(res => {
+                    if (!res.ok) {
+                        return null;
+                    }
+
+                    return res.text();
+                })
+                .then(identity => {
+                    return fetch(`${siteUrl}/members/api/subscriptions/${subscriptionId}/`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            identity,
+                            smart_cancel: true
+                        })
+                    });
+                })
+                .then(res => {
+                    if (res.ok) {
+                        window.location.reload();
+                    } else {
+                        el.addEventListener('click', clickHandler);
+                        el.classList.remove('loading');
+                        el.classList.add('error');
+
+                        if (errorEl) {
+                            errorEl.innerText = t('There was an error cancelling your subscription, please try again.');
+                        }
+                    }
+                });
         }
         el.addEventListener('click', clickHandler);
     });
 
-    document.querySelectorAll('[data-members-continue-subscription]').forEach(el => {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-members-continue-subscription]'), function (el) {
         let errorEl = el.parentElement.querySelector('[data-members-error]');
-        let subscriptionId = el.dataset.membersContinueSubscription;
         function clickHandler(event) {
-            handleContinueSubscriptionClick({ event, el, errorEl, siteUrl, subscriptionId });
+            el.removeEventListener('click', clickHandler);
+            event.preventDefault();
+            el.classList.remove('error');
+            el.classList.add('loading');
+
+            let subscriptionId = el.dataset.membersContinueSubscription;
+
+            if (errorEl) {
+                errorEl.innerText = '';
+            }
+
+            fetch(`${siteUrl}/members/api/session`, {
+                credentials: 'same-origin'
+            })
+                .then(res => {
+                    if (!res.ok) {
+                        return null;
+                    }
+
+                    return res.text();
+                })
+                .then(identity => {
+                    return fetch(`${siteUrl}/members/api/subscriptions/${subscriptionId}/`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            identity,
+                            cancel_at_period_end: false
+                        })
+                    });
+                })
+                .then(res => {
+                    if (res.ok) {
+                        window.location.reload();
+                    } else {
+                        el.addEventListener('click', clickHandler);
+                        el.classList.remove('loading');
+                        el.classList.add('error');
+
+                        if (errorEl) {
+                            errorEl.innerText = t('There was an error continuing your subscription, please try again.');
+                        }
+                    }
+                });
         }
         el.addEventListener('click', clickHandler);
     });

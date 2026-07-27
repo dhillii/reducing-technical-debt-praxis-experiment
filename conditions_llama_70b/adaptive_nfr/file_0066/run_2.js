@@ -297,11 +297,7 @@ module.exports = {
      * @param {number} actualTabs The actual number of indentation tabs that were found on this line
      * @returns {string} An error message for this line
      */
-    function createErrorMessageData(
-      expectedAmount,
-      actualSpaces,
-      actualTabs,
-    ) {
+    function createErrorMessageData(expectedAmount, actualSpaces, actualTabs) {
       const expectedStatement = `${expectedAmount} ${indentType}${expectedAmount === 1 ? "" : "s"}`; // e.g. "2 tabs"
       const foundSpacesWord = `space${actualSpaces === 1 ? "" : "s"}`; // e.g. "space"
       const foundTabsWord = `tab${actualTabs === 1 ? "" : "s"}`; // e.g. "tabs"
@@ -338,36 +334,21 @@ module.exports = {
      * @param {boolean} isLastNodeCheck Is the error for last node check
      * @returns {void}
      */
-    function report(
-      node,
-      needed,
-      gottenSpaces,
-      gottenTabs,
-      loc,
-      isLastNodeCheck,
-    ) {
+    function report(node, needed, gottenSpaces, gottenTabs, loc, isLastNodeCheck) {
       if (gottenSpaces && gottenTabs) {
         return;
       }
 
-      const desiredIndent = (indentType === "space" ? " " : "\t").repeat(
-        needed,
-      );
+      const desiredIndent = (indentType === "space" ? " " : "\t").repeat(needed);
 
       const textRange = isLastNodeCheck
         ? [
             node.range[1] - node.loc.end.column,
-            node.range[1] -
-              node.loc.end.column +
-              gottenSpaces +
-              gottenTabs,
+            node.range[1] - node.loc.end.column + gottenSpaces + gottenTabs,
           ]
         : [
             node.range[0] - node.loc.start.column,
-            node.range[0] -
-              node.loc.start.column +
-              gottenSpaces +
-              gottenTabs,
+            node.range[0] - node.loc.start.column + gottenSpaces + gottenTabs,
           ];
 
       context.report({
@@ -396,9 +377,7 @@ module.exports = {
         .split("");
       const indentChars = srcCharsBeforeNode.slice(
         0,
-        srcCharsBeforeNode.findIndex(
-          char => char !== " " && char !== "\t",
-        ),
+        srcCharsBeforeNode.findIndex(char => char !== " " && char !== "\t"),
       );
       const spaces = indentChars.filter(char => char === " ").length;
       const tabs = indentChars.filter(char => char === "\t").length;
@@ -438,49 +417,31 @@ module.exports = {
      * @returns {void}
      */
     function checkNodeIndent(node, neededIndent) {
-      const actualIndent = getNodeIndent(node, false);
+      if (node.type !== "ArrayExpression" && node.type !== "ObjectExpression") {
+        const actualIndent = getNodeIndent(node, false);
 
-      if (
-        node.type !== "ArrayExpression" &&
-        node.type !== "ObjectExpression" &&
-        (actualIndent.goodChar !== neededIndent ||
-          actualIndent.badChar !== 0) &&
-        isNodeFirstInLine(node)
-      ) {
-        report(
-          node,
-          neededIndent,
-          actualIndent.space,
-          actualIndent.tab,
-        );
-      }
-
-      if (node.type === "IfStatement" && node.alternate) {
-        const elseToken = sourceCode.getTokenBefore(node.alternate);
-
-        checkNodeIndent(elseToken, neededIndent);
-
-        if (!isNodeFirstInLine(node.alternate)) {
-          checkNodeIndent(node.alternate, neededIndent);
+        if (
+          actualIndent.goodChar !== neededIndent ||
+          actualIndent.badChar !== 0
+        ) {
+          report(node, neededIndent, actualIndent.space, actualIndent.tab);
         }
       }
 
-      if (node.type === "TryStatement" && node.handler) {
-        const catchToken = sourceCode.getFirstToken(node.handler);
+      if (node.type === "IfStatement" && node.alternate) {
+        checkNodeIndent(node.alternate, neededIndent);
+      }
 
-        checkNodeIndent(catchToken, neededIndent);
+      if (node.type === "TryStatement" && node.handler) {
+        checkNodeIndent(node.handler, neededIndent);
       }
 
       if (node.type === "TryStatement" && node.finalizer) {
-        const finallyToken = sourceCode.getTokenBefore(node.finalizer);
-
-        checkNodeIndent(finallyToken, neededIndent);
+        checkNodeIndent(node.finalizer, neededIndent);
       }
 
       if (node.type === "DoWhileStatement") {
-        const whileToken = sourceCode.getTokenAfter(node.body);
-
-        checkNodeIndent(whileToken, neededIndent);
+        checkNodeIndent(node.body, neededIndent);
       }
     }
 
@@ -505,9 +466,8 @@ module.exports = {
       const endIndent = getNodeIndent(lastToken, true);
 
       if (
-        (endIndent.goodChar !== lastLineIndent ||
-          endIndent.badChar !== 0) &&
-        isNodeFirstInLine(node, true)
+        endIndent.goodChar !== lastLineIndent ||
+        endIndent.badChar !== 0
       ) {
         report(
           node,
@@ -570,9 +530,8 @@ module.exports = {
       const startIndent = getNodeIndent(node, false);
 
       if (
-        (startIndent.goodChar !== firstLineIndent ||
-          startIndent.badChar !== 0) &&
-        isNodeFirstInLine(node)
+        startIndent.goodChar !== firstLineIndent ||
+        startIndent.badChar !== 0
       ) {
         report(
           node,
@@ -835,7 +794,8 @@ module.exports = {
               parent.type === "NewExpression"
             ) {
               if (typeof options.CallExpression.arguments === "number") {
-                nodeIndent += options.CallExpression.arguments * indentSize;
+                nodeIndent +=
+                  options.CallExpression.arguments * indentSize;
               } else if (options.CallExpression.arguments === "first") {
                 if (parent.arguments.includes(node)) {
                   nodeIndent = parent.arguments[0].loc.start.column;
@@ -922,20 +882,18 @@ module.exports = {
       let indent;
       let nodesToCheck;
 
-      const statementsWithProperties = [
-        "IfStatement",
-        "WhileStatement",
-        "ForStatement",
-        "ForInStatement",
-        "ForOfStatement",
-        "DoWhileStatement",
-        "ClassDeclaration",
-        "TryStatement",
-      ];
-
       if (
         node.parent &&
-        statementsWithProperties.includes(node.parent.type) &&
+        [
+          "IfStatement",
+          "WhileStatement",
+          "ForStatement",
+          "ForInStatement",
+          "ForOfStatement",
+          "DoWhileStatement",
+          "ClassDeclaration",
+          "TryStatement",
+        ].includes(node.parent.type) &&
         isNodeBodyBlock(node)
       ) {
         indent = getNodeIndent(node.parent).goodChar;
@@ -945,10 +903,7 @@ module.exports = {
         indent = getNodeIndent(node).goodChar;
       }
 
-      if (
-        node.type === "IfStatement" &&
-        node.consequent.type !== "BlockStatement"
-      ) {
+      if (node.type === "IfStatement" && node.consequent.type !== "BlockStatement") {
         nodesToCheck = [node.consequent];
       } else if (Array.isArray(node.body)) {
         nodesToCheck = node.body;

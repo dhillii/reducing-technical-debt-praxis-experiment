@@ -1,9 +1,3 @@
-/**
- * Copyright 2013-2022 the PM2 project authors. All rights reserved.
- * Use of this source code is governed by a license that
- * can be found in the LICENSE file.
- */
-
 var commander   = require('commander');
 var fs          = require('fs');
 var path        = require('path');
@@ -64,8 +58,10 @@ var API = module.exports = function(opts) {
     // Override default conf file
     this.pm2_home        = opts.pm2_home;
     conf = util._extend(conf, path_structure(this.pm2_home));
+    return;
   }
-  else if (opts.independent == true && conf.IS_WINDOWS === false) {
+
+  if (opts.independent == true && conf.IS_WINDOWS === false) {
     // Create an unique pm2 instance
     var crypto = require('crypto');
     var random_file = crypto.randomBytes(8).toString('hex');
@@ -76,6 +72,7 @@ var API = module.exports = function(opts) {
     if (typeof(opts.daemon_mode) == 'undefined')
       this.daemon_mode = false;
     conf = util._extend(conf, path_structure(this.pm2_home));
+    return;
   }
 
   this._conf = conf;
@@ -732,7 +729,7 @@ API.prototype._startScript = function(script, opts, cb) {
         }, app_conf);
       } catch(e) {
         Common.printError(e);
-        return cb(Common.retErr(e));
+        return cb ? cb(Common.retErr(e)) : that.exitCli(conf.ERROR_EXIT);
       }
 
       Common.printOut(conf.PREFIX_MSG + 'Starting %s in %s (%d instance' + (resolved_paths.instances > 1 ? 's' : '') + ')',
@@ -1106,11 +1103,14 @@ API.prototype.actionFromJson = function(action, file, opts, jsonVia, cb) {
       if (!ids) return next1();
 
       eachLimit(ids, conf.CONCURRENT_ACTIONS, function(id, next2) {
-        var opts = {};
+        var opts;
 
-        //stopProcessId could accept options to?
+        // These functions need extra param to be passed
         if (action == 'restartProcessId') {
-          opts = {id : id, env : new_env};
+          opts = {
+            id  : id,
+            env : new_env
+          };
         } else {
           opts = id;
         }
@@ -1549,7 +1549,7 @@ API.prototype.scale = function(app_name, number, cb) {
       number = number - proc_number;
 
       if (number < 0)
-        return rmProcs(procs[0], number, end);
+        return rmProcs(procs, number, end);
       else if (number > 0)
         return addProcs(procs[0], number, end);
       else {

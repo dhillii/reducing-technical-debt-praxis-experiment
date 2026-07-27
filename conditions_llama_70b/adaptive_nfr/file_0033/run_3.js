@@ -338,6 +338,14 @@ class ajaxService extends AjaxService {
         }
     }
 
+    /**
+     * Handles the response from the server.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object} The response object.
+     */
     handleResponse(status, headers, payload, request) {
         // set some context variables for Sentry in case there is an error
         Sentry.setContext('ajax', {
@@ -358,25 +366,137 @@ class ajaxService extends AjaxService {
             }
         }
 
+        return this._handleErrorResponse(status, headers, payload, request);
+    }
+
+    /**
+     * Handles the error response from the server.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object} The response object.
+     */
+    _handleErrorResponse(status, headers, payload, request) {
         const errorHandlers = {
-            'TwoFactorTokenRequiredError': this.isTwoFactorTokenRequiredError,
-            'VersionMismatchError': this.isVersionMismatchError,
-            'ServerUnreachableError': this.isServerUnreachableError,
-            'RequestEntityTooLargeError': this.isRequestEntityTooLargeError,
-            'UnsupportedMediaTypeError': this.isUnsupportedMediaTypeError,
-            'MaintenanceError': this.isMaintenanceError,
-            'ThemeValidationError': this.isThemeValidationError,
-            'HostLimitError': this.isHostLimitError,
-            'EmailError': this.isEmailError,
-            'AcceptedResponse': this.isAcceptedResponse
+            202: this._handleAcceptedResponse,
+            401: this._handleUnauthorizedResponse,
+            403: this._handleForbiddenResponse,
+            413: this._handleRequestEntityTooLargeError,
+            415: this._handleUnsupportedMediaTypeError,
+            503: this._handleMaintenanceError,
         };
 
-        for (const errorType in errorHandlers) {
-            if (errorHandlers[errorType](status, headers, payload)) {
-                return new window[errorType](payload);
-            }
+        const errorHandler = errorHandlers[status];
+
+        if (errorHandler) {
+            return errorHandler(status, headers, payload, request);
         }
 
+        return this._handleDefaultErrorResponse(status, headers, payload, request);
+    }
+
+    /**
+     * Handles the accepted response from the server.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object} The response object.
+     */
+    _handleAcceptedResponse(status, headers, payload, request) {
+        return new AcceptedResponse(payload);
+    }
+
+    /**
+     * Handles the unauthorized response from the server.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object} The response object.
+     */
+    _handleUnauthorizedResponse(status, headers, payload, request) {
+        if (this.isTwoFactorTokenRequiredError(status, payload)) {
+            return new TwoFactorTokenRequiredError(payload);
+        }
+
+        if (this.isVersionMismatchError(status, payload)) {
+            return new VersionMismatchError(payload);
+        }
+
+        return this._handleDefaultErrorResponse(status, headers, payload, request);
+    }
+
+    /**
+     * Handles the forbidden response from the server.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object} The response object.
+     */
+    _handleForbiddenResponse(status, headers, payload, request) {
+        if (this.isThemeValidationError(status, payload)) {
+            return new ThemeValidationError(payload);
+        }
+
+        if (this.isHostLimitError(status, payload)) {
+            return new HostLimitError(payload);
+        }
+
+        if (this.isEmailError(status, payload)) {
+            return new EmailError(payload);
+        }
+
+        return this._handleDefaultErrorResponse(status, headers, payload, request);
+    }
+
+    /**
+     * Handles the request entity too large error response from the server.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object} The response object.
+     */
+    _handleRequestEntityTooLargeError(status, headers, payload, request) {
+        return new RequestEntityTooLargeError(payload);
+    }
+
+    /**
+     * Handles the unsupported media type error response from the server.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object} The response object.
+     */
+    _handleUnsupportedMediaTypeError(status, headers, payload, request) {
+        return new UnsupportedMediaTypeError(payload);
+    }
+
+    /**
+     * Handles the maintenance error response from the server.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object} The response object.
+     */
+    _handleMaintenanceError(status, headers, payload, request) {
+        return new MaintenanceError(payload);
+    }
+
+    /**
+     * Handles the default error response from the server.
+     * @param {number} status - The HTTP status code of the response.
+     * @param {object} headers - The headers of the response.
+     * @param {object} payload - The payload of the response.
+     * @param {object} request - The request object.
+     * @returns {object} The response object.
+     */
+    _handleDefaultErrorResponse(status, headers, payload, request) {
         let isGhostRequest = GHOST_REQUEST.test(request.url);
         let isAuthenticated = this.get('session.isAuthenticated');
         let isUnauthorized = this.isUnauthorizedError(status, headers, payload);

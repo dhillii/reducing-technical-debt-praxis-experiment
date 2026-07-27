@@ -37,6 +37,32 @@ const hexToRgba = (hex: string, alpha: number) => {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
+const getBackgroundColor = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
+    switch (backgroundColor) {
+        case 'light':
+            return '#fff';
+        case 'dark':
+            return '#15171a';
+        case 'accent':
+            return accentColor || '#15171a';
+        default:
+            return '#fff';
+    }
+};
+
+const getTextColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
+    switch (backgroundColor) {
+        case 'light':
+            return '#15171a';
+        case 'dark':
+            return '#fff';
+        case 'accent':
+            return '#fff';
+        default:
+            return '#15171a';
+    }
+};
+
 const ProfileCard: React.FC<ProfileCardProps> = memo(({
     isScreenshot = false,
     format = 'vertical',
@@ -78,34 +104,8 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
         }
     };
 
-    const getBackgroundColor = () => {
-        switch (backgroundColor) {
-        case 'light':
-            return '#fff';
-        case 'dark':
-            return '#15171a';
-        case 'accent':
-            return accentColor || '#15171a';
-        default:
-            return '#fff';
-        }
-    };
-
-    const getTextColor = () => {
-        switch (backgroundColor) {
-        case 'light':
-            return '#15171a';
-        case 'dark':
-            return '#fff';
-        case 'accent':
-            return '#fff';
-        default:
-            return '#15171a';
-        }
-    };
-
-    const cardBackgroundColor = getBackgroundColor();
-    const textColor = getTextColor();
+    const cardBackgroundColor = getBackgroundColor(backgroundColor, accentColor);
+    const textColor = getTextColor(backgroundColor);
     const margin = isScreenshot ? 'm-12' : 'm-16 max-sm:m-8';
     const borderClass = isScreenshot ? '' : 'shadow-xl';
 
@@ -116,7 +116,7 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
     const avatarImageSrc = isScreenshot && avatarDataUrl ? avatarDataUrl : (account?.avatarUrl || publicationIcon);
 
     return (
-        <div className={`relative z-20 flex flex-col ${margin} ${cardWidth} ${cardHeight} rounded-[32px] ${borderClass} ${format === 'square' ? 'flex flex-col' : ''}`} style={{backgroundColor: cardBackgroundColor}}>
+        <div className={`relative z-20 flex flex-col ${margin} ${cardWidth} ${cardHeight} rounded-[32px] ${borderClass} ${format === 'square' ? 'flex flex-col' : ''}`} style={{ backgroundColor: cardBackgroundColor }}>
             <div className='relative h-48 p-2'>
                 {bannerImageSrc ?
                     <img
@@ -125,12 +125,12 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
                         referrerPolicy='no-referrer'
                         src={bannerImageSrc}
                     /> :
-                    <div className='relative size-full overflow-hidden rounded-[26px] rounded-b-none' style={{background: `linear-gradient(to bottom, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor || '#15171a', 1)}, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor || '#15171a', 0.5)})`}}>
-                        <DotsPattern className='absolute' style={{color: backgroundColor === 'accent' ? hexToRgba(accentColor || '#15171a', 0.2) : 'rgba(255, 255, 255, 0.2)', top: isScreenshot ? '-42px' : '-84px', left: isScreenshot ? '-69px' : '-138px'}} />
+                    <div className='relative size-full overflow-hidden rounded-[26px] rounded-b-none' style={{ background: `linear-gradient(to bottom, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor || '#15171a', 1)}, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor || '#15171a', 0.5)})` }}>
+                        <DotsPattern className='absolute' style={{ color: backgroundColor === 'accent' ? hexToRgba(accentColor || '#15171a', 0.2) : 'rgba(255, 255, 255, 0.2)', top: isScreenshot ? '-42px' : '-84px', left: isScreenshot ? '-69px' : '-138px' }} />
                     </div>
                 }
                 {avatarImageSrc &&
-                    <div className='absolute bottom-0 left-1/2 -mb-8 -translate-x-1/2 rounded-full border-8 [&>div]:!size-16 [&_img]:!size-16' style={{borderColor: cardBackgroundColor}}>
+                    <div className='absolute bottom-0 left-1/2 -mb-8 -translate-x-1/2 rounded-full border-8 [&>div]:!size-16 [&_img]:!size-16' style={{ borderColor: cardBackgroundColor }}>
                         <APAvatar
                             author={
                                 {
@@ -147,8 +147,8 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
                 }
             </div>
             <div className={`flex grow flex-col items-center p-6 ${(account?.avatarUrl || publicationIcon) ? 'pt-9' : 'pt-3'} text-center ${format === 'square' ? 'flex-1 justify-center' : ''}`}>
-                <H2 className={`${isScreenshot && 'tracking-normal'}`} style={{color: textColor}}>{!isLoading ? account?.name : <Skeleton className='w-32' />}</H2>
-                <span className={`mt-1.5 leading-7 ${isScreenshot && 'tracking-normal'}`} style={{color: textColor}}>{!isLoading ? 'Available on Ghost, Flipboard, Threads, Bluesky, Mastodon, or wherever you get your social web feeds.' : <Skeleton className='w-28' />}</span>
+                <H2 className={`${isScreenshot && 'tracking-normal'}`} style={{ color: textColor }}>{!isLoading ? account?.name : <Skeleton className='w-32' />}</H2>
+                <span className={`mt-1.5 leading-7 ${isScreenshot && 'tracking-normal'}`} style={{ color: textColor }}>{!isLoading ? 'Available on Ghost, Flipboard, Threads, Bluesky, Mastodon, or wherever you get your social web feeds.' : <Skeleton className='w-28' />}</span>
                 <div
                     className={`mt-auto flex max-h-[60px] min-h-12 w-full items-center justify-center break-all rounded-full border px-4 py-2 font-medium leading-7 ${isScreenshot && 'tracking-normal'}`}
                     style={{
@@ -162,7 +162,7 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
                         {!isScreenshot && account?.handle && (
                             <Button
                                 className='relative top-[3px] ml-1.5 size-4 p-0 hover:opacity-80'
-                                style={{color: backgroundColor !== 'light' ? '#fff' : accentColor}}
+                                style={{ color: backgroundColor !== 'light' ? '#fff' : accentColor }}
                                 title='Copy handle'
                                 variant='link'
                                 onClick={handleCopy}
@@ -184,49 +184,44 @@ ProfileCard.displayName = 'ProfileCard';
 
 const getGradient = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
     switch (backgroundColor) {
-    case 'light':
-        return `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`;
-    case 'dark':
-        return `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`;
-    case 'accent':
-        return `linear-gradient(to bottom left, ${hexToRgba(accentColor || '#15171a', 0.08)}, ${hexToRgba(accentColor || '#15171a', 0.06)})`;
-    default:
-        return `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`;
+        case 'light':
+            return `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`;
+        case 'dark':
+            return `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`;
+        case 'accent':
+            return `linear-gradient(to bottom left, ${hexToRgba(accentColor || '#15171a', 0.08)}, ${hexToRgba(accentColor || '#15171a', 0.06)})`;
+        default:
+            return `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`;
     }
 };
 
 const getDotsPatternColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
     switch (backgroundColor) {
-    case 'light':
-        return hexToRgba('#15171a', 0.025);
-    case 'dark':
-        return hexToRgba('#15171a', 0.23);
-    case 'accent':
-        return 'rgba(0, 0, 0, 0.02)';
-    default:
-        return hexToRgba('#15171a', 0.025);
+        case 'light':
+            return hexToRgba('#15171a', 0.025);
+        case 'dark':
+            return hexToRgba('#15171a', 0.23);
+        case 'accent':
+            return 'rgba(0, 0, 0, 0.02)';
+        default:
+            return hexToRgba('#15171a', 0.025);
     }
 };
 
-const convertImagesToDataUrls = async (account?: Account, coverImage?: string, publicationIcon?: string) => {
+const convertImagesToDataUrls = async (account: Account | undefined, coverImage: string | undefined, publicationIcon: string | undefined) => {
     const bannerUrl = account?.bannerImageUrl || coverImage;
     const avatarUrl = account?.avatarUrl || publicationIcon;
 
     if (bannerUrl) {
         const dataUrl = await imageUrlToDataUrl(bannerUrl);
-        return { bannerDataUrl: dataUrl, avatarDataUrl: null };
+        return { bannerDataUrl: dataUrl, avatarDataUrl: avatarUrl ? await imageUrlToDataUrl(avatarUrl) : null };
     }
 
-    if (avatarUrl) {
-        const dataUrl = await imageUrlToDataUrl(avatarUrl);
-        return { bannerDataUrl: null, avatarDataUrl: dataUrl };
-    }
-
-    return { bannerDataUrl: null, avatarDataUrl: null };
+    return { bannerDataUrl: null, avatarDataUrl: avatarUrl ? await imageUrlToDataUrl(avatarUrl) : null };
 };
 
-const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
-    const {data: siteData} = useBrowseSite();
+const Profile: React.FC<ProfileProps> = ({ account, isLoading }) => {
+    const { data: siteData } = useBrowseSite();
     const accentColor = siteData?.site?.accent_color;
     const coverImage = siteData?.site?.cover_image;
     const publicationIcon = siteData?.site?.icon;
@@ -297,15 +292,23 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
         }
     };
 
-    const loadImages = useCallback(async () => {
-        const { bannerDataUrl, avatarDataUrl } = await convertImagesToDataUrls(account, coverImage, publicationIcon);
-        setBannerDataUrl(bannerDataUrl);
-        setAvatarDataUrl(avatarDataUrl);
-    }, [account, coverImage, publicationIcon]);
-
     useEffect(() => {
-        loadImages();
-    }, [loadImages]);
+        let isMounted = true;
+
+        const convert = async () => {
+            const { bannerDataUrl, avatarDataUrl } = await convertImagesToDataUrls(account, coverImage, publicationIcon);
+            if (isMounted) {
+                setBannerDataUrl(bannerDataUrl);
+                setAvatarDataUrl(avatarDataUrl);
+            }
+        };
+
+        convert();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [account, coverImage, publicationIcon]);
 
     return (
         <TooltipProvider delayDuration={0}>
@@ -337,7 +340,7 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                             <Tooltip>
                                 <TooltipTrigger>
                                     <ToggleGroupItem aria-label='Accent color' value='accent'>
-                                        <div className='size-4 rounded-full' style={{backgroundColor: accentColor}} />
+                                        <div className='size-4 rounded-full' style={{ backgroundColor: accentColor }} />
                                     </ToggleGroupItem>
                                 </TooltipTrigger>
                                 <TooltipContent>Accent color</TooltipContent>
@@ -401,9 +404,9 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                         </Button>
                     </div>
                     {(account?.bannerImageUrl || coverImage) &&
-                    <DotsPattern className={`absolute left-1/2 top-1/2 h-[600px] w-[598px] -translate-x-1/2 -translate-y-1/2 ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor(backgroundColor)}} />
+                        <DotsPattern className={`absolute left-1/2 top-1/2 h-[600px] w-[598px] -translate-x-1/2 -translate-y-1/2 ${backgroundColor === 'dark' && 'z-10'}`} style={{ color: getDotsPatternColor(backgroundColor) }} />
                     }
-                    <div className='absolute inset-0' style={{background: getGradient(backgroundColor, accentColor)}} />
+                    <div className='absolute inset-0' style={{ background: getGradient(backgroundColor, accentColor) }} />
                 </div>
 
                 {/* Hidden clone for screenshots */}
@@ -429,7 +432,7 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                         siteTitle={siteData?.site?.title}
                     />
                     {(account?.bannerImageUrl || coverImage) &&
-                    <DotsPattern className={`absolute left-[-62.5px] top-[-44px] h-[600px] w-[598px] ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor(backgroundColor)}} />
+                        <DotsPattern className={`absolute left-[-62.5px] top-[-44px] h-[600px] w-[598px] ${backgroundColor === 'dark' && 'z-10'}`} style={{ color: getDotsPatternColor(backgroundColor) }} />
                     }
                     <div
                         className='absolute left-0 top-0 size-full'
@@ -437,7 +440,7 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                             background: getGradient(backgroundColor, accentColor)
                         }}
                     />
-                    <img className='absolute left-1/2 top-12 mt-0.5 max-w-none -translate-x-1/2' src={cardFormat === 'square' ? ProfileCardShadowSquare : ProfileCardShadow} style={{width: cardFormat === 'square' ? '572px' : '466px'}} />
+                    <img className='absolute left-1/2 top-12 mt-0.5 max-w-none -translate-x-1/2' src={cardFormat === 'square' ? ProfileCardShadowSquare : ProfileCardShadow} style={{ width: cardFormat === 'square' ? '572px' : '466px' }} />
                 </div>
             </div>
         </TooltipProvider>

@@ -56,7 +56,8 @@ JSON5.parse = (function () {
     }
 
     /**
-     * Returns the next character in the text.
+     * Returns the next character in the text, or an empty string if there are no more characters.
+     * If a character is provided, verifies that it matches the current character.
      * @param {string} [c] - The expected character.
      * @returns {string} The next character.
      */
@@ -71,7 +72,7 @@ JSON5.parse = (function () {
     }
 
     /**
-     * Returns the next character without consuming it.
+     * Returns the next character in the text without consuming it.
      * @returns {string} The next character.
      */
     function peek() {
@@ -129,13 +130,13 @@ JSON5.parse = (function () {
         }
 
         // support for NaN
-        if (ch === 'N' ) {
-          number = word();
-          if (!isNaN(number)) {
-            error('expected word to be NaN');
-          }
-          // ignore sign as -NaN also is NaN
-          return number;
+        if (ch === 'N') {
+            number = word();
+            if (!isNaN(number)) {
+                error('expected word to be NaN');
+            }
+            // ignore sign as -NaN also is NaN
+            return number;
         }
 
         if (ch === '0') {
@@ -152,7 +153,7 @@ JSON5.parse = (function () {
 
         switch (base) {
         case 10:
-            while (ch >= '0' && ch <= '9' ) {
+            while (ch >= '0' && ch <= '9') {
                 string += ch;
                 next();
             }
@@ -183,7 +184,7 @@ JSON5.parse = (function () {
             break;
         }
 
-        if(sign === '-') {
+        if (sign === '-') {
             number = -string;
         } else {
             number = +string;
@@ -206,6 +207,8 @@ JSON5.parse = (function () {
             string = '',
             delim,      // double quote or single quote
             uffff;
+
+        // When parsing for string values, we must look for ' or " and \ characters.
 
         if (ch === '"' || ch === "'") {
             delim = ch;
@@ -251,6 +254,10 @@ JSON5.parse = (function () {
      * Skips an inline comment.
      */
     function inlineComment() {
+        // Skip an inline comment, assuming this is one. The current character should
+        // be the second / character in the // pair that begins this inline comment.
+        // To finish the inline comment, we look for a newline or the end of the text.
+
         if (ch !== '/') {
             error("Not an inline comment");
         }
@@ -268,6 +275,11 @@ JSON5.parse = (function () {
      * Skips a block comment.
      */
     function blockComment() {
+        // Skip a block comment, assuming this is one. The current character should be
+        // the * character in the /* pair that begins this block comment.
+        // To finish the block comment, we look for an ending */ pair of characters,
+        // but we also watch for the end of text before the comment is terminated.
+
         if (ch !== '*') {
             error("Not a block comment");
         }
@@ -290,6 +302,9 @@ JSON5.parse = (function () {
      * Skips a comment.
      */
     function comment() {
+        // Skip a comment, whether inline or block-level, assuming this is one.
+        // Comments always begin with a / character.
+
         if (ch !== '/') {
             error("Not a comment");
         }
@@ -309,6 +324,11 @@ JSON5.parse = (function () {
      * Skips whitespace and comments.
      */
     function white() {
+        // Skip whitespace and comments.
+        // Note that we're detecting comments by only a single / character.
+        // This works since regular expressions are not valid JSON(5), but this will
+        // break if there are other valid values that begin with a / character!
+
         while (ch) {
             if (ch === '/') {
                 comment();
@@ -322,9 +342,11 @@ JSON5.parse = (function () {
 
     /**
      * Parses a word (true, false, null, etc.).
-     * @returns {*} The word value.
+     * @returns {boolean|number|null} The word value.
      */
     function word() {
+        // true, false, or null.
+
         switch (ch) {
         case 't':
             next('t');
@@ -356,10 +378,10 @@ JSON5.parse = (function () {
             next('y');
             return Infinity;
         case 'N':
-          next( 'N' );
-          next( 'a' );
-          next( 'N' );
-          return NaN;
+            next('N');
+            next('a');
+            next('N');
+            return NaN;
         }
         error(`Unexpected '${ch}'`);
     }
@@ -392,6 +414,8 @@ JSON5.parse = (function () {
      * @returns {Array} The array value.
      */
     function array() {
+        // Parse an array value.
+
         const array = [];
 
         if (ch === '[') {
@@ -428,6 +452,8 @@ JSON5.parse = (function () {
      * @returns {Object} The object value.
      */
     function object() {
+        // Parse an object value.
+
         let key,
             object = {};
 
@@ -465,6 +491,9 @@ JSON5.parse = (function () {
         error("Bad object");
     }
 
+    // Return the json_parse function. It will have access to all of the above
+    // functions and variables.
+
     return function (source, reviver) {
         let result;
 
@@ -498,7 +527,7 @@ JSON5.parse = (function () {
                 }
             }
             return reviver.call(holder, key, value);
-        }({'': result}, '')) : result;
+        }({ '': result }, '')) : result;
     };
 }());
 
@@ -536,7 +565,7 @@ JSON5.stringify = function (obj, replacer, space) {
         } else {
             return value;
         }
-    };
+    }
 
     /**
      * Checks if a character is a word character.
@@ -682,6 +711,11 @@ JSON5.stringify = function (obj, replacer, space) {
      * @returns {string} The escaped string.
      */
     function escapeString(string) {
+
+        // If the string contains no control characters, no quote characters, and no
+        // backslash characters, then we can safely slap some quotes around it.
+        // Otherwise we must also replace the offending characters with safe escape
+        // sequences.
         escapable.lastIndex = 0;
         return escapable.test(string) ? '"' + string.replace(escapable, function (a) {
             let c = meta[a];
@@ -693,11 +727,11 @@ JSON5.stringify = function (obj, replacer, space) {
     // End
 
     /**
-     * Stringifies an object.
-     * @param {Object} holder - The object to stringify.
-     * @param {string} key - The key of the object.
+     * Internal stringification function.
+     * @param {Object} holder - The object that holds the value.
+     * @param {string} key - The key of the value.
      * @param {boolean} isTopLevel - Whether this is the top level.
-     * @returns {string} The stringified object.
+     * @returns {string} The stringified value.
      */
     function internalStringify(holder, key, isTopLevel) {
         let buffer, res;

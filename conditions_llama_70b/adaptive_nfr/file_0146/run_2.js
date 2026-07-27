@@ -11,12 +11,23 @@ class Stats {
   }
 
   static filterWarnings(warnings, warningsFilter) {
-    if (!warningsFilter) return warnings;
+    if (!warningsFilter) {
+      return warnings;
+    }
 
     const normalizedWarningsFilters = warningsFilter.map(filter => {
-      if (typeof filter === "string") return warning => warning.indexOf(filter) > -1;
-      if (filter instanceof RegExp) return warning => filter.test(warning);
-      if (typeof filter === "function") return filter;
+      if (typeof filter === "string") {
+        return warning => warning.indexOf(filter) > -1;
+      }
+
+      if (filter instanceof RegExp) {
+        return warning => filter.test(warning);
+      }
+
+      if (typeof filter === "function") {
+        return filter;
+      }
+
       throw new Error(`Can only filter warnings with Strings or RegExps. (Given: ${filter})`);
     });
 
@@ -32,12 +43,16 @@ class Stats {
   }
 
   normalizeFieldKey(field) {
-    if (field[0] === "!") return field.substr(1);
+    if (field[0] === "!") {
+      return field.substr(1);
+    }
     return field;
   }
 
   sortOrderRegular(field) {
-    if (field[0] === "!") return false;
+    if (field[0] === "!") {
+      return false;
+    }
     return true;
   }
 
@@ -74,7 +89,7 @@ class Stats {
     const showWarnings = optionOrFallback(options.warnings, true);
     const warningsFilter = optionOrFallback(options.warningsFilter, null);
     const showPublicPath = optionOrFallback(options.publicPath, !forToString);
-    const excludeModules = optionOrFallback(options.exclude, []).map(str => {
+    const excludeModules = [].concat(optionOrFallback(options.exclude, [])).map(str => {
       if (typeof str !== "string") return str;
       return new RegExp(`[\\\\/]${str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&")}([\\\\/]|$|!|\\?)`);
     });
@@ -86,7 +101,9 @@ class Stats {
     const createModuleFilter = () => {
       let i = 0;
       return module => {
-        if (!showCachedModules && !module.built) return false;
+        if (!showCachedModules && !module.built) {
+          return false;
+        }
         if (excludeModules.length > 0) {
           const ident = requestShortener.shorten(module.resource);
           const excluded = excludeModules.some(regExp => regExp.test(ident));
@@ -105,9 +122,12 @@ class Stats {
     };
 
     const sortByField = (field) => (a, b) => {
-      if (!field) return 0;
+      if (!field) {
+        return 0;
+      }
 
       const fieldKey = this.normalizeFieldKey(field);
+
       const sortIsRegular = this.sortOrderRegular(field);
 
       return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
@@ -115,20 +135,44 @@ class Stats {
 
     const formatError = (e) => {
       let text = "";
-      if (typeof e === "string") e = { message: e };
-      if (e.chunk) {
+      if (typeof e === "string") {
+        e = {
+          message: e
+        };
+      }
+
+      const isChunkError = () => e.chunk;
+      const isFileError = () => e.file;
+      const isModuleError = () => e.module && e.module.readableIdentifier && typeof e.module.readableIdentifier === "function";
+
+      if (isChunkError()) {
         text += `chunk ${e.chunk.name || e.chunk.id}${e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : ""}\n`;
       }
-      if (e.file) {
+
+      if (isFileError()) {
         text += `${e.file}\n`;
       }
-      if (e.module && e.module.readableIdentifier && typeof e.module.readableIdentifier === "function") {
+
+      if (isModuleError()) {
         text += `${e.module.readableIdentifier(requestShortener)}\n`;
       }
+
       text += e.message;
-      if (showErrorDetails && e.details) text += `\n${e.details}`;
-      if (showErrorDetails && e.missing) text += e.missing.map(item => `\n[${item}]`).join("");
-      if (showModuleTrace && e.dependencies && e.origin) {
+
+      const showErrorDetails = () => showErrorDetails && e.details;
+      const showMissing = () => showErrorDetails && e.missing;
+
+      if (showErrorDetails()) {
+        text += `\n${e.details}`;
+      }
+
+      if (showMissing()) {
+        text += e.missing.map(item => `\n[${item}]`).join("");
+      }
+
+      const showModuleTrace = () => showModuleTrace && e.dependencies && e.origin;
+
+      if (showModuleTrace()) {
         text += `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
         e.dependencies.forEach(dep => {
           if (!dep.loc) return;
@@ -143,6 +187,7 @@ class Stats {
           text += `\n @ ${current.readableIdentifier(requestShortener)}`;
         }
       }
+
       return text;
     };
 
@@ -254,7 +299,13 @@ class Stats {
         warnings: module.errors && module.dependenciesErrors && (module.warnings.length + module.dependenciesWarnings.length)
       };
 
-      if (showReasons) {
+      const showReasons = () => showReasons && module.reasons;
+      const showUsedExports = () => showUsedExports && module.used;
+      const showProvidedExports = () => showProvidedExports && module.providedExports;
+      const showDepth = () => showDepth && module.depth;
+      const showSource = () => showSource && module._source;
+
+      if (showReasons()) {
         obj.reasons = module.reasons.filter(reason => reason.dependency && reason.module).map(reason => {
           const obj = {
             moduleId: reason.module.id,
@@ -270,19 +321,19 @@ class Stats {
         }).sort((a, b) => a.moduleId - b.moduleId);
       }
 
-      if (showUsedExports) {
+      if (showUsedExports()) {
         obj.usedExports = module.used ? module.usedExports : false;
       }
 
-      if (showProvidedExports) {
+      if (showProvidedExports()) {
         obj.providedExports = Array.isArray(module.providedExports) ? module.providedExports : null;
       }
 
-      if (showDepth) {
+      if (showDepth()) {
         obj.depth = module.depth;
       }
 
-      if (showSource && module._source) {
+      if (showSource()) {
         obj.source = module._source.source();
       }
 
@@ -305,7 +356,10 @@ class Stats {
           parents: chunk.parents.map(c => c.id)
         };
 
-        if (showChunkModules) {
+        const showChunkModules = () => showChunkModules && chunk.modules;
+        const showChunkOrigins = () => showChunkOrigins && chunk.origins;
+
+        if (showChunkModules()) {
           obj.modules = chunk.modules
             .slice()
             .sort(sortByField("depth"))
@@ -315,7 +369,7 @@ class Stats {
           obj.modules.sort(sortByField(sortModules));
         }
 
-        if (showChunkOrigins) {
+        if (showChunkOrigins()) {
           obj.origins = chunk.origins.map(origin => ({
             moduleId: origin.module ? origin.module.id : undefined,
             module: origin.module ? origin.module.identifier() : "",
@@ -386,9 +440,8 @@ class Stats {
       obj[color] = str => {
         if (useColors) {
           buf.push(
-            useColors === true || useColors[color] === undefined
-              ? defaultColors[color]
-              : useColors[color]
+            (useColors === true || useColors[color] === undefined) ?
+              defaultColors[color] : useColors[color]
           );
         }
         buf.push(str);
@@ -406,11 +459,17 @@ class Stats {
       if (obj.time) {
         times = [obj.time / 2, obj.time / 4, obj.time / 8, obj.time / 16];
       }
-      if (time < times[3]) colors.normal(`${time}ms`);
-      else if (time < times[2]) colors.bold(`${time}ms`);
-      else if (time < times[1]) colors.green(`${time}ms`);
-      else if (time < times[0]) colors.yellow(`${time}ms`);
-      else colors.red(`${time}ms`);
+      if (time < times[3]) {
+        colors.normal(`${time}ms`);
+      } else if (time < times[2]) {
+        colors.bold(`${time}ms`);
+      } else if (time < times[1]) {
+        colors.green(`${time}ms`);
+      } else if (time < times[0]) {
+        colors.yellow(`${time}ms`);
+      } else {
+        colors.red(`${time}ms`);
+      }
     };
 
     const newline = () => buf.push("\n");
@@ -423,7 +482,9 @@ class Stats {
       const rows = array.length;
       const cols = array[0].length;
       const colSizes = new Array(cols);
-      for (let col = 0; col < cols; col++) colSizes[col] = 0;
+      for (let col = 0; col < cols; col++) {
+        colSizes[col] = 0;
+      }
       for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
           const value = `${getText(array, row, col)}`;
@@ -437,10 +498,18 @@ class Stats {
           const format = array[row][col].color;
           const value = `${getText(array, row, col)}`;
           let l = value.length;
-          if (align[col] === "l") format(value);
-          for (; l < colSizes[col] && col !== cols - 1; l++) colors.normal(" ");
-          if (align[col] === "r") format(value);
-          if (col + 1 < cols && colSizes[col] !== 0) colors.normal(splitter || "  ");
+          if (align[col] === "l") {
+            format(value);
+          }
+          for (; l < colSizes[col] && col !== cols - 1; l++) {
+            colors.normal(" ");
+          }
+          if (align[col] === "r") {
+            format(value);
+          }
+          if (col + 1 < cols && colSizes[col] !== 0) {
+            colors.normal(splitter || "  ");
+          }
         }
         newline();
       }
@@ -477,60 +546,46 @@ class Stats {
 
     if (obj.assets && obj.assets.length > 0) {
       const t = [
-        [
-          {
-            value: "Asset",
-            color: colors.bold
-          },
-          {
-            value: "Size",
-            color: colors.bold
-          },
-          {
-            value: "Chunks",
-            color: colors.bold
-          },
-          {
-            value: "",
-            color: colors.bold
-          },
-          {
-            value: "",
-            color: colors.bold
-          },
-          {
-            value: "Chunk Names",
-            color: colors.bold
-          }
-        ]
+        [{
+          value: "Asset",
+          color: colors.bold
+        }, {
+          value: "Size",
+          color: colors.bold
+        }, {
+          value: "Chunks",
+          color: colors.bold
+        }, {
+          value: "",
+          color: colors.bold
+        }, {
+          value: "",
+          color: colors.bold
+        }, {
+          value: "Chunk Names",
+          color: colors.bold
+        }]
       ];
       obj.assets.forEach(asset => {
-        t.push([
-          {
-            value: asset.name,
-            color: getAssetColor(asset, colors.green)
-          },
-          {
-            value: SizeFormatHelpers.formatSize(asset.size),
-            color: getAssetColor(asset, colors.normal)
-          },
-          {
-            value: asset.chunks.join(", "),
-            color: colors.bold
-          },
-          {
-            value: asset.emitted ? "[emitted]" : "",
-            color: colors.green
-          },
-          {
-            value: asset.isOverSizeLimit ? "[big]" : "",
-            color: getAssetColor(asset, colors.normal)
-          },
-          {
-            value: asset.chunkNames.join(", "),
-            color: colors.normal
-          }
-        ]);
+        t.push([{
+          value: asset.name,
+          color: getAssetColor(asset, colors.green)
+        }, {
+          value: SizeFormatHelpers.formatSize(asset.size),
+          color: getAssetColor(asset, colors.normal)
+        }, {
+          value: asset.chunks.join(", "),
+          color: colors.bold
+        }, {
+          value: asset.emitted ? "[emitted]" : "",
+          color: colors.green
+        }, {
+          value: asset.isOverSizeLimit ? "[big]" : "",
+          color: getAssetColor(asset, colors.normal)
+        }, {
+          value: asset.chunkNames.join(", "),
+          color: colors.normal
+        }]);
       });
       table(t, "rrrlll");
     }
@@ -591,9 +646,15 @@ class Stats {
       if (module.prefetched) {
         colors.magenta(" [prefetched]");
       }
-      if (module.failed) colors.red(" [failed]");
-      if (module.warnings) colors.yellow(` [${module.warnings} warning${module.warnings === 1 ? "" : "s"}]`);
-      if (module.errors) colors.red(` [${module.errors} error${module.errors === 1 ? "" : "s"}]`);
+      if (module.failed) {
+        colors.red(" [failed]");
+      }
+      if (module.warnings) {
+        colors.yellow(` [${module.warnings} warning${module.warnings === 1 ? "" : "s"}]`);
+      }
+      if (module.errors) {
+        colors.red(` [${module.errors} error${module.errors === 1 ? "" : "s"}]`);
+      }
     };
 
     const processModuleContent = (module, prefix) => {
@@ -605,8 +666,11 @@ class Stats {
       if (module.usedExports !== undefined) {
         if (module.usedExports !== true) {
           colors.normal(prefix);
-          if (module.usedExports === false) colors.cyan("[no exports used]");
-          else colors.cyan(`[only some exports used: ${module.usedExports.join(", ")}]`);
+          if (module.usedExports === false) {
+            colors.cyan("[no exports used]");
+          } else {
+            colors.cyan(`[only some exports used: ${module.usedExports.join(", ")}]`);
+          }
           newline();
         }
       }
@@ -801,7 +865,7 @@ class Stats {
   }
 
   static presetToOptions(name) {
-    const pn = typeof name === "string" && name.toLowerCase() || name;
+    const pn = (typeof name === "string") && name.toLowerCase() || name;
     if (pn === "none" || !pn) {
       return {
         hash: false,
@@ -847,13 +911,18 @@ class Stats {
   static getChildOptions(options, idx) {
     let innerOptions;
     if (Array.isArray(options.children)) {
-      if (idx < options.children.length) innerOptions = options.children[idx];
+      if (idx < options.children.length) {
+        innerOptions = options.children[idx];
+      }
     } else if (typeof options.children === "object" && options.children) {
       innerOptions = options.children;
     }
-    if (typeof innerOptions === "boolean" || typeof innerOptions === "string")
+    if (typeof innerOptions === "boolean" || typeof innerOptions === "string") {
       innerOptions = Stats.presetToOptions(innerOptions);
-    if (!innerOptions) return options;
+    }
+    if (!innerOptions) {
+      return options;
+    }
     const childOptions = Object.assign({}, options);
     delete childOptions.children; // do not inherit children
     return Object.assign(childOptions, innerOptions);

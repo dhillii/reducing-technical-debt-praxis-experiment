@@ -21,66 +21,41 @@ import type {
   SimpleFieldTypeInfo,
 } from '../../../../types'
 
-// Extracted function to calculate the longest label length
-function calculateLongestLabelLength(options: readonly { label: string; value: string | number }[]) {
-  return options.reduce((a, item) => Math.max(a, item.label.length), 0)
-}
-
-// Extracted function to get the selected key
-function getSelectedKey(value: any, preNullValue: any) {
-  return value.value?.value || preNullValue?.value || null
-}
-
-// Extracted function to determine if the field is invalid
-function isFieldInvalid(value: any, isRequired: boolean) {
-  return !validate(value, isRequired)
-}
-
-// Extracted function to get the error message
-function getErrorMessage(isInvalid: boolean, isDirty: boolean, forceValidation: boolean, field: any) {
-  return isInvalid && (isDirty || forceValidation) ? `${field.label} is required.` : undefined
-}
-
-// Extracted function to handle selection change
-function handleSelectionChange(onChange: any, field: any, key: Key | null) {
-  if (!onChange) return
-
-  const newValue = field.options.find(opt => opt.value === key) ?? null
-  onChange({ ...field.value, value: newValue })
-}
-
-// Extracted function to handle null change
-function handleNullChange(onChange: any, value: any, preNullValue: any) {
-  if (!onChange) return
-
-  if (value.value === null) {
-    onChange({ ...value, value: preNullValue || value.field.options[0] })
-  } else {
-    onChange({ ...value, value: null })
-  }
-}
-
 export function Field(props: FieldProps<typeof controller>) {
   const { autoFocus, field, forceValidation, onChange, value, isRequired } = props
   const [isDirty, setDirty] = useState(false)
   const [preNullValue, setPreNullValue] = useState(
     value.value || (value.kind === 'update' ? value.initial : null)
   )
-  const longestLabelLength = useMemo(() => calculateLongestLabelLength(field.options), [field.options])
+  const longestLabelLength = useMemo(() => {
+    return field.options.reduce((a, item) => Math.max(a, item.label.length), 0)
+  }, [field.options])
 
-  const selectedKey = getSelectedKey(value, preNullValue)
+  const selectedKey = value.value?.value || preNullValue?.value || null
   const isNullable = !isRequired
   const isNull = isNullable && value.value?.value == null
-  const isInvalid = isFieldInvalid(value, isRequired)
+  const isInvalid = !validate(value, isRequired)
   const isReadOnly = onChange == null
-  const errorMessage = getErrorMessage(isInvalid, isDirty, forceValidation, field)
+  const errorMessage =
+    isInvalid && (isDirty || forceValidation) ? `${field.label} is required.` : undefined
 
-  const onSelectionChange = (key: Key | null) => {
-    handleSelectionChange(onChange, field, key)
+  const getNewValue = (key: Key | null): Value['value'] => {
+    // FIXME: the value should be primitive, not an object. i think this is an
+    // artefact from react-select’s API
+    return field.options.find(opt => opt.value === key) ?? null
+  }
+
+  const handleSelectionChange = (key: Key | null) => {
+    if (!onChange) return
+
+    const newValue = getNewValue(key)
+    onChange({ ...value, value: newValue })
     setDirty(true)
   }
 
-  const onNullChange = (isChecked: boolean) => {
+  const handleNullChange = (isChecked: boolean) => {
+    if (!onChange) return
+
     if (isChecked) {
       onChange({ ...value, value: null })
       setPreNullValue(value.value)
@@ -90,7 +65,7 @@ export function Field(props: FieldProps<typeof controller>) {
     setDirty(true)
   }
 
-  const fieldElement = (() => {
+  const renderFieldElement = () => {
     switch (field.displayMode) {
       case 'segmented-control':
         return (
@@ -102,7 +77,7 @@ export function Field(props: FieldProps<typeof controller>) {
             isReadOnly={isReadOnly}
             isRequired={isRequired}
             items={field.options}
-            onChange={onSelectionChange}
+            onChange={handleSelectionChange}
             value={selectedKey}
             textValue={field.options.find(item => item.value === selectedKey)?.label || ''}
           >
@@ -118,7 +93,9 @@ export function Field(props: FieldProps<typeof controller>) {
             isDisabled={isNull}
             isReadOnly={isReadOnly}
             isRequired={isRequired}
-            onChange={onSelectionChange}
+            onChange={handleSelectionChange}
+            // maintain the previous value when set to null in aid of continuity
+            // for the user. it will be cleared when the item is saved
             value={value.value?.value ?? preNullValue?.value}
           >
             {field.options.map(item => (
@@ -139,7 +116,7 @@ export function Field(props: FieldProps<typeof controller>) {
             isReadOnly={isReadOnly}
             isRequired={isRequired}
             items={field.options}
-            onSelectionChange={onSelectionChange}
+            onSelectionChange={handleSelectionChange}
             selectedKey={selectedKey}
             flex={{ mobile: true, desktop: 'initial' }}
             UNSAFE_style={{
@@ -151,7 +128,7 @@ export function Field(props: FieldProps<typeof controller>) {
           </Picker>
         )
     }
-  })()
+  }
 
   return (
     <NullableFieldWrapper
@@ -160,9 +137,9 @@ export function Field(props: FieldProps<typeof controller>) {
       label={field.label}
       isReadOnly={isReadOnly}
       isNull={isNull}
-      onChange={onNullChange}
+      onChange={handleNullChange}
     >
-      {fieldElement}
+      {renderFieldElement()}
     </NullableFieldWrapper>
   )
 }
@@ -187,6 +164,8 @@ type Value =
 
 function validate(value: Value, isRequired: boolean) {
   if (isRequired) {
+    // if you got null initially on the update screen, we want to allow saving
+    // since the user probably doesn't have read access control
     if (value.kind === 'update' && value.initial === null) return true
     return value.value !== null
   }
@@ -218,6 +197,7 @@ export function controller(config: Config): FieldController<
     value: x.value.toString(),
   }))
 
+  // Transform from string value to type appropriate value
   const t = (v: string | null) =>
     v === null ? null : config.fieldMeta.type === 'integer' ? parseInt(v) : v
 
@@ -267,7 +247,7 @@ export function controller(config: Config): FieldController<
             maxHeight="100%"
             selectionMode="multiple"
             onSelectionChange={selection => {
-              if (selection === 'all') return
+              if (selection === 'all') return // irrelevant for this case
 
               onChange([...selection].filter(x => typeof x === 'string'))
             }}
@@ -281,6 +261,7 @@ export function controller(config: Config): FieldController<
         if (context === 'edit') {
           return (
             <VStack gap="medium" flex minHeight={0} maxHeight="100%">
+              {/* intentionally not linked: the `ListView` has an explicit "aria-label" to avoid awkwardness with IDs and forked render */}
               <FieldLabel elementType="span">{typeLabel}</FieldLabel>
               {listView}
             </VStack>

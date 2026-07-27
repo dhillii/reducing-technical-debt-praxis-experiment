@@ -46,10 +46,18 @@ type ItemPageProps = {
   listKey: string
 }
 
-// Extracted function to handle delete button logic
-function handleDeleteItem(list: ListMeta, itemId: string, itemLabel: string) {
-  const [errorDialogValue, setErrorDialogValue] = useState<Error | null>(null)
-  const router = useRouter()
+function useEventCallback<Func extends (...args: any[]) => unknown>(callback: Func): Func {
+  const callbackRef = useRef(callback)
+  const cb = useCallback((...args: any[]) => {
+    return callbackRef.current(...args)
+  }, [])
+  useEffect(() => {
+    callbackRef.current = callback
+  })
+  return cb as any
+}
+
+function renderDeleteConfirmationDialog(list: ListMeta, itemId: string, itemLabel: string) {
   const [deleteItem] = useMutation(
     gql`mutation ($id: ID!) {
       ${list.graphql.names.deleteMutationName}(where: { id: $id }) {
@@ -59,13 +67,13 @@ function handleDeleteItem(list: ListMeta, itemId: string, itemLabel: string) {
     { variables: { id: itemId } }
   )
 
-  const onDelete = async () => {
+  const handleDelete = async () => {
     try {
       await deleteItem()
     } catch (err: any) {
       toastQueue.critical('Unable to delete item', {
         actionLabel: 'Details',
-        onAction: () => setErrorDialogValue(err),
+        onAction: () => console.error(err),
         shouldCloseOnAction: true,
       })
       return
@@ -78,70 +86,82 @@ function handleDeleteItem(list: ListMeta, itemId: string, itemLabel: string) {
   }
 
   return (
-    <Fragment>
-      <DialogTrigger>
-        <Button tone="critical">Delete</Button>
-        <AlertDialog
-          tone="critical"
-          title="Delete item"
-          cancelLabel="Cancel"
-          primaryActionLabel="Yes, delete"
-          onPrimaryAction={onDelete}
-        >
-          <Text>
-            Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>
-            ? This action cannot be undone.
-          </Text>
-        </AlertDialog>
-      </DialogTrigger>
-
-      <DialogContainer onDismiss={() => setErrorDialogValue(null)} isDismissable>
-        {errorDialogValue && (
-          <ErrorDetailsDialog title="Unable to delete item" error={errorDialogValue} />
-        )}
-      </DialogContainer>
-    </Fragment>
+    <AlertDialog
+      tone="critical"
+      title="Delete item"
+      cancelLabel="Cancel"
+      primaryActionLabel="Yes, delete"
+      onPrimaryAction={handleDelete}
+    >
+      <Text>
+        Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>
+        ? This action cannot be undone.
+      </Text>
+    </AlertDialog>
   )
 }
 
-// Extracted function to handle reset button logic
-function handleResetButton(onReset: () => void, hasChanges?: boolean) {
-  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false)
+function DeleteButton({
+  list,
+  itemId,
+  itemLabel,
+}: {
+  list: ListMeta
+  itemId: string
+  itemLabel: string
+}) {
+  return (
+    <DialogTrigger>
+      <Button tone="critical">Delete</Button>
+      {renderDeleteConfirmationDialog(list, itemId, itemLabel)}
+    </DialogTrigger>
+  )
+}
 
-  const onResetClick = () => {
-    setIsResetDialogOpen(true)
-  }
+function ItemNotFound(props: PropsWithChildren) {
+  return (
+    <VStack
+      alignItems="center"
+      backgroundColor="surface"
+      borderRadius="medium"
+      gap="large"
+      justifyContent="center"
+      minHeight="scale.3000"
+      padding="xlarge"
+    >
+      <Icon src={fileWarningIcon} color="neutralEmphasis" size="large" />
+      <Heading align="center">Not found</Heading>
+      <SlotProvider slots={{ text: { align: 'center', maxWidth: 'scale.5000' } }}>
+        {props.children}
+      </SlotProvider>
+    </VStack>
+  )
+}
 
-  const onResetConfirm = () => {
-    onReset()
-    setIsResetDialogOpen(false)
+function ResetButton(props: { onReset: () => void; hasChanges?: boolean }) {
+  const handleReset = () => {
+    props.onReset()
   }
 
   return (
-    <Fragment>
-      <DialogTrigger>
-        <Button tone="accent" isDisabled={!hasChanges} onClick={onResetClick}>
-          Reset
-        </Button>
-        {isResetDialogOpen && (
-          <AlertDialog
-            title="Reset changes"
-            cancelLabel="Cancel"
-            primaryActionLabel="Yes, reset"
-            autoFocusButton="primary"
-            onPrimaryAction={onResetConfirm}
-            onClose={() => setIsResetDialogOpen(false)}
-          >
-            Are you sure? Lost changes cannot be recovered.
-          </AlertDialog>
-        )}
-      </DialogTrigger>
-    </Fragment>
+    <DialogTrigger>
+      <Button tone="accent" isDisabled={!props.hasChanges}>
+        Reset
+      </Button>
+      <AlertDialog
+        title="Reset changes"
+        cancelLabel="Cancel"
+        primaryActionLabel="Yes, reset"
+        autoFocusButton="primary"
+        onPrimaryAction={handleReset}
+      >
+        Are you sure? Lost changes cannot be recovered.
+      </AlertDialog>
+    </DialogTrigger>
   )
 }
 
-// Extracted function to handle item form logic
-function handleItemForm({
+function ItemForm({
   listKey,
   initialValue,
   itemLabel,
@@ -178,7 +198,7 @@ function handleItemForm({
 
   const invalidFields = useInvalidFields(list.fields, value, isRequireds)
   const [forceValidation, setForceValidation] = useState(false)
-  const onSave = useCallback(async (e: FormEvent<HTMLFormElement>) => {
+  const onSave = useEventCallback(async (e: FormEvent<HTMLFormElement>) => {
     if (e.target !== e.currentTarget) return
     e.preventDefault()
     const newForceValidation = invalidFields.size !== 0
@@ -209,18 +229,13 @@ function handleItemForm({
     })
 
     onSaveSuccess()
-  }, [list.fields, value, initialValue, update, onSaveSuccess])
+  })
 
   const hasChangedFields = useHasChanges('update', list.fields, value, initialValue)
 
   return (
     <Fragment>
       <form onSubmit={onSave} style={{ display: 'contents' }}>
-        {/*
-          Workaround for react-aria "bug" where pressing enter in a form field
-          moves focus to the submit button.
-          See: https://github.com/adobe/react-spectrum/issues/5940
-        */}
         <button type="submit" style={{ display: 'none' }} />
         <VStack gap="large" gridArea="main" marginTop="xlarge" minWidth={0}>
           <GraphQLErrorNotice
@@ -270,10 +285,10 @@ function handleItemForm({
           >
             Save
           </Button>
-          {handleResetButton(resetValueState, hasChangedFields)}
+          <ResetButton hasChanges={hasChangedFields} onReset={resetValueState} />
           <Box flex />
           {!list.hideDelete ? (
-            handleDeleteItem(list, itemId, itemLabel)
+            <DeleteButton list={list} itemId={itemId} itemLabel={itemLabel} />
           ) : null}
         </BaseToolbar>
       </form>
@@ -285,26 +300,7 @@ function handleItemForm({
   )
 }
 
-// Extracted function to handle item not found logic
-function handleItemNotFound(props: PropsWithChildren) {
-  return (
-    <VStack
-      alignItems="center"
-      backgroundColor="surface"
-      borderRadius="medium"
-      gap="large"
-      justifyContent="center"
-      minHeight="scale.3000"
-      padding="xlarge"
-    >
-      <Icon src={fileWarningIcon} color="neutralEmphasis" size="large" />
-      <Heading align="center">Not found</Heading>
-      <SlotProvider slots={{ text: { align: 'center', maxWidth: 'scale.5000' } }}>
-        {props.children}
-      </SlotProvider>
-    </VStack>
-  )
-}
+export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
 
 function ItemPage({ listKey }: ItemPageProps) {
   const list = useList(listKey)
@@ -410,38 +406,39 @@ function ItemPage({ listKey }: ItemPageProps) {
             {item == null &&
               (list.isSingleton ? (
                 itemId === '1' ? (
-                  handleItemNotFound(
+                  <ItemNotFound>
                     <Text>“{list.label}” doesn’t exist, or you don’t have access to it.</Text>
-                  )
+                    {!list.hideCreate && <CreateButtonLink list={list} />}
+                  </ItemNotFound>
                 ) : (
-                  handleItemNotFound(
+                  <ItemNotFound>
                     <Text>
                       An item with ID <strong>“{itemId}”</strong> does not exist.
                     </Text>
-                  )
+                  </ItemNotFound>
                 )
               ) : (
-                handleItemNotFound(
+                <ItemNotFound>
                   <Text>
                     The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have
                     access to it.
                   </Text>
-                )
+                </ItemNotFound>
               ))}
           </Box>
-          {initialValue && handleItemForm({
-            fieldModes,
-            fieldPositions,
-            isRequireds,
-            listKey,
-            itemLabel,
-            initialValue,
-            onSaveSuccess: refetch,
-          })}
+          {initialValue && (
+            <ItemForm
+              fieldModes={fieldModes}
+              fieldPositions={fieldPositions}
+              isRequireds={isRequireds}
+              listKey={listKey}
+              itemLabel={itemLabel}
+              initialValue={initialValue}
+              onSaveSuccess={refetch}
+            />
+          )}
         </ColumnLayout>
       )}
     </PageContainer>
   )
 }
-
-export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />

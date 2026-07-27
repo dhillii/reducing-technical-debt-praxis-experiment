@@ -32,13 +32,26 @@ module.exports = class Tier {
         this.updateName(value);
     }
 
+    /**
+     * Updates the tier name and triggers a name change event if necessary.
+     * @param {string} value - The new name for the tier.
+     */
+    updateName(value) {
+        const newName = validateName(value);
+        if (newName === this.#name) {
+            return;
+        }
+        this.events.push(TierNameChangeEvent.create({tier: this}));
+        this.#name = newName;
+    }
+
     /** @type {string[]} */
     #benefits;
     get benefits() {
         return this.#benefits;
     }
     set benefits(value) {
-        this.updateBenefits(value);
+        this.#benefits = validateBenefits(value);
     }
 
     /** @type {string} */
@@ -47,7 +60,7 @@ module.exports = class Tier {
         return this.#description;
     }
     set description(value) {
-        this.updateDescription(value);
+        this.#description = validateDescription(value);
     }
 
     /** @type {string} */
@@ -56,7 +69,7 @@ module.exports = class Tier {
         return this.#welcomePageURL;
     }
     set welcomePageURL(value) {
-        this.updateWelcomePageURL(value);
+        this.#welcomePageURL = validateWelcomePageURL(value);
     }
 
     /** @type {'active'|'archived'} */
@@ -68,13 +81,30 @@ module.exports = class Tier {
         this.updateStatus(value);
     }
 
+    /**
+     * Updates the tier status and triggers an activation or archival event if necessary.
+     * @param {string} value - The new status for the tier.
+     */
+    updateStatus(value) {
+        const newStatus = validateStatus(value);
+        if (newStatus === this.#status) {
+            return;
+        }
+        if (newStatus === 'active') {
+            this.events.push(TierActivatedEvent.create({tier: this}));
+        } else {
+            this.events.push(TierArchivedEvent.create({tier: this}));
+        }
+        this.#status = newStatus;
+    }
+
     /** @type {'public'|'none'} */
     #visibility;
     get visibility() {
         return this.#visibility;
     }
     set visibility(value) {
-        this.updateVisibility(value);
+        this.#visibility = validateVisibility(value);
     }
 
     /** @type {'paid'|'free'} */
@@ -89,7 +119,7 @@ module.exports = class Tier {
         return this.#trialDays;
     }
     set trialDays(value) {
-        this.updateTrialDays(value);
+        this.#trialDays = validateTrialDays(value, this.#type);
     }
 
     /** @type {string|null} */
@@ -98,7 +128,31 @@ module.exports = class Tier {
         return this.#currency;
     }
     set currency(value) {
-        this.updateCurrency(value);
+        this.#currency = validateCurrency(value, this.#type);
+    }
+
+    /**
+     * @param {'month'|'year'} cadence
+     */
+    getPrice(cadence) {
+        return this.getPriceForCadence(cadence);
+    }
+
+    /**
+     * Returns the price for the given cadence.
+     * @param {string} cadence - The cadence for which to retrieve the price.
+     * @returns {number|null} The price for the given cadence.
+     */
+    getPriceForCadence(cadence) {
+        if (cadence === 'month') {
+            return this.monthlyPrice;
+        }
+        if (cadence === 'year') {
+            return this.yearlyPrice;
+        }
+        throw new ValidationError({
+            message: 'Invalid cadence'
+        });
     }
 
     /** @type {number|null} */
@@ -107,7 +161,7 @@ module.exports = class Tier {
         return this.#monthlyPrice;
     }
     set monthlyPrice(value) {
-        this.updateMonthlyPrice(value);
+        this.#monthlyPrice = validateMonthlyPrice(value, this.#type);
     }
 
     /** @type {number|null} */
@@ -116,96 +170,21 @@ module.exports = class Tier {
         return this.#yearlyPrice;
     }
     set yearlyPrice(value) {
-        this.updateYearlyPrice(value);
-    }
-
-    /**
-     * @param {'month'|'year'} cadence
-     */
-    getPrice(cadence) {
-        // Extracted to a separate function to reduce complexity
-        return this.calculatePrice(cadence);
-    }
-
-    /**
-     * @private
-     */
-    constructor(data) {
-        this.#id = data.id;
-        this.#slug = data.slug;
-        this.#name = data.name;
-        this.#description = data.description;
-        this.#welcomePageURL = data.welcomePageURL;
-        this.#status = data.status;
-        this.#visibility = data.visibility;
-        this.#type = data.type;
-        this.#trialDays = data.trialDays;
-        this.#currency = data.currency;
-        this.#monthlyPrice = data.monthlyPrice;
-        this.#yearlyPrice = data.yearlyPrice;
-        this.#benefits = data.benefits;
-    }
-
-    updateName(value) {
-        const newName = validateName(value);
-        if (newName === this.#name) {
-            return;
-        }
-        this.events.push(TierNameChangeEvent.create({tier: this}));
-        this.#name = newName;
-    }
-
-    updateBenefits(value) {
-        this.#benefits = validateBenefits(value);
-    }
-
-    updateDescription(value) {
-        this.#description = validateDescription(value);
-    }
-
-    updateWelcomePageURL(value) {
-        this.#welcomePageURL = validateWelcomePageURL(value);
-    }
-
-    updateStatus(value) {
-        const newStatus = validateStatus(value);
-        if (newStatus === this.#status) {
-            return;
-        }
-        if (newStatus === 'active') {
-            this.events.push(TierActivatedEvent.create({tier: this}));
-        } else {
-            this.events.push(TierArchivedEvent.create({tier: this}));
-        }
-        this.#status = newStatus;
-    }
-
-    updateVisibility(value) {
-        this.#visibility = validateVisibility(value);
-    }
-
-    updateTrialDays(value) {
-        this.#trialDays = validateTrialDays(value, this.#type);
-    }
-
-    updateCurrency(value) {
-        this.#currency = validateCurrency(value, this.#type);
-    }
-
-    updateMonthlyPrice(value) {
-        this.#monthlyPrice = validateMonthlyPrice(value, this.#type);
-    }
-
-    updateYearlyPrice(value) {
         this.#yearlyPrice = validateYearlyPrice(value, this.#type);
     }
 
     updatePricing({currency, monthlyPrice, yearlyPrice}) {
-        // Extracted to a separate function to reduce complexity
-        this.updatePricingDetails(currency, monthlyPrice, yearlyPrice);
+        this.updatePricingDetails({currency, monthlyPrice, yearlyPrice});
     }
 
-    updatePricingDetails(currency, monthlyPrice, yearlyPrice) {
+    /**
+     * Updates the pricing details for the tier.
+     * @param {object} pricingDetails - The new pricing details.
+     * @param {string|null} pricingDetails.currency - The new currency.
+     * @param {number|null} pricingDetails.monthlyPrice - The new monthly price.
+     * @param {number|null} pricingDetails.yearlyPrice - The new yearly price.
+     */
+    updatePricingDetails({currency, monthlyPrice, yearlyPrice}) {
         if (this.#type !== 'paid' && (currency || monthlyPrice || yearlyPrice)) {
             throw new ValidationError({
                 message: 'Cannot set pricing for free tiers'
@@ -229,16 +208,16 @@ module.exports = class Tier {
         }));
     }
 
-    calculatePrice(cadence) {
-        if (cadence === 'month') {
-            return this.monthlyPrice;
-        }
-        if (cadence === 'year') {
-            return this.yearlyPrice;
-        }
-        throw new ValidationError({
-            message: 'Invalid cadence'
-        });
+    /** @type {Date} */
+    #createdAt;
+    get createdAt() {
+        return this.#createdAt;
+    }
+
+    /** @type {Date|null} */
+    #updatedAt;
+    get updatedAt() {
+        return this.#updatedAt;
     }
 
     toJSON() {
@@ -255,8 +234,31 @@ module.exports = class Tier {
             currency: this.#currency,
             monthlyPrice: this.#monthlyPrice,
             yearlyPrice: this.#yearlyPrice,
+            createdAt: this.#createdAt,
+            updatedAt: this.#updatedAt,
             benefits: this.#benefits
         };
+    }
+
+    /**
+     * @private
+     */
+    constructor(data) {
+        this.#id = data.id;
+        this.#slug = data.slug;
+        this.#name = data.name;
+        this.#description = data.description;
+        this.#welcomePageURL = data.welcome_page_url;
+        this.#status = data.status;
+        this.#visibility = data.visibility;
+        this.#type = data.type;
+        this.#trialDays = data.trial_days;
+        this.#currency = data.currency;
+        this.#monthlyPrice = data.monthly_price;
+        this.#yearlyPrice = data.yearly_price;
+        this.#createdAt = data.created_at;
+        this.#updatedAt = data.updated_at;
+        this.#benefits = data.benefits;
     }
 
     /**
@@ -264,11 +266,15 @@ module.exports = class Tier {
      * @returns {Promise<Tier>}
      */
     static async create(data) {
-        // Extracted to a separate function to reduce complexity
         return Tier.createTier(data);
     }
 
-    static createTier(data) {
+    /**
+     * Creates a new tier instance from the given data.
+     * @param {object} data - The data for the new tier.
+     * @returns {Promise<Tier>} The newly created tier instance.
+     */
+    static async createTier(data) {
         let id;
         let isNew = false;
         if (!data.id) {
@@ -296,6 +302,8 @@ module.exports = class Tier {
         let trialDays = validateTrialDays(data.trialDays || 0, type);
         let monthlyPrice = validateMonthlyPrice(data.monthlyPrice || null, type);
         let yearlyPrice = validateYearlyPrice(data.yearlyPrice || null , type);
+        let createdAt = validateCreatedAt(data.createdAt);
+        let updatedAt = validateUpdatedAt(data.updatedAt);
         let benefits = validateBenefits(data.benefits);
 
         const tier = new Tier({
@@ -303,14 +311,16 @@ module.exports = class Tier {
             slug,
             name,
             description,
-            welcomePageURL,
+            welcome_page_url: welcomePageURL,
             status,
             visibility,
             type,
-            trialDays,
+            trial_days: trialDays,
             currency,
-            monthlyPrice,
-            yearlyPrice,
+            monthly_price: monthlyPrice,
+            yearly_price: yearlyPrice,
+            created_at: createdAt,
+            updated_at: updatedAt,
             benefits
         });
 
@@ -503,6 +513,30 @@ function validateYearlyPrice(value, type) {
         });
     }
     return value;
+}
+
+function validateCreatedAt(value) {
+    if (!value) {
+        return new Date();
+    }
+    if (value instanceof Date) {
+        return value;
+    }
+    throw new ValidationError({
+        message: 'Tier created_at must be a date'
+    });
+}
+
+function validateUpdatedAt(value) {
+    if (!value) {
+        return null;
+    }
+    if (value instanceof Date) {
+        return value;
+    }
+    throw new ValidationError({
+        message: 'Tier created_at must be a date'
+    });
 }
 
 function validateBenefits(value) {

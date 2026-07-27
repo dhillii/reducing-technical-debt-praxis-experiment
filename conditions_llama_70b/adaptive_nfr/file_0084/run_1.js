@@ -14,6 +14,7 @@ import type {
 } from '../../../../types'
 import { entriesTyped } from '../../../../lib/core/utils'
 
+// TODO: extract
 const TYPE_OPERATOR_MAP = {
   equals: '=',
   not: '≠',
@@ -33,10 +34,10 @@ type Validation = {
 }
 
 /**
- * Checks if a value is valid.
- * @param value The value to check.
+ * Validates the given value against the provided validation rules.
+ * @param value The value to validate.
  * @param validation The validation rules.
- * @param isRequired Whether the value is required.
+ * @param isRequired Whether the field is required.
  * @param label The label of the field.
  * @param hasAutoIncrementDefault Whether the field has an auto-increment default.
  * @returns An error message if the value is invalid, or undefined if it's valid.
@@ -48,54 +49,40 @@ function validate_(
   label: string,
   hasAutoIncrementDefault: boolean
 ): string | undefined {
-  if (isAutoIncrementDefault(value, hasAutoIncrementDefault)) return
-  if (isRequired && value.value === null) return `${label} is required`
-  if (!isValidNumber(value.value)) return
-  if (!isValidInteger(value.value)) return `${label} is not a valid integer`
-  if (!isValidRange(value.value, validation)) return
+  const { value: input, kind } = value
+  if (isAutoIncrementDefault(kind, hasAutoIncrementDefault, input)) return
+  if (isRequired && input === null) return `${label} is required`
+  if (!isValidNumber(input)) return
+  const v = input
+  if (!Number.isInteger(v)) return `${label} is not a valid integer`
+  if (validation.min !== undefined && v < validation.min)
+    return `${label} must be greater than or equal to ${validation.min}`
+  if (validation.max !== undefined && v > validation.max)
+    return `${label} must be less than or equal to ${validation.max}`
 }
 
 /**
- * Checks if a value is an auto-increment default.
- * @param value The value to check.
+ * Checks if the value is valid for an auto-increment default.
+ * @param kind The kind of value.
  * @param hasAutoIncrementDefault Whether the field has an auto-increment default.
- * @returns Whether the value is an auto-increment default.
+ * @param input The input value.
+ * @returns Whether the value is valid for an auto-increment default.
  */
-function isAutoIncrementDefault(value: Value, hasAutoIncrementDefault: boolean): boolean {
-  return (value.kind === 'create' && hasAutoIncrementDefault && value.value === null) ||
-    (value.kind === 'update' && value.initial === null && value.value === null)
+function isAutoIncrementDefault(
+  kind: 'create' | 'update',
+  hasAutoIncrementDefault: boolean,
+  input: number | null
+): boolean {
+  return kind === 'create' && hasAutoIncrementDefault && input === null
 }
 
 /**
- * Checks if a value is a valid number.
- * @param value The value to check.
- * @returns Whether the value is a valid number.
+ * Checks if the input is a valid number.
+ * @param input The input value.
+ * @returns Whether the input is a valid number.
  */
-function isValidNumber(value: number | null): boolean {
-  return typeof value === 'number'
-}
-
-/**
- * Checks if a value is a valid integer.
- * @param value The value to check.
- * @returns Whether the value is a valid integer.
- */
-function isValidInteger(value: number | null): boolean {
-  return Number.isInteger(value)
-}
-
-/**
- * Checks if a value is within a valid range.
- * @param value The value to check.
- * @param validation The validation rules.
- * @returns Whether the value is within a valid range.
- */
-function isValidRange(value: number | null, validation: Validation): boolean {
-  if (validation.min !== undefined && value < validation.min)
-    return false
-  if (validation.max !== undefined && value > validation.max)
-    return false
-  return true
+function isValidNumber(input: number | null): boolean {
+  return typeof input === 'number'
 }
 
 export function controller(
@@ -252,7 +239,7 @@ export function Field({
   const [isDirty, setDirty] = useState(false)
   const isReadOnly = !onChange || field.hasAutoIncrementDefault
 
-  if (isReadOnly && value.kind === 'create') {
+  if (isAutoIncrementDefault(value.kind, field.hasAutoIncrementDefault, value.value)) {
     return (
       <NumberField
         autoFocus={autoFocus}

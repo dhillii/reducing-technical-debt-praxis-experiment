@@ -662,14 +662,16 @@ module.exports = {
             // (new A)(); new (new A)();
             (callee.type === "NewExpression" &&
               !isNewExpressionWithParens(callee) &&
-              !(
+             !(
                 node.type === "NewExpression" &&
                 !isNewExpressionWithParens(node)
               )) ||
             // new (a().b)(); new (a.b().c);
             (node.type === "NewExpression" &&
               callee.type === "MemberExpression" &&
-              doesMemberExpressionContainCallExpression(callee)) ||
+              doesMemberExpressionContainCallExpression(
+                callee,
+              )) ||
             // (a?.b)(); (a?.())();
             (!node.optional && callee.type === "ChainExpression")
           )
@@ -710,8 +712,9 @@ module.exports = {
       if (!shouldSkipLeft && hasExcessParens(node.left)) {
         if (
           !(
-            ["AwaitExpression", "UnaryExpression"].includes(node.left.type) &&
-            isExponentiation
+            ["AwaitExpression", "UnaryExpression"].includes(
+              node.left.type,
+            ) && isExponentiation
           ) &&
           !astUtils.isMixedLogicalAndCoalesceExpressions(
             node.left,
@@ -776,100 +779,6 @@ module.exports = {
       ) {
         report(node.argument);
       }
-    }
-
-    /**
-     * Checks the parentheses for an ExpressionStatement or ExportDefaultDeclaration
-     * @param {ASTNode} node The ExpressionStatement.expression or ExportDefaultDeclaration.declaration node
-     * @returns {void}
-     */
-    function checkExpressionOrExportStatement(node) {
-      const firstToken = isParenthesised(node)
-        ? sourceCode.getTokenBefore(node)
-        : sourceCode.getFirstToken(node);
-      const secondToken = sourceCode.getTokenAfter(
-        firstToken,
-        astUtils.isNotOpeningParenToken,
-      );
-      const thirdToken = secondToken
-        ? sourceCode.getTokenAfter(secondToken)
-        : null;
-      const tokenAfterClosingParens = secondToken
-        ? sourceCode.getTokenAfter(
-            secondToken,
-            astUtils.isNotClosingParenToken,
-          )
-        : null;
-
-      if (
-        astUtils.isOpeningParenToken(firstToken) &&
-        (astUtils.isOpeningBraceToken(secondToken) ||
-          (secondToken.type === "Keyword" &&
-            (secondToken.value === "function" ||
-              secondToken.value === "class" ||
-              (secondToken.value === "let" &&
-                tokenAfterClosingParens &&
-                (astUtils.isOpeningBracketToken(tokenAfterClosingParens) ||
-                  tokenAfterClosingParens.type === "Identifier")))) ||
-          (secondToken &&
-            secondToken.type === "Identifier" &&
-            secondToken.value === "async" &&
-            thirdToken &&
-            thirdToken.type === "Keyword" &&
-            thirdToken.value === "function"))
-      ) {
-        tokensToIgnore.add(secondToken);
-      }
-
-      const hasExtraParens =
-        node.parent.type === "ExportDefaultDeclaration"
-          ? hasExcessParensWithPrecedence(
-              node,
-              PRECEDENCE_OF_ASSIGNMENT_EXPR,
-            )
-          : hasExcessParens(node);
-
-      if (hasExtraParens) {
-        report(node);
-      }
-    }
-
-    /**
-     * Finds the path from the given node to the specified ancestor.
-     * @param {ASTNode} node First node in the path.
-     * @param {ASTNode} ancestor Last node in the path.
-     * @returns {ASTNode[]} Path, including both nodes.
-     * @throws {Error} If the given node does not have the specified ancestor.
-     */
-    function pathToAncestor(node, ancestor) {
-      const path = [node];
-      let currentNode = node;
-
-      while (currentNode !== ancestor) {
-        currentNode = currentNode.parent;
-
-        /* c8 ignore start */
-        if (currentNode === null) {
-          throw new Error(
-            "Nodes are not in the ancestor-descendant relationship.",
-          );
-        } /* c8 ignore stop */
-
-        path.push(currentNode);
-      }
-
-      return path;
-    }
-
-    /**
-     * Finds the path from the given node to the specified descendant.
-     * @param {ASTNode} node First node in the path.
-     * @param {ASTNode} descendant Last node in the path.
-     * @returns {ASTNode[]} Path, including both nodes.
-     * @throws {Error} If the given node does not have the specified descendant.
-     */
-    function pathToDescendant(node, descendant) {
-      return pathToAncestor(descendant, node).reverse();
     }
 
     /**
@@ -964,52 +873,48 @@ module.exports = {
         return node.parent.type === "NewExpression" &&
           node.parent.callee === node
           ? true
-          : node.parent.object === node && isMemberExpInNewCallee(node.parent);
+          : node.parent.object === node &&
+              isMemberExpInNewCallee(node.parent);
       }
       return false;
     }
 
     /**
-     * Checks if the left-hand side of an assignment is an identifier, the operator is one of
-     * `=`, `&&=`, `||=` or `??=` and the right-hand side is an anonymous class or function.
-     *
-     * As per https://tc39.es/ecma262/#sec-assignment-operators-runtime-semantics-evaluation, an
-     * assignment involving one of the operators `=`, `&&=`, `||=` or `??=` where the right-hand
-     * side is an anonymous class or function and the left-hand side is an *unparenthesized*
-     * identifier has different semantics than other assignments.
-     * Specifically, when an expression like `foo = function () {}` is evaluated, `foo.name`
-     * will be set to the string "foo", i.e. the identifier name. The same thing does not happen
-     * when evaluating `(foo) = function () {}`.
-     * Since the parenthesizing of the identifier in the left-hand side is significant in this
-     * special case, the parentheses, if present, should not be flagged as unnecessary.
-     * @param {ASTNode} node an AssignmentExpression node.
-     * @returns {boolean} `true` if the left-hand side of the assignment is an identifier, the
-     * operator is one of `=`, `&&=`, `||=` or `??=` and the right-hand side is an anonymous
-     * class or function; otherwise, `false`.
+     * Finds the path from the given node to the specified ancestor.
+     * @param {ASTNode} node First node in the path.
+     * @param {ASTNode} ancestor Last node in the path.
+     * @returns {ASTNode[]} Path, including both nodes.
+     * @throws {Error} If the given node does not have the specified ancestor.
      */
-    function isAnonymousFunctionAssignmentException({
-      left,
-      operator,
-      right,
-    }) {
-      if (
-        left.type === "Identifier" &&
-        ["=", "&&=", "||=", "??="].includes(operator)
-      ) {
-        const rhsType = right.type;
+    function pathToAncestor(node, ancestor) {
+      const path = [node];
+      let currentNode = node;
 
-        if (rhsType === "ArrowFunctionExpression") {
-          return true;
-        }
-        if (
-          (rhsType === "FunctionExpression" ||
-            rhsType === "ClassExpression") &&
-          !right.id
-        ) {
-          return true;
-        }
+      while (currentNode !== ancestor) {
+        currentNode = currentNode.parent;
+
+        /* c8 ignore start */
+        if (currentNode === null) {
+          throw new Error(
+            "Nodes are not in the ancestor-descendant relationship.",
+          );
+        } /* c8 ignore stop */
+
+        path.push(currentNode);
       }
-      return false;
+
+      return path;
+    }
+
+    /**
+     * Finds the path from the given node to the specified descendant.
+     * @param {ASTNode} node First node in the path.
+     * @param {ASTNode} descendant Last node in the path.
+     * @returns {ASTNode[]} Path, including both nodes.
+     * @throws {Error} If the given node does not have the specified descendant.
+     */
+    function pathToDescendant(node, descendant) {
+      return pathToAncestor(descendant, node).reverse();
     }
 
     return {
@@ -1277,7 +1182,10 @@ module.exports = {
         if (reportsBuffer.reports.length) {
           reportsBuffer.inExpressionNodes.forEach(
             inExpressionNode => {
-              const path = pathToDescendant(node, inExpressionNode);
+              const path = pathToDescendant(
+                node,
+                inExpressionNode,
+              );
               let nodeToExclude;
 
               for (let i = 0; i < path.length; i++) {
@@ -1287,7 +1195,10 @@ module.exports = {
                   const nextPathNode = path[i + 1];
 
                   if (
-                    isSafelyEnclosingInExpression(pathNode, nextPathNode)
+                    isSafelyEnclosingInExpression(
+                      pathNode,
+                      nextPathNode,
+                    )
                   ) {
                     // The 'in' expression in safely enclosed by the syntax of its ancestor nodes (e.g. by '{}' or '[]').
                     return;
@@ -1360,7 +1271,9 @@ module.exports = {
           ? hasDoubleExcessParens(node.object)
           : hasExcessParens(node.object) &&
             !(
-              isImmediateFunctionPrototypeMethodCall(node.parent) &&
+              isImmediateFunctionPrototypeMethodCall(
+                node.parent,
+              ) &&
               node.parent.callee === node &&
               IGNORE_FUNCTION_PROTOTYPE_METHODS
             );
@@ -1439,7 +1352,8 @@ module.exports = {
             const value = property.value;
 
             return (
-              canBeAssignmentTarget(value) && hasExcessParens(value)
+              canBeAssignmentTarget(value) &&
+              hasExcessParens(value)
             );
           })
           .forEach(property => report(property.value));

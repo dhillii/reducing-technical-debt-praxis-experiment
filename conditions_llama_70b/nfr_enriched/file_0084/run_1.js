@@ -14,6 +14,7 @@ import type {
 } from '../../../../types'
 import { entriesTyped } from '../../../../lib/core/utils'
 
+// TODO: extract
 const TYPE_OPERATOR_MAP = {
   equals: '=',
   not: '≠',
@@ -33,15 +34,15 @@ type Validation = {
 }
 
 /**
- * Validates the given value against the provided validation rules.
+ * Validates a value against a set of validation rules.
  * @param value The value to validate.
  * @param validation The validation rules.
- * @param isRequired Whether the field is required.
+ * @param isRequired Whether the value is required.
  * @param label The label of the field.
  * @param hasAutoIncrementDefault Whether the field has an auto-increment default.
- * @returns An error message if the value is invalid, or undefined if it's valid.
+ * @returns An error message if the value is invalid, or undefined if it is valid.
  */
-function validateValue(
+function validate_(
   value: Value,
   validation: Validation,
   isRequired: boolean,
@@ -62,11 +63,11 @@ function validateValue(
 }
 
 /**
- * Creates a field controller for the integer field.
- * @param config The field controller configuration.
+ * Creates a field controller for an integer field.
+ * @param config The configuration for the field controller.
  * @returns The field controller.
  */
-export function createFieldController(
+export function controller(
   config: FieldControllerConfig<{
     validation: Validation
     defaultValue: number | null | 'autoincrement'
@@ -75,8 +76,14 @@ export function createFieldController(
   validation: Validation
   hasAutoIncrementDefault: boolean
 } {
+  /**
+   * Validates a value against the field's validation rules.
+   * @param value The value to validate.
+   * @param opts The validation options.
+   * @returns An error message if the value is invalid, or undefined if it is valid.
+   */
   const validate = (value: Value, opts: { isRequired: boolean }) => {
-    return validateValue(
+    return validate_(
       value,
       config.fieldMeta.validation,
       opts.isRequired,
@@ -105,7 +112,12 @@ export function createFieldController(
     hasAutoIncrementDefault: config.fieldMeta.defaultValue === 'autoincrement',
     validate: (value, opts) => validate(value, opts) === undefined,
     filter: {
-      Filter(props) {
+      /**
+       * Renders the filter component.
+       * @param props The props for the filter component.
+       * @returns The filter component.
+       */
+      Filter(props: any) {
         const {
           autoFocus,
           context,
@@ -142,12 +154,23 @@ export function createFieldController(
         )
       },
 
+      /**
+       * Converts the filter value to a GraphQL query.
+       * @param type The type of the filter.
+       * @param value The value of the filter.
+       * @returns The GraphQL query.
+       */
       graphql: ({ type, value }) => {
         if (type === 'empty') return { [config.fieldKey]: { equals: null } }
         if (type === 'not_empty') return { [config.fieldKey]: { not: { equals: null } } }
         if (type === 'not') return { [config.fieldKey]: { not: { equals: value } } }
         return { [config.fieldKey]: { [type]: value } }
       },
+      /**
+       * Parses a GraphQL query to a filter value.
+       * @param value The GraphQL query.
+       * @returns The filter value.
+       */
       parseGraphQL: value => {
         return entriesTyped(value).flatMap(([type, value]) => {
           if (type === 'equals' && value === null) {
@@ -166,6 +189,11 @@ export function createFieldController(
           return []
         })
       },
+      /**
+       * Renders the label for the filter.
+       * @param props The props for the label.
+       * @returns The label.
+       */
       Label({ label, type, value }) {
         if (type === 'empty' || type === 'not_empty') return label.toLocaleLowerCase()
         const operator = TYPE_OPERATOR_MAP[type as keyof typeof TYPE_OPERATOR_MAP]
@@ -210,9 +238,9 @@ export function createFieldController(
 }
 
 /**
- * Renders the integer field.
- * @param props The field props.
- * @returns The rendered field.
+ * Renders a field component.
+ * @param props The props for the field component.
+ * @returns The field component.
  */
 export function Field({
   field,
@@ -221,7 +249,7 @@ export function Field({
   autoFocus,
   forceValidation,
   isRequired,
-}: FieldProps<typeof createFieldController>) {
+}: readonly FieldProps<typeof controller>) {
   const [isDirty, setDirty] = useState(false)
   const isReadOnly = !onChange || field.hasAutoIncrementDefault
 
@@ -246,8 +274,13 @@ export function Field({
     )
   }
 
+  /**
+   * Validates a value against the field's validation rules.
+   * @param value The value to validate.
+   * @returns An error message if the value is invalid, or undefined if it is valid.
+   */
   const validate = (value: Value) => {
-    return validateValue(
+    return validate_(
       value,
       field.validation,
       isRequired,

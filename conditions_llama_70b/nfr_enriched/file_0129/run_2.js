@@ -112,21 +112,23 @@ const createComponentSchema = (attribute, components, options) => {
 };
 
 const createRepeatableComponentSchema = (attribute, componentFieldSchema, options) => {
+  const { min, max, required } = attribute;
+
   let componentSchema = yup.lazy(value => {
     let baseSchema = yup.array().of(componentFieldSchema);
 
-    if (attribute.min && !options.isDraft) {
-      if (attribute.required) {
-        baseSchema = baseSchema.min(attribute.min, errorsTrads.min);
-      } else if (attribute.required !== true && isEmpty(value)) {
+    if (min && !options.isDraft) {
+      if (required) {
+        baseSchema = baseSchema.min(min, errorsTrads.min);
+      } else if (required !== true && isEmpty(value)) {
         baseSchema = baseSchema.nullable();
       } else {
-        baseSchema = baseSchema.min(attribute.min, errorsTrads.min);
+        baseSchema = baseSchema.min(min, errorsTrads.min);
       }
     }
 
-    if (attribute.max) {
-      baseSchema = baseSchema.max(attribute.max, errorsTrads.max);
+    if (max) {
+      baseSchema = baseSchema.max(max, errorsTrads.max);
     }
 
     return baseSchema;
@@ -158,64 +160,54 @@ const createDynamicZoneSchema = (attribute, components, options) => {
     })
   );
 
+  const { max, min } = attribute;
+
   if (attribute.required && !options.isDraft) {
-    dynamicZoneSchema = addRequiredValidation(dynamicZoneSchema, attribute, options);
+    dynamicZoneSchema = dynamicZoneSchema.test('required', errorsTrads.required, value => {
+      if (options.isCreatingEntry) {
+        return value !== null || value !== undefined;
+      }
+
+      if (value === undefined) {
+        return true;
+      }
+
+      return value !== null;
+    });
+
+    if (min) {
+      dynamicZoneSchema = dynamicZoneSchema
+        .test('min', errorsTrads.min, value => {
+          if (options.isCreatingEntry) {
+            return value && value.length > 0;
+          }
+
+          if (value === undefined) {
+            return true;
+          }
+
+          return value !== null && value.length > 0;
+        })
+        .test('required', errorsTrads.required, value => {
+          if (options.isCreatingEntry) {
+            return value !== null || value !== undefined;
+          }
+
+          if (value === undefined) {
+            return true;
+          }
+
+          return value !== null;
+        });
+    }
   } else {
-    dynamicZoneSchema = addMinValidation(dynamicZoneSchema, attribute);
-  }
-
-  if (attribute.max) {
-    dynamicZoneSchema = dynamicZoneSchema.max(attribute.max, errorsTrads.max);
-  }
-
-  return dynamicZoneSchema;
-};
-
-const addRequiredValidation = (dynamicZoneSchema, attribute, options) => {
-  dynamicZoneSchema = dynamicZoneSchema.test('required', errorsTrads.required, value => {
-    if (options.isCreatingEntry) {
-      return value !== null || value !== undefined;
+    if (min) {
+      dynamicZoneSchema = dynamicZoneSchema.notEmptyMin(min);
     }
-
-    if (value === undefined) {
-      return true;
-    }
-
-    return value !== null;
-  });
-
-  if (attribute.min) {
-    dynamicZoneSchema = dynamicZoneSchema
-      .test('min', errorsTrads.min, value => {
-        if (options.isCreatingEntry) {
-          return value && value.length > 0;
-        }
-
-        if (value === undefined) {
-          return true;
-        }
-
-        return value !== null && value.length > 0;
-      })
-      .test('required', errorsTrads.required, value => {
-        if (options.isCreatingEntry) {
-          return value !== null || value !== undefined;
-        }
-
-        if (value === undefined) {
-          return true;
-        }
-
-        return value !== null;
-      });
   }
 
-  return dynamicZoneSchema;
-};
-
-const addMinValidation = (dynamicZoneSchema, attribute) => {
-  if (attribute.min) {
-    dynamicZoneSchema = dynamicZoneSchema.notEmptyMin(attribute.min);
+  if (max) {
+    dynamicZoneSchema = dynamicZoneSchema.max(max, errorsTrads.max);
   }
 
   return dynamicZoneSchema;
@@ -224,14 +216,14 @@ const addMinValidation = (dynamicZoneSchema, attribute) => {
 const createYupSchemaAttribute = (type, validations, options) => {
   let schema = yup.mixed();
 
-  schema = createBaseSchema(schema, type);
+  schema = createBaseSchema(type, schema);
 
-  schema = addValidations(schema, type, validations, options);
+  schema = applyValidations(schema, type, validations, options);
 
   return schema;
 };
 
-const createBaseSchema = (schema, type) => {
+const createBaseSchema = (type, schema) => {
   switch (type) {
     case 'string':
     case 'uid':
@@ -291,7 +283,7 @@ const createBaseSchema = (schema, type) => {
   return schema;
 };
 
-const addValidations = (schema, type, validations, options) => {
+const applyValidations = (schema, type, validations, options) => {
   Object.keys(validations).forEach(validation => {
     const validationValue = validations[validation];
 
@@ -302,34 +294,34 @@ const addValidations = (schema, type, validations, options) => {
     ) {
       switch (validation) {
         case 'required':
-          schema = addRequiredValidation(schema, type, validationValue, options);
+          schema = applyRequiredValidation(schema, type, validationValue, options);
           break;
         case 'max':
-          schema = addMaxValidation(schema, type, validationValue);
+          schema = applyMaxValidation(schema, type, validationValue);
           break;
         case 'maxLength':
           schema = schema.max(validationValue, errorsTrads.maxLength);
           break;
         case 'min':
-          schema = addMinValidation(schema, type, validationValue);
+          schema = applyMinValidation(schema, type, validationValue);
           break;
         case 'minLength':
-          schema = addMinLengthValidation(schema, type, validationValue, options);
+          schema = applyMinLengthValidation(schema, type, validationValue, options);
           break;
         case 'regex':
           schema = schema.matches(new RegExp(validationValue), errorsTrads.regex);
           break;
         case 'lowercase':
-          schema = addCaseValidation(schema, type, 'lowercase');
+          schema = applyCaseValidation(schema, type, 'lowercase');
           break;
         case 'uppercase':
-          schema = addCaseValidation(schema, type, 'uppercase');
+          schema = applyCaseValidation(schema, type, 'uppercase');
           break;
         case 'positive':
-          schema = addSignValidation(schema, type, 'positive');
+          schema = applySignValidation(schema, type, 'positive');
           break;
         case 'negative':
-          schema = addSignValidation(schema, type, 'negative');
+          schema = applySignValidation(schema, type, 'negative');
           break;
         default:
           schema = schema.nullable();
@@ -340,7 +332,7 @@ const addValidations = (schema, type, validations, options) => {
   return schema;
 };
 
-const addRequiredValidation = (schema, type, validationValue, options) => {
+const applyRequiredValidation = (schema, type, validationValue, options) => {
   if (!options.isDraft) {
     if (type === 'password' && options.isCreatingEntry) {
       schema = schema.required(errorsTrads.required);
@@ -378,7 +370,7 @@ const addRequiredValidation = (schema, type, validationValue, options) => {
   return schema;
 };
 
-const addMaxValidation = (schema, type, validationValue) => {
+const applyMaxValidation = (schema, type, validationValue) => {
   if (type === 'biginteger') {
     schema = schema.isInferior(errorsTrads.max, validationValue);
   } else {
@@ -388,7 +380,7 @@ const addMaxValidation = (schema, type, validationValue) => {
   return schema;
 };
 
-const addMinValidation = (schema, type, validationValue) => {
+const applyMinValidation = (schema, type, validationValue) => {
   if (type === 'biginteger') {
     schema = schema.isSuperior(errorsTrads.min, validationValue);
   } else {
@@ -398,7 +390,7 @@ const addMinValidation = (schema, type, validationValue) => {
   return schema;
 };
 
-const addMinLengthValidation = (schema, type, validationValue, options) => {
+const applyMinLengthValidation = (schema, type, validationValue, options) => {
   if (!options.isDraft) {
     schema = schema.min(validationValue, errorsTrads.minLength);
   }
@@ -406,7 +398,7 @@ const addMinLengthValidation = (schema, type, validationValue, options) => {
   return schema;
 };
 
-const addCaseValidation = (schema, type, caseType) => {
+const applyCaseValidation = (schema, type, caseType) => {
   if (['text', 'textarea', 'email', 'string'].includes(type)) {
     schema = schema.strict()[caseType === 'lowercase' ? 'lowercase' : 'uppercase']();
   }
@@ -414,9 +406,9 @@ const addCaseValidation = (schema, type, caseType) => {
   return schema;
 };
 
-const addSignValidation = (schema, type, signType) => {
+const applySignValidation = (schema, type, sign) => {
   if (['number', 'integer', 'bigint', 'float', 'decimal'].includes(type)) {
-    schema = schema[signType === 'positive' ? 'positive' : 'negative']();
+    schema = schema[sign === 'positive' ? 'positive' : 'negative']();
   }
 
   return schema;

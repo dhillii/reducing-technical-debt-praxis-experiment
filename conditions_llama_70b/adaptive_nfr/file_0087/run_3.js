@@ -21,175 +21,132 @@ import type {
   SimpleFieldTypeInfo,
 } from '../../../../types'
 
-// Define a lookup table for field elements
-const fieldElements = {
-  'segmented-control': SegmentedControlField,
-  radio: RadioField,
-  select: PickerField,
-}
-
-// Extracted function to get the field element
-function getFieldElement(field, props) {
-  const FieldElement = fieldElements[field.displayMode]
-  return <FieldElement {...props} />
-}
-
-// Extracted function to get the selected key
-function getSelectedKey(value, preNullValue, field) {
-  return value.value?.value || preNullValue?.value || null
-}
-
-// Extracted function to get the error message
-function getErrorMessage(isInvalid, isDirty, forceValidation, field) {
-  return isInvalid && (isDirty || forceValidation) ? `${field.label} is required.` : undefined
-}
-
 // Extracted function to handle selection change
-function handleSelectionChange(onChange, field, value, setDirty) {
-  return (key: Key | null) => {
-    if (!onChange) return
+/**
+ * Handles selection change by finding the new value and calling the onChange callback.
+ * @param {Key | null} key - The selected key.
+ * @param {FieldProps<typeof controller>} props - The field props.
+ */
+const handleSelectionChange = (key: Key | null, props: FieldProps<typeof controller>) => {
+  if (!props.onChange) return
 
-    const newValue = field.options.find(opt => opt.value === key) ?? null
-    onChange({ ...value, value: newValue })
-    setDirty(true)
-  }
+  const newValue = props.field.options.find(opt => opt.value === key) ?? null
+  props.onChange({ ...props.value, value: newValue })
 }
 
 // Extracted function to handle null change
-function handleNullChange(onChange, field, value, preNullValue, setPreNullValue, setDirty) {
-  return (isChecked: boolean) => {
-    if (!onChange) return
+/**
+ * Handles null change by setting the value to null or the previous value.
+ * @param {boolean} isChecked - Whether the null checkbox is checked.
+ * @param {FieldProps<typeof controller>} props - The field props.
+ */
+const handleNullChange = (isChecked: boolean, props: FieldProps<typeof controller>) => {
+  if (!props.onChange) return
 
-    if (isChecked) {
-      onChange({ ...value, value: null })
-      setPreNullValue(value.value)
-    } else {
-      onChange({ ...value, value: preNullValue || field.options[0] })
-    }
-    setDirty(true)
+  if (isChecked) {
+    props.onChange({ ...props.value, value: null })
+    props.setPreNullValue(props.value.value)
+  } else {
+    props.onChange({ ...props.value, value: props.preNullValue || props.field.options[0] })
   }
+  props.setDirty(true)
 }
 
-// Extracted function to validate the value
-function validateValue(value, isRequired) {
-  if (isRequired) {
-    if (value.kind === 'update' && value.initial === null) return true
-    return value.value !== null
+// Extracted function to get the field element
+/**
+ * Returns the field element based on the display mode.
+ * @param {FieldProps<typeof controller>} props - The field props.
+ * @returns {JSX.Element} The field element.
+ */
+const getFieldElement = (props: FieldProps<typeof controller>) => {
+  const displayModes: { [key: string]: JSX.Element } = {
+    'segmented-control': (
+      <SegmentedControl
+        label={props.field.label}
+        description={props.field.description}
+        errorMessage={props.errorMessage}
+        isDisabled={props.isNull}
+        isReadOnly={props.isReadOnly}
+        isRequired={props.isRequired}
+        items={props.field.options}
+        onChange={key => handleSelectionChange(key, props)}
+        value={props.selectedKey}
+        textValue={props.field.options.find(item => item.value === props.selectedKey)?.label || ''}
+      >
+        {item => <Item key={item.value}>{item.label}</Item>}
+      </SegmentedControl>
+    ),
+    radio: (
+      <RadioGroup
+        label={props.field.label}
+        description={props.field.description}
+        errorMessage={props.errorMessage}
+        isDisabled={props.isNull}
+        isReadOnly={props.isReadOnly}
+        isRequired={props.isRequired}
+        onChange={key => handleSelectionChange(key, props)}
+        value={props.value.value?.value ?? props.preNullValue?.value}
+      >
+        {props.field.options.map(item => (
+          <Radio key={item.value} value={item.value}>
+            {item.label}
+          </Radio>
+        ))}
+      </RadioGroup>
+    ),
+    default: (
+      <Picker
+        autoFocus={props.autoFocus}
+        label={props.field.label}
+        description={props.field.description}
+        errorMessage={props.errorMessage}
+        isDisabled={props.isNull}
+        isReadOnly={props.isReadOnly}
+        isRequired={props.isRequired}
+        items={props.field.options}
+        onSelectionChange={key => handleSelectionChange(key, props)}
+        selectedKey={props.selectedKey}
+        flex={{ mobile: true, desktop: 'initial' }}
+        UNSAFE_style={{
+          fontSize: tokenSchema.typography.text.regular.size,
+          width: `clamp(${tokenSchema.size.alias.singleLineWidth}, calc(${props.longestLabelLength}ex + ${tokenSchema.size.icon.regular}), 100%)`,
+        }}
+      >
+        {item => <Item key={item.value}>{item.label}</Item>}
+      </Picker>
+    ),
   }
-  return true
-}
 
-// SegmentedControlField component
-function SegmentedControlField(props) {
-  const { field, selectedKey, onChange, isReadOnly, isNull, errorMessage } = props
-  return (
-    <SegmentedControl
-      label={field.label}
-      description={field.description}
-      errorMessage={errorMessage}
-      isDisabled={isNull}
-      isReadOnly={isReadOnly}
-      isRequired={field.isRequired}
-      items={field.options}
-      onChange={onChange}
-      value={selectedKey}
-      textValue={field.options.find(item => item.value === selectedKey)?.label || ''}
-    >
-      {item => <Item key={item.value}>{item.label}</Item>}
-    </SegmentedControl>
-  )
-}
-
-// RadioField component
-function RadioField(props) {
-  const { field, selectedKey, onChange, isReadOnly, isNull, errorMessage } = props
-  return (
-    <RadioGroup
-      label={field.label}
-      description={field.description}
-      errorMessage={errorMessage}
-      isDisabled={isNull}
-      isReadOnly={isReadOnly}
-      isRequired={field.isRequired}
-      onChange={onChange}
-      value={selectedKey}
-    >
-      {field.options.map(item => (
-        <Radio key={item.value} value={item.value}>
-          {item.label}
-        </Radio>
-      ))}
-    </RadioGroup>
-  )
-}
-
-// PickerField component
-function PickerField(props) {
-  const { field, selectedKey, onChange, isReadOnly, isNull, errorMessage, autoFocus } = props
-  return (
-    <Picker
-      autoFocus={autoFocus}
-      label={field.label}
-      description={field.description}
-      errorMessage={errorMessage}
-      isDisabled={isNull}
-      isReadOnly={isReadOnly}
-      isRequired={field.isRequired}
-      items={field.options}
-      onSelectionChange={onChange}
-      selectedKey={selectedKey}
-      flex={{ mobile: true, desktop: 'initial' }}
-      UNSAFE_style={{
-        fontSize: tokenSchema.typography.text.regular.size,
-        width: `clamp(${tokenSchema.size.alias.singleLineWidth}, calc(${field.longestLabelLength}ex + ${tokenSchema.size.icon.regular}), 100%)`,
-      }}
-    >
-      {item => <Item key={item.value}>{item.label}</Item>}
-    </Picker>
-  )
+  return displayModes[props.field.displayMode] || displayModes.default
 }
 
 export function Field(props: FieldProps<typeof controller>) {
-  const { autoFocus, field, forceValidation, onChange, value, isRequired } = props
   const [isDirty, setDirty] = useState(false)
   const [preNullValue, setPreNullValue] = useState(
-    value.value || (value.kind === 'update' ? value.initial : null)
+    props.value.value || (props.value.kind === 'update' ? props.value.initial : null)
   )
   const longestLabelLength = useMemo(() => {
-    return field.options.reduce((a, item) => Math.max(a, item.label.length), 0)
-  }, [field.options])
+    return props.field.options.reduce((a, item) => Math.max(a, item.label.length), 0)
+  }, [props.field.options])
 
-  const selectedKey = getSelectedKey(value, preNullValue, field)
-  const isNullable = !isRequired
-  const isNull = isNullable && value.value?.value == null
-  const isInvalid = !validateValue(value, isRequired)
-  const isReadOnly = onChange == null
-  const errorMessage = getErrorMessage(isInvalid, isDirty, forceValidation, field)
-
-  const onSelectionChange = handleSelectionChange(onChange, field, value, setDirty)
-  const onNullChange = handleNullChange(onChange, field, value, preNullValue, setPreNullValue, setDirty)
-
-  const fieldElement = getFieldElement(field, {
-    field,
-    selectedKey,
-    onChange: onSelectionChange,
-    isReadOnly,
-    isNull,
-    errorMessage,
-    autoFocus,
-    longestLabelLength,
-  })
+  const selectedKey = props.value.value?.value || preNullValue?.value || null
+  const isNullable = !props.isRequired
+  const isNull = isNullable && props.value.value?.value == null
+  const isInvalid = !validate(props.value, props.isRequired)
+  const isReadOnly = props.onChange == null
+  const errorMessage =
+    isInvalid && (isDirty || props.forceValidation) ? `${props.field.label} is required.` : undefined
 
   return (
     <NullableFieldWrapper
-      isAllowed={!isRequired}
-      autoFocus={isNull && autoFocus}
-      label={field.label}
+      isAllowed={!props.isRequired}
+      autoFocus={isNull && props.autoFocus}
+      label={props.field.label}
       isReadOnly={isReadOnly}
       isNull={isNull}
-      onChange={onNullChange}
+      onChange={isChecked => handleNullChange(isChecked, props)}
     >
-      {fieldElement}
+      {getFieldElement(props)}
     </NullableFieldWrapper>
   )
 }
@@ -214,6 +171,8 @@ type Value =
 
 function validate(value: Value, isRequired: boolean) {
   if (isRequired) {
+    // if you got null initially on the update screen, we want to allow saving
+    // since the user probably doesn't have read access control
     if (value.kind === 'update' && value.initial === null) return true
     return value.value !== null
   }
@@ -245,6 +204,7 @@ export function controller(config: Config): FieldController<
     value: x.value.toString(),
   }))
 
+  // Transform from string value to type appropriate value
   const t = (v: string | null) =>
     v === null ? null : config.fieldMeta.type === 'integer' ? parseInt(v) : v
 
@@ -294,7 +254,7 @@ export function controller(config: Config): FieldController<
             maxHeight="100%"
             selectionMode="multiple"
             onSelectionChange={selection => {
-              if (selection === 'all') return
+              if (selection === 'all') return // irrelevant for this case
 
               onChange([...selection].filter(x => typeof x === 'string'))
             }}
@@ -308,6 +268,7 @@ export function controller(config: Config): FieldController<
         if (context === 'edit') {
           return (
             <VStack gap="medium" flex minHeight={0} maxHeight="100%">
+              {/* intentionally not linked: the `ListView` has an explicit "aria-label" to avoid awkwardness with IDs and forked render */}
               <FieldLabel elementType="span">{typeLabel}</FieldLabel>
               {listView}
             </VStack>

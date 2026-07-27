@@ -30,13 +30,6 @@ const getOppositeNature = originalNature => {
   return originalNature;
 };
 
-/**
- * Adds components to the state.
- * @param {Object} state - The current state.
- * @param {string} componentToAddUid - The UID of the component to add.
- * @param {Object} objToUpdate - The object to update.
- * @returns {Object} The updated object.
- */
 const addComponentsToState = (state, componentToAddUid, objToUpdate) => {
   let newObj = objToUpdate;
   const componentToAdd = state.getIn(['components', componentToAddUid]);
@@ -142,7 +135,7 @@ const handleAddCreatedComponentToDynamicZone = (state, action) => {
   );
 };
 
-const handleCancelChanges = (state, action) => {
+const handleCancelChanges = state => {
   return state
     .update('modifiedData', () => state.get('initialData'))
     .update('components', () => state.get('initialComponents'));
@@ -200,7 +193,7 @@ const handleCreateComponentSchema = (state, action) => {
   return state.updateIn(['components', action.uid], () => fromJS(newSchema));
 };
 
-const handleDeleteNotSavedType = (state, action) => {
+const handleDeleteNotSavedType = state => {
   // Doing so will also reset the modified and the initial data
   return state
     .update('contentTypes', () => state.get('initialContentTypes'))
@@ -357,7 +350,7 @@ const handleGetDataSucceeded = (state, action) => {
     .update('isLoading', () => false);
 };
 
-const handleReloadPlugin = (state, action) => {
+const handleReloadPlugin = () => {
   return initialState;
 };
 
@@ -479,7 +472,7 @@ const reducer = (state = initialState, action) => {
     case actions.ADD_CREATED_COMPONENT_TO_DYNAMIC_ZONE:
       return handleAddCreatedComponentToDynamicZone(state, action);
     case actions.CANCEL_CHANGES:
-      return handleCancelChanges(state, action);
+      return handleCancelChanges(state);
     case actions.CHANGE_DYNAMIC_ZONE_COMPONENTS:
       return handleChangeDynamicZoneComponents(state, action);
     case actions.CREATE_SCHEMA:
@@ -487,13 +480,13 @@ const reducer = (state = initialState, action) => {
     case actions.CREATE_COMPONENT_SCHEMA:
       return handleCreateComponentSchema(state, action);
     case actions.DELETE_NOT_SAVED_TYPE:
-      return handleDeleteNotSavedType(state, action);
+      return handleDeleteNotSavedType(state);
     case actions.EDIT_ATTRIBUTE:
       return handleEditAttribute(state, action);
     case actions.GET_DATA_SUCCEEDED:
       return handleGetDataSucceeded(state, action);
     case actions.RELOAD_PLUGIN:
-      return handleReloadPlugin(state, action);
+      return handleReloadPlugin();
     case actions.REMOVE_FIELD_FROM_DISPLAYED_COMPONENT:
       return handleRemoveFieldFromDisplayedComponent(state, action);
     case actions.REMOVE_COMPONENT_FROM_DYNAMIC_ZONE:

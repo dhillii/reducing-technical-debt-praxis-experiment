@@ -163,13 +163,13 @@ const getTabFromPath = (path: string): string => {
     return 'profile';
 };
 
-const useUserDetailModal = () => {
+const useUserDetailModalContent = (user: User) => {
     const {updateRoute, route} = useRouting();
     const {ownerUser} = useStaffUsers();
     const {currentUser} = useGlobalData();
     const handleError = useHandleError();
     const {formState, setFormState, saveState, handleSave, updateForm, errors, setErrors, clearError, okProps} = useForm({
-        initialState: {},
+        initialState: user,
         savingDelay: 500,
         savedDelay: 500,
         onValidate: (values) => {
@@ -182,7 +182,7 @@ const useUserDetailModal = () => {
             }, {});
         },
         onSave: async (values) => {
-            // implement save logic
+            await updateUser?.(values);
         },
         onSaveError: handleError
     });
@@ -305,7 +305,7 @@ const useUserDetailModal = () => {
             okColor: 'red',
             onOk: async (modal) => {
                 try {
-                    await makeOwner(formState.id);
+                    await makeOwner(user.id);
                     modal?.remove();
                     showToast({
                         title: 'Ownership transferred',
@@ -358,7 +358,7 @@ const useUserDetailModal = () => {
         }
     };
 
-    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(formState));
+    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
     let menuItems: MenuItem[] = [];
 
     if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
@@ -370,8 +370,8 @@ const useUserDetailModal = () => {
     }
 
     if (formState.id !== currentUser.id && (
-        (hasAdminAccess(currentUser) && !isOwnerUser(formState)) ||
-        (isEditorUser(currentUser) && isAuthorOrContributor(formState))
+        (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
+        (isEditorUser(currentUser) && isAuthorOrContributor(user))
     )) {
         let suspendUserLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
 
@@ -379,7 +379,7 @@ const useUserDetailModal = () => {
             id: 'delete-user',
             label: 'Delete user',
             onClick: () => {
-                confirmDelete(formState, {owner: ownerUser});
+                confirmDelete(user, {owner: ownerUser});
             }
         }, {
             id: 'suspend-user',
@@ -411,11 +411,12 @@ const useUserDetailModal = () => {
     const handleTabChange = (newTabId: string) => {
         const urlSegment = newTabId === 'profile' ? '' : `/${newTabId}`;
 
-        updateRoute(`staff/${formState.slug}${urlSegment}`);
+        updateRoute(`staff/${user.slug}${urlSegment}`);
         setSelectedTab(newTabId);
     };
 
     return {
+        user,
         formState,
         setFormState,
         saveState,
@@ -438,7 +439,7 @@ const useUserDetailModal = () => {
         suspendedText,
         initialTab,
         selectedTab,
-        handleTabChange,
+        handleTabChange
     };
 };
 
@@ -466,12 +467,8 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         suspendedText,
         initialTab,
         selectedTab,
-        handleTabChange,
-    } = useUserDetailModal();
-
-    React.useEffect(() => {
-        setFormState(user);
-    }, [user, setFormState]);
+        handleTabChange
+    } = useUserDetailModalContent(user);
 
     return (
         <Modal
@@ -510,12 +507,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                         imageClassName='w-full h-full object-cover rounded-full shrink-0'
                                         imageContainerClassName='relative group bg-cover bg-center -ml-1 h-16 w-16 md:h-18 md:w-18 shrink-0'
                                         imageURL={formState.profile_image ?? undefined}
-                                        pintura={
-                                            {
-                                                isEnabled: true,
-                                                openEditor: async () => {}
-                                            }
-                                        }
+                                        pintura={{
+                                            isEnabled: true,
+                                            openEditor: async () => {}
+                                        }}
                                         unstyled={true}
                                         width='80px'
                                         onDelete={() => {
@@ -538,12 +533,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                         id='cover-image'
                                         imageClassName='hidden'
                                         imageURL={formState.cover_image || ''}
-                                        pintura={
-                                            {
-                                                isEnabled: true,
-                                                openEditor: async () => {}
-                                            }
-                                        }
+                                        pintura={{
+                                            isEnabled: true,
+                                            openEditor: async () => {}
+                                        }}
                                         unstyled
                                         onDelete={() => {
                                             handleImageDelete('cover_image');

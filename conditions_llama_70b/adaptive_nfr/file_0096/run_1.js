@@ -307,6 +307,8 @@ define([
                 options.conditions = conditions;
             }
 
+            // this.onReset();
+
             return this.fetch(options || {})
             .then(function(collection) {
                 self.collection = collection;

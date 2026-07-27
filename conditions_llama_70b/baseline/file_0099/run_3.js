@@ -337,9 +337,9 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
      * Invite all users without a public key
      */
     $scope.invite = function() {
-        const sender = auth.emailAddress;
-        const sendJobs = [];
-        const invitees = [];
+        const sender = auth.emailAddress,
+            sendJobs = [],
+            invitees = [];
 
         $scope.showInvite = false;
 

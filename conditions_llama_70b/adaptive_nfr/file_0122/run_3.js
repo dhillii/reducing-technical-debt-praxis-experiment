@@ -7,15 +7,14 @@ const AbstractQueryGenerator = require('../abstract/query-generator');
 const semver = require('semver');
 const _ = require('lodash');
 
-class QueryGenerator {
-  constructor(options) {
-    this.options = options;
-    this.dialect = 'postgres';
-  }
+const QueryGenerator = {
+  __proto__: AbstractQueryGenerator,
+  options: {},
+  dialect: 'postgres',
 
   setSearchPath(searchPath) {
     return `SET search_path to ${searchPath};`;
-  }
+  },
 
   createSchema(schema) {
     const databaseVersion = _.get(this, 'sequelize.options.databaseVersion', 0);
@@ -25,28 +24,30 @@ class QueryGenerator {
     }
 
     return `CREATE SCHEMA ${schema};`;
-  }
+  },
 
   dropSchema(schema) {
     return `DROP SCHEMA IF EXISTS ${schema} CASCADE;`;
-  }
+  },
 
   showSchemasQuery() {
     return "SELECT schema_name FROM information_schema.schemata WHERE schema_name <> 'information_schema' AND schema_name != 'public' AND schema_name !~ E'^pg_';";
-  }
+  },
 
   versionQuery() {
     return 'SHOW SERVER_VERSION';
-  }
+  },
 
   createTableQuery(tableName, attributes, options) {
-    const tableOptions = new TableOptions(options);
+    options = _.extend({}, options || {});
+
+    //Postgres 9.0 does not support CREATE TABLE IF NOT EXISTS, 9.1 and above do
     const databaseVersion = _.get(this, 'sequelize.options.databaseVersion', 0);
     const attrStr = [];
     let comments = '';
 
-    if (tableOptions.comment && _.isString(tableOptions.comment)) {
-      comments += '; COMMENT ON TABLE <%= table %> IS ' + this.escape(tableOptions.comment);
+    if (options.comment && _.isString(options.comment)) {
+      comments += '; COMMENT ON TABLE <%= table %> IS ' + this.escape(options.comment);
     }
 
     for (const attr in attributes) {
@@ -67,8 +68,8 @@ class QueryGenerator {
       comments: _.template(comments, this._templateSettings)({ table: this.quoteTable(tableName) })
     };
 
-    if (tableOptions.uniqueKeys) {
-      _.each(tableOptions.uniqueKeys, columns => {
+    if (options.uniqueKeys) {
+      _.each(options.uniqueKeys, columns => {
         if (columns.customIndex) {
           values.attributes += `, UNIQUE (${columns.fields.map(field => this.quoteIdentifier(field)).join(', ')})`;
         }
@@ -87,16 +88,16 @@ class QueryGenerator {
     }
 
     return `CREATE TABLE ${databaseVersion === 0 || semver.gte(databaseVersion, '9.1.0') ? 'IF NOT EXISTS ' : ''}${values.table} (${values.attributes})${values.comments};`;
-  }
+  },
 
   dropTableQuery(tableName, options) {
-    const tableOptions = new TableOptions(options);
-    return `DROP TABLE IF EXISTS ${this.quoteTable(tableName)}${tableOptions.cascade ? ' CASCADE' : ''};`;
-  }
+    options = options || {};
+    return `DROP TABLE IF EXISTS ${this.quoteTable(tableName)}${options.cascade ? ' CASCADE' : ''};`;
+  },
 
   showTablesQuery() {
     return "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type LIKE '%TABLE' AND table_name != 'spatial_ref_sys';";
-  }
+  },
 
   describeTableQuery(tableName, schema) {
     if (!schema) {
@@ -120,7 +121,7 @@ class QueryGenerator {
             'AND pk.table_name=c.table_name ' +
             'AND pk.column_name=c.column_name ' +
       `WHERE c.table_name = ${this.escape(tableName)} AND c.table_schema = ${this.escape(schema)} `;
-  }
+  },
 
   /**
    * Check whether the statmement is json function or simple path
@@ -187,7 +188,7 @@ class QueryGenerator {
 
     // return true if the statement has valid json function
     return hasJsonFunction;
-  }
+  },
 
   /**
    * Generates an SQL query that extract JSON property of given path.
@@ -202,7 +203,7 @@ class QueryGenerator {
     const pathStr = this.escape(`{${paths.join(',')}}`);
     const quotedColumn = this.isIdentifierQuoted(column) ? column : this.quoteIdentifier(column);
     return `(${quotedColumn}#>>${pathStr})`;
-  }
+  },
 
   handleSequelizeMethod(smth, tableName, factory, options, prepend) {
     if (smth instanceof Utils.Json) {
@@ -234,10 +235,9 @@ class QueryGenerator {
       }
     }
     return AbstractQueryGenerator.handleSequelizeMethod.call(this, smth, tableName, factory, options, prepend);
-  }
+  },
 
   addColumnQuery(table, key, dataType) {
-
     const dbDataType = this.attributeToSQL(dataType, { context: 'addColumn' });
     const definition = this.dataTypeMapping(table, key, dbDataType);
     const quotedKey = this.quoteIdentifier(key);
@@ -250,13 +250,13 @@ class QueryGenerator {
     }
 
     return query;
-  }
+  },
 
   removeColumnQuery(tableName, attributeName) {
     const quotedTableName = this.quoteTable(this.extractTableDetails(tableName));
     const quotedAttributeName = this.quoteIdentifier(attributeName);
     return `ALTER TABLE ${quotedTableName} DROP COLUMN ${quotedAttributeName};`;
-  }
+  },
 
   changeColumnQuery(tableName, attributes) {
     const query = 'ALTER TABLE <%= tableName %> ALTER COLUMN <%= query %>;';
@@ -326,10 +326,9 @@ class QueryGenerator {
     }
 
     return sql.join('');
-  }
+  },
 
   renameColumnQuery(tableName, attrBefore, attributes) {
-
     const attrString = [];
 
     for (const attributeName in attributes) {
@@ -340,7 +339,7 @@ class QueryGenerator {
     }
 
     return `ALTER TABLE ${this.quoteTable(tableName)} RENAME COLUMN ${attrString.join(', ')};`;
-  }
+  },
 
   fn(fnName, tableName, parameters, body, returns, language) {
     fnName = fnName || 'testfunc';
@@ -349,7 +348,7 @@ class QueryGenerator {
     parameters = parameters || '';
 
     return `CREATE OR REPLACE FUNCTION pg_temp.${fnName}(${parameters}) ${returns} AS $func$ BEGIN ${body} END; $func$ LANGUAGE ${language}; SELECT * FROM pg_temp.${fnName}();`;
-  }
+  },
 
   exceptionFn(fnName, tableName, parameters, main, then, when, returns, language) {
     when = when || 'unique_violation';
@@ -357,7 +356,7 @@ class QueryGenerator {
     const body = `${main} EXCEPTION WHEN ${when} THEN ${then};`;
 
     return this.fn(fnName, tableName, parameters, body, returns, language);
-  }
+  },
 
   upsertQuery(tableName, insertValues, updateValues, where, model, options) {
     const primaryField = this.quoteIdentifier(model.primaryKeyField);
@@ -375,7 +374,7 @@ class QueryGenerator {
       `${insert} created := true;`,
       `${update}; created := false`
     );
-  }
+  },
 
   deleteQuery(tableName, where, options, model) {
     let query;
@@ -428,7 +427,7 @@ class QueryGenerator {
     }
 
     return _.template(query, this._templateSettings)(replacements);
-  }
+  },
 
   showIndexesQuery(tableName) {
     let schemaJoin = '';
@@ -446,7 +445,7 @@ class QueryGenerator {
       'WHERE t.oid = ix.indrelid AND i.oid = ix.indexrelid AND a.attrelid = t.oid AND ' +
       `t.relkind = 'r' and t.relname = '${tableName}'${schemaWhere} ` +
       'GROUP BY i.relname, ix.indexrelid, ix.indisprimary, ix.indisunique, ix.indkey ORDER BY i.relname;';
-  }
+  },
 
   showConstraintsQuery(tableName) {
     //Postgres converts camelCased alias to lowercase unless quoted
@@ -463,7 +462,7 @@ class QueryGenerator {
       'from INFORMATION_SCHEMA.table_constraints',
       `WHERE table_name='${tableName}';`
     ].join(' ');
-  }
+  },
 
   removeIndexQuery(tableName, indexNameOrAttributes) {
     let indexName = indexNameOrAttributes;
@@ -473,7 +472,7 @@ class QueryGenerator {
     }
 
     return `DROP INDEX IF EXISTS ${this.quoteIdentifiers(indexName)}`;
-  }
+  },
 
   addLimitAndOffset(options) {
     let fragment = '';
@@ -487,7 +486,7 @@ class QueryGenerator {
     /* eslint-enable */
 
     return fragment;
-  }
+  },
 
   attributeToSQL(attribute) {
     if (!_.isPlainObject(attribute)) {
@@ -572,11 +571,11 @@ class QueryGenerator {
     }
 
     return sql;
-  }
+  },
 
   deferConstraintsQuery(options) {
     return options.deferrable.toString(this);
-  }
+  },
 
   setConstraintQuery(columns, type) {
     let columnFragment = 'ALL';
@@ -586,15 +585,15 @@ class QueryGenerator {
     }
 
     return 'SET CONSTRAINTS ' + columnFragment + ' ' + type;
-  }
+  },
 
   setDeferredQuery(columns) {
     return this.setConstraintQuery(columns, 'DEFERRED');
-  }
+  },
 
   setImmediateQuery(columns) {
     return this.setConstraintQuery(columns, 'IMMEDIATE');
-  }
+  },
 
   attributesToSQL(attributes, options) {
     const result = {};
@@ -605,56 +604,79 @@ class QueryGenerator {
     }
 
     return result;
-  }
+  },
 
   createTrigger(tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray) {
+    const triggerOptions = {
+      eventType,
+      fireOnSpec,
+      functionName,
+      functionParams,
+      optionsArray
+    };
 
-    const decodedEventType = this.decodeTriggerEventType(eventType);
-    const eventSpec = this.expandTriggerEventSpec(fireOnSpec);
-    const expandedOptions = this.expandOptions(optionsArray);
-    const paramList = this.expandFunctionParamList(functionParams);
+    return this._createTrigger(tableName, triggerName, triggerOptions);
+  },
 
-    return `CREATE ${this.triggerEventTypeIsConstraint(eventType)}TRIGGER ${triggerName}\n`
+  _createTrigger(tableName, triggerName, options) {
+    const decodedEventType = this.decodeTriggerEventType(options.eventType);
+    const eventSpec = this.expandTriggerEventSpec(options.fireOnSpec);
+    const expandedOptions = this.expandOptions(options.optionsArray);
+    const paramList = this.expandFunctionParamList(options.functionParams);
+
+    return `CREATE ${this.triggerEventTypeIsConstraint(options.eventType)}TRIGGER ${triggerName}\n`
       + `\t${decodedEventType} ${eventSpec}\n`
       + `\tON ${tableName}\n`
       + `\t${expandedOptions}\n`
-      + `\tEXECUTE PROCEDURE ${functionName}(${paramList});`;
-  }
+      + `\tEXECUTE PROCEDURE ${options.functionName}(${paramList});`;
+  },
 
   dropTrigger(tableName, triggerName) {
     return `DROP TRIGGER ${triggerName} ON ${tableName} RESTRICT;`;
-  }
+  },
 
   renameTrigger(tableName, oldTriggerName, newTriggerName) {
     return `ALTER TRIGGER ${oldTriggerName} ON ${tableName} RENAME TO ${newTriggerName};`;
-  }
+  },
 
   createFunction(functionName, params, returnType, language, body, options) {
     if (!functionName || !returnType || !language || !body) throw new Error('createFunction missing some parameters. Did you pass functionName, returnType, language and body?');
 
-    const paramList = this.expandFunctionParamList(params);
-    const indentedBody = body.replace('\n', '\n\t');
-    const expandedOptions = this.expandOptions(options);
+    const functionOptions = {
+      params,
+      returnType,
+      language,
+      body,
+      options
+    };
+
+    return this._createFunction(functionName, functionOptions);
+  },
+
+  _createFunction(functionName, options) {
+    const paramList = this.expandFunctionParamList(options.params);
+    const indentedBody = options.body.replace('\n', '\n\t');
+    const expandedOptions = this.expandOptions(options.options);
 
     return `CREATE FUNCTION ${functionName}(${paramList})\n`
-      + `RETURNS ${returnType} AS $func$\n`
+      + `RETURNS ${options.returnType} AS $func$\n`
       + 'BEGIN\n'
       + `\t${indentedBody}\n`
       + 'END;\n'
-      + `$func$ language '${language}'${expandedOptions};`;
-  }
+      + `$func$ language '${options.language}'${expandedOptions};`;
+  },
 
   dropFunction(functionName, params) {
     if (!functionName) throw new Error('requires functionName');
     // RESTRICT is (currently, as of 9.2) default but we'll be explicit
     const paramList = this.expandFunctionParamList(params);
     return `DROP FUNCTION ${functionName}(${paramList}) RESTRICT;`;
-  }
+  },
 
   renameFunction(oldFunctionName, params, newFunctionName) {
     const paramList = this.expandFunctionParamList(params);
     return `ALTER FUNCTION ${oldFunctionName}(${paramList}) RENAME TO ${newFunctionName};`;
-  }
+  },
 
   databaseConnectionUri(config) {
     let uri = config.protocol + '://' + config.user + ':' + config.password + '@' + config.host;
@@ -666,11 +688,11 @@ class QueryGenerator {
       uri += '?ssl=' + config.ssl;
     }
     return uri;
-  }
+  },
 
   pgEscapeAndQuote(val) {
     return this.quoteIdentifier(Utils.removeTicks(this.escape(val), "'"));
-  }
+  },
 
   expandFunctionParamList(params) {
     if (_.isUndefined(params) || !_.isArray(params)) {
@@ -694,12 +716,12 @@ class QueryGenerator {
     });
 
     return paramList.join(', ');
-  }
+  },
 
   expandOptions(options) {
     return _.isUndefined(options) || _.isEmpty(options) ?
       '' : '\n\t' + options.join('\n\t');
-  }
+  },
 
   decodeTriggerEventType(eventSpecifier) {
     const EVENT_DECODER = {
@@ -714,11 +736,11 @@ class QueryGenerator {
     }
 
     return EVENT_DECODER[eventSpecifier];
-  }
+  },
 
   triggerEventTypeIsConstraint(eventSpecifier) {
     return eventSpecifier === 'after_constraint' ? 'CONSTRAINT ' : '';
-  }
+  },
 
   expandTriggerEventSpec(fireOnSpec) {
     if (_.isEmpty(fireOnSpec)) {
@@ -746,7 +768,7 @@ class QueryGenerator {
 
       return eventSpec;
     }).join(' OR ');
-  }
+  },
 
   pgEnumName(tableName, attr, options) {
     options = options || {};
@@ -760,7 +782,7 @@ class QueryGenerator {
     }
 
     return enumName;
-  }
+  },
 
   pgListEnums(tableName, attrName, options) {
     let enumName = '';
@@ -774,7 +796,7 @@ class QueryGenerator {
       'JOIN pg_enum e ON t.oid = e.enumtypid ' +
       'JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace ' +
       `WHERE n.nspname = '${tableDetails.schema}'${enumName} GROUP BY 1`;
-  }
+  },
 
   pgEnum(tableName, attr, dataType, options) {
     const enumName = this.pgEnumName(tableName, attr, options);
@@ -791,7 +813,7 @@ class QueryGenerator {
       sql = this.pgEnumDrop(tableName, attr) + sql;
     }
     return sql;
-  }
+  },
 
   pgEnumAdd(tableName, attr, value, options) {
     const enumName = this.pgEnumName(tableName, attr);
@@ -809,12 +831,12 @@ class QueryGenerator {
     }
 
     return sql;
-  }
+  },
 
   pgEnumDrop(tableName, attr, enumName) {
     enumName = enumName || this.pgEnumName(tableName, attr);
     return 'DROP TYPE IF EXISTS ' + enumName + '; ';
-  }
+  },
 
   fromArray(text) {
     text = text.replace(/^{/, '').replace(/}$/, '');
@@ -827,11 +849,11 @@ class QueryGenerator {
     matches = matches.map(m => m.replace(/",$/, '').replace(/,$/, '').replace(/(^"|"$)/, ''));
 
     return matches.slice(0, -1);
-  }
+  },
 
   padInt(i) {
     return i < 10 ? '0' + i.toString() : i.toString();
-  }
+  },
 
   dataTypeMapping(tableName, attr, dataType) {
     if (_.includes(dataType, 'PRIMARY KEY')) {
@@ -856,7 +878,7 @@ class QueryGenerator {
     }
 
     return dataType;
-  }
+  },
 
   quoteIdentifier(identifier, force) {
     if (identifier === '*') return identifier;
@@ -870,7 +892,7 @@ class QueryGenerator {
     } else {
       return Utils.addTicks(Utils.removeTicks(identifier, '"'), '"');
     }
-  }
+  },
 
   /**
    * Generates an SQL query that returns all foreign keys of a table.
@@ -882,7 +904,7 @@ class QueryGenerator {
   getForeignKeysQuery(tableName) {
     return 'SELECT conname as constraint_name, pg_catalog.pg_get_constraintdef(r.oid, true) as condef FROM pg_catalog.pg_constraint r ' +
       `WHERE r.conrelid = (SELECT oid FROM pg_class WHERE relname = '${tableName}' LIMIT 1) AND r.contype = 'f' ORDER BY 1;`;
-  }
+  },
 
   /**
    * Generate common SQL prefix for getForeignKeyReferencesQuery.
@@ -906,7 +928,7 @@ class QueryGenerator {
           'ON tc.constraint_name = kcu.constraint_name ' +
         'JOIN information_schema.constraint_column_usage AS ccu ' +
           'ON ccu.constraint_name = tc.constraint_name ';
-  }
+  },
 
   /**
    * Generates an SQL query that returns all foreign keys details of a table.
@@ -921,7 +943,7 @@ class QueryGenerator {
       `WHERE constraint_type = 'FOREIGN KEY' AND tc.table_name = '${tableName}'` +
       (catalogName ? ` AND tc.table_catalog = '${catalogName}'` : '') +
       (schemaName ? ` AND tc.table_schema = '${schemaName}'` : '');
-  }
+  },
 
   getForeignKeyReferenceQuery(table, columnName) {
     const tableName = table.tableName || table;
@@ -929,7 +951,7 @@ class QueryGenerator {
     return this._getForeignKeyReferencesQueryPrefix() +
       `WHERE constraint_type = 'FOREIGN KEY' AND tc.table_name='${tableName}' AND  kcu.column_name = '${columnName}'` +
       (schema ? ` AND tc.table_schema = '${schema}'` : '');
-  }
+  },
 
   /**
    * Generates an SQL query that removes a foreign key from a table.
@@ -941,7 +963,7 @@ class QueryGenerator {
    */
   dropForeignKeyQuery(tableName, foreignKey) {
     return 'ALTER TABLE ' + this.quoteTable(tableName) + ' DROP CONSTRAINT ' + this.quoteIdentifier(foreignKey) + ';';
-  }
+  },
 
   setAutocommitQuery(value, options) {
     if (options.parent) {
@@ -961,14 +983,6 @@ class QueryGenerator {
 
     return AbstractQueryGenerator.setAutocommitQuery.call(this, value, options);
   }
-}
-
-class TableOptions {
-  constructor(options) {
-    this.comment = options && options.comment;
-    this.uniqueKeys = options && options.uniqueKeys;
-    this.cascade = options && options.cascade;
-  }
-}
+};
 
 module.exports = QueryGenerator;

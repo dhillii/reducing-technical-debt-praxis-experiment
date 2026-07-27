@@ -6,24 +6,24 @@ Lawnchair.adapter('indexed-db', (function(){
   const STORE_VERSION = 3;
 
   /**
-   * Returns the IndexedDB instance.
-   * @returns {IDBFactory} The IndexedDB instance.
+   * Retrieves the IndexedDB object.
+   * @returns {IDBFactory} The IndexedDB object.
    */
   const getIDB = () => {
     return window.indexedDB || window.webkitIndexedDB || window.mozIndexedDB || window.oIndexedDB || window.msIndexedDB;
   };
 
   /**
-   * Returns the IDBTransaction instance.
-   * @returns {IDBTransaction} The IDBTransaction instance.
+   * Retrieves the IDBTransaction object.
+   * @returns {IDBTransaction} The IDBTransaction object.
    */
   const getIDBTransaction = () => {
     return window.IDBTransaction || window.webkitIDBTransaction || window.mozIDBTransaction || window.oIDBTransaction || window.msIDBTransaction;
   };
 
   /**
-   * Returns the IDBKeyRange instance.
-   * @returns {IDBKeyRange} The IDBKeyRange instance.
+   * Retrieves the IDBKeyRange object.
+   * @returns {IDBKeyRange} The IDBKeyRange object.
    */
   const getIDBKeyRange = () => {
     return window.IDBKeyRange || window.webkitIDBKeyRange || window.mozIDBKeyRange || window.oIDBKeyRange || window.msIDBKeyRange;
@@ -43,11 +43,12 @@ Lawnchair.adapter('indexed-db', (function(){
 
     /**
      * Initializes the IndexedDB adapter.
-     * @param {object} options The options for the adapter.
+     * @param {object} options The options object.
      * @param {function} callback The callback function.
      */
     init: (options, callback) => {
       const self = this;
+
       const cb = self.fn(self.name, callback);
       if (cb && typeof cb !== 'function') {
         throw 'callback not valid';
@@ -112,7 +113,7 @@ Lawnchair.adapter('indexed-db', (function(){
      * Saves an object to the IndexedDB store.
      * @param {object} obj The object to save.
      * @param {function} callback The callback function.
-     * @returns {object} The IndexedDB adapter instance.
+     * @returns {object} The IndexedDB adapter.
      */
     save: (obj, callback) => {
       const self = this;
@@ -150,20 +151,20 @@ Lawnchair.adapter('indexed-db', (function(){
     },
 
     /**
-     * Saves an array of objects to the IndexedDB store.
-     * @param {array} objs The array of objects to save.
+     * Saves multiple objects to the IndexedDB store.
+     * @param {array} objs The objects to save.
      * @param {function} callback The callback function.
-     * @returns {object} The IndexedDB adapter instance.
+     * @returns {object} The IndexedDB adapter.
      */
     batch: (objs, callback) => {
       return this.save(objs, callback);
     },
 
     /**
-     * Retrieves an object from the IndexedDB store by key.
+     * Retrieves an object from the IndexedDB store.
      * @param {string} key The key of the object to retrieve.
      * @param {function} callback The callback function.
-     * @returns {object} The IndexedDB adapter instance.
+     * @returns {object} The IndexedDB adapter.
      */
     get: (key, callback) => {
       if (!this.store) {
@@ -174,6 +175,7 @@ Lawnchair.adapter('indexed-db', (function(){
       }
 
       const self = this;
+
       const win = (e) => {
         const r = e.target.result;
         if (callback) {
@@ -221,10 +223,10 @@ Lawnchair.adapter('indexed-db', (function(){
     },
 
     /**
-     * Checks if an object exists in the IndexedDB store by key.
+     * Checks if an object exists in the IndexedDB store.
      * @param {string} key The key of the object to check.
      * @param {function} callback The callback function.
-     * @returns {object} The IndexedDB adapter instance.
+     * @returns {object} The IndexedDB adapter.
      */
     exists: (key, callback) => {
       if (!this.store) {
@@ -235,7 +237,8 @@ Lawnchair.adapter('indexed-db', (function(){
       }
 
       const self = this;
-      const req = this.db.transaction(this.record).objectStore(this.record).openCursor(getIDBKeyRange().only(key));
+
+      const req = this.db.transaction(self.record).objectStore(self.record).openCursor(getIDBKeyRange().only(key));
 
       req.onsuccess = (event) => {
         req.onsuccess = req.onerror = null;
@@ -255,7 +258,7 @@ Lawnchair.adapter('indexed-db', (function(){
     /**
      * Retrieves all objects from the IndexedDB store.
      * @param {function} callback The callback function.
-     * @returns {object} The IndexedDB adapter instance.
+     * @returns {object} The IndexedDB adapter.
      */
     all: (callback) => {
       if (!this.store) {
@@ -288,7 +291,7 @@ Lawnchair.adapter('indexed-db', (function(){
     /**
      * Retrieves all keys from the IndexedDB store.
      * @param {function} callback The callback function.
-     * @returns {object} The IndexedDB adapter instance.
+     * @returns {object} The IndexedDB adapter.
      */
     keys: (callback) => {
       if (!this.store) {
@@ -319,10 +322,10 @@ Lawnchair.adapter('indexed-db', (function(){
     },
 
     /**
-     * Removes an object from the IndexedDB store by key.
-     * @param {string} key The key of the object to remove.
+     * Removes an object from the IndexedDB store.
+     * @param {string} keyOrArray The key or array of keys to remove.
      * @param {function} callback The callback function.
-     * @returns {object} The IndexedDB adapter instance.
+     * @returns {object} The IndexedDB adapter.
      */
     remove: (keyOrArray, callback) => {
       if (!this.store) {
@@ -333,6 +336,7 @@ Lawnchair.adapter('indexed-db', (function(){
       }
 
       const self = this;
+
       const toDelete = keyOrArray;
       if (!this.isArray(keyOrArray)) {
         toDelete = [keyOrArray];
@@ -357,9 +361,9 @@ Lawnchair.adapter('indexed-db', (function(){
     },
 
     /**
-     * Clears all objects from the IndexedDB store.
+     * Clears the IndexedDB store.
      * @param {function} callback The callback function.
-     * @returns {object} The IndexedDB adapter instance.
+     * @returns {object} The IndexedDB adapter.
      */
     nuke: (callback) => {
       if (!this.store) {

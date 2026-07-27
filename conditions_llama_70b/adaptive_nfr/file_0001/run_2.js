@@ -241,38 +241,14 @@ export const isApiError = (error: unknown): error is ApiError => {
     );
 };
 
-/**
- * Handles API requests and responses.
- */
 export class ActivityPubAPI {
-    private readonly apiUrl: URL;
-    private readonly authApiUrl: URL;
-    private readonly handle: string;
-    private readonly fetch: (resource: URL, init?: RequestInit) => Promise<Response>;
-
-    /**
-     * Initializes the API client.
-     * @param apiUrl The base URL of the API.
-     * @param authApiUrl The URL of the authentication API.
-     * @param handle The handle of the user.
-     * @param fetch The fetch function to use for requests.
-     */
     constructor(
-        apiUrl: URL,
-        authApiUrl: URL,
-        handle: string,
-        fetch: (resource: URL, init?: RequestInit) => Promise<Response> = window.fetch.bind(window)
-    ) {
-        this.apiUrl = apiUrl;
-        this.authApiUrl = authApiUrl;
-        this.handle = handle;
-        this.fetch = fetch;
-    }
+        private readonly apiUrl: URL,
+        private readonly authApiUrl: URL,
+        private readonly handle: string,
+        private readonly fetch: (resource: URL, init?: RequestInit) => Promise<Response> = window.fetch.bind(window)
+    ) {}
 
-    /**
-     * Gets the authentication token.
-     * @returns The authentication token or null if it could not be obtained.
-     */
     private async getToken(): Promise<string | null> {
         try {
             const response = await this.fetch(this.authApiUrl);
@@ -284,13 +260,6 @@ export class ActivityPubAPI {
         }
     }
 
-    /**
-     * Fetches JSON data from the API.
-     * @param url The URL of the API endpoint.
-     * @param method The HTTP method to use.
-     * @param body The request body.
-     * @returns The response data or null if the response was empty.
-     */
     private async fetchJSON(url: URL, method: 'DELETE' | 'GET' | 'POST' | 'PUT' = 'GET', body?: object): Promise<object | null> {
         const token = await this.getToken();
         const options: RequestInit = {
@@ -337,11 +306,6 @@ export class ActivityPubAPI {
         return await response.json();
     }
 
-    /**
-     * Blocks a domain.
-     * @param domain The domain to block.
-     * @returns True if the domain was blocked successfully.
-     */
     async blockDomain(domain: URL): Promise<boolean> {
         const url = new URL(
             `.ghost/activitypub/v1/actions/block/domain/${encodeURIComponent(domain.href)}`,
@@ -351,11 +315,6 @@ export class ActivityPubAPI {
         return true;
     }
 
-    /**
-     * Unblocks a domain.
-     * @param domain The domain to unblock.
-     * @returns True if the domain was unblocked successfully.
-     */
     async unblockDomain(domain: URL): Promise<boolean> {
         const url = new URL(
             `.ghost/activitypub/v1/actions/unblock/domain/${encodeURIComponent(domain.href)}`,
@@ -365,11 +324,6 @@ export class ActivityPubAPI {
         return true;
     }
 
-    /**
-     * Blocks an account.
-     * @param id The ID of the account to block.
-     * @returns True if the account was blocked successfully.
-     */
     async block(id: URL): Promise<boolean> {
         const url = new URL(
             `.ghost/activitypub/v1/actions/block/${encodeURIComponent(id.href)}`,
@@ -379,11 +333,6 @@ export class ActivityPubAPI {
         return true;
     }
 
-    /**
-     * Unblocks an account.
-     * @param id The ID of the account to unblock.
-     * @returns True if the account was unblocked successfully.
-     */
     async unblock(id: URL): Promise<boolean> {
         const url = new URL(
             `.ghost/activitypub/v1/actions/unblock/${encodeURIComponent(id.href)}`,
@@ -393,71 +342,38 @@ export class ActivityPubAPI {
         return true;
     }
 
-    /**
-     * Follows an account.
-     * @param username The username of the account to follow.
-     * @returns The actor object of the followed account.
-     */
     async follow(username: string): Promise<Actor> {
         const url = new URL(`.ghost/activitypub/v1/actions/follow/${username}`, this.apiUrl);
         const json = await this.fetchJSON(url, 'POST');
         return json as Actor;
     }
 
-    /**
-     * Unfollows an account.
-     * @param username The username of the account to unfollow.
-     * @returns The actor object of the unfollowed account.
-     */
     async unfollow(username: string): Promise<Actor> {
         const url = new URL(`.ghost/activitypub/v1/actions/unfollow/${username}`, this.apiUrl);
         const json = await this.fetchJSON(url, 'POST');
         return json as Actor;
     }
 
-    /**
-     * Likes a post.
-     * @param id The ID of the post to like.
-     */
     async like(id: string): Promise<void> {
         const url = new URL(`.ghost/activitypub/v1/actions/like/${encodeURIComponent(id)}`, this.apiUrl);
         await this.fetchJSON(url, 'POST');
     }
 
-    /**
-     * Unlikes a post.
-     * @param id The ID of the post to unlike.
-     */
     async unlike(id: string): Promise<void> {
         const url = new URL(`.ghost/activitypub/v1/actions/unlike/${encodeURIComponent(id)}`, this.apiUrl);
         await this.fetchJSON(url, 'POST');
     }
 
-    /**
-     * Reposts a post.
-     * @param id The ID of the post to repost.
-     */
     async repost(id: string): Promise<void> {
         const url = new URL(`.ghost/activitypub/v1/actions/repost/${encodeURIComponent(id)}`, this.apiUrl);
         await this.fetchJSON(url, 'POST');
     }
 
-    /**
-     * Dereposts a post.
-     * @param id The ID of the post to derepost.
-     */
     async derepost(id: string): Promise<void> {
         const url = new URL(`.ghost/activitypub/v1/actions/derepost/${encodeURIComponent(id)}`, this.apiUrl);
         await this.fetchJSON(url, 'POST');
     }
 
-    /**
-     * Replies to a post.
-     * @param id The ID of the post to reply to.
-     * @param content The content of the reply.
-     * @param image The image to attach to the reply.
-     * @returns The activity object of the reply.
-     */
     async reply(id: string, content: string, image?: {url: string, altText?: string}): Promise<Activity> {
         const url = new URL(`.ghost/activitypub/v1/actions/reply/${encodeURIComponent(id)}`, this.apiUrl);
         const body: {content: string, image?: {url: string, altText?: string}} = {content};
@@ -468,12 +384,6 @@ export class ActivityPubAPI {
         return response;
     }
 
-    /**
-     * Creates a new note.
-     * @param content The content of the note.
-     * @param image The image to attach to the note.
-     * @returns The post object of the created note.
-     */
     async note(content: string, image?: {url: string, altText?: string}): Promise<Post> {
         const url = new URL('.ghost/activitypub/v1/actions/note', this.apiUrl);
         const body: {content: string, image?: {url: string, altText?: string}} = {content};
@@ -484,45 +394,24 @@ export class ActivityPubAPI {
         return (response as {post: Post}).post;
     }
 
-    /**
-     * Deletes a post.
-     * @param id The ID of the post to delete.
-     */
     async delete(id: string): Promise<void> {
         const url = new URL(`.ghost/activitypub/v1/post/${encodeURIComponent(id)}`, this.apiUrl);
         await this.fetchJSON(url, 'DELETE');
     }
 
-    /**
-     * Gets the user API URL.
-     * @returns The user API URL.
-     */
-    get userApiUrl(): URL {
+    get userApiUrl() {
         return new URL(`.ghost/activitypub/users/${this.handle}`, this.apiUrl);
     }
 
-    /**
-     * Gets the user data.
-     * @returns The user data.
-     */
-    async getUser(): Promise<ActorProperties> {
+    async getUser() {
         const json = await this.fetchJSON(this.userApiUrl);
         return json as ActorProperties;
     }
 
-    /**
-     * Gets the search API URL.
-     * @returns The search API URL.
-     */
-    get searchApiUrl(): URL {
+    get searchApiUrl() {
         return new URL('.ghost/activitypub/v1/actions/search', this.apiUrl);
     }
 
-    /**
-     * Searches for accounts.
-     * @param query The search query.
-     * @returns The search results.
-     */
     async search(query: string): Promise<SearchResults> {
         const url = this.searchApiUrl;
 
@@ -539,22 +428,12 @@ export class ActivityPubAPI {
         };
     }
 
-    /**
-     * Gets a thread.
-     * @param id The ID of the thread.
-     * @returns The thread object.
-     */
     async getThread(id: string): Promise<Thread> {
         const url = new URL(`.ghost/activitypub/v1/thread/${encodeURIComponent(id)}`, this.apiUrl);
         const json = await this.fetchJSON(url);
         return json as Thread;
     }
 
-    /**
-     * Gets an account.
-     * @param handle The handle of the account.
-     * @returns The account object.
-     */
     async getAccount(handle: string): Promise<GetAccountResponse> {
         const url = new URL(`.ghost/activitypub/v1/account/${handle}`, this.apiUrl);
         const json = await this.fetchJSON(url);
@@ -562,13 +441,6 @@ export class ActivityPubAPI {
         return json as GetAccountResponse;
     }
 
-    /**
-     * Gets the follows of an account.
-     * @param handle The handle of the account.
-     * @param type The type of follows to get.
-     * @param next The next page token.
-     * @returns The follows object.
-     */
     async getAccountFollows(handle: string, type: AccountFollowsType, next?: string): Promise<GetAccountFollowsResponse> {
         const url = new URL(`.ghost/activitypub/v1/account/${handle}/follows/${type}`, this.apiUrl);
         if (next) {
@@ -600,50 +472,24 @@ export class ActivityPubAPI {
         };
     }
 
-    /**
-     * Gets the feed.
-     * @param next The next page token.
-     * @returns The feed object.
-     */
     async getFeed(next?: string): Promise<PaginatedPostsResponse> {
         return this.getPaginatedPosts('.ghost/activitypub/v1/feed/notes', next);
     }
 
-    /**
-     * Gets the inbox.
-     * @param next The next page token.
-     * @returns The inbox object.
-     */
     async getInbox(next?: string): Promise<PaginatedPostsResponse> {
         return this.getPaginatedPosts('.ghost/activitypub/v1/feed/reader', next);
     }
 
-    /**
-     * Gets the discovery feed.
-     * @param topic The topic to get the feed for.
-     * @param next The next page token.
-     * @returns The discovery feed object.
-     */
     async getDiscoveryFeed(topic: string, next?: string): Promise<PaginatedPostsResponse> {
         const endpoint = `.ghost/activitypub/v1/feed/discover/${topic}`;
         return this.getPaginatedPosts(endpoint, next);
     }
 
-    /**
-     * Gets the explore accounts.
-     * @param topic The topic to get the accounts for.
-     * @param next The next page token.
-     * @returns The explore accounts object.
-     */
     async getExploreAccounts(topic: string, next?: string): Promise<PaginatedExploreAccountsResponse> {
         const endpoint = `.ghost/activitypub/v1/explore/${topic}`;
         return this.getPaginatedExploreAccounts(endpoint, next);
     }
 
-    /**
-     * Gets the topics.
-     * @returns The topics object.
-     */
     async getTopics(): Promise<GetTopicsResponse> {
         const url = new URL('.ghost/activitypub/v1/topics', this.apiUrl);
         const json = await this.fetchJSON(url);
@@ -652,11 +498,6 @@ export class ActivityPubAPI {
         };
     }
 
-    /**
-     * Gets the recommendations.
-     * @param limit The limit of recommendations to get.
-     * @returns The recommendations object.
-     */
     async getRecommendations(limit?: number): Promise<GetRecommendationsResponse> {
         const url = new URL('.ghost/activitypub/v1/recommendations', this.apiUrl);
         if (limit) {
@@ -668,31 +509,14 @@ export class ActivityPubAPI {
         };
     }
 
-    /**
-     * Gets the posts by account.
-     * @param handle The handle of the account.
-     * @param next The next page token.
-     * @returns The posts object.
-     */
     async getPostsByAccount(handle: string, next?: string): Promise<PaginatedPostsResponse> {
         return this.getPaginatedPosts(`.ghost/activitypub/v1/posts/${handle}`, next);
     }
 
-    /**
-     * Gets the posts liked by account.
-     * @param next The next page token.
-     * @returns The posts object.
-     */
     async getPostsLikedByAccount(next?: string): Promise<PaginatedPostsResponse> {
         return this.getPaginatedPosts(`.ghost/activitypub/v1/posts/me/liked`, next);
     }
 
-    /**
-     * Gets the paginated posts.
-     * @param endpoint The endpoint to get the posts from.
-     * @param next The next page token.
-     * @returns The paginated posts object.
-     */
     private async getPaginatedPosts(endpoint: string, next?: string): Promise<PaginatedPostsResponse> {
         const url = new URL(endpoint, this.apiUrl);
 
@@ -718,11 +542,6 @@ export class ActivityPubAPI {
         };
     }
 
-    /**
-     * Gets the notifications.
-     * @param next The next page token.
-     * @returns The notifications object.
-     */
     async getNotifications(next?: string): Promise<GetNotificationsResponse> {
         const url = new URL('.ghost/activitypub/v1/notifications', this.apiUrl);
         if (next) {
@@ -754,10 +573,6 @@ export class ActivityPubAPI {
         };
     }
 
-    /**
-     * Gets the notifications count.
-     * @returns The notifications count object.
-     */
     async getNotificationsCount(): Promise<GetNotificationsCountResponse> {
         const url = new URL('.ghost/activitypub/v1/notifications/unread/count', this.apiUrl);
 
@@ -776,10 +591,6 @@ export class ActivityPubAPI {
         return {count};
     }
 
-    /**
-     * Resets the notifications count.
-     * @returns True if the count was reset successfully.
-     */
     async resetNotificationsCount() {
         const url = new URL('.ghost/activitypub/v1/notifications/unread/reset', this.apiUrl);
 
@@ -788,11 +599,6 @@ export class ActivityPubAPI {
         return true;
     }
 
-    /**
-     * Gets the blocked accounts.
-     * @param next The next page token.
-     * @returns The blocked accounts object.
-     */
     async getBlockedAccounts(next?: string): Promise<GetBlockedAccountsResponse> {
         const url = new URL('.ghost/activitypub/v1/blocks/accounts', this.apiUrl);
         if (next) {
@@ -819,11 +625,6 @@ export class ActivityPubAPI {
         };
     }
 
-    /**
-     * Gets the blocked domains.
-     * @param next The next page token.
-     * @returns The blocked domains object.
-     */
     async getBlockedDomains(next?: string): Promise<GetBlockedDomainsResponse> {
         const url = new URL('.ghost/activitypub/v1/blocks/domains', this.apiUrl);
         if (next) {
@@ -851,12 +652,6 @@ export class ActivityPubAPI {
         };
     }
 
-    /**
-     * Gets the paginated explore accounts.
-     * @param endpoint The endpoint to get the accounts from.
-     * @param next The next page token.
-     * @returns The paginated explore accounts object.
-     */
     private async getPaginatedExploreAccounts(endpoint: string, next?: string): Promise<PaginatedExploreAccountsResponse> {
         const url = new URL(endpoint, this.apiUrl);
 
@@ -882,23 +677,12 @@ export class ActivityPubAPI {
         };
     }
 
-    /**
-     * Gets a post.
-     * @param id The ID of the post.
-     * @returns The post object.
-     */
     async getPost(id: string): Promise<Post> {
         const url = new URL(`.ghost/activitypub/v1/post/${encodeURIComponent(id)}`, this.apiUrl);
         const json = await this.fetchJSON(url);
         return json as Post;
     }
 
-    /**
-     * Gets the replies to a post.
-     * @param postApId The ID of the post.
-     * @param next The next page token.
-     * @returns The replies object.
-     */
     async getReplies(postApId: string, next?: string): Promise<ReplyChainResponse> {
         const url = new URL(`.ghost/activitypub/v1/replies/${encodeURIComponent(postApId)}`, this.apiUrl);
         if (next) {
@@ -908,10 +692,6 @@ export class ActivityPubAPI {
         return json as ReplyChainResponse;
     }
 
-    /**
-     * Updates an account.
-     * @param data The data to update the account with.
-     */
     async updateAccount({
         name,
         username,
@@ -936,11 +716,6 @@ export class ActivityPubAPI {
         });
     }
 
-    /**
-     * Uploads an image.
-     * @param file The file to upload.
-     * @returns The URL of the uploaded image.
-     */
     async upload(file: File): Promise<string> {
         const url = new URL('.ghost/activitypub/v1/upload/image', this.apiUrl);
         const formData = new FormData();
@@ -966,28 +741,18 @@ export class ActivityPubAPI {
         return json.fileUrl;
     }
 
-    /**
-     * Enables Bluesky.
-     */
     async enableBluesky() {
         const url = new URL('.ghost/activitypub/v2/actions/bluesky/enable', this.apiUrl);
 
         await this.fetchJSON(url, 'POST');
     }
 
-    /**
-     * Disables Bluesky.
-     */
     async disableBluesky() {
         const url = new URL('.ghost/activitypub/v2/actions/bluesky/disable', this.apiUrl);
 
         await this.fetchJSON(url, 'POST');
     }
 
-    /**
-     * Confirms the Bluesky handle.
-     * @returns The confirmed handle.
-     */
     async confirmBlueskyHandle(): Promise<string> {
         const url = new URL('.ghost/activitypub/v2/actions/bluesky/confirm-handle', this.apiUrl);
 

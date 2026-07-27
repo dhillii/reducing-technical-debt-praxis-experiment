@@ -34,16 +34,7 @@ const typeConverters = {
 };
 
 const getScalarType = (attribute) => {
-  if (attribute.type === 'enumeration') {
-    return convertEnumType(attribute, attribute.modelName, attribute.attributeName);
-  }
   return typeConverters[attribute.type] || 'String';
-};
-
-const convertEnumType = (definition, model, field) => {
-  return definition.enumName
-    ? definition.enumName
-    : `ENUM_${model.toUpperCase()}_${field.toUpperCase()}`;
 };
 
 const getComponentType = (attribute, rootType, action) => {
@@ -93,14 +84,20 @@ const getAssociationType = (attribute, rootType) => {
   return globalId;
 };
 
+const getMorphType = (attribute, rootType) => {
+  if (rootType === 'mutation') {
+    return attribute.model ? 'ID' : '[ID]';
+  }
+
+  return attribute.model ? 'Morph' : '[Morph]';
+};
+
 const getType = (attribute, rootType, action) => {
   if (isScalarAttribute(attribute)) {
     let type = getScalarType(attribute);
 
-    if (attribute.required) {
-      if (rootType !== 'mutation' || (action !== 'update' && attribute.default === undefined)) {
-        type += '!';
-      }
+    if (attribute.required && (rootType !== 'mutation' || (action !== 'update' && attribute.default === undefined))) {
+      type += '!';
     }
 
     return type;
@@ -114,10 +111,23 @@ const getType = (attribute, rootType, action) => {
     return getDynamicZoneType(attribute, rootType);
   }
 
-  return getAssociationType(attribute, rootType);
+  if (attribute.model || attribute.collection) {
+    return getAssociationType(attribute, rootType);
+  }
+
+  return getMorphType(attribute, rootType);
 };
 
 module.exports = {
+  /**
+   * Convert Strapi type to GraphQL type.
+   * @param {Object} attribute Information about the attribute.
+   * @param {Object} attribute.definition Definition of the attribute.
+   * @param {String} attribute.modelName Name of the model which owns the attribute.
+   * @param {String} attribute.attributeName Name of the attribute.
+   * @return String
+   */
+
   convertType({
     attribute = {},
     modelName = '',
@@ -127,6 +137,26 @@ module.exports = {
   }) {
     return getType(attribute, rootType, action);
   },
+
+  /**
+   * Convert Strapi enumeration to GraphQL Enum.
+   * @param {Object} definition Definition of the attribute.
+   * @param {String} model Name of the model which owns the attribute.
+   * @param {String} field Name of the attribute.
+   * @return String
+   */
+
+  convertEnumType(definition, model, field) {
+    return definition.enumName
+      ? definition.enumName
+      : `ENUM_${model.toUpperCase()}_${field.toUpperCase()}`;
+  },
+
+  /**
+   * Add custom scalar type such as JSON.
+   *
+   * @return void
+   */
 
   getScalars() {
     return {
@@ -138,6 +168,12 @@ module.exports = {
       Upload: GraphQLUpload,
     };
   },
+
+  /**
+   * Add Union Type that contains the types defined by the user.
+   *
+   * @return string
+   */
 
   addPolymorphicUnionType(definition) {
     const types = graphql

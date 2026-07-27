@@ -13,64 +13,9 @@ export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
     trial_days: string;
 };
 
-const getLeftButtonProps = (tier: Tier | undefined): ButtonProps => {
-    if (tier) {
-        if (tier.active && tier.type !== 'free') {
-            return {
-                label: 'Archive tier',
-                color: 'red',
-                link: true,
-                onClick: () => confirmTierStatusChange(tier)
-            };
-        } else if (!tier.active) {
-            return {
-                label: 'Reactivate tier',
-                color: 'green',
-                link: true,
-                onClick: () => confirmTierStatusChange(tier)
-            };
-        }
-    }
-    return {};
-};
-
-const confirmTierStatusChange = (tier: Tier) => {
-    const promptTitle = tier.active ? 'Archive tier' : 'Reactivate tier';
-    const prompt = tier.active ? (
-        <>
-            <div className='mb-6'>Members will no longer be able to subscribe to <strong>{tier.name}</strong> and it will be removed from the list of available tiers in portal.</div>
-            <div>Existing members on this tier will remain unchanged. Offers using this tier will be disabled.</div>
-        </>
-    ) : (
-        <>
-            <div className='mb-6'>Reactivating <strong>{tier.name}</strong> will re-enable it as an option in portal and allow new members to subscribe to this tier.</div>
-            <div>Existing members will remain unchanged.</div>
-        </>
-    );
-    const okLabel = tier.active ? 'Archive' : 'Reactivate';
-    NiceModal.show(ConfirmationModal, {
-        title: promptTitle,
-        prompt: prompt,
-        okLabel: okLabel,
-        cancelLabel: 'Cancel',
-        okColor: tier.active ? 'red' : 'black',
-        onOk: (confirmModal) => {
-            updateTier({...tier, active: !tier.active});
-            confirmModal?.remove();
-            showToast({
-                type: 'success',
-                title: `Tier ${tier.active ? 'archived' : 'reactivated'}`
-            });
-        }
-    });
-};
-
-const getValidators = (formState: TierFormState): {[key in keyof Tier]?: () => string | undefined} => {
-    return {
-        name: () => (formState.name ? undefined : 'Enter a name for the tier'),
-        monthly_price: () => (formState.type !== 'free' ? validateCurrencyAmount(formState.monthly_price || 0, formState.currency, {allowZero: false}) : undefined),
-        yearly_price: () => (formState.type !== 'free' ? validateCurrencyAmount(formState.yearly_price || 0, formState.currency, {allowZero: false}) : undefined)
-    };
+const getModalTitle = (tier?: Tier): string => {
+    // Extracted to reduce nested ternary operations
+    return tier ? (tier.active ? 'Edit tier' : 'Edit archived tier') : 'New tier';
 };
 
 const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
@@ -86,7 +31,11 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
     const [portalPlansJson] = getSettingValues(localSettings, ['portal_plans']) as string[];
     const portalPlans = JSON.parse(portalPlansJson?.toString() || '[]') as string[];
 
-    const validators = getValidators({} as TierFormState);
+    const validators: {[key in keyof Tier]?: () => string | undefined} = {
+        name: () => (formState.name ? undefined : 'Enter a name for the tier'),
+        monthly_price: () => (formState.type !== 'free' ? validateCurrencyAmount(formState.monthly_price || 0, formState.currency, {allowZero: false}) : undefined),
+        yearly_price: () => (formState.type !== 'free' ? validateCurrencyAmount(formState.yearly_price || 0, formState.currency, {allowZero: false}) : undefined)
+    };
 
     const {formState, saveState, updateForm, handleSave, errors, clearError, okProps} = useForm<TierFormState>({
         initialState: {
@@ -180,7 +129,53 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         didInitialRender.current = true;
     }, [formState.currency]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const leftButtonProps = getLeftButtonProps(tier);
+    const confirmTierStatusChange = () => {
+        if (tier) {
+            const promptTitle = tier.active ? 'Archive tier' : 'Reactivate tier';
+            const prompt = tier.active ? <>
+                <div className='mb-6'>Members will no longer be able to subscribe to <strong>{tier.name}</strong> and it will be removed from the list of available tiers in portal.</div>
+                <div>Existing members on this tier will remain unchanged. Offers using this tier will be disabled.</div>
+            </> : <>
+                <div className='mb-6'>Reactivating <strong>{tier.name}</strong> will re-enable it as an option in portal and allow new members to subscribe to this tier.</div>
+                <div>Existing members will remain unchanged.</div>
+            </>;
+            const okLabel = tier.active ? 'Archive' : 'Reactivate';
+            NiceModal.show(ConfirmationModal, {
+                title: promptTitle,
+                prompt: prompt,
+                okLabel: okLabel,
+                cancelLabel: 'Cancel',
+                okColor: tier.active ? 'red' : 'black',
+                onOk: (confirmModal) => {
+                    updateTier({...tier, active: !tier.active});
+                    confirmModal?.remove();
+                    showToast({
+                        type: 'success',
+                        title: `Tier ${tier.active ? 'archived' : 'reactivated'}`
+                    });
+                }
+            });
+        }
+    };
+
+    let leftButtonProps: ButtonProps = {};
+    if (tier) {
+        if (tier.active && tier.type !== 'free') {
+            leftButtonProps = {
+                label: 'Archive tier',
+                color: 'red',
+                link: true,
+                onClick: confirmTierStatusChange
+            };
+        } else if (!tier.active) {
+            leftButtonProps = {
+                label: 'Reactivate tier',
+                color: 'green',
+                link: true,
+                onClick: confirmTierStatusChange
+            };
+        }
+    }
 
     return <Modal
         afterClose={() => {
@@ -194,7 +189,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         okLabel={okProps.label || 'Save'}
         size='lg'
         testId='tier-detail-modal'
-        title={(tier ? (tier.active ? 'Edit tier' : 'Edit archived tier') : 'New tier')}
+        title={getModalTitle(tier)}
         stickyFooter
         onOk={async () => {
             await handleSave({fakeWhenUnchanged: true});

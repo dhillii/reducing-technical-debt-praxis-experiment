@@ -128,7 +128,7 @@ module.exports = class RuleSet {
   static normalizeUseItemFunction(use, data) {
     const result = use(data);
     if (typeof result === "string") {
-      return RuleSet.normalizeUseItemString(result);
+      return RuleSet.normalizeUseItem(result);
     }
     return result;
   }
@@ -176,7 +176,7 @@ module.exports = class RuleSet {
     }
 
     Object.keys(item).forEach(key => {
-      if (["options", "query"].indexOf(key) < 0) {
+      if (!["options", "query"].includes(key)) {
         newItem[key] = item[key];
       }
     });

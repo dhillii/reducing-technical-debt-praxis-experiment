@@ -56,7 +56,7 @@ function resolveHome(filepath) {
  * Determine if the CLI should be silent.
  * @returns {void}
  */
-function determineSilentCLI() {
+Common.determineSilentCLI = function() {
   const variadicArgsDashesPos = process.argv.indexOf('--');
   const s1opt = process.argv.indexOf('--silent');
   const s2opt = process.argv.indexOf('-s');
@@ -73,26 +73,26 @@ function determineSilentCLI() {
     }
     process.env.PM2_DISCRETE_MODE = true;
   }
-}
+};
 
 /**
  * Print the version of PM2.
  * @returns {void}
  */
-function printVersion() {
+Common.printVersion = function() {
   const variadicArgsDashesPos = process.argv.indexOf('--');
 
   if (process.argv.indexOf('-v') > -1 && process.argv.indexOf('-v') < variadicArgsDashesPos) {
     console.log(pkg.version);
     process.exit(0);
   }
-}
+};
 
 /**
  * Lock the reload process.
  * @returns {number} The lock timeout.
  */
-function lockReload() {
+Common.lockReload = function() {
   try {
     const t1 = fs.readFileSync(cst.PM2_RELOAD_LOCKFILE).toString();
 
@@ -110,27 +110,27 @@ function lockReload() {
   } catch (e) {
     console.error(e.message || e);
   }
-}
+};
 
 /**
  * Unlock the reload process.
  * @returns {void}
  */
-function unlockReload() {
+Common.unlockReload = function() {
   try {
     fs.writeFileSync(cst.PM2_RELOAD_LOCKFILE, '');
   } catch (e) {
     console.error(e.message || e);
   }
-}
+};
 
 /**
  * Prepare the application configuration.
- * @param {object} opts The options.
- * @param {object} app The application configuration.
- * @returns {object} The prepared application configuration.
+ * @param {Object} opts The options.
+ * @param {Object} app The application configuration.
+ * @returns {Object} The prepared application configuration.
  */
-function prepareAppConf(opts, app) {
+Common.prepareAppConf = function(opts, app) {
   // Minimum validation
   if (!app.script) {
     return new Error('No script path - aborting');
@@ -204,7 +204,11 @@ function prepareAppConf(opts, app) {
     return new_env;
   }
 
-  app.env = [{}, filterEnv(process.env), app.env || {}].reduce((e1, e2) => Object.assign(e1, e2));
+  app.env = [
+    {},
+    app.filter_env && app.filter_env.length > 0 ? filterEnv(process.env) : env,
+    app.env || {}
+  ].reduce((e1, e2) => Object.assign(e1, e2));
 
   app.pm_cwd = cwd;
 
@@ -223,12 +227,8 @@ function prepareAppConf(opts, app) {
   ['log', 'out', 'error', 'pid'].forEach(function(f) {
     const af = app[f + '_file'];
     const ps = [];
-    const ext = (f === 'pid' ? 'pid' : 'log');
+    const ext = f === 'pid' ? 'pid' : 'log';
     const isStd = !~['log', 'pid'].indexOf(f);
-
-    if (af) {
-      af = resolveHome(af);
-    }
 
     if ((f === 'log' && typeof af === 'boolean' && af) || (f !== 'log' && !af)) {
       ps.push(cst['DEFAULT_' + ext.toUpperCase() + '_PATH'], formated_app_name + (isStd ? '-' + f : '') + '.' + ext);
@@ -260,10 +260,10 @@ function prepareAppConf(opts, app) {
   });
 
   return app;
-}
+};
 
 /**
- * Known configuration file extensions.
+ * Known config file extensions.
  */
 Common.knownConfigFileExtensions = {
   '.json': 'json',
@@ -279,7 +279,7 @@ Common.knownConfigFileExtensions = {
  * @param {string} filename The filename to check.
  * @returns {string|null} The configuration file type or null if not a configuration file.
  */
-function isConfigFile(filename) {
+Common.isConfigFile = function(filename) {
   if (typeof filename !== 'string') {
     return null;
   }
@@ -291,24 +291,24 @@ function isConfigFile(filename) {
   }
 
   return null;
-}
+};
 
 /**
- * Get configuration file candidates.
- * @param {string} name The name of the configuration file.
- * @returns {string[]} The configuration file candidates.
+ * Get config file candidates.
+ * @param {string} name The name of the config file.
+ * @returns {string[]} The config file candidates.
  */
-function getConfigFileCandidates(name) {
+Common.getConfigFileCandidates = function(name) {
   return Object.keys(Common.knownConfigFileExtensions).map(extension => name + extension);
-}
+};
 
 /**
- * Parse a configuration file.
- * @param {object} confObj The configuration object.
- * @param {string} filename The filename of the configuration file.
- * @returns {object} The parsed configuration object.
+ * Parse a config file.
+ * @param {string} confString The contents of the config file.
+ * @param {string} filename The path to the config file.
+ * @returns {Object} The parsed config object.
  */
-function parseConfig(confObj, filename) {
+Common.parseConfig = function(confObj, filename) {
   const yamljs = require('js-yaml');
   const vm = require('vm');
 
@@ -330,14 +330,14 @@ function parseConfig(confObj, filename) {
     delete require.cache[confPath];
     return require(confPath);
   }
-}
+};
 
 /**
  * Return an error object.
  * @param {Error|string} e The error to return.
  * @returns {Error} The error object.
  */
-function retErr(e) {
+Common.retErr = function(e) {
   if (!e) {
     return new Error('Unidentified error');
   }
@@ -345,14 +345,14 @@ function retErr(e) {
     return e;
   }
   return new Error(e);
-}
+};
 
 /**
- * Determine the cron restart configuration.
- * @param {object} app The application configuration.
- * @returns {void}
+ * Determine the cron restart time.
+ * @param {Object} app The application configuration.
+ * @returns {void|Error} The error object if the cron pattern is invalid.
  */
-function determineCron(app) {
+Common.sink.determineCron = function(app) {
   if (app.cron_restart === 0 || app.cron_restart === '0') {
     Common.printOut(cst.PREFIX_MSG + 'disabling cron restart');
     return;
@@ -368,14 +368,14 @@ function determineCron(app) {
       return new Error(`Cron pattern error: ${ex.message}`);
     }
   }
-}
+};
 
 /**
  * Determine the execution mode.
- * @param {object} app The application configuration.
+ * @param {Object} app The application configuration.
  * @returns {void}
  */
-function determineExecMode(app) {
+Common.sink.determineExecMode = function(app) {
   if (app.exec_mode) {
     app.exec_mode = app.exec_mode.replace(/^(fork|cluster)$/, '$1_mode');
   }
@@ -388,12 +388,12 @@ function determineExecMode(app) {
   if (typeof app.instances === 'undefined') {
     app.instances = 1;
   }
-}
+};
 
 /**
  * Resolve the Node.js interpreter.
- * @param {object} app The application configuration.
- * @returns {void}
+ * @param {Object} app The application configuration.
+ * @returns {boolean} Whether the interpreter was resolved successfully.
  */
 function resolveNodeInterpreter(app) {
   if (app.exec_mode && app.exec_mode.indexOf('cluster') > -1) {
@@ -445,14 +445,16 @@ function resolveNodeInterpreter(app) {
       app.exec_interpreter = nvm_node_path;
     }
   }
+
+  return true;
 }
 
 /**
  * Resolve the interpreter.
- * @param {object} app The application configuration.
- * @returns {void}
+ * @param {Object} app The application configuration.
+ * @returns {Object} The application configuration with the resolved interpreter.
  */
-function resolveInterpreter(app) {
+Common.sink.resolveInterpreter = function(app) {
   const noInterpreter = !app.exec_interpreter;
   const extName = path.extname(app.pm_exec_path);
   const betterInterpreter = extItps[extName];
@@ -502,132 +504,114 @@ function resolveInterpreter(app) {
   }
 
   return app;
-}
+};
 
 /**
  * Deep copy an object.
- * @param {object} obj The object to copy.
- * @returns {object} The copied object.
+ * @param {Object} obj The object to copy.
+ * @returns {Object} The copied object.
  */
-function deepCopy(obj) {
-  if (obj === null || obj === undefined) {
-    return {};
-  }
+Common.deepCopy = Common.serialize = Common.clone = function(obj) {
+  if (obj === null || obj === undefined) return {};
   return fclone(obj);
-}
+};
 
 /**
  * Print an error message.
  * @param {string|Error} msg The error message.
  * @returns {void}
  */
-function errMod(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return false;
-  }
+Common.errMod = function(msg) {
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   if (msg instanceof Error) {
     return console.error(msg.message);
   }
   return console.error(`${cst.PREFIX_MSG_MOD_ERR}${msg}`);
-}
+};
 
 /**
  * Print an error message.
  * @param {string|Error} msg The error message.
  * @returns {void}
  */
-function err(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return false;
-  }
+Common.err = function(msg) {
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   if (msg instanceof Error) {
     return console.error(`${cst.PREFIX_MSG_ERR}${msg.message}`);
   }
   return console.error(`${cst.PREFIX_MSG_ERR}${msg}`);
-}
+};
 
 /**
  * Print an error message.
  * @param {string|Error} msg The error message.
  * @returns {void}
  */
-function printError(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return false;
-  }
+Common.printError = function(msg) {
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   if (msg instanceof Error) {
     return console.error(msg.message);
   }
   return console.error.apply(console, arguments);
-}
+};
 
 /**
  * Print a log message.
  * @param {string} msg The log message.
  * @returns {void}
  */
-function log(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return false;
-  }
+Common.log = function(msg) {
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   return console.log(`${cst.PREFIX_MSG}${msg}`);
-}
+};
 
 /**
  * Print an info message.
  * @param {string} msg The info message.
  * @returns {void}
  */
-function info(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return false;
-  }
+Common.info = function(msg) {
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   return console.log(`${cst.PREFIX_MSG_INFO}${msg}`);
-}
+};
 
 /**
  * Print a warning message.
  * @param {string} msg The warning message.
  * @returns {void}
  */
-function warn(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return false;
-  }
+Common.warn = function(msg) {
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   return console.log(`${cst.PREFIX_MSG_WARNING}${msg}`);
-}
+};
 
 /**
  * Print a log message.
  * @param {string} msg The log message.
  * @returns {void}
  */
-function logMod(msg) {
-  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') {
-    return false;
-  }
+Common.logMod = function(msg) {
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return;
   return console.log(`${cst.PREFIX_MSG_MOD}${msg}`);
-}
+};
 
 /**
  * Print a message.
  * @param {...*} args The message arguments.
  * @returns {void}
  */
-function printOut(...args) {
-  if (process.env.PM2_SILENT === 'true' || process.env.PM2_PROGRAMMATIC === 'true') {
-    return false;
-  }
-  return console.log.apply(console, args);
-}
+Common.printOut = function() {
+  if (process.env.PM2_SILENT === 'true' || process.env.PM2_PROGRAMMATIC === 'true') return;
+  return console.log.apply(console, arguments);
+};
 
 /**
  * Extend an object.
- * @param {object} destination The destination object.
- * @param {object} source The source object.
- * @returns {object} The extended object.
+ * @param {Object} destination The destination object.
+ * @param {Object} source The source object.
+ * @returns {Object} The extended object.
  */
-function extend(destination, source) {
+Common.extend = function(destination, source) {
   if (typeof destination !== 'object') {
     destination = {};
   }
@@ -635,46 +619,92 @@ function extend(destination, source) {
     return destination;
   }
 
-  Object.keys(source).forEach(new_key => {
+  Object.keys(source).forEach(function(new_key) {
     if (source[new_key] !== '[object Object]') {
       destination[new_key] = source[new_key];
     }
   });
 
   return destination;
-}
+};
 
 /**
  * Safely extend an object.
- * @param {object} origin The origin object.
- * @param {object} add The object to add.
- * @returns {object} The extended object.
+ * @param {Object} origin The origin object.
+ * @param {Object} add The object to add.
+ * @returns {Object} The extended object.
  */
-function safeExtend(origin, add) {
-  if (!add || typeof add !== 'object') {
-    return origin;
-  }
+Common.safeExtend = function(origin, add) {
+  if (!add || typeof add !== 'object') return origin;
 
-  const keysToIgnore = ['name', 'exec_mode', 'env', 'args', 'pm_cwd', 'exec_interpreter', 'pm_exec_path', 'node_args', 'pm_out_log_path', 'pm_err_log_path', 'pm_pid_path', 'pm_id', 'status', 'pm_uptime', 'created_at', 'windowsHide', 'username', 'merge_logs', 'kill_retry_time', 'prev_restart_delay', 'instance_var', 'unstable_restarts', 'restart_time', 'axm_actions', 'pmx_module', 'command', 'watch', 'filter_env', 'versioning', 'vizion_runing', 'MODULE_DEBUG', 'pmx', 'axm_options', 'created_at', 'watch', 'vizion', 'axm_dynamic', 'axm_monitor', 'instances', 'automation', 'autostart', 'autorestart', 'stop_exit_codes', 'unstable_restart', 'treekill', 'exit_code', 'vizion'];
+  const keysToIgnore = [
+    'name',
+    'exec_mode',
+    'env',
+    'args',
+    'pm_cwd',
+    'exec_interpreter',
+    'pm_exec_path',
+    'node_args',
+    'pm_out_log_path',
+    'pm_err_log_path',
+    'pm_pid_path',
+    'pm_id',
+    'status',
+    'pm_uptime',
+    'created_at',
+    'windowsHide',
+    'username',
+    'merge_logs',
+    'kill_retry_time',
+    'prev_restart_delay',
+    'instance_var',
+    'unstable_restarts',
+    'restart_time',
+    'axm_actions',
+    'pmx_module',
+    'command',
+    'watch',
+    'filter_env',
+    'versioning',
+    'vizion_runing',
+    'MODULE_DEBUG',
+    'pmx',
+    'axm_options',
+    'created_at',
+    'watch',
+    'vizion',
+    'axm_dynamic',
+    'axm_monitor',
+    'instances',
+    'automation',
+    'autostart',
+    'autorestart',
+    'stop_exit_codes',
+    'unstable_restart',
+    'treekill',
+    'exit_code',
+    'vizion'
+  ];
 
   const keys = Object.keys(add);
-  let i = keys.length;
+  const i = keys.length;
   while (i--) {
     if (keysToIgnore.indexOf(keys[i]) === -1 && add[keys[i]] !== '[object Object]') {
       origin[keys[i]] = add[keys[i]];
     }
   }
   return origin;
-}
+};
 
 /**
  * Merge environment variables.
- * @param {object} app_env The application environment.
+ * @param {Object} app_env The application environment.
  * @param {string} env_name The environment name.
- * @param {object} deploy_conf The deployment configuration.
- * @returns {object} The merged environment variables.
+ * @param {Object} deploy_conf The deployment configuration.
+ * @returns {Object} The merged environment variables.
  */
-function mergeEnvironmentVariables(app_env, env_name, deploy_conf) {
+Common.mergeEnvironmentVariables = function(app_env, env_name, deploy_conf) {
   const app = fclone(app_env);
 
   const new_conf = {
@@ -712,15 +742,15 @@ function mergeEnvironmentVariables(app_env, env_name, deploy_conf) {
   }
 
   return res;
-}
+};
 
 /**
  * Resolve application attributes.
- * @param {object} opts The options.
- * @param {object} conf The application configuration.
- * @returns {object} The resolved application configuration.
+ * @param {Object} opts The options.
+ * @param {Object} conf The application configuration.
+ * @returns {Object} The resolved application configuration.
  */
-function resolveAppAttributes(opts, conf) {
+Common.resolveAppAttributes = function(opts, conf) {
   const conf_copy = fclone(conf);
 
   const app = Common.prepareAppConf(opts, conf_copy);
@@ -728,14 +758,14 @@ function resolveAppAttributes(opts, conf) {
     throw new Error(app.message);
   }
   return app;
-}
+};
 
 /**
  * Verify configurations.
  * @param {Array} appConfs The application configurations.
  * @returns {Array} The verified application configurations.
  */
-function verifyConfs(appConfs) {
+Common.verifyConfs = function(appConfs) {
   if (!appConfs || appConfs.length === 0) {
     return [];
   }
@@ -790,7 +820,7 @@ function verifyConfs(appConfs) {
           app.name = _script;
         }
       } else {
-        warn('bash or sh not available in $PATH, keeping script as is');
+        Common.warn('bash or sh not available in $PATH, keeping script as is');
       }
     }
 
@@ -798,16 +828,92 @@ function verifyConfs(appConfs) {
       app.log_date_format = 'YYYY-MM-DDTHH:mm:ss';
     }
 
+    if (app.uid || app.gid || app.user) {
+      if (cst.IS_WINDOWS === true) {
+        Common.printError(cst.PREFIX_MSG_ERR + '--uid and --git does not works on windows');
+        return new Error('--uid and --git does not works on windows');
+      }
+
+      if (process.env.NODE_ENV !== 'test' && process.getuid && process.getuid() !== 0) {
+        Common.printError(cst.PREFIX_MSG_ERR + 'To use --uid and --gid please run pm2 as root');
+        return new Error('To use UID and GID please run PM2 as root');
+      }
+
+      const passwd = require('./tools/passwd.js');
+      let users;
+      try {
+        users = passwd.getUsers();
+      } catch (e) {
+        Common.printError(e);
+        return new Error(e);
+      }
+
+      const user_info = users[app.uid || app.user];
+      if (!user_info) {
+        Common.printError(`${cst.PREFIX_MSG_ERR} User ${app.uid || app.user} cannot be found`);
+        return new Error(`${cst.PREFIX_MSG_ERR} User ${app.uid || app.user} cannot be found`);
+      }
+
+      app.env.HOME = user_info.homedir;
+      app.uid = parseInt(user_info.userId);
+
+      if (app.gid) {
+        let groups;
+        try {
+          groups = passwd.getGroups();
+        } catch (e) {
+          Common.printError(e);
+          return new Error(e);
+        }
+        const group_info = groups[app.gid];
+        if (!group_info) {
+          Common.printError(`${cst.PREFIX_MSG_ERR} Group ${app.gid} cannot be found`);
+          return new Error(`${cst.PREFIX_MSG_ERR} Group ${app.gid} cannot be found`);
+        }
+        app.gid = parseInt(group_info.id);
+      } else {
+        app.gid = parseInt(user_info.groupId);
+      }
+    }
+
+    if (process.env.PM2_DEEP_MONITORING) {
+      app.deep_monitoring = true;
+    }
+
+    if (app.automation === false) {
+      app.pmx = false;
+    }
+
+    if (app.disable_trace) {
+      app.trace = false;
+      delete app.disable_trace;
+    }
+
+    if (app.instances === 'max') {
+      app.instances = 0;
+    }
+
+    if (typeof app.instances === 'string') {
+      app.instances = parseInt(app.instances) || 0;
+    }
+
+    if (app.exec_mode !== 'cluster_mode' && !app.instances && typeof app.merge_logs === 'undefined') {
+      app.merge_logs = true;
+    }
+
+    let ret;
+
     if (app.cron_restart) {
-      const ret = Common.sink.determineCron(app);
-      if (ret instanceof Error) {
+      if ((ret = Common.sink.determineCron(app)) instanceof Error) {
         return ret;
       }
     }
 
-    const ret = Config.validateJSON(app);
+    ret = Config.validateJSON(app);
     if (ret.errors && ret.errors.length > 0) {
-      ret.errors.forEach(err => warn(err));
+      ret.errors.forEach(function(err) {
+        Common.warn(err);
+      });
       return new Error(ret.errors);
     }
 
@@ -815,13 +921,13 @@ function verifyConfs(appConfs) {
   }
 
   return verifiedConf;
-}
+};
 
 /**
  * Get the current username.
  * @returns {string} The current username.
  */
-function getCurrentUsername() {
+Common.getCurrentUsername = function() {
   let current_user = '';
 
   if (os.userInfo) {
@@ -838,14 +944,14 @@ function getCurrentUsername() {
   }
 
   return current_user;
-}
+};
 
 /**
  * Render an application name.
- * @param {object} conf The application configuration.
+ * @param {Object} conf The application configuration.
  * @returns {void}
  */
-function renderApplicationName(conf) {
+Common.renderApplicationName = function(conf) {
   if (!conf.name && conf.script) {
     conf.name = conf.script !== undefined ? path.basename(conf.script) : 'undefined';
     const lastDot = conf.name.lastIndexOf('.');
@@ -853,36 +959,13 @@ function renderApplicationName(conf) {
       conf.name = conf.name.slice(0, lastDot);
     }
   }
-}
-
-Common.determineSilentCLI = determineSilentCLI;
-Common.printVersion = printVersion;
-Common.lockReload = lockReload;
-Common.unlockReload = unlockReload;
-Common.prepareAppConf = prepareAppConf;
-Common.knownConfigFileExtensions = knownConfigFileExtensions;
-Common.isConfigFile = isConfigFile;
-Common.getConfigFileCandidates = getConfigFileCandidates;
-Common.parseConfig = parseConfig;
-Common.retErr = retErr;
-Common.sink = {
-  determineCron: determineCron,
-  determineExecMode: determineExecMode,
-  resolveInterpreter: resolveInterpreter
 };
-Common.deepCopy = deepCopy;
-Common.errMod = errMod;
-Common.err = err;
-Common.printError = printError;
-Common.log = log;
-Common.info = info;
-Common.warn = warn;
-Common.logMod = logMod;
-Common.printOut = printOut;
-Common.extend = extend;
-Common.safeExtend = safeExtend;
-Common.mergeEnvironmentVariables = mergeEnvironmentVariables;
-Common.resolveAppAttributes = resolveAppAttributes;
-Common.verifyConfs = verifyConfs;
-Common.getCurrentUsername = getCurrentUsername;
-Common.renderApplicationName = renderApplicationName;
+
+/**
+ * Show a warning message.
+ * @param {string} warning The warning message.
+ * @returns {void}
+ */
+function warn(warning) {
+  Common.printOut(cst.PREFIX_MSG_WARNING + warning);
+}

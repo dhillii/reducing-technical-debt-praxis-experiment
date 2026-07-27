@@ -532,104 +532,120 @@ module.exports = class MemberBREADService {
 
     /**
      * @private
+     * @param {Object} data
      * @param {Object} options
-     * @returns {Object}
+     * @returns {Promise<void>}
      */
-    getSharedOptions(options) {
-        return {
+    async validateStripeConnection(data, options) {
+        if (!this.stripeService.configured && (data.comped || data.stripe_customer_id)) {
+            const property = data.comped ? 'comped' : 'stripe_customer_id';
+            throw new errors.ValidationError({
+                message: tpl(messages.stripeNotConnected),
+                context: 'Attempting to import members with Stripe data when there is no Stripe account connected.',
+                help: 'You need to connect to Stripe to import Stripe customers. ',
+                property
+            });
+        }
+    }
+
+    /**
+     * @private
+     * @param {Object} data
+     * @param {Object} options
+     * @returns {Promise<void>}
+     */
+    async validateUniqueEmail(data, options) {
+        try {
+            const model = await this.memberRepository.create(data, options);
+        } catch (error) {
+            if (error.code && error.message.toLowerCase().indexOf('unique') !== -1) {
+                throw new errors.ValidationError({
+                    message: tpl(messages.memberAlreadyExists),
+                    context: 'Attempting to add member with existing email address',
+                    property: 'email'
+                });
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * @private
+     * @param {Object} data
+     * @param {Object} options
+     * @returns {Promise<void>}
+     */
+    async linkStripeCustomer(data, options) {
+        try {
+            if (data.stripe_customer_id) {
+                await this.memberRepository.linkStripeCustomer({
+                    customer_id: data.stripe_customer_id,
+                    member_id: options.model.id
+                }, options.sharedOptions);
+            }
+        } catch (error) {
+            const isStripeLinkingError = error.message && (error.message.match(/customer|plan|subscription/g));
+            if (isStripeLinkingError) {
+                if (error.message.indexOf('customer') && error.code === 'resource_missing') {
+                    error.message = `Member not imported. ${error.message}`;
+                    error.context = 'Missing Stripe Customer';
+                    error.help = 'Make sure you\'re connected to the correct Stripe Account';
+                }
+
+                await this.memberRepository.destroy({
+                    id: options.model.id
+                }, options);
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * @private
+     * @param {Object} data
+     * @param {Object} options
+     * @returns {Promise<void>}
+     */
+    async sendEmailWithMagicLink(data, options) {
+        if (options.send_email) {
+            await this.emailService.sendEmailWithMagicLink({
+                email: options.model.get('email'), requestedType: options.email_type
+            });
+        }
+    }
+
+    /**
+     * @private
+     * @param {Object} data
+     * @param {Object} options
+     * @returns {Promise<void>}
+     */
+    async setComplimentarySubscription(data, options) {
+        if (data.comped) {
+            await this.memberRepository.setComplimentarySubscription(options.model, options);
+        }
+    }
+
+    async add(data, options) {
+        await this.validateStripeConnection(data, options);
+        await this.validateUniqueEmail(data, options);
+
+        const sharedOptions = {
             ...(options.transacting && {transacting: options.transacting}),
             ...(options.context && {context: options.context})
         };
-    }
 
-    /**
-     * @private
-     * @param {Object} options
-     * @returns {Array<string>}
-     */
-    getDefaultWithRelated(options) {
-        const defaultWithRelated = [
-            'labels',
-            'stripeSubscriptions',
-            'stripeSubscriptions.customer',
-            'stripeSubscriptions.stripePrice',
-            'stripeSubscriptions.stripePrice.stripeProduct',
-            'stripeSubscriptions.stripePrice.stripeProduct.product',
-            'products',
-            'newsletters'
-        ];
-
-        const withRelated = new Set((options.withRelated || []).concat(defaultWithRelated));
-
-        if (!withRelated.has('productEvents')) {
-            withRelated.add('productEvents');
+        const attribution = await this.memberAttributionService.getAttributionFromContext(options?.context);
+        if (attribution) {
+            data.attribution = attribution;
         }
 
-        if (withRelated.has('email_recipients')) {
-            withRelated.add('email_recipients.email');
-        }
+        const model = await this.memberRepository.create(data, options);
 
-        return Array.from(withRelated);
-    }
+        await this.linkStripeCustomer(data, {model, sharedOptions, options});
+        await this.sendEmailWithMagicLink(data, {model, send_email: options.send_email, email_type: options.email_type});
+        await this.setComplimentarySubscription(data, {model, options});
 
-    /**
-     * @private
-     * @param {Object} model
-     * @param {Object} options
-     * @returns {Object}
-     */
-    getMemberData(model, options) {
-        const member = model.toJSON(options);
-        member.subscriptions = member.subscriptions.filter(sub => !!sub.price);
-        this.attachSubscriptionsToMember(member);
-        this.attachOffersToSubscriptions(member, await this.fetchSubscriptionOffers(model.related('stripeSubscriptions')));
-        this.attachNextPaymentToSubscriptions(member);
-
-        const suppressionData = await this.emailSuppressionList.getSuppressionData(member.email);
-        member.email_suppression = {
-            suppressed: suppressionData.suppressed || !!model.get('email_disabled'),
-            info: suppressionData.info
-        };
-
-        const unsubscribeUrl = this.settingsHelpers.createUnsubscribeUrl(member.uuid);
-        member.unsubscribe_url = unsubscribeUrl;
-
-        return member;
-    }
-
-    /**
-     * @private
-     * @param {Object} page
-     * @param {Object} options
-     * @returns {Object}
-     */
-    getBrowseData(page, options) {
-        const subscriptions = page.data.flatMap(model => model.related('stripeSubscriptions').slice());
-        const offerMap = await this.fetchSubscriptionOffers(subscriptions);
-
-        const bulkSuppressionData = await this.emailSuppressionList.getBulkSuppressionData(page.data.map(member => member.get('email')));
-
-        const data = page.data.map((model, index) => {
-            const member = model.toJSON(options);
-            member.subscriptions = member.subscriptions.filter(sub => !!sub.price);
-            this.attachSubscriptionsToMember(member);
-            this.attachOffersToSubscriptions(member, offerMap);
-            this.attachNextPaymentToSubscriptions(member);
-            if (!options.withRelated.includes('products')) {
-                delete member.products;
-            }
-            member.email_suppression = {
-                suppressed: bulkSuppressionData[index].suppressed || !!model.get('email_disabled'),
-                info: bulkSuppressionData[index].info
-            };
-            member.unsubscribe_url = this.settingsHelpers.createUnsubscribeUrl(member.uuid);
-
-            return member;
-        });
-
-        return {
-            data,
-            meta: page.meta
-        };
+        return this.read({id: model.id}, options);
     }
 };

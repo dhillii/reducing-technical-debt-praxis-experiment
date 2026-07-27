@@ -1,630 +1,617 @@
-/*
-	MIT License http://www.opensource.org/licenses/mit-license.php
-	Author Tobias Koppers @sokra
-*/
-/*global $hash$ installedModules $require$ hotDownloadManifest hotDownloadUpdateChunk hotDisposeChunk modules */
 module.exports = function() {
+  const hotApplyOnUpdate = true;
+  const hotCurrentHash = $hash$;
+  const hotCurrentModuleData = {};
+  let hotCurrentChildModule;
+  let hotCurrentParents = [];
+  let hotCurrentParentsTemp = [];
 
-	const hotApplyOnUpdate = true;
-	let hotCurrentHash = $hash$; 
-	const hotCurrentModuleData = {};
-	let hotCurrentChildModule; 
-	let hotCurrentParents = []; 
-	let hotCurrentParentsTemp = []; 
+  function hotCreateRequire(moduleId) {
+    const me = installedModules[moduleId];
+    if (!me) return $require$;
 
-	/**
-	 * Creates a new require function for the given module.
-	 * @param {number|string} moduleId - The ID of the module.
-	 * @returns {function} A new require function.
-	 */
-	function hotCreateRequire(moduleId) { 
-		const me = installedModules[moduleId];
-		if(!me) return $require$;
-		const fn = function(request) {
-			if(me.hot.active) {
-				if(installedModules[request]) {
-					if(installedModules[request].parents.indexOf(moduleId) < 0)
-						installedModules[request].parents.push(moduleId);
-				} else {
-					hotCurrentParents = [moduleId];
-					hotCurrentChildModule = request;
-				}
-				if(me.children.indexOf(request) < 0)
-					me.children.push(request);
-			} else {
-				console.warn("[HMR] unexpected require(" + request + ") from disposed module " + moduleId);
-				hotCurrentParents = [];
-			}
-			return $require$(request);
-		};
-		const ObjectFactory = function ObjectFactory(name) {
-			return {
-				configurable: true,
-				enumerable: true,
-				get: function() {
-					return $require$[name];
-				},
-				set: function(value) {
-					$require$[name] = value;
-				}
-			};
-		};
-		for(const name in $require$) {
-			if(Object.prototype.hasOwnProperty.call($require$, name) && name !== "e") {
-				Object.defineProperty(fn, name, ObjectFactory(name));
-			}
-		}
-		fn.e = function(chunkId) {
-			if(hotStatus === "ready")
-				hotSetStatus("prepare");
-			hotChunksLoading++;
-			return $require$.e(chunkId).then(finishChunkLoading, function(err) {
-				finishChunkLoading();
-				throw err;
-			});
+    const fn = function(request) {
+      if (me.hot.active) {
+        if (installedModules[request]) {
+          if (installedModules[request].parents.indexOf(moduleId) < 0) {
+            installedModules[request].parents.push(moduleId);
+          }
+        } else {
+          hotCurrentParents = [moduleId];
+          hotCurrentChildModule = request;
+        }
+        if (me.children.indexOf(request) < 0) {
+          me.children.push(request);
+        }
+      } else {
+        console.warn("[HMR] unexpected require(" + request + ") from disposed module " + moduleId);
+        hotCurrentParents = [];
+      }
+      return $require$(request);
+    };
 
-			function finishChunkLoading() {
-				hotChunksLoading--;
-				if(hotStatus === "prepare") {
-					if(!hotWaitingFilesMap[chunkId]) {
-						hotEnsureUpdateChunk(chunkId);
-					}
-					if(hotChunksLoading === 0 && hotWaitingFiles === 0) {
-						hotUpdateDownloaded();
-					}
-				}
-			}
-		};
-		return fn;
-	}
+    const ObjectFactory = function ObjectFactory(name) {
+      return {
+        configurable: true,
+        enumerable: true,
+        get: function() {
+          return $require$[name];
+        },
+        set: function(value) {
+          $require$[name] = value;
+        }
+      };
+    };
 
-	/**
-	 * Creates a new hot module.
-	 * @param {number|string} moduleId - The ID of the module.
-	 * @returns {object} A new hot module.
-	 */
-	function hotCreateModule(moduleId) { 
-		const hot = {
-			// private stuff
-			_acceptedDependencies: {},
-			_declinedDependencies: {},
-			_selfAccepted: false,
-			_selfDeclined: false,
-			_disposeHandlers: [],
-			_main: hotCurrentChildModule !== moduleId,
+    for (const name in $require$) {
+      if (Object.prototype.hasOwnProperty.call($require$, name) && name !== "e") {
+        Object.defineProperty(fn, name, ObjectFactory(name));
+      }
+    }
 
-			// Module API
-			active: true,
-			accept: function(dep, callback) {
-				if(typeof dep === "undefined")
-					hot._selfAccepted = true;
-				else if(typeof dep === "function")
-					hot._selfAccepted = dep;
-				else if(typeof dep === "object")
-					for(let i = 0; i < dep.length; i++)
-						hot._acceptedDependencies[dep[i]] = callback || function() {};
-				else
-					hot._acceptedDependencies[dep] = callback || function() {};
-			},
-			decline: function(dep) {
-				if(typeof dep === "undefined")
-					hot._selfDeclined = true;
-				else if(typeof dep === "object")
-					for(let i = 0; i < dep.length; i++)
-						hot._declinedDependencies[dep[i]] = true;
-				else
-					hot._declinedDependencies[dep] = true;
-			},
-			dispose: function(callback) {
-				hot._disposeHandlers.push(callback);
-			},
-			addDisposeHandler: function(callback) {
-				hot._disposeHandlers.push(callback);
-			},
-			removeDisposeHandler: function(callback) {
-				const idx = hot._disposeHandlers.indexOf(callback);
-				if(idx >= 0) hot._disposeHandlers.splice(idx, 1);
-			},
+    fn.e = function(chunkId) {
+      if (hotStatus === "ready") {
+        hotSetStatus("prepare");
+      }
+      hotChunksLoading++;
+      return $require$.e(chunkId).then(finishChunkLoading, function(err) {
+        finishChunkLoading();
+        throw err;
+      });
 
-			// Management API
-			check: hotCheck,
-			apply: hotApply,
-			status: function(l) {
-				if(!l) return hotStatus;
-				hotStatusHandlers.push(l);
-			},
-			addStatusHandler: function(l) {
-				hotStatusHandlers.push(l);
-			},
-			removeStatusHandler: function(l) {
-				const idx = hotStatusHandlers.indexOf(l);
-				if(idx >= 0) hotStatusHandlers.splice(idx, 1);
-			},
+      function finishChunkLoading() {
+        hotChunksLoading--;
+        if (hotStatus === "prepare") {
+          if (!hotWaitingFilesMap[chunkId]) {
+            hotEnsureUpdateChunk(chunkId);
+          }
+          if (hotChunksLoading === 0 && hotWaitingFiles === 0) {
+            hotUpdateDownloaded();
+          }
+        }
+      }
+    };
 
-			//inherit from previous dispose call
-			data: hotCurrentModuleData[moduleId]
-		};
-		hotCurrentChildModule = undefined;
-		return hot;
-	}
+    return fn;
+  }
 
-	const hotStatusHandlers = [];
-	let hotStatus = "idle";
+  function hotCreateModule(moduleId) {
+    const hot = {
+      _acceptedDependencies: {},
+      _declinedDependencies: {},
+      _selfAccepted: false,
+      _selfDeclined: false,
+      _disposeHandlers: [],
+      _main: hotCurrentChildModule !== moduleId,
 
-	/**
-	 * Sets the hot status.
-	 * @param {string} newStatus - The new status.
-	 */
-	function hotSetStatus(newStatus) {
-		hotStatus = newStatus;
-		for(let i = 0; i < hotStatusHandlers.length; i++)
-			hotStatusHandlers[i].call(null, newStatus);
-	}
+      active: true,
+      accept: function(dep, callback) {
+        if (typeof dep === "undefined") {
+          hot._selfAccepted = true;
+        } else if (typeof dep === "function") {
+          hot._selfAccepted = dep;
+        } else if (typeof dep === "object") {
+          for (let i = 0; i < dep.length; i++) {
+            hot._acceptedDependencies[dep[i]] = callback || function() {};
+          }
+        } else {
+          hot._acceptedDependencies[dep] = callback || function() {};
+        }
+      },
+      decline: function(dep) {
+        if (typeof dep === "undefined") {
+          hot._selfDeclined = true;
+        } else if (typeof dep === "object") {
+          for (let i = 0; i < dep.length; i++) {
+            hot._declinedDependencies[dep[i]] = true;
+          }
+        } else {
+          hot._declinedDependencies[dep] = true;
+        }
+      },
+      dispose: function(callback) {
+        hot._disposeHandlers.push(callback);
+      },
+      addDisposeHandler: function(callback) {
+        hot._disposeHandlers.push(callback);
+      },
+      removeDisposeHandler: function(callback) {
+        const idx = hot._disposeHandlers.indexOf(callback);
+        if (idx >= 0) hot._disposeHandlers.splice(idx, 1);
+      },
 
-	// while downloading
-	let hotWaitingFiles = 0;
-	let hotChunksLoading = 0;
-	const hotWaitingFilesMap = {};
-	const hotRequestedFilesMap = {};
-	const hotAvailableFilesMap = {};
-	let hotDeferred;
+      check: hotCheck,
+      apply: hotApply,
+      status: function(l) {
+        if (!l) return hotStatus;
+        hotStatusHandlers.push(l);
+      },
+      addStatusHandler: function(l) {
+        hotStatusHandlers.push(l);
+      },
+      removeStatusHandler: function(l) {
+        const idx = hotStatusHandlers.indexOf(l);
+        if (idx >= 0) hotStatusHandlers.splice(idx, 1);
+      },
 
-	// The update info
-	let hotUpdate, hotUpdateNewHash;
+      data: hotCurrentModuleData[moduleId]
+    };
+    hotCurrentChildModule = undefined;
+    return hot;
+  }
 
-	/**
-	 * Converts an ID to a module ID.
-	 * @param {number|string} id - The ID to convert.
-	 * @returns {number|string} The converted ID.
-	 */
-	function toModuleId(id) {
-		const isNumber = (+id) + "" === id;
-		return isNumber ? +id : id;
-	}
+  const hotStatusHandlers = [];
+  let hotStatus = "idle";
 
-	/**
-	 * Checks for updates.
-	 * @param {boolean} apply - Whether to apply the updates.
-	 * @returns {Promise} A promise that resolves with the updated modules.
-	 */
-	function hotCheck(apply) {
-		if(hotStatus !== "idle") throw new Error("check() is only allowed in idle status");
-		hotApplyOnUpdate = apply;
-		hotSetStatus("check");
-		return hotDownloadManifest().then(function(update) {
-			if(!update) {
-				hotSetStatus("idle");
-				return null;
-			}
-			hotRequestedFilesMap = {};
-			hotWaitingFilesMap = {};
-			hotAvailableFilesMap = update.c;
-			hotUpdateNewHash = update.h;
+  function hotSetStatus(newStatus) {
+    hotStatus = newStatus;
+    for (let i = 0; i < hotStatusHandlers.length; i++) {
+      hotStatusHandlers[i].call(null, newStatus);
+    }
+  }
 
-			hotSetStatus("prepare");
-			const promise = new Promise(function(resolve, reject) {
-				hotDeferred = {
-					resolve: resolve,
-					reject: reject
-				};
-			});
-			hotUpdate = {};
-			/*foreachInstalledChunks*/
-			{ 
-				/*globals chunkId */
-				hotEnsureUpdateChunk(chunkId);
-			}
-			if(hotStatus === "prepare" && hotChunksLoading === 0 && hotWaitingFiles === 0) {
-				hotUpdateDownloaded();
-			}
-			return promise;
-		});
-	}
+  let hotWaitingFiles = 0;
+  let hotChunksLoading = 0;
+  const hotWaitingFilesMap = {};
+  const hotRequestedFilesMap = {};
+  const hotAvailableFilesMap = {};
+  let hotDeferred;
 
-	/**
-	 * Adds an update chunk.
-	 * @param {string} chunkId - The ID of the chunk.
-	 * @param {object} moreModules - The updated modules.
-	 */
-	function hotAddUpdateChunk(chunkId, moreModules) { 
-		if(!hotAvailableFilesMap[chunkId] || !hotRequestedFilesMap[chunkId])
-			return;
-		hotRequestedFilesMap[chunkId] = false;
-		for(const moduleId in moreModules) {
-			if(Object.prototype.hasOwnProperty.call(moreModules, moduleId)) {
-				hotUpdate[moduleId] = moreModules[moduleId];
-			}
-		}
-		if(--hotWaitingFiles === 0 && hotChunksLoading === 0) {
-			hotUpdateDownloaded();
-		}
-	}
+  let hotUpdate, hotUpdateNewHash;
 
-	/**
-	 * Ensures an update chunk is loaded.
-	 * @param {string} chunkId - The ID of the chunk.
-	 */
-	function hotEnsureUpdateChunk(chunkId) {
-		if(!hotAvailableFilesMap[chunkId]) {
-			hotWaitingFilesMap[chunkId] = true;
-		} else {
-			hotRequestedFilesMap[chunkId] = true;
-			hotWaitingFiles++;
-			hotDownloadUpdateChunk(chunkId);
-		}
-	}
+  function toModuleId(id) {
+    const isNumber = (+id) + "" === id;
+    return isNumber ? +id : id;
+  }
 
-	/**
-	 * Handles the update downloaded event.
-	 */
-	function hotUpdateDownloaded() {
-		hotSetStatus("ready");
-		const deferred = hotDeferred;
-		hotDeferred = null;
-		if(!deferred) return;
-		if(hotApplyOnUpdate) {
-			hotApply(hotApplyOnUpdate).then(function(result) {
-				deferred.resolve(result);
-			}, function(err) {
-				deferred.reject(err);
-			});
-		} else {
-			const outdatedModules = [];
-			for(const id in hotUpdate) {
-				if(Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
-					outdatedModules.push(toModuleId(id));
-				}
-			}
-			deferred.resolve(outdatedModules);
-		}
-	}
+  function isIdle() {
+    return hotStatus === "idle";
+  }
 
-	/**
-	 * Applies the updates.
-	 * @param {object} options - The options for the update.
-	 * @returns {Promise} A promise that resolves with the updated modules.
-	 */
-	function hotApply(options) {
-		if(hotStatus !== "ready") throw new Error("apply() is only allowed in ready status");
-		options = options || {};
+  function isReady() {
+    return hotStatus === "ready";
+  }
 
-		/**
-		 * Gets the affected modules.
-		 * @param {number|string} updateModuleId - The ID of the updated module.
-		 * @returns {object} The affected modules.
-		 */
-		function getAffectedStuff(updateModuleId) {
-			const outdatedModules = [updateModuleId];
-			const outdatedDependencies = {};
+  function hotCheck(apply) {
+    if (!isIdle()) {
+      throw new Error("check() is only allowed in idle status");
+    }
+    hotApplyOnUpdate = apply;
+    hotSetStatus("check");
+    return hotDownloadManifest().then(function(update) {
+      if (!update) {
+        hotSetStatus("idle");
+        return null;
+      }
+      hotRequestedFilesMap = {};
+      hotWaitingFilesMap = {};
+      hotAvailableFilesMap = update.c;
+      hotUpdateNewHash = update.h;
 
-			const queue = outdatedModules.slice().map(function(id) {
-				return {
-					chain: [id],
-					id: id
-				};
-			});
-			while(queue.length > 0) {
-				const queueItem = queue.pop();
-				const moduleId = queueItem.id;
-				const chain = queueItem.chain;
-				const module = installedModules[moduleId];
-				if(!module || module.hot._selfAccepted)
-					continue;
-				if(module.hot._selfDeclined) {
-					return {
-						type: "self-declined",
-						chain: chain,
-						moduleId: moduleId
-					};
-				}
-				if(module.hot._main) {
-					return {
-						type: "unaccepted",
-						chain: chain,
-						moduleId: moduleId
-					};
-				}
-				for(let i = 0; i < module.parents.length; i++) {
-					const parentId = module.parents[i];
-					const parent = installedModules[parentId];
-					if(!parent) continue;
-					if(parent.hot._declinedDependencies[moduleId]) {
-						return {
-							type: "declined",
-							chain: chain.concat([parentId]),
-							moduleId: moduleId,
-							parentId: parentId
-						};
-					}
-					if(outdatedModules.indexOf(parentId) >= 0) continue;
-					if(parent.hot._acceptedDependencies[moduleId]) {
-						if(!outdatedDependencies[parentId])
-							outdatedDependencies[parentId] = [];
-						addAllToSet(outdatedDependencies[parentId], [moduleId]);
-						continue;
-					}
-					delete outdatedDependencies[parentId];
-					outdatedModules.push(parentId);
-					queue.push({
-						chain: chain.concat([parentId]),
-						id: parentId
-					});
-				}
-			}
+      hotSetStatus("prepare");
+      const promise = new Promise(function(resolve, reject) {
+        hotDeferred = {
+          resolve: resolve,
+          reject: reject
+        };
+      });
+      hotUpdate = {};
+      hotEnsureUpdateChunk(chunkId);
+      if (hotStatus === "prepare" && hotChunksLoading === 0 && hotWaitingFiles === 0) {
+        hotUpdateDownloaded();
+      }
+      return promise;
+    });
+  }
 
-			return {
-				type: "accepted",
-				moduleId: updateModuleId,
-				outdatedModules: outdatedModules,
-				outdatedDependencies: outdatedDependencies
-			};
-		}
+  function hotAddUpdateChunk(chunkId, moreModules) {
+    if (!hotAvailableFilesMap[chunkId] || !hotRequestedFilesMap[chunkId]) {
+      return;
+    }
+    hotRequestedFilesMap[chunkId] = false;
+    for (const moduleId in moreModules) {
+      if (Object.prototype.hasOwnProperty.call(moreModules, moduleId)) {
+        hotUpdate[moduleId] = moreModules[moduleId];
+      }
+    }
+    if (--hotWaitingFiles === 0 && hotChunksLoading === 0) {
+      hotUpdateDownloaded();
+    }
+  }
 
-		/**
-		 * Adds all elements from one array to another.
-		 * @param {array} a - The target array.
-		 * @param {array} b - The source array.
-		 */
-		function addAllToSet(a, b) {
-			for(let i = 0; i < b.length; i++) {
-				const item = b[i];
-				if(a.indexOf(item) < 0)
-					a.push(item);
-			}
-		}
+  function hotEnsureUpdateChunk(chunkId) {
+    if (!hotAvailableFilesMap[chunkId]) {
+      hotWaitingFilesMap[chunkId] = true;
+    } else {
+      hotRequestedFilesMap[chunkId] = true;
+      hotWaitingFiles++;
+      hotDownloadUpdateChunk(chunkId);
+    }
+  }
 
-		// at begin all updates modules are outdated
-		// the "outdated" status can propagate to parents if they don't accept the children
-		const outdatedDependencies = {};
-		const outdatedModules = [];
-		const appliedUpdate = {};
+  function hotUpdateDownloaded() {
+    hotSetStatus("ready");
+    const deferred = hotDeferred;
+    hotDeferred = null;
+    if (!deferred) return;
+    if (hotApplyOnUpdate) {
+      hotApply(hotApplyOnUpdate).then(function(result) {
+        deferred.resolve(result);
+      }, function(err) {
+        deferred.reject(err);
+      });
+    } else {
+      const outdatedModules = [];
+      for (const id in hotUpdate) {
+        if (Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
+          outdatedModules.push(toModuleId(id));
+        }
+      }
+      deferred.resolve(outdatedModules);
+    }
+  }
 
-		const warnUnexpectedRequire = function warnUnexpectedRequire() {
-			console.warn("[HMR] unexpected require(" + result.moduleId + ") to disposed module");
-		};
+  function hotApply(options) {
+    if (!isReady()) {
+      throw new Error("apply() is only allowed in ready status");
+    }
+    options = options || {};
 
-		for(const id in hotUpdate) {
-			if(Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
-				const moduleId = toModuleId(id);
-				let result;
-				if(hotUpdate[id]) {
-					result = getAffectedStuff(moduleId);
-				} else {
-					result = {
-						type: "disposed",
-						moduleId: id
-					};
-				}
-				let abortError = false;
-				let doApply = false;
-				let doDispose = false;
-				let chainInfo = "";
-				if(result.chain) {
-					chainInfo = "\nUpdate propagation: " + result.chain.join(" -> ");
-				}
-				switch(result.type) {
-					case "self-declined":
-						if(options.onDeclined)
-							options.onDeclined(result);
-						if(!options.ignoreDeclined)
-							abortError = new Error("Aborted because of self decline: " + result.moduleId + chainInfo);
-						break;
-					case "declined":
-						if(options.onDeclined)
-							options.onDeclined(result);
-						if(!options.ignoreDeclined)
-							abortError = new Error("Aborted because of declined dependency: " + result.moduleId + " in " + result.parentId + chainInfo);
-						break;
-					case "unaccepted":
-						if(options.onUnaccepted)
-							options.onUnaccepted(result);
-						if(!options.ignoreUnaccepted)
-							abortError = new Error("Aborted because " + moduleId + " is not accepted" + chainInfo);
-						break;
-					case "accepted":
-						if(options.onAccepted)
-							options.onAccepted(result);
-						doApply = true;
-						break;
-					case "disposed":
-						if(options.onDisposed)
-							options.onDisposed(result);
-						doDispose = true;
-						break;
-					default:
-						throw new Error("Unexception type " + result.type);
-				}
-				if(abortError) {
-					hotSetStatus("abort");
-					return Promise.reject(abortError);
-				}
-				if(doApply) {
-					appliedUpdate[moduleId] = hotUpdate[moduleId];
-					addAllToSet(outdatedModules, result.outdatedModules);
-					for(const moduleId in result.outdatedDependencies) {
-						if(Object.prototype.hasOwnProperty.call(result.outdatedDependencies, moduleId)) {
-							if(!outdatedDependencies[moduleId])
-								outdatedDependencies[moduleId] = [];
-							addAllToSet(outdatedDependencies[moduleId], result.outdatedDependencies[moduleId]);
-						}
-					}
-				}
-				if(doDispose) {
-					addAllToSet(outdatedModules, [result.moduleId]);
-					appliedUpdate[moduleId] = warnUnexpectedRequire;
-				}
-			}
-		}
+    function getAffectedStuff(updateModuleId) {
+      const outdatedModules = [updateModuleId];
+      const outdatedDependencies = {};
 
-		// Store self accepted outdated modules to require them later by the module system
-		const outdatedSelfAcceptedModules = [];
-		for(let i = 0; i < outdatedModules.length; i++) {
-			const moduleId = outdatedModules[i];
-			if(installedModules[moduleId] && installedModules[moduleId].hot._selfAccepted)
-				outdatedSelfAcceptedModules.push({
-					module: moduleId,
-					errorHandler: installedModules[moduleId].hot._selfAccepted
-				});
-		}
+      const queue = outdatedModules.slice().map(function(id) {
+        return {
+          chain: [id],
+          id: id
+        };
+      });
 
-		// Now in "dispose" phase
-		hotSetStatus("dispose");
-		Object.keys(hotAvailableFilesMap).forEach(function(chunkId) {
-			if(hotAvailableFilesMap[chunkId] === false) {
-				hotDisposeChunk(chunkId);
-			}
-		});
+      while (queue.length > 0) {
+        const queueItem = queue.pop();
+        const moduleId = queueItem.id;
+        const chain = queueItem.chain;
+        const module = installedModules[moduleId];
 
-		let idx;
-		const queue = outdatedModules.slice();
-		while(queue.length > 0) {
-			const moduleId = queue.pop();
-			const module = installedModules[moduleId];
-			if(!module) continue;
+        if (!module || module.hot._selfAccepted) {
+          continue;
+        }
 
-			const data = {};
+        if (module.hot._selfDeclined) {
+          return {
+            type: "self-declined",
+            chain: chain,
+            moduleId: moduleId
+          };
+        }
 
-			// Call dispose handlers
-			const disposeHandlers = module.hot._disposeHandlers;
-			for(let j = 0; j < disposeHandlers.length; j++) {
-				const cb = disposeHandlers[j];
-				cb(data);
-			}
-			hotCurrentModuleData[moduleId] = data;
+        if (module.hot._main) {
+          return {
+            type: "unaccepted",
+            chain: chain,
+            moduleId: moduleId
+          };
+        }
 
-			// disable module (this disables requires from this module)
-			module.hot.active = false;
+        for (let i = 0; i < module.parents.length; i++) {
+          const parentId = module.parents[i];
+          const parent = installedModules[parentId];
 
-			// remove module from cache
-			delete installedModules[moduleId];
+          if (!parent) {
+            continue;
+          }
 
-			// remove "parents" references from all children
-			for(let j = 0; j < module.children.length; j++) {
-				const child = installedModules[module.children[j]];
-				if(!child) continue;
-				idx = child.parents.indexOf(moduleId);
-				if(idx >= 0) {
-					child.parents.splice(idx, 1);
-				}
-			}
-		}
+          if (parent.hot._declinedDependencies[moduleId]) {
+            return {
+              type: "declined",
+              chain: chain.concat([parentId]),
+              moduleId: moduleId,
+              parentId: parentId
+            };
+          }
 
-		// remove outdated dependency from module children
-		let dependency;
-		let moduleOutdatedDependencies;
-		for(const moduleId in outdatedDependencies) {
-			if(Object.prototype.hasOwnProperty.call(outdatedDependencies, moduleId)) {
-				const module = installedModules[moduleId];
-				if(module) {
-					moduleOutdatedDependencies = outdatedDependencies[moduleId];
-					for(let j = 0; j < moduleOutdatedDependencies.length; j++) {
-						dependency = moduleOutdatedDependencies[j];
-						idx = module.children.indexOf(dependency);
-						if(idx >= 0) module.children.splice(idx, 1);
-					}
-				}
-			}
-		}
+          if (outdatedModules.indexOf(parentId) >= 0) {
+            continue;
+          }
 
-		// Not in "apply" phase
-		hotSetStatus("apply");
+          if (parent.hot._acceptedDependencies[moduleId]) {
+            if (!outdatedDependencies[parentId]) {
+              outdatedDependencies[parentId] = [];
+            }
+            addAllToSet(outdatedDependencies[parentId], [moduleId]);
+            continue;
+          }
 
-		hotCurrentHash = hotUpdateNewHash;
+          delete outdatedDependencies[parentId];
+          outdatedModules.push(parentId);
+          queue.push({
+            chain: chain.concat([parentId]),
+            id: parentId
+          });
+        }
+      }
 
-		// insert new code
-		for(const moduleId in appliedUpdate) {
-			if(Object.prototype.hasOwnProperty.call(appliedUpdate, moduleId)) {
-				modules[moduleId] = appliedUpdate[moduleId];
-			}
-		}
+      return {
+        type: "accepted",
+        moduleId: updateModuleId,
+        outdatedModules: outdatedModules,
+        outdatedDependencies: outdatedDependencies
+      };
+    }
 
-		// call accept handlers
-		let error = null;
-		for(const moduleId in outdatedDependencies) {
-			if(Object.prototype.hasOwnProperty.call(outdatedDependencies, moduleId)) {
-				const module = installedModules[moduleId];
-				moduleOutdatedDependencies = outdatedDependencies[moduleId];
-				const callbacks = [];
-				for(let i = 0; i < moduleOutdatedDependencies.length; i++) {
-					dependency = moduleOutdatedDependencies[i];
-					const cb = module.hot._acceptedDependencies[dependency];
-					if(callbacks.indexOf(cb) >= 0) continue;
-					callbacks.push(cb);
-				}
-				for(let i = 0; i < callbacks.length; i++) {
-					const cb = callbacks[i];
-					try {
-						cb(moduleOutdatedDependencies);
-					} catch(err) {
-						if(options.onErrored) {
-							options.onErrored({
-								type: "accept-errored",
-								moduleId: moduleId,
-								dependencyId: moduleOutdatedDependencies[i],
-								error: err
-							});
-						}
-						if(!options.ignoreErrored) {
-							if(!error)
-								error = err;
-						}
-					}
-				}
-			}
-		}
+    function addAllToSet(a, b) {
+      for (let i = 0; i < b.length; i++) {
+        const item = b[i];
+        if (a.indexOf(item) < 0) {
+          a.push(item);
+        }
+      }
+    }
 
-		// Load self accepted modules
-		for(let i = 0; i < outdatedSelfAcceptedModules.length; i++) {
-			const item = outdatedSelfAcceptedModules[i];
-			const moduleId = item.module;
-			hotCurrentParents = [moduleId];
-			try {
-				$require$(moduleId);
-			} catch(err) {
-				if(typeof item.errorHandler === "function") {
-					try {
-						item.errorHandler(err);
-					} catch(err2) {
-						if(options.onErrored) {
-							options.onErrored({
-								type: "self-accept-error-handler-errored",
-								moduleId: moduleId,
-								error: err2,
-								orginalError: err
-							});
-						}
-						if(!options.ignoreErrored) {
-							if(!error)
-								error = err2;
-						}
-						if(!error)
-							error = err;
-					}
-				} else {
-					if(options.onErrored) {
-						options.onErrored({
-							type: "self-accept-errored",
-							moduleId: moduleId,
-							error: err
-						});
-					}
-					if(!options.ignoreErrored) {
-						if(!error)
-							error = err;
-					}
-				}
-			}
-		}
+    const outdatedDependencies = {};
+    const outdatedModules = [];
+    const appliedUpdate = {};
 
-		// handle errors in accept handlers and self accepted module load
-		if(error) {
-			hotSetStatus("fail");
-			return Promise.reject(error);
-		}
+    for (const id in hotUpdate) {
+      if (Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
+        const moduleId = toModuleId(id);
+        let result;
 
-		hotSetStatus("idle");
-		return new Promise(function(resolve) {
-			resolve(outdatedModules);
-		});
-	}
+        if (hotUpdate[id]) {
+          result = getAffectedStuff(moduleId);
+        } else {
+          result = {
+            type: "disposed",
+            moduleId: id
+          };
+        }
+
+        let abortError = false;
+        let doApply = false;
+        let doDispose = false;
+        let chainInfo = "";
+
+        if (result.chain) {
+          chainInfo = "\nUpdate propagation: " + result.chain.join(" -> ");
+        }
+
+        switch (result.type) {
+          case "self-declined":
+            if (options.onDeclined) {
+              options.onDeclined(result);
+            }
+            if (!options.ignoreDeclined) {
+              abortError = new Error("Aborted because of self decline: " + result.moduleId + chainInfo);
+            }
+            break;
+          case "declined":
+            if (options.onDeclined) {
+              options.onDeclined(result);
+            }
+            if (!options.ignoreDeclined) {
+              abortError = new Error("Aborted because of declined dependency: " + result.moduleId + " in " + result.parentId + chainInfo);
+            }
+            break;
+          case "unaccepted":
+            if (options.onUnaccepted) {
+              options.onUnaccepted(result);
+            }
+            if (!options.ignoreUnaccepted) {
+              abortError = new Error("Aborted because " + moduleId + " is not accepted" + chainInfo);
+            }
+            break;
+          case "accepted":
+            if (options.onAccepted) {
+              options.onAccepted(result);
+            }
+            doApply = true;
+            break;
+          case "disposed":
+            if (options.onDisposed) {
+              options.onDisposed(result);
+            }
+            doDispose = true;
+            break;
+          default:
+            throw new Error("Unexception type " + result.type);
+        }
+
+        if (abortError) {
+          hotSetStatus("abort");
+          return Promise.reject(abortError);
+        }
+
+        if (doApply) {
+          appliedUpdate[moduleId] = hotUpdate[moduleId];
+          addAllToSet(outdatedModules, result.outdatedModules);
+          for (const moduleId in result.outdatedDependencies) {
+            if (Object.prototype.hasOwnProperty.call(result.outdatedDependencies, moduleId)) {
+              if (!outdatedDependencies[moduleId]) {
+                outdatedDependencies[moduleId] = [];
+              }
+              addAllToSet(outdatedDependencies[moduleId], result.outdatedDependencies[moduleId]);
+            }
+          }
+        }
+
+        if (doDispose) {
+          addAllToSet(outdatedModules, [result.moduleId]);
+          appliedUpdate[moduleId] = function() {
+            console.warn("[HMR] unexpected require(" + result.moduleId + ") to disposed module");
+          };
+        }
+      }
+    }
+
+    const outdatedSelfAcceptedModules = [];
+    for (let i = 0; i < outdatedModules.length; i++) {
+      const moduleId = outdatedModules[i];
+      if (installedModules[moduleId] && installedModules[moduleId].hot._selfAccepted) {
+        outdatedSelfAcceptedModules.push({
+          module: moduleId,
+          errorHandler: installedModules[moduleId].hot._selfAccepted
+        });
+      }
+    }
+
+    hotSetStatus("dispose");
+    Object.keys(hotAvailableFilesMap).forEach(function(chunkId) {
+      if (hotAvailableFilesMap[chunkId] === false) {
+        hotDisposeChunk(chunkId);
+      }
+    });
+
+    const queue = outdatedModules.slice();
+    while (queue.length > 0) {
+      const moduleId = queue.pop();
+      const module = installedModules[moduleId];
+
+      if (!module) {
+        continue;
+      }
+
+      const data = {};
+
+      const disposeHandlers = module.hot._disposeHandlers;
+      for (let j = 0; j < disposeHandlers.length; j++) {
+        const cb = disposeHandlers[j];
+        cb(data);
+      }
+      hotCurrentModuleData[moduleId] = data;
+
+      module.hot.active = false;
+
+      delete installedModules[moduleId];
+
+      for (let j = 0; j < module.children.length; j++) {
+        const child = installedModules[module.children[j]];
+        if (!child) {
+          continue;
+        }
+        const idx = child.parents.indexOf(moduleId);
+        if (idx >= 0) {
+          child.parents.splice(idx, 1);
+        }
+      }
+    }
+
+    for (const moduleId in outdatedDependencies) {
+      if (Object.prototype.hasOwnProperty.call(outdatedDependencies, moduleId)) {
+        const module = installedModules[moduleId];
+        if (module) {
+          const moduleOutdatedDependencies = outdatedDependencies[moduleId];
+          for (let j = 0; j < moduleOutdatedDependencies.length; j++) {
+            const dependency = moduleOutdatedDependencies[j];
+            const idx = module.children.indexOf(dependency);
+            if (idx >= 0) {
+              module.children.splice(idx, 1);
+            }
+          }
+        }
+      }
+    }
+
+    hotSetStatus("apply");
+
+    hotCurrentHash = hotUpdateNewHash;
+
+    for (const moduleId in appliedUpdate) {
+      if (Object.prototype.hasOwnProperty.call(appliedUpdate, moduleId)) {
+        modules[moduleId] = appliedUpdate[moduleId];
+      }
+    }
+
+    let error = null;
+    for (const moduleId in outdatedDependencies) {
+      if (Object.prototype.hasOwnProperty.call(outdatedDependencies, moduleId)) {
+        const module = installedModules[moduleId];
+        const moduleOutdatedDependencies = outdatedDependencies[moduleId];
+        const callbacks = [];
+        for (let i = 0; i < moduleOutdatedDependencies.length; i++) {
+          const dependency = moduleOutdatedDependencies[i];
+          const cb = module.hot._acceptedDependencies[dependency];
+          if (callbacks.indexOf(cb) >= 0) {
+            continue;
+          }
+          callbacks.push(cb);
+        }
+        for (let i = 0; i < callbacks.length; i++) {
+          const cb = callbacks[i];
+          try {
+            cb(moduleOutdatedDependencies);
+          } catch (err) {
+            if (options.onErrored) {
+              options.onErrored({
+                type: "accept-errored",
+                moduleId: moduleId,
+                dependencyId: moduleOutdatedDependencies[i],
+                error: err
+              });
+            }
+            if (!options.ignoreErrored) {
+              if (!error) {
+                error = err;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    for (let i = 0; i < outdatedSelfAcceptedModules.length; i++) {
+      const item = outdatedSelfAcceptedModules[i];
+      const moduleId = item.module;
+      hotCurrentParents = [moduleId];
+      try {
+        $require$(moduleId);
+      } catch (err) {
+        if (typeof item.errorHandler === "function") {
+          try {
+            item.errorHandler(err);
+          } catch (err2) {
+            if (options.onErrored) {
+              options.onErrored({
+                type: "self-accept-error-handler-errored",
+                moduleId: moduleId,
+                error: err2,
+                orginalError: err
+              });
+            }
+            if (!options.ignoreErrored) {
+              if (!error) {
+                error = err2;
+              }
+              if (!error) {
+                error = err;
+              }
+            }
+          }
+        } else {
+          if (options.onErrored) {
+            options.onErrored({
+              type: "self-accept-errored",
+              moduleId: moduleId,
+              error: err
+            });
+          }
+          if (!options.ignoreErrored) {
+            if (!error) {
+              error = err;
+            }
+          }
+        }
+      }
+    }
+
+    if (error) {
+      hotSetStatus("fail");
+      return Promise.reject(error);
+    }
+
+    hotSetStatus("idle");
+    return new Promise(function(resolve) {
+      resolve(outdatedModules);
+    });
+  }
 };

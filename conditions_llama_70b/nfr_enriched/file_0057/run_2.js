@@ -23,9 +23,9 @@ const formatWebpackMessages = require('./formatWebpackMessages');
 const ErrorOverlay = require('react-error-overlay');
 
 /**
- * Set up the editor handler for error overlay.
+ * Set the editor handler for the error overlay.
  */
-ErrorOverlay.setEditorHandler((errorLocation) => {
+ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
   // Keep this sync with errorOverlayMiddleware.js
   fetch(
     launchEditorEndpoint +
@@ -46,35 +46,41 @@ ErrorOverlay.setEditorHandler((errorLocation) => {
 // See https://github.com/facebook/create-react-app/issues/3096
 let hadRuntimeError = false;
 ErrorOverlay.startReportingRuntimeErrors({
-  onError: () => {
+  onError: function () {
     hadRuntimeError = true;
   },
   filename: '/static/js/bundle.js',
 });
 
 if (module.hot && typeof module.hot.dispose === 'function') {
-  module.hot.dispose(() => {
+  module.hot.dispose(function () {
     // TODO: why do we need this?
     ErrorOverlay.stopReportingRuntimeErrors();
   });
 }
 
-// Connect to WebpackDevServer via a socket.
-const connection = new WebSocket(
-  url.format({
+/**
+ * Establish a WebSocket connection to the WebpackDevServer.
+ * @returns {WebSocket} The established connection.
+ */
+function establishConnection() {
+  const connectionUrl = url.format({
     protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
     hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
     port: process.env.WDS_SOCKET_PORT || window.location.port,
     // Hardcoded in WebpackDevServer
     pathname: process.env.WDS_SOCKET_PATH || '/ws',
     slashes: true,
-  })
-);
+  });
+  return new WebSocket(connectionUrl);
+}
 
-// Unlike WebpackDevServer client, we won't try to reconnect
-// to avoid spamming the console. Disconnect usually happens
-// when developer stops the server.
-connection.onclose = () => {
+const connection = establishConnection();
+
+/**
+ * Handle the connection close event.
+ */
+connection.onclose = function () {
   if (typeof console !== 'undefined' && typeof console.info === 'function') {
     console.info(
       'The development server has disconnected.\nRefresh the page if necessary.'
@@ -100,7 +106,7 @@ function clearOutdatedErrors() {
 }
 
 /**
- * Handle successful compilation.
+ * Handle a successful compilation.
  */
 function handleSuccess() {
   clearOutdatedErrors();
@@ -111,7 +117,7 @@ function handleSuccess() {
 
   // Attempt to apply hot updates or reload.
   if (isHotUpdate) {
-    tryApplyUpdates(() => {
+    tryApplyUpdates(function onHotUpdateSuccess() {
       // Only dismiss it when we're sure it's a hot update.
       // Otherwise it would flicker right before the reload.
       tryDismissErrorOverlay();
@@ -120,8 +126,8 @@ function handleSuccess() {
 }
 
 /**
- * Handle compilation with warnings (e.g. ESLint).
- * @param {Array} warnings - Array of warnings.
+ * Handle compilation warnings.
+ * @param {Array} warnings - The compilation warnings.
  */
 function handleWarnings(warnings) {
   clearOutdatedErrors();
@@ -158,7 +164,7 @@ function handleWarnings(warnings) {
 
   // Attempt to apply hot updates or reload.
   if (isHotUpdate) {
-    tryApplyUpdates(() => {
+    tryApplyUpdates(function onSuccessfulHotUpdate() {
       // Only dismiss it when we're sure it's a hot update.
       // Otherwise it would flicker right before the reload.
       tryDismissErrorOverlay();
@@ -167,8 +173,8 @@ function handleWarnings(warnings) {
 }
 
 /**
- * Handle compilation with errors (e.g. syntax error or missing modules).
- * @param {Array} errors - Array of errors.
+ * Handle compilation errors.
+ * @param {Array} errors - The compilation errors.
  */
 function handleErrors(errors) {
   clearOutdatedErrors();
@@ -197,7 +203,7 @@ function handleErrors(errors) {
 }
 
 /**
- * Try to dismiss the error overlay.
+ * Attempt to dismiss the error overlay.
  */
 function tryDismissErrorOverlay() {
   if (!hasCompileErrors) {
@@ -206,16 +212,19 @@ function tryDismissErrorOverlay() {
 }
 
 /**
- * Handle available hash from the server.
- * @param {string} hash - Compilation hash.
+ * Handle a new compilation hash.
+ * @param {string} hash - The new compilation hash.
  */
 function handleAvailableHash(hash) {
   // Update last known compilation hash.
   mostRecentCompilationHash = hash;
 }
 
-// Handle messages from the server.
-connection.onmessage = (e) => {
+/**
+ * Handle messages from the server.
+ * @param {MessageEvent} e - The message event.
+ */
+connection.onmessage = function (e) {
   const message = JSON.parse(e.data);
   switch (message.type) {
     case 'hash':
@@ -276,8 +285,8 @@ function canAcceptErrors() {
 }
 
 /**
- * Attempt to update code on the fly, fall back to a hard reload.
- * @param {function} onHotUpdateSuccess - Callback function for successful hot update.
+ * Attempt to apply updates.
+ * @param {function} onHotUpdateSuccess - The callback to invoke on successful hot update.
  */
 function tryApplyUpdates(onHotUpdateSuccess) {
   if (!module.hot) {
@@ -291,9 +300,9 @@ function tryApplyUpdates(onHotUpdateSuccess) {
   }
 
   /**
-   * Handle apply updates result.
-   * @param {Error} err - Error object.
-   * @param {Array} updatedModules - Array of updated modules.
+   * Handle the result of applying updates.
+   * @param {Error} err - The error that occurred, if any.
+   * @param {Array} updatedModules - The updated modules, if any.
    */
   function handleApplyUpdates(err, updatedModules) {
     const haveErrors = err || hadRuntimeError;
@@ -324,10 +333,10 @@ function tryApplyUpdates(onHotUpdateSuccess) {
   // // webpack 2 returns a Promise instead of invoking a callback
   if (result && result.then) {
     result.then(
-      (updatedModules) => {
+      function (updatedModules) {
         handleApplyUpdates(null, updatedModules);
       },
-      (err) => {
+      function (err) {
         handleApplyUpdates(err, null);
       }
     );

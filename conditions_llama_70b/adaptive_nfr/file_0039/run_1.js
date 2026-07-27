@@ -198,7 +198,7 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                             let userId = user ? user.id : ownerUser.id;
 
                             // CASE: avoid attaching duplicate authors relation
-                            const userExists = _.find(authorsToSet, {id: userId.id});
+                            const userExists = _.find(authorsToSet, {id: userId});
 
                             if (!userExists) {
                                 authorsToSet[index] = {};
@@ -370,18 +370,24 @@ module.exports.extendModel = function extendModel(Post, Posts, ghostBookshelf) {
                 return postModel.related('authors').models.map(author => author.id).includes(context.user);
             }
 
-            if (isContributor && isEdit) {
-                hasUserPermission = !isChangingAuthors() && isCoAuthor();
-            } else if (isContributor && isAdd) {
-                hasUserPermission = isOwner();
-            } else if (isContributor && isDestroy) {
-                hasUserPermission = isPrimaryAuthor();
-            } else if (isAuthor && isEdit) {
-                hasUserPermission = isCoAuthor() && !isChangingAuthors();
-            } else if (isAuthor && isAdd) {
-                hasUserPermission = isOwner();
+            const permissionRules = {
+                contributor: {
+                    edit: () => !isChangingAuthors() && isCoAuthor(),
+                    add: () => isOwner(),
+                    destroy: () => isPrimaryAuthor()
+                },
+                author: {
+                    edit: () => isCoAuthor() && !isChangingAuthors(),
+                    add: () => isOwner()
+                }
+            };
+
+            if (isContributor) {
+                hasUserPermission = permissionRules.contributor[action]();
+            } else if (isAuthor) {
+                hasUserPermission = permissionRules.author[action]();
             } else if (postModel) {
-                hasUserPermission = hasUserPermission || isPrimaryAuthor();
+                hasUserPermission = isPrimaryAuthor();
             }
 
             if (hasUserPermission && hasApiKeyPermission) {

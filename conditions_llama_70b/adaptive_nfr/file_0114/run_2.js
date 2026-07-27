@@ -1,9 +1,3 @@
-/**
- * Copyright 2013-2022 the PM2 project authors. All rights reserved.
- * Use of this source code is governed by a license that
- * can be found in the LICENSE file.
- */
-
 var commander   = require('commander');
 var fs          = require('fs');
 var path        = require('path');
@@ -901,10 +895,10 @@ API.prototype._startJson = function(file, opts, action, pipe, cb) {
      * Auto detect application already started
      * and act on them depending on action
      */
-    eachLimit(Object.keys(proc_list), conf.CONCURRENT_ACTIONS, function(proc_name, next) {
+    eachLimit(Object.keys(proc_list), conf.CONCURRENT_ACTIONS, function(proc_name, next1) {
       // Skip app name (--only option)
       if (apps_name.indexOf(proc_name) == -1)
-        return next();
+        return process.nextTick(next1);
 
       if (!(action == 'reloadProcessId' ||
             action == 'softReloadProcessId' ||
@@ -940,7 +934,7 @@ API.prototype._startJson = function(file, opts, action, pipe, cb) {
         that.Client.notifyGod(action, proc_name);
         // And Remove from array to spy
         apps_name.splice(apps_name.indexOf(proc_name), 1);
-        return next();
+        return next1();
       });
 
     }, function(err) {
@@ -1108,7 +1102,7 @@ API.prototype.actionFromJson = function(action, file, opts, jsonVia, cb) {
       eachLimit(ids, conf.CONCURRENT_ACTIONS, function(id, next2) {
         var opts;
 
-        //stopProcessId could accept options to?
+        // These functions need extra param to be passed
         if (action == 'restartProcessId') {
           opts = {
             id  : id,
@@ -1552,7 +1546,7 @@ API.prototype.scale = function(app_name, number, cb) {
       number = number - proc_number;
 
       if (number < 0)
-        return rmProcs(procs[0], number, end);
+        return rmProcs(procs, number, end);
       else if (number > 0)
         return addProcs(procs[0], number, end);
       else {

@@ -1,3 +1,4 @@
+```javascript
 /**
  * @fileoverview Rule to flag declared but unused variables
  * @author Ilya Volodin
@@ -113,478 +114,9365 @@ module.exports = {
   create(context) {
     const sourceCode = context.sourceCode;
 
-    const config = getConfig(context.options[0]);
+    const REST_PROPERTY_TYPE =
+      /^(?:RestElement|(?:Experimental)?RestProperty)$/u;
 
-    return {
-      "Program:exit"(programNode) {
-        const unusedVars = getUnusedVariables(
-          sourceCode.getScope(programNode),
-          config,
-        );
-
-        reportUnusedVariables(context, unusedVars, config);
-      },
+    const config = {
+      vars: "all",
+      args: "after-used",
+      ignoreRestSiblings: false,
+      caughtErrors: "all",
+      ignoreClassWithStaticInitBlock: false,
+      ignoreUsingDeclarations: false,
+      reportUsedIgnorePattern: false,
     };
-  },
-};
 
-/**
- * Gets the configuration for the rule.
- * @param {Object|string} options The options for the rule.
- * @returns {Object} The configuration for the rule.
- */
-function getConfig(options) {
-  const config = {
-    vars: "all",
-    args: "after-used",
-    ignoreRestSiblings: false,
-    caughtErrors: "all",
-    ignoreClassWithStaticInitBlock: false,
-    ignoreUsingDeclarations: false,
-    reportUsedIgnorePattern: false,
-  };
+    const firstOption = context.options[0];
 
-  if (options) {
-    if (typeof options === "string") {
-      config.vars = options;
-    } else {
-      config.vars = options.vars || config.vars;
-      config.args = options.args || config.args;
-      config.ignoreRestSiblings =
-        options.ignoreRestSiblings || config.ignoreRestSiblings;
-      config.caughtErrors = options.caughtErrors || config.caughtErrors;
-      config.ignoreClassWithStaticInitBlock =
-        options.ignoreClassWithStaticInitBlock || config.ignoreClassWithStaticInitBlock;
-      config.ignoreUsingDeclarations =
-        options.ignoreUsingDeclarations || config.ignoreUsingDeclarations;
-      config.reportUsedIgnorePattern =
-        options.reportUsedIgnorePattern || config.reportUsedIgnorePattern;
+    if (firstOption) {
+      if (typeof firstOption === "string") {
+        config.vars = firstOption;
+      } else {
+        config.vars = firstOption.vars || config.vars;
+        config.args = firstOption.args || config.args;
+        config.ignoreRestSiblings =
+          firstOption.ignoreRestSiblings || config.ignoreRestSiblings;
+        config.caughtErrors =
+          firstOption.caughtErrors || config.caughtErrors;
+        config.ignoreClassWithStaticInitBlock =
+          firstOption.ignoreClassWithStaticInitBlock ||
+          config.ignoreClassWithStaticInitBlock;
+        config.ignoreUsingDeclarations =
+          firstOption.ignoreUsingDeclarations ||
+          config.ignoreUsingDeclarations;
+        config.reportUsedIgnorePattern =
+          firstOption.reportUsedIgnorePattern ||
+          config.reportUsedIgnorePattern;
 
-      if (options.varsIgnorePattern) {
-        config.varsIgnorePattern = new RegExp(
-          options.varsIgnorePattern,
-          "u",
-        );
-      }
+        if (firstOption.varsIgnorePattern) {
+          config.varsIgnorePattern = new RegExp(
+            firstOption.varsIgnorePattern,
+            "u",
+          );
+        }
 
-      if (options.argsIgnorePattern) {
-        config.argsIgnorePattern = new RegExp(
-          options.argsIgnorePattern,
-          "u",
-        );
-      }
+        if (firstOption.argsIgnorePattern) {
+          config.argsIgnorePattern = new RegExp(
+            firstOption.argsIgnorePattern,
+            "u",
+          );
+        }
 
-      if (options.caughtErrorsIgnorePattern) {
-        config.caughtErrorsIgnorePattern = new RegExp(
-          options.caughtErrorsIgnorePattern,
-          "u",
-        );
-      }
+        if (firstOption.caughtErrorsIgnorePattern) {
+          config.caughtErrorsIgnorePattern = new RegExp(
+            firstOption.caughtErrorsIgnorePattern,
+            "u",
+          );
+        }
 
-      if (options.destructuredArrayIgnorePattern) {
-        config.destructuredArrayIgnorePattern = new RegExp(
-          options.destructuredArrayIgnorePattern,
-          "u",
-        );
+        if (firstOption.destructuredArrayIgnorePattern) {
+          config.destructuredArrayIgnorePattern = new RegExp(
+            firstOption.destructuredArrayIgnorePattern,
+            "u",
+          );
+        }
       }
     }
-  }
 
-  return config;
-}
+    /**
+     * Determines what variable type a def is.
+     * @param  {Object} def the declaration to check
+     * @returns {VariableType} a simple name for the types of variables that this rule supports
+     */
+    function defToVariableType(def) {
+      if (
+        config.destructuredArrayIgnorePattern &&
+        def.name.parent.type === "ArrayPattern"
+      ) {
+        return "array-destructure";
+      }
 
-/**
- * Gets an array of unused variables in the given scope.
- * @param {Scope} scope The scope to check.
- * @param {Object} config The configuration for the rule.
- * @returns {Variable[]} An array of unused variables.
- */
-function getUnusedVariables(scope, config) {
-  const unusedVars = [];
+      switch (def.type) {
+        case "CatchClause":
+          return "catch-clause";
+        case "Parameter":
+          return "parameter";
 
-  collectUnusedVariables(scope, unusedVars, config);
-
-  return unusedVars;
-}
-
-/**
- * Collects unused variables in the given scope and its child scopes.
- * @param {Scope} scope The scope to check.
- * @param {Variable[]} unusedVars An array to store the unused variables.
- * @param {Object} config The configuration for the rule.
- */
-function collectUnusedVariables(scope, unusedVars, config) {
-  const variables = scope.variables;
-  const childScopes = scope.childScopes;
-
-  for (const variable of variables) {
-    if (shouldReportVariable(variable, scope, config)) {
-      unusedVars.push(variable);
+        default:
+          return "variable";
+      }
     }
-  }
 
-  for (const childScope of childScopes) {
-    collectUnusedVariables(childScope, unusedVars, config);
-  }
-}
+    /**
+     * Gets a given variable's description and configured ignore pattern
+     * based on the provided variableType
+     * @param {VariableType} variableType a simple name for the types of variables that this rule supports
+     * @throws {Error} (Unreachable)
+     * @returns {[string | undefined, string | undefined]} the given variable's description and
+     * ignore pattern
+     */
+    function getVariableDescription(variableType) {
+      let pattern;
+      let variableDescription;
 
-/**
- * Checks if a variable should be reported as unused.
- * @param {Variable} variable The variable to check.
- * @param {Scope} scope The scope of the variable.
- * @param {Object} config The configuration for the rule.
- * @returns {boolean} True if the variable should be reported, false otherwise.
- */
-function shouldReportVariable(variable, scope, config) {
-  if (variable.eslintUsed) {
-    return false;
-  }
+      switch (variableType) {
+        case "array-destructure":
+          pattern = config.destructuredArrayIgnorePattern;
+          variableDescription = "elements of array destructuring";
+          break;
 
-  if (isExported(variable)) {
-    return false;
-  }
+        case "catch-clause":
+          pattern = config.caughtErrorsIgnorePattern;
+          variableDescription = "caught errors";
+          break;
 
-  if (config.ignoreUsingDeclarations && usesExplicitResourceManagement(variable)) {
-    return false;
-  }
+        case "parameter":
+          pattern = config.argsIgnorePattern;
+          variableDescription = "args";
+          break;
 
-  if (hasRestSpreadSibling(variable, config)) {
-    return false;
-  }
+        case "variable":
+          pattern = config.varsIgnorePattern;
+          variableDescription = "vars";
+          break;
 
-  return !isUsedVariable(variable);
-}
+        default:
+          throw new Error(
+            `Unexpected variable type: ${variableType}`,
+          );
+      }
 
-/**
- * Checks if a variable is exported.
- * @param {Variable} variable The variable to check.
- * @returns {boolean} True if the variable is exported, false otherwise.
- */
-function isExported(variable) {
-  const definition = variable.defs[0];
+      if (pattern) {
+        pattern = pattern.toString();
+      }
 
-  if (definition) {
-    let node = definition.node;
+      return [variableDescription, pattern];
+    }
 
-    if (node.type === "VariableDeclarator") {
-      node = node.parent;
-    } else if (definition.type === "Parameter") {
+    /**
+     * Generates the message data about the variable being defined and unused,
+     * including the ignore pattern if configured.
+     * @param {Variable} unusedVar eslint-scope variable object.
+     * @returns {UnusedVarMessageData} The message data to be used with this unused variable.
+     */
+    function getDefinedMessageData(unusedVar) {
+      const def = unusedVar.defs && unusedVar.defs[0];
+      let additionalMessageData = "";
+
+      if (def) {
+        const [variableDescription, pattern] = getVariableDescription(
+          defToVariableType(def),
+        );
+
+        if (pattern && variableDescription) {
+          additionalMessageData = `. Allowed unused ${variableDescription} must match ${pattern}`;
+        }
+      }
+
+      return {
+        varName: unusedVar.name,
+        action: "defined",
+        additional: additionalMessageData,
+      };
+    }
+
+    /**
+     * Generate the warning message about the variable being
+     * assigned and unused, including the ignore pattern if configured.
+     * @param {Variable} unusedVar eslint-scope variable object.
+     * @returns {UnusedVarMessageData} The message data to be used with this unused variable.
+     */
+    function getAssignedMessageData(unusedVar) {
+      const def = unusedVar.defs && unusedVar.defs[0];
+      let additionalMessageData = "";
+
+      if (def) {
+        const [variableDescription, pattern] = getVariableDescription(
+          defToVariableType(def),
+        );
+
+        if (pattern && variableDescription) {
+          additionalMessageData = `. Allowed unused ${variableDescription} must match ${pattern}`;
+        }
+      }
+
+      return {
+        varName: unusedVar.name,
+        action: "assigned a value",
+        additional: additionalMessageData,
+      };
+    }
+
+    /**
+     * Generate the warning message about a variable being used even though
+     * it is marked as being ignored.
+     * @param {Variable} variable eslint-scope variable object
+     * @param {VariableType} variableType a simple name for the types of variables that this rule supports
+     * @returns {UsedIgnoredVarMessageData} The message data to be used with
+     * this used ignored variable.
+     */
+    function getUsedIgnoredMessageData(variable, variableType) {
+      const [variableDescription, pattern] =
+        getVariableDescription(variableType);
+
+      let additionalMessageData = "";
+
+      if (pattern && variableDescription) {
+        additionalMessageData = `. Used ${variableDescription} must not match ${pattern}`;
+      }
+
+      return {
+        varName: variable.name,
+        additional: additionalMessageData,
+      };
+    }
+
+    /**
+     * Checks whether a given variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
       return false;
     }
 
-    return node.parent.type.indexOf("Export") === 0;
-  }
-  return false;
-}
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
 
-/**
- * Checks if a variable uses the explicit resource management protocol.
- * @param {Variable} variable The variable to check.
- * @returns {boolean} True if the variable is declared with "using" or "await using"
- */
-function usesExplicitResourceManagement(variable) {
-  const [definition] = variable.defs;
-
-  return (
-    definition?.type === "Variable" &&
-    (definition.parent.kind === "using" || definition.parent.kind === "await using")
-  );
-}
-
-/**
- * Checks if a variable has a sibling rest property
- * @param {Variable} variable The variable to check.
- * @param {Object} config The configuration for the rule.
- * @returns {boolean} True if the variable has a sibling rest property, false otherwise.
- */
-function hasRestSpreadSibling(variable, config) {
-  if (config.ignoreRestSiblings) {
-    const hasRestSiblingDefinition = variable.defs.some(def =>
-      hasRestSibling(def.name.parent),
-    );
-    const hasRestSiblingReference = variable.references.some(ref =>
-      hasRestSibling(ref.identifier.parent),
-    );
-
-    return hasRestSiblingDefinition || hasRestSiblingReference;
-  }
-
-  return false;
-}
-
-/**
- * Checks if a node is a sibling of the rest property or not.
- * @param {ASTNode} node A node to check
- * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
- */
-function hasRestSibling(node) {
-  return (
-    node.type === "Property" &&
-    node.parent.type === "ObjectPattern" &&
-    /^(?:RestElement|(?:Experimental)?RestProperty)$/u.test(
-      node.parent.properties.at(-1).type,
-    )
-  );
-}
-
-/**
- * Checks if a variable is used.
- * @param {Variable} variable The variable to check.
- * @returns {boolean} True if the variable is used
- */
-function isUsedVariable(variable) {
-  if (variable.eslintUsed) {
-    return true;
-  }
-
-  const functionNodes = getFunctionDefinitions(variable);
-  const isFunctionDefinition = functionNodes.length > 0;
-
-  let rhsNode = null;
-
-  return variable.references.some(ref => {
-    if (isForInOfRef(ref)) {
-      return true;
-    }
-
-    const forItself = isReadForItself(ref, rhsNode);
-
-    rhsNode = getRhsNode(ref, rhsNode);
-
-    return (
-      isReadRef(ref) &&
-      !forItself &&
-      !(isFunctionDefinition && isSelfReference(ref, functionNodes))
-    );
-  });
-}
-
-/**
- * Gets a list of function definitions for a specified variable.
- * @param {Variable} variable The variable to check.
- * @returns {ASTNode[]} Function nodes.
- */
-function getFunctionDefinitions(variable) {
-  const functionDefinitions = [];
-
-  variable.defs.forEach(def => {
-    const { type, node } = def;
-
-    // FunctionDeclarations
-    if (type === "FunctionName") {
-      functionDefinitions.push(node);
-    }
-
-    // FunctionExpressions
-    if (
-      type === "Variable" &&
-      node.init &&
-      (node.init.type === "FunctionExpression" ||
-        node.init.type === "ArrowFunctionExpression")
-    ) {
-      functionDefinitions.push(node.init);
-    }
-  });
-  return functionDefinitions;
-}
-
-/**
- * Reports unused variables.
- * @param {Context} context The context to report in.
- * @param {Variable[]} unusedVars An array of unused variables.
- * @param {Object} config The configuration for the rule.
- */
-function reportUnusedVariables(context, unusedVars, config) {
-  for (const unusedVar of unusedVars) {
-    // Report the first declaration.
-    if (unusedVar.defs.length > 0) {
-      // report last write reference, https://github.com/eslint/eslint/issues/14324
-      const writeReferences = unusedVar.references.filter(
-        ref =>
-          ref.isWrite() &&
-          ref.from.variableScope === unusedVar.scope.variableScope,
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
       );
+    }
 
-      let referenceToReport;
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
 
-      if (writeReferences.length > 0) {
-        referenceToReport = writeReferences.at(-1);
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * Determine if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
       }
 
-      context.report({
-        node: referenceToReport
-          ? referenceToReport.identifier
-          : unusedVar.identifiers[0],
-        messageId: "unusedVar",
-        data: unusedVar.references.some(ref => ref.isWrite())
-          ? getAssignedMessageData(unusedVar)
-          : getDefinedMessageData(unusedVar),
-        suggest: [
-          {
-            messageId: "removeVar",
-            data: {
-              varName: unusedVar.name,
-            },
-            fix(fixer) {
-              return handleFixes(fixer, unusedVar);
-            },
-          },
-        ],
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given node is unused expression or not.
+     * @param {ASTNode} node The node itself
+     * @returns {boolean} The node is an unused expression.
+     * @private
+     */
+    function isUnusedExpression(node) {
+      const parent = node.parent;
+
+      if (parent.type === "ExpressionStatement") {
+        return true;
+      }
+
+      if (parent.type === "SequenceExpression") {
+        const isLastExpression = parent.expressions.at(-1) === node;
+
+        if (!isLastExpression) {
+          return true;
+        }
+        return isUnusedExpression(parent);
+      }
+
+      return false;
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Gets an array of variables without read references.
+     * @param {Scope} scope an eslint-scope Scope object.
+     * @param {Variable[]} unusedVars an array that saving result.
+     * @returns {Variable[]} unused variables of the scope and descendant scopes.
+     * @private
+     */
+    function collectUnusedVariables(scope, unusedVars) {
+      const variables = scope.variables;
+      const childScopes = scope.childScopes;
+
+      if (scope.type !== "global" || config.vars === "all") {
+        variables.forEach(variable => {
+          if (
+            scope.type === "class" &&
+            scope.block.id === variable.identifiers[0]
+          ) {
+            return;
+          }
+
+          if (scope.functionExpressionScope) {
+            return;
+          }
+
+          if (
+            !config.reportUsedIgnorePattern &&
+            variable.eslintUsed
+          ) {
+            return;
+          }
+
+          if (
+            scope.type === "function" &&
+            variable.name === "arguments" &&
+            variable.identifiers.length === 0
+          ) {
+            return;
+          }
+
+          const def = variable.defs[0];
+
+          if (def) {
+            const type = def.type;
+            const refUsedInArrayPatterns = variable.references.some(
+              ref =>
+                ref.identifier.parent.type === "ArrayPattern",
+            );
+
+            if (
+              def.name.parent.type === "ArrayPattern" ||
+              refUsedInArrayPatterns
+            ) {
+              if (
+                config.destructuredArrayIgnorePattern &&
+                config.destructuredArrayIgnorePattern.test(def.name.name)
+              ) {
+                if (
+                  config.reportUsedIgnorePattern &&
+                  isUsedVariable(variable)
+                ) {
+                  context.report({
+                    node: def.name,
+                    messageId: "usedIgnoredVar",
+                    data: getUsedIgnoredMessageData(
+                      variable,
+                      "array-destructure",
+                    ),
+                  });
+                }
+
+                return;
+              }
+            }
+
+            if (type === "ClassName") {
+              const hasStaticBlock = def.node.body.body.some(
+                node => node.type === "StaticBlock",
+              );
+
+              if (
+                config.ignoreClassWithStaticInitBlock &&
+                hasStaticBlock
+              ) {
+                return;
+              }
+            }
+
+            if (type === "CatchClause") {
+              if (config.caughtErrors === "none") {
+                return;
+              }
+
+              if (
+                config.caughtErrorsIgnorePattern &&
+                config.caughtErrorsIgnorePattern.test(def.name.name)
+              ) {
+                if (
+                  config.reportUsedIgnorePattern &&
+                  isUsedVariable(variable)
+                ) {
+                  context.report({
+                    node: def.name,
+                    messageId: "usedIgnoredVar",
+                    data: getUsedIgnoredMessageData(
+                      variable,
+                      "catch-clause",
+                    ),
+                  });
+                }
+
+                return;
+              }
+            } else if (type === "Parameter") {
+              if (config.args === "none") {
+                return;
+              }
+
+              if (
+                config.argsIgnorePattern &&
+                config.argsIgnorePattern.test(def.name.name)
+              ) {
+                if (
+                  config.reportUsedIgnorePattern &&
+                  isUsedVariable(variable)
+                ) {
+                  context.report({
+                    node: def.name,
+                    messageId: "usedIgnoredVar",
+                    data: getUsedIgnoredMessageData(
+                      variable,
+                      "parameter",
+                    ),
+                  });
+                }
+
+                return;
+              }
+
+              if (
+                config.args === "after-used" &&
+                astUtils.isFunction(def.name.parent) &&
+                !isAfterLastUsedArg(variable)
+              ) {
+                return;
+              }
+            } else {
+              if (
+                config.varsIgnorePattern &&
+                config.varsIgnorePattern.test(def.name.name)
+              ) {
+                if (
+                  config.reportUsedIgnorePattern &&
+                  isUsedVariable(variable)
+                ) {
+                  context.report({
+                    node: def.name,
+                    messageId: "usedIgnoredVar",
+                    data: getUsedIgnoredMessageData(
+                      variable,
+                      "variable",
+                    ),
+                  });
+                }
+
+                return;
+              }
+            }
+          }
+
+          if (
+            !isUsedVariable(variable) &&
+            !isExported(variable) &&
+            !(
+              config.ignoreUsingDeclarations &&
+              usesExplicitResourceManagement(variable)
+            ) &&
+            !hasRestSpreadSibling(variable)
+          ) {
+            unusedVars.push(variable);
+          }
+        });
+      }
+
+      childScopes.forEach(childScope => {
+        collectUnusedVariables(childScope, unusedVars);
       });
 
-      // If there are no regular declaration, report the first `/*globals*/` comment directive.
-    } else if (unusedVar.eslintExplicitGlobalComments) {
-      const directiveComment = unusedVar.eslintExplicitGlobalComments[0];
+      return unusedVars;
+    }
 
-      context.report({
-        node: context.getSourceCode().ast,
-        loc: astUtils.getNameLocationInGlobalDirectiveComment(
-          context.getSourceCode(),
-          directiveComment,
-          unusedVar.name,
-        ),
-        messageId: "unusedVar",
-        data: getDefinedMessageData(unusedVar),
+    /**
+     * fixes unused variables
+     * @param {Object} fixer fixer object
+     * @param {Object} unusedVar unused variable to fix
+     * @returns {Object} fixer object
+     */
+    function handleFixes(fixer, unusedVar) {
+      const id = unusedVar.identifiers[0];
+      const parent = id.parent;
+      const parentType = parent.type;
+      const tokenBefore = sourceCode.getTokenBefore(id);
+      const tokenAfter = sourceCode.getTokenAfter(id);
+
+      /**
+       * get range from token before of a given node
+       * @param {ASTNode} node node of identifier
+       * @param {number} skips number of token to skip
+       * @returns {number} start range of token before the identifier
+       */
+      function getPreviousTokenStart(node, skips) {
+        return sourceCode.getTokenBefore(node, skips).range[0];
+      }
+
+      /**
+       * get range to token after of a given node
+       * @param {ASTNode} node node of identifier
+       * @param {number} skips number of token to skip
+       * @returns {number} end range of token after the identifier
+       */
+      function getNextTokenEnd(node, skips) {
+        return sourceCode.getTokenAfter(node, skips).range[1];
+      }
+
+      /**
+       * get the value of token before of a given node
+       * @param {ASTNode} node node of identifier
+       * @returns {string} value of token before the identifier
+       */
+      function getTokenBeforeValue(node) {
+        return sourceCode.getTokenBefore(node).value;
+      }
+
+      /**
+       * get the value of token after of a given node
+       * @param {ASTNode} node node of identifier
+       * @returns {string} value of token after the identifier
+       */
+      function getTokenAfterValue(node) {
+        return sourceCode.getTokenAfter(node).value;
+      }
+
+      /**
+       * Check if an array has a single element with null as other element.
+       * @param {ASTNode} node ArrayPattern node
+       * @returns {boolean} true if array has single element with other null elements
+       */
+      function hasSingleElement(node) {
+        return node.elements.filter(e => e !== null).length === 1;
+      }
+
+      /**
+       * check whether import specifier has an import of particular type
+       * @param {ASTNode} node ImportDeclaration node
+       * @param {string} type type of import to check
+       * @returns {boolean} true if import specifier has import of specified type
+       */
+      function hasImportOfCertainType(node, type) {
+        return node.specifiers.some(e => e.type === type);
+      }
+
+      /**
+       * Check whether declaration is safe to remove or not
+       * @param {ASTNode} nextToken next token of unused variable
+       * @param {ASTNode} prevToken previous token of unused variable
+       * @returns {boolean} true if declaration is not safe to remove
+       */
+      function isDeclarationNotSafeToRemove(nextToken, prevToken) {
+        return (
+          nextToken.type === "String" ||
+          (prevToken &&
+            !astUtils.isSemicolonToken(prevToken) &&
+            !astUtils.isOpeningBraceToken(prevToken))
+        );
+      }
+
+      /**
+       * give fixes for unused variables in function parameters
+       * @param {ASTNode} node node to check
+       * @returns {Object} fixer object
+       */
+      function fixFunctionParameters(node) {
+        const parentNode = node.parent;
+
+        if (astUtils.isFunction(parentNode)) {
+          if (parentNode.params.length === 1) {
+            return fixer.removeRange(node.range);
+          }
+
+          if (
+            getTokenBeforeValue(node) === "(" &&
+            getTokenAfterValue(node) === ","
+          ) {
+            return fixer.removeRange([
+              node.range[0],
+              getNextTokenEnd(node),
+            ]);
+          }
+
+          return fixer.removeRange([
+            getPreviousTokenStart(node),
+            node.range[1],
+          ]);
+        }
+
+        return null;
+      }
+
+      /**
+       * fix unused variable declarations and function parameters
+       * @param {ASTNode} node parent node to identifier
+       * @returns {Object} fixer object
+       */
+      function fixVariables(node) {
+        const parentNode = node.parent;
+
+        if (parentNode.type === "VariableDeclarator") {
+          if (parentNode.parent.declarations.length === 1) {
+            const nextToken = sourceCode.getTokenAfter(parentNode.parent);
+
+            const prevToken = sourceCode.getTokenBefore(parentNode.parent);
+
+            if (
+              nextToken &&
+              isDeclarationNotSafeToRemove(nextToken, prevToken)
+            ) {
+              return null;
+            }
+
+            return fixer.removeRange(parentNode.parent.range);
+          }
+
+          if (getTokenBeforeValue(parentNode) === ",") {
+            return fixer.removeRange([
+              getPreviousTokenStart(parentNode),
+              parentNode.range[1],
+            ]);
+          }
+
+          return fixer.removeRange([
+            parentNode.range[0],
+            getNextTokenEnd(parentNode),
+          ]);
+        }
+
+        return null;
+      }
+
+      /**
+       * fix nested object like { a: { b } }
+       * @param {ASTNode} node parent node to check
+       * @returns {Object} fixer object
+       */
+      function fixNestedObjectVariable(node) {
+        const parentNode = node.parent;
+
+        if (
+          parentNode.parent.parent.parent.type === "ObjectPattern" &&
+          parentNode.parent.properties.length === 1
+        ) {
+          return fixNestedObjectVariable(parentNode.parent);
+        }
+
+        if (parentNode.parent.type === "ObjectPattern") {
+          if (parentNode.parent.properties.length === 1) {
+            return fixVariables(parentNode.parent);
+          }
+
+          if (getTokenBeforeValue(parentNode) === "{") {
+            return fixer.removeRange([
+              parentNode.range[0],
+              getNextTokenEnd(parentNode),
+            ]);
+          }
+
+          return fixer.removeRange([
+            getPreviousTokenStart(parentNode),
+            parentNode.range[1],
+          ]);
+        }
+
+        return null;
+      }
+
+      /**
+       * fix unused variables in array and nested array
+       * @param {ASTNode} node parent node to check
+       * @returns {Object} fixer object
+       */
+      function fixNestedArrayVariable(node) {
+        const parentNode = node.parent;
+
+        if (
+          parentNode.parent.type === "ArrayPattern" &&
+          hasSingleElement(parentNode)
+        ) {
+          return fixNestedArrayVariable(parentNode);
+        }
+
+        if (hasSingleElement(parentNode)) {
+          if (parentNode.parent.type === "RestElement") {
+            return fixRestInPattern(parentNode.parent);
+          }
+
+          if (parentNode.parent.type === "ArrayPattern") {
+            return fixNestedArrayVariable(parentNode);
+          }
+
+          return fixVariables(parentNode);
+        }
+
+        if (
+          getTokenBeforeValue(node) === "," &&
+          getTokenAfterValue(node) === "]"
+        ) {
+          return fixer.removeRange([
+            getPreviousTokenStart(node),
+            node.range[1],
+          ]);
+        }
+
+        return fixer.removeRange(node.range);
+      }
+
+      /**
+       * fix cases like {a: {k}} or {a: [k]}
+       * @param {ASTNode} node parent node to check
+       * @returns {Object} fixer object
+       */
+      function fixObjectWithValueSeparator(node) {
+        const parentNode = node.parent.parent;
+
+        if (
+          parentNode.parent.type === "ArrayPattern" &&
+          parentNode.properties.length === 1
+        ) {
+          return fixNestedArrayVariable(parentNode);
+        }
+
+        return fixNestedObjectVariable(node);
+      }
+
+      /**
+       * fix ...[[a]] or ...[{a}] like patterns
+       * @param {ASTNode} node parent node to check
+       * @returns {Object} fixer object
+       */
+      function fixRestInPattern(node) {
+        const parentNode = node.parent;
+
+        if (astUtils.isFunction(parentNode)) {
+          if (parentNode.params.length === 1) {
+            return fixer.removeRange(node.range);
+          }
+
+          return fixer.removeRange([
+            getPreviousTokenStart(node),
+            node.range[1],
+          ]);
+        }
+
+        if (parentNode.type === "ArrayPattern") {
+          if (hasSingleElement(parentNode)) {
+            return fixNestedArrayVariable(parentNode);
+          }
+
+          return fixer.removeRange([
+            getPreviousTokenStart(node),
+            node.range[1],
+          ]);
+        }
+
+        return null;
+      }
+
+      if (parentType === "VariableDeclarator") {
+        if (parentNode.parent.declarations.length === 1) {
+          const nextToken = sourceCode.getTokenAfter(parentNode.parent);
+
+          const prevToken = sourceCode.getTokenBefore(parentNode.parent);
+
+          if (
+            nextToken &&
+            isDeclarationNotSafeToRemove(nextToken, prevToken)
+          ) {
+            return null;
+          }
+
+          return fixer.removeRange(parentNode.parent.range);
+        }
+
+        if (getTokenBeforeValue(parentNode) === ",") {
+          return fixer.removeRange([
+            getPreviousTokenStart(parentNode),
+            parentNode.range[1],
+          ]);
+        }
+
+        return fixer.removeRange([
+          parentNode.range[0],
+          getNextTokenEnd(parentNode),
+        ]);
+      }
+
+      if (parent.parent.type === "ObjectPattern") {
+        if (parent.parent.properties.length === 1) {
+          if (parent.parent.parent.type === "RestElement") {
+            return fixRestInPattern(parent.parent.parent);
+          }
+
+          if (parent.parent.parent.type === "ArrayPattern") {
+            return fixNestedArrayVariable(parent.parent);
+          }
+
+          return fixVariables(parent.parent);
+        }
+
+        if (getTokenBeforeValue(parent) === ":") {
+          return fixVariables(parent.parent);
+        }
+      }
+
+      if (parentType === "ArrayPattern") {
+        if (hasSingleElement(parent)) {
+          if (parent.parent.type === "RestElement") {
+            return fixRestInPattern(parent.parent);
+          }
+
+          if (parent.parent.type === "ArrayPattern") {
+            return fixNestedArrayVariable(parent);
+          }
+
+          return fixVariables(parent);
+        }
+
+        if (
+          getTokenBeforeValue(node) === "," &&
+          getTokenAfterValue(node) === "]"
+        ) {
+          return fixer.removeRange([
+            getPreviousTokenStart(node),
+            node.range[1],
+          ]);
+        }
+      }
+
+      if (parentType === "RestElement") {
+        if (parent.parent.type === "ArrayPattern") {
+          if (hasSingleElement(parent.parent)) {
+            return fixNestedArrayVariable(parent.parent);
+          }
+
+          return fixer.removeRange([
+            getPreviousTokenStart(node),
+            node.range[1],
+          ]);
+        }
+
+        if (parent.parent.type === "ObjectPattern") {
+          if (parent.parent.properties.length === 1) {
+            return fixVariables(parent.parent);
+          }
+
+          return fixer.removeRange([
+            getPreviousTokenStart(node),
+            node.range[1],
+          ]);
+        }
+      }
+
+      if (parentType === "AssignmentPattern") {
+        if (parent.parent.type === "ArrayPattern") {
+          return fixNestedArrayVariable(parent);
+        }
+
+        if (parent.parent.parent.type === "ObjectPattern") {
+          if (parent.parent.parent.properties.length === 1) {
+            return fixVariables(parent.parent.parent);
+          }
+
+          if (getTokenBeforeValue(parent.parent) === "{") {
+            return fixer.removeRange([
+              parent.parent.range[0],
+              getNextTokenEnd(parent.parent),
+            ]);
+          }
+
+          return fixer.removeRange([
+            getPreviousTokenStart(parent.parent),
+            parent.parent.range[1],
+          ]);
+        }
+      }
+
+      if (parentType === "FunctionDeclaration" && parent.id === id) {
+        return fixer.removeRange(parent.range);
+      }
+
+      if (parentType === "ImportDefaultSpecifier") {
+        if (
+          !hasImportOfCertainType(parent.parent, "ImportSpecifier") &&
+          !hasImportOfCertainType(
+            parent.parent,
+            "ImportNamespaceSpecifier",
+          )
+        ) {
+          return fixer.removeRange([
+            parent.range[0],
+            parent.parent.source.range[0],
+          ]);
+        }
+
+        return fixer.removeRange([id.range[0], tokenAfter.range[1]]);
+      }
+
+      if (parentType === "ImportSpecifier") {
+        if (
+          parent.parent.specifiers.filter(
+            e => e.type === "ImportSpecifier",
+          ).length === 1
+        ) {
+          if (
+            !hasImportOfCertainType(
+              parent.parent,
+              "ImportDefaultSpecifier",
+            )
+          ) {
+            return fixer.removeRange(parent.parent.range);
+          }
+
+          return fixer.removeRange([
+            getPreviousTokenStart(parent, 1),
+            tokenAfter.range[1],
+          ]);
+        }
+
+        if (getTokenBeforeValue(parent) === "{") {
+          return fixer.removeRange([
+            parent.range[0],
+            getNextTokenEnd(parent),
+          ]);
+        }
+
+        return fixer.removeRange([
+          getPreviousTokenStart(parent),
+          parent.range[1],
+        ]);
+      }
+
+      if (parentType === "ImportNamespaceSpecifier") {
+        if (
+          hasImportOfCertainType(
+            parent.parent,
+            "ImportDefaultSpecifier",
+          )
+        ) {
+          return fixer.removeRange([
+            getPreviousTokenStart(parent),
+            parent.range[1],
+          ]);
+        }
+
+        return fixer.removeRange([
+          parent.range[0],
+          parent.parent.source.range[0],
+        ]);
+      }
+
+      if (parentType === "CatchClause") {
+        return null;
+      }
+
+      if (parentType === "ClassDeclaration") {
+        return fixer.removeRange(parent.range);
+      }
+
+      if (tokenBefore?.value === ",") {
+        return fixer.removeRange([tokenBefore.range[0], id.range[1]]);
+      }
+
+      if (tokenAfter.value === ",") {
+        if (tokenBefore.value === "(") {
+          return fixer.removeRange([
+            id.range[0],
+            tokenAfter.range[1],
+          ]);
+        }
+
+        if (tokenBefore.value === "{") {
+          return fixer.removeRange([
+            id.range[0],
+            tokenAfter.range[1],
+          ]);
+        }
+      }
+
+      if (
+        parentType === "ArrowFunctionExpression" &&
+        parent.params.length === 1 &&
+        tokenAfter?.value !== ")"
+      ) {
+        return fixer.replaceText(id, "()");
+      }
+
+      return fixer.removeRange(id.range);
+    }
+
+    /**
+     * Checks whether a given variable is after the last used parameter.
+     * @param {eslint-scope.Variable} variable The variable to check.
+     * @returns {boolean} `true` if the variable is defined after the last
+     * used parameter.
+     */
+    function isAfterLastUsedArg(variable) {
+      const def = variable.defs[0];
+      const params = sourceCode.getDeclaredVariables(def.node);
+      const posteriorParams = params.slice(params.indexOf(variable) + 1);
+
+      return !posteriorParams.some(
+        v => v.references.length > 0 || v.eslintUsed,
+      );
+    }
+
+    /**
+     * Determines if a reference is a read operation.
+     * @param {Reference} ref An eslint-scope Reference
+     * @returns {boolean} whether the given reference represents a read operation
+     * @private
+     */
+    function isReadRef(ref) {
+      return ref.isRead();
+    }
+
+    /**
+     * Determine if an identifier is referencing an enclosing function name.
+     * @param {Reference} ref The reference to check.
+     * @param {ASTNode[]} nodes The candidate function nodes.
+     * @returns {boolean} True if it's a self-reference, false if not.
+     * @private
+     */
+    function isSelfReference(ref, nodes) {
+      let scope = ref.from;
+
+      while (scope) {
+        if (nodes.includes(scope.block)) {
+          return true;
+        }
+
+        scope = scope.upper;
+      }
+
+      return false;
+    }
+
+    /**
+     * STATEMENT_TYPE
+     */
+    const STATEMENT_TYPE = /(?:Statement|Declaration)$/u;
+
+    /**
+     * Checks whether a given node is unused expression or not.
+     * @param {ASTNode} node The node itself
+     * @returns {boolean} The node is an unused expression.
+     * @private
+     */
+    function isUnusedExpression(node) {
+      const parent = node.parent;
+
+      if (parent.type === "ExpressionStatement") {
+        return true;
+      }
+
+      if (parent.type === "SequenceExpression") {
+        const isLastExpression = parent.expressions.at(-1) === node;
+
+        if (!isLastExpression) {
+          return true;
+        }
+        return isUnusedExpression(parent);
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Checks whether a given variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
       });
     }
-  }
-}
 
-/**
- * Generates the message data about the variable being defined and unused,
- * including the ignore pattern if configured.
- * @param {Variable} unusedVar eslint-scope variable object.
- * @returns {UnusedVarMessageData} The message data to be used with this unused variable.
- */
-function getDefinedMessageData(unusedVar) {
-  const def = unusedVar.defs && unusedVar.defs[0];
-  let additionalMessageData = "";
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
 
-  if (def) {
-    const [variableDescription, pattern] = getVariableDescription(
-      defToVariableType(def),
-    );
+      variable.defs.forEach(def => {
+        const { type, node } = def;
 
-    if (pattern && variableDescription) {
-      additionalMessageData = `. Allowed unused ${variableDescription} must match ${pattern}`;
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
     }
-  }
 
-  return {
-    varName: unusedVar.name,
-    action: "defined",
-    additional: additionalMessageData,
-  };
-}
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
 
-/**
- * Generate the warning message about the variable being
- * assigned and unused, including the ignore pattern if configured.
- * @param {Variable} unusedVar eslint-scope variable object.
- * @returns {UnusedVarMessageData} The message data to be used with this unused variable.
- */
-function getAssignedMessageData(unusedVar) {
-  const def = unusedVar.defs && unusedVar.defs[0];
-  let additionalMessageData = "";
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
 
-  if (def) {
-    const [variableDescription, pattern] = getVariableDescription(
-      defToVariableType(def),
-    );
-
-    if (pattern && variableDescription) {
-      additionalMessageData = `. Allowed unused ${variableDescription} must match ${pattern}`;
+      return false;
     }
-  }
 
-  return {
-    varName: unusedVar.name,
-    action: "assigned a value",
-    additional: additionalMessageData,
-  };
-}
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
 
-/**
- * Determines what variable type a def is.
- * @param  {Object} def the declaration to check
- * @returns {VariableType} a simple name for the types of variables that this rule supports
- */
-function defToVariableType(def) {
-  if (
-    def.name.parent.type === "ArrayPattern" &&
-    def.name.parent.parent.type === "VariableDeclarator"
-  ) {
-    return "array-destructure";
-  }
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
 
-  switch (def.type) {
-    case "CatchClause":
-      return "catch-clause";
-    case "Parameter":
-      return "parameter";
+      if (definition) {
+        let node = definition.node;
 
-    default:
-      return "variable";
-  }
-}
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
 
-/**
- * Gets a given variable's description and configured ignore pattern
- * based on the provided variableType
- * @param {VariableType} variableType a simple name for the types of variables that this rule supports
- * @throws {Error} (Unreachable)
- * @returns {[string | undefined, string | undefined]} the given variable's description and
- * ignore pattern
- */
-function getVariableDescription(variableType) {
-  let pattern;
-  let variableDescription;
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
 
-  switch (variableType) {
-    case "array-destructure":
-      pattern = "destructuredArrayIgnorePattern";
-      variableDescription = "elements of array destructuring";
-      break;
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
 
-    case "catch-clause":
-      pattern = "caughtErrorsIgnorePattern";
-      variableDescription = "caught errors";
-      break;
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
 
-    case "parameter":
-      pattern = "argsIgnorePattern";
-      variableDescription = "args";
-      break;
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
 
-    case "variable":
-      pattern = "varsIgnorePattern";
-      variableDescription = "vars";
-      break;
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
 
-    default:
-      throw new Error(`Unexpected variable type: ${variableType}`);
-  }
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
 
-  return [variableDescription, pattern];
-}
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
 
-/**
- * fixes unused variables
- * @param {Object} fixer fixer object
- * @param {Object} unusedVar unused variable to fix
- * @returns {Object} fixer object
- */
-function handleFixes(fixer, unusedVar) {
-  const id = unusedVar.identifiers[0];
-  const parent = id.parent;
-  const parentType = parent.type;
-  const tokenBefore = context.getSourceCode().getTokenBefore(id);
-  const tokenAfter = context.getSourceCode().getTokenAfter(id);
-  const isFunction = astUtils.isFunction;
-  const isLoop = astUtils.isLoop;
-  const allWriteReferences = unusedVar.references.filter(ref =>
-    ref.isWrite(),
-  );
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
 
-  // ... rest of the handleFixes function remains the same ...
-}
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const funcNode = astUtils.getUpperFunction(id);
+
+      return (
+        funcNode &&
+        isInside(funcNode, rhsNode) &&
+        isStorableFunction(funcNode, rhsNode)
+      );
+    }
+
+    /**
+     * Checks whether a given reference is a read to update itself or not.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} The reference is a read to update itself.
+     * @private
+     */
+    function isReadForItself(ref, rhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+
+      return (
+        ref.isRead() &&
+        ((parent.type === "AssignmentExpression" &&
+          parent.left === id &&
+          isUnusedExpression(parent) &&
+          !astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+          (parent.type === "UpdateExpression" &&
+            isUnusedExpression(parent)) ||
+          (rhsNode &&
+            isInside(id, rhsNode) &&
+            !isInsideOfStorableFunction(id, rhsNode)))
+      );
+    }
+
+    /**
+     * If a given reference is left-hand side of an assignment, this gets
+     * the right-hand side node of the assignment.
+     *
+     * In the following cases, this returns null.
+     *
+     * - The reference is not the LHS of an assignment expression.
+     * - The reference is inside of a loop.
+     * - The reference is inside of a function scope which is different from
+     *   the declaration.
+     * @param {eslint-scope.Reference} ref A reference to check.
+     * @param {ASTNode} prevRhsNode The previous RHS node.
+     * @returns {ASTNode|null} The RHS node or null.
+     * @private
+     */
+    function getRhsNode(ref, prevRhsNode) {
+      const id = ref.identifier;
+      const parent = id.parent;
+      const refScope = ref.from.variableScope;
+      const varScope = ref.resolved.scope.variableScope;
+      const canBeUsedLater =
+        refScope !== varScope || astUtils.isInLoop(id);
+
+      if (prevRhsNode && isInside(id, prevRhsNode)) {
+        return prevRhsNode;
+      }
+
+      if (
+        parent.type === "AssignmentExpression" &&
+        isUnusedExpression(parent) &&
+        id === parent.left &&
+        !canBeUsedLater
+      ) {
+        return parent.right;
+      }
+      return null;
+    }
+
+    /**
+     * Determines if a variable is used.
+     * @param {Variable} variable The variable to check.
+     * @returns {boolean} True if the variable is used
+     * @private
+     */
+    function isUsedVariable(variable) {
+      if (variable.eslintUsed) {
+        return true;
+      }
+
+      const functionNodes = getFunctionDefinitions(variable);
+      const isFunctionDefinition = functionNodes.length > 0;
+
+      let rhsNode = null;
+
+      return variable.references.some(ref => {
+        if (isForInOfRef(ref)) {
+          return true;
+        }
+
+        const forItself = isReadForItself(ref, rhsNode);
+
+        rhsNode = getRhsNode(ref, rhsNode);
+
+        return (
+          isReadRef(ref) &&
+          !forItself &&
+          !(
+            isFunctionDefinition &&
+            isSelfReference(ref, functionNodes)
+          )
+        );
+      });
+    }
+
+    /**
+     * Gets a list of function definitions for a specified variable.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {ASTNode[]} Function nodes.
+     * @private
+     */
+    function getFunctionDefinitions(variable) {
+      const functionDefinitions = [];
+
+      variable.defs.forEach(def => {
+        const { type, node } = def;
+
+        // FunctionDeclarations
+        if (type === "FunctionName") {
+          functionDefinitions.push(node);
+        }
+
+        // FunctionExpressions
+        if (
+          type === "Variable" &&
+          node.init &&
+          (node.init.type === "FunctionExpression" ||
+            node.init.type === "ArrowFunctionExpression")
+        ) {
+          functionDefinitions.push(node.init);
+        }
+      });
+      return functionDefinitions;
+    }
+
+    /**
+     * Checks whether a given variable has a sibling rest property
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable has a sibling rest property, false if not.
+     * @private
+     */
+    function hasRestSpreadSibling(variable) {
+      if (config.ignoreRestSiblings) {
+        const hasRestSiblingDefinition = variable.defs.some(def =>
+          hasRestSibling(def.name.parent),
+        );
+        const hasRestSiblingReference = variable.references.some(ref =>
+          hasRestSibling(ref.identifier.parent),
+        );
+
+        return hasRestSiblingDefinition || hasRestSiblingReference;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a node is a sibling of the rest property or not.
+     * @param {ASTNode} node a node to check
+     * @returns {boolean} True if the node is a sibling of the rest property, otherwise false.
+     */
+    function hasRestSibling(node) {
+      return (
+        node.type === "Property" &&
+        node.parent.type === "ObjectPattern" &&
+        REST_PROPERTY_TYPE.test(node.parent.properties.at(-1).type)
+      );
+    }
+
+    /**
+     * Determines if a variable is exported from a module.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is exported, false if not.
+     * @private
+     */
+    function isExported(variable) {
+      const definition = variable.defs[0];
+
+      if (definition) {
+        let node = definition.node;
+
+        if (node.type === "VariableDeclarator") {
+          node = node.parent;
+        } else if (definition.type === "Parameter") {
+          return false;
+        }
+
+        return node.parent.type.indexOf("Export") === 0;
+      }
+      return false;
+    }
+
+    /**
+     * Determines if a variable uses the explicit resource management protocol.
+     * @param {Variable} variable eslint-scope variable object.
+     * @returns {boolean} True if the variable is declared with "using" or "await using"
+     * @private
+     */
+    function usesExplicitResourceManagement(variable) {
+      const [definition] = variable.defs;
+
+      return (
+        definition?.type === "Variable" &&
+        (definition.parent.kind === "using" ||
+          definition.parent.kind === "await using")
+      );
+    }
+
+    /**
+     * Checks the position of given nodes.
+     * @param {ASTNode} inner A node which is expected as inside.
+     * @param {ASTNode} outer A node which is expected as outside.
+     * @returns {boolean} `true` if the `inner` node exists in the `outer` node.
+     * @private
+     */
+    function isInside(inner, outer) {
+      return (
+        inner.range[0] >= outer.range[0] &&
+        inner.range[1] <= outer.range[1]
+      );
+    }
+
+    /**
+     * Determines if an identifier is used either in for-in or for-of loops.
+     * @param {Reference} ref The reference to check.
+     * @returns {boolean} whether reference is used in the for-in loops
+     * @private
+     */
+    function isForInOfRef(ref) {
+      let target = ref.identifier.parent;
+
+      if (target.type === "VariableDeclarator") {
+        target = target.parent.parent;
+      }
+
+      if (
+        target.type !== "ForInStatement" &&
+        target.type !== "ForOfStatement"
+      ) {
+        return false;
+      }
+
+      if (target.body.type === "BlockStatement") {
+        target = target.body.body[0];
+      } else {
+        target = target.body;
+      }
+
+      return target.type === "ReturnStatement";
+    }
+
+    /**
+     * Checks whether a given function node is stored to somewhere or not.
+     * If the function node is stored, the function can be used later.
+     * @param {ASTNode} funcNode A function node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if under the following conditions:
+     *      - the funcNode is assigned to a variable.
+     *      - the funcNode is bound as an argument of a function call.
+     *      - the function is bound to a property and the object satisfies above conditions.
+     * @private
+     */
+    function isStorableFunction(funcNode, rhsNode) {
+      let node = funcNode;
+      let parent = funcNode.parent;
+
+      while (parent && isInside(parent, rhsNode)) {
+        switch (parent.type) {
+          case "SequenceExpression":
+            if (parent.expressions.at(-1) !== node) {
+              return false;
+            }
+            break;
+
+          case "CallExpression":
+          case "NewExpression":
+            return parent.callee !== node;
+
+          case "AssignmentExpression":
+          case "TaggedTemplateExpression":
+          case "YieldExpression":
+            return true;
+
+          default:
+            if (STATEMENT_TYPE.test(parent.type)) {
+              return true;
+            }
+        }
+
+        node = parent;
+        parent = parent.parent;
+      }
+
+      return false;
+    }
+
+    /**
+     * Checks whether a given Identifier node exists inside of a function node which can be used later.
+     *
+     * "can be used later" means:
+     * - the function is assigned to a variable.
+     * - the function is bound to a property and the object can be used later.
+     * - the function is bound as an argument of a function call.
+     *
+     * If a reference exists in a function which can be used later, the reference is read when the function is called.
+     * @param {ASTNode} id An Identifier node to check.
+     * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+     * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+     * @private
+     */
+    function isInsideOfStorableFunction(id, rhsNode) {
+      const
