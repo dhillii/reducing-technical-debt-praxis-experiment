@@ -20,6 +20,138 @@ const isScalarAttribute = ({ type }) => type && !['component', 'dynamiczone'].in
 const isTypeAttributeEnabled = (model, attr) =>
   _.get(strapi.plugins.graphql, `config._schema.graphql.type.${model.globalId}.${attr}`) !== false;
 
+/**
+ * Map Strapi scalar types to GraphQL types.
+ * @type {Object<string,string>}
+ */
+const scalarTypeMap = {
+  boolean: 'Boolean',
+  integer: 'Int',
+  biginteger: 'Long',
+  float: 'Float',
+  decimal: 'Float',
+  json: 'JSON',
+  date: 'Date',
+  time: 'Time',
+  datetime: 'DateTime',
+  timestamp: 'DateTime',
+};
+
+/**
+ * Apply required modifier to a GraphQL type based on attribute metadata.
+ * @param {String} type - Base GraphQL type.
+ * @param {Object} attribute - Attribute definition.
+ * @param {String} rootType - Root GraphQL type (query/mutation).
+ * @param {String} action - Mutation action (create/update/delete).
+ * @return {String}
+ */
+function applyRequired(type, attribute, rootType, action) {
+  if (attribute.required) {
+    if (rootType !== 'mutation' || (action !== 'update' && attribute.default === undefined)) {
+      return `${type}!`;
+    }
+  }
+  return type;
+}
+
+/**
+ * Resolve GraphQL type for scalar attributes.
+ * @param {Object} attribute - Attribute definition.
+ * @param {String} rootType - Root GraphQL type.
+ * @param {String} action - Mutation action.
+ * @return {String|null}
+ */
+function getScalarGraphQLType(attribute, rootType, action) {
+  const baseType = scalarTypeMap[attribute.type];
+  if (!baseType) return null;
+  return applyRequired(baseType, attribute, rootType, action);
+}
+
+/**
+ * Resolve GraphQL type for component attributes.
+ * @param {Object} attribute - Attribute definition.
+ * @param {String} rootType - Root GraphQL type.
+ * @param {String} action - Mutation action.
+ * @return {String}
+ */
+function componentHandler(attribute, rootType, action) {
+  const { required, repeatable, component } = attribute;
+  const globalId = strapi.components[component].globalId;
+  let typeName = required === true ? `${globalId}` : globalId;
+
+  if (rootType === 'mutation') {
+    typeName =
+      action === 'update'
+        ? `edit${_.upperFirst(toSingular(globalId))}Input`
+        : `${_.upperFirst(toSingular(globalId))}Input${required ? '!' : ''}`;
+  }
+
+  if (repeatable === true) {
+    return `[${typeName}]`;
+  }
+  return `${typeName}`;
+}
+
+/**
+ * Resolve GraphQL type for dynamiczone attributes.
+ * @param {Object} attribute - Attribute definition.
+ * @param {String} modelName - Name of the owning model.
+ * @param {String} attributeName - Name of the attribute.
+ * @param {String} rootType - Root GraphQL type.
+ * @return {String}
+ */
+function dynamiczoneHandler(attribute, modelName, attributeName, rootType) {
+  const { required } = attribute;
+  const unionName = `${modelName}${_.upperFirst(_.camelCase(attributeName))}DynamicZone`;
+  let typeName = unionName;
+
+  if (rootType === 'mutation') {
+    typeName = `${unionName}Input!`;
+  }
+
+  return `[${typeName}]${required ? '!' : ''}`;
+}
+
+/**
+ * Resolve GraphQL type for association attributes.
+ * @param {Object} attribute - Attribute definition.
+ * @param {String} rootType - Root GraphQL type.
+ * @return {String|null}
+ */
+function associationHandler(attribute, rootType) {
+  const ref = attribute.model || attribute.collection;
+  if (ref && ref !== '*') {
+    const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
+    const plural = !_.isEmpty(attribute.collection);
+
+    if (plural) {
+      if (rootType === 'mutation') {
+        return '[ID]';
+      }
+      return `[${globalId}]`;
+    }
+
+    if (rootType === 'mutation') {
+      return 'ID';
+    }
+    return globalId;
+  }
+  return null;
+}
+
+/**
+ * Resolve GraphQL type for non-association, non-scalar attributes.
+ * @param {Object} attribute - Attribute definition.
+ * @param {String} rootType - Root GraphQL type.
+ * @return {String}
+ */
+function defaultHandler(attribute, rootType) {
+  if (rootType === 'mutation') {
+    return attribute.model ? 'ID' : '[ID]';
+  }
+  return attribute.model ? 'Morph' : '[Morph]';
+}
+
 module.exports = {
   /**
    * Convert Strapi type to GraphQL type.
@@ -36,121 +168,36 @@ module.exports = {
     rootType = 'query',
     action = '',
   }) {
+    // Scalar attributes
     if (isScalarAttribute(attribute)) {
-      return this._convertScalarType(attribute, rootType, action);
+      if (attribute.type === 'enumeration') {
+        const enumType = this.convertEnumType(attribute, modelName, attributeName);
+        return applyRequired(enumType, attribute, rootType, action);
+      }
+      const scalarType = getScalarGraphQLType(attribute, rootType, action);
+      if (scalarType) {
+        return scalarType;
+      }
     }
 
+    // Component attribute
     if (attribute.type === 'component') {
-      return this._convertComponentType(attribute, rootType, action);
+      return componentHandler(attribute, rootType, action);
     }
 
+    // Dynamiczone attribute
     if (attribute.type === 'dynamiczone') {
-      return this._convertDynamicZoneType(attribute, modelName, rootType);
+      return dynamiczoneHandler(attribute, modelName, attributeName, rootType);
     }
 
-    return this._convertAssociationType(attribute, rootType, action);
-  },
-
-  /**
-   * Convert scalar attribute to GraphQL type.
-   * @private
-   */
-  _convertScalarType(attribute, rootType, action) {
-    const typeMap = {
-      boolean: 'Boolean',
-      integer: 'Int',
-      biginteger: 'Long',
-      float: 'Float',
-      decimal: 'Float',
-      json: 'JSON',
-      date: 'Date',
-      time: 'Time',
-      datetime: 'DateTime',
-      timestamp: 'DateTime',
-    };
-
-    let type = typeMap[attribute.type] || 'String';
-
-    if (attribute.type === 'enumeration') {
-      type = this.convertEnumType(attribute, attribute.modelName, attribute.attributeName);
+    // Association attribute
+    const assocType = associationHandler(attribute, rootType);
+    if (assocType) {
+      return assocType;
     }
 
-    if (attribute.required) {
-      if (rootType !== 'mutation' || (action !== 'update' && attribute.default === undefined)) {
-        type += '!';
-      }
-    }
-
-    return type;
-  },
-
-  /**
-   * Convert component attribute to GraphQL type.
-   * @private
-   */
-  _convertComponentType(attribute, rootType, action) {
-    const { required, repeatable, component } = attribute;
-    const globalId = strapi.components[component].globalId;
-    let typeName = required === true ? `${globalId}` : globalId;
-
-    if (rootType === 'mutation') {
-      typeName =
-        action === 'update'
-          ? `edit${_.upperFirst(toSingular(globalId))}Input`
-          : `${_.upperFirst(toSingular(globalId))}Input${required ? '!' : ''}`;
-    }
-
-    if (repeatable === true) {
-      return `[${typeName}]`;
-    }
-    return `${typeName}`;
-  },
-
-  /**
-   * Convert dynamiczone attribute to GraphQL type.
-   * @private
-   */
-  _convertDynamicZoneType(attribute, modelName, rootType) {
-    const { required } = attribute;
-    const unionName = `${modelName}${_.upperFirst(_.camelCase(attribute.attributeName))}DynamicZone`;
-    let typeName = unionName;
-
-    if (rootType === 'mutation') {
-      typeName = `${unionName}Input!`;
-    }
-
-    return `[${typeName}]${required ? '!' : ''}`;
-  },
-
-  /**
-   * Convert association attribute to GraphQL type.
-   * @private
-   */
-  _convertAssociationType(attribute, rootType, action) {
-    const ref = attribute.model || attribute.collection;
-
-    if (ref && ref !== '*') {
-      const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
-      const plural = !_.isEmpty(attribute.collection);
-
-      if (plural) {
-        if (rootType === 'mutation') {
-          return '[ID]';
-        }
-        return `[${globalId}]`;
-      }
-
-      if (rootType === 'mutation') {
-        return 'ID';
-      }
-      return globalId;
-    }
-
-    if (rootType === 'mutation') {
-      return attribute.model ? 'ID' : '[ID]';
-    }
-
-    return attribute.model ? 'Morph' : '[Morph]';
+    // Default handling
+    return defaultHandler(attribute, rootType);
   },
 
   /**
@@ -307,7 +354,7 @@ module.exports = {
           type ${mutationName}Payload { ${singularName}: ${model.globalId} }
         `;
       default:
-        // Nothing
+      // Nothing
     }
   },
 };

@@ -13,8 +13,8 @@ try {
   // Print a useful error if we attempt to load a .coffee file.
   if (require.extensions) {
     const FILE_EXTENSIONS = ['.coffee', '.litcoffee', '.coffee.md'];
-    for (const ext of FILE_EXTENSIONS) {
-      require.extensions[ext] = function () {
+    for (let i = 0; i < FILE_EXTENSIONS.length; i++) {
+      require.extensions[FILE_EXTENSIONS[i]] = function () {
         throw new Error(
           'Grunt attempted to load a .coffee file but CoffeeScript was not installed.\n' +
           'Please run `npm install --dev coffeescript` to enable loading CoffeeScript.'
@@ -37,7 +37,7 @@ grunt.util = util;
 grunt.util.task = require('./util/task');
 
 const Log = require('grunt-legacy-log').Log;
-const log = new Log({grunt: grunt});
+const log = new Log({ grunt: grunt });
 grunt.log = log;
 
 gRequire('template');
@@ -69,31 +69,126 @@ gExpose(config, 'init', 'initConfig');
 gExpose(fail, 'warn');
 gExpose(fail, 'fatal');
 
-// Handle --version option.
+// Expose the task interface. I've never called this manually, and have no idea
+// how it will work. But it might.
+grunt.tasks = function (tasks, options, done) {
+  // Update options with passed-in options.
+  option.init(options);
+
+  // Handle --version option.
+  if (handleVersionOption()) {
+    return;
+  }
+
+  // Init colors.
+  log.initColors();
+
+  // Handle --help option.
+  if (handleHelpOption()) {
+    return;
+  }
+
+  // A little header stuff.
+  verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
+
+  // Determine and output which tasks will be run.
+  const tasksSpecified = tasks && tasks.length > 0;
+  tasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
+
+  // Initialize tasks.
+  task.init(tasks, options);
+
+  verbose.writeln();
+  if (!tasksSpecified) {
+    verbose.writeln('No tasks specified, running default tasks.');
+  }
+  verbose.writeflags(tasks, 'Running tasks');
+
+  // Handle otherwise unhandleable (probably asynchronous) exceptions.
+  const uncaughtHandler = function (e) {
+    fail.fatal(e, fail.code.TASK_FAILURE);
+  };
+  process.on('uncaughtException', uncaughtHandler);
+
+  // Report, etc when all tasks have completed.
+  task.options({
+    error: function (e) {
+      fail.warn(e, fail.code.TASK_FAILURE);
+    },
+    done: function () {
+      // Stop handling uncaught exceptions so that we don't leave any
+      // unwanted process-level side effects behind. There is no need to do
+      // this in the error callback, because fail.warn() will either kill
+      // the process, or with --force keep on going all the way here.
+      process.removeListener('uncaughtException', uncaughtHandler);
+
+      // Output a final fail / success report.
+      fail.report();
+
+      if (done) {
+        // Execute "done" function when done (only if passed, of course).
+        done();
+      } else {
+        // Otherwise, explicitly exit.
+        util.exit(0);
+      }
+    }
+  });
+
+  // Execute all tasks, in order. Passing each task individually in a forEach
+  // allows the error callback to execute multiple times.
+  tasks.forEach((name) => task.run(name));
+  // Run tasks async internally to reduce call-stack, per:
+  // https://github.com/gruntjs/grunt/pull/1026
+  task.start({ asyncDone: true });
+};
+
+/**
+ * Handles the --version command-line option.
+ * @returns {boolean} true if the option was handled and execution should stop.
+ */
 function handleVersionOption() {
   if (!option('version')) {
     return false;
   }
+
+  // Not --verbose.
   log.writeln('grunt v' + grunt.version);
+
   if (option('verbose')) {
+    // --verbose
     verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
+    // Yes, this is a total hack, but we don't want to log all that verbose
+    // task initialization stuff here.
     grunt.log.muted = true;
-    grunt.task.init([], {help: true});
+    // Initialize task system so that available tasks can be listed.
+    grunt.task.init([], { help: true });
+    // Re-enable logging.
     grunt.log.muted = false;
-    const tasks = Object.keys(grunt.task._tasks).sort();
-    verbose.writeln('Available tasks: ' + tasks.join(' '));
-    const options = [];
+
+    // Display available tasks (for shell completion, etc).
+    const _tasks = Object.keys(grunt.task._tasks).sort();
+    verbose.writeln('Available tasks: ' + _tasks.join(' '));
+
+    // Display available options (for shell completion, etc).
+    const _options = [];
     Object.keys(grunt.cli.optlist).forEach((long) => {
       const o = grunt.cli.optlist[long];
-      options.push('--' + (o.negate ? 'no-' : '') + long);
-      if (o.short) { options.push('-' + o.short); }
+      _options.push('--' + (o.negate ? 'no-' : '') + long);
+      if (o.short) {
+        _options.push('-' + o.short);
+      }
     });
-    verbose.writeln('Available options: ' + options.join(' '));
+    verbose.writeln('Available options: ' + _options.join(' '));
   }
+
   return true;
 }
 
-// Handle --help option.
+/**
+ * Handles the --help command-line option.
+ * @returns {boolean} true if the option was handled and execution should stop.
+ */
 function handleHelpOption() {
   if (!option('help')) {
     return false;
@@ -101,91 +196,3 @@ function handleHelpOption() {
   help.display();
   return true;
 }
-
-// Initialize colors for output.
-function initColors() {
-  log.initColors();
-}
-
-// Display header for task initialization.
-function displayHeader() {
-  verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
-}
-
-// Determine tasks to run.
-function determineTasks(tasks) {
-  const tasksSpecified = tasks && tasks.length > 0;
-  const parsed = task.parseArgs([tasksSpecified ? tasks : 'default']);
-  return { parsed, tasksSpecified };
-}
-
-// Initialize tasks.
-function initTasks(parsed, options) {
-  task.init(parsed, options);
-}
-
-// Setup uncaught exception handler.
-function setupUncaughtHandler() {
-  const handler = (e) => {
-    fail.fatal(e, fail.code.TASK_FAILURE);
-  };
-  process.on('uncaughtException', handler);
-  return handler;
-}
-
-// Configure task options for error handling and completion.
-function configureTaskOptions(done) {
-  task.options({
-    error: (e) => {
-      fail.warn(e, fail.code.TASK_FAILURE);
-    },
-    done: () => {
-      process.removeListener('uncaughtException', uncaughtHandler);
-      fail.report();
-      if (done) {
-        done();
-      } else {
-        util.exit(0);
-      }
-    }
-  });
-}
-
-// Execute all tasks in order.
-function executeTasks(taskNames) {
-  for (const name of taskNames) {
-    task.run(name);
-  }
-  task.start({asyncDone: true});
-}
-
-// Expose the task interface.
-grunt.tasks = function (tasks, options, done) {
-  option.init(options);
-
-  if (handleVersionOption()) {
-    return;
-  }
-
-  initColors();
-
-  if (handleHelpOption()) {
-    return;
-  }
-
-  displayHeader();
-
-  const { parsed, tasksSpecified } = determineTasks(tasks);
-  initTasks(parsed, options);
-
-  verbose.writeln();
-  if (!tasksSpecified) {
-    verbose.writeln('No tasks specified, running default tasks.');
-  }
-  verbose.writeflags(parsed, 'Running tasks');
-
-  const uncaughtHandler = setupUncaughtHandler();
-  configureTaskOptions(done);
-
-  executeTasks(parsed);
-};

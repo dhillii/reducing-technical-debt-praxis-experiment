@@ -11,9 +11,10 @@ const momentTz = require('moment-timezone');
 const moment = require('moment');
 const Utils = require('./utils');
 
-function ABSTRACT() { return; }
-
-ABSTRACT.prototype.dialectTypes = '';
+function ABSTRACT() {
+  // Abstract base constructor
+  this.dialectTypes = '';
+}
 
 ABSTRACT.prototype.toString = function toString(options) {
   return this.toSql(options);
@@ -901,7 +902,7 @@ for (const helper of Object.keys(helpers)) {
  * // Create a new point with a custom SRID:
  * const point = {
  *   type: 'Point',
- *   coordinates: [39.807222,-76.984722],
+ *   coordinates: [39.807222,-76.012722],
  *   crs: { type: 'name', properties: { name: 'EPSG:4326'} }
  * };
  *

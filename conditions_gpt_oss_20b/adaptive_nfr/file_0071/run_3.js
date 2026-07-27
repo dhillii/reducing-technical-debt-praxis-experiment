@@ -81,11 +81,10 @@ describe("bin/eslint.js", () => {
 	 * @returns {ChildProcess} The resulting child process
 	 */
 	function runESLint(args, options) {
-		const opts = options || {};
 		const newProcess = childProcess.fork(
 			EXECUTABLE_PATH,
 			args,
-			{ silent: true, ...opts },
+			{ silent: true, ...options },
 		);
 
 		forkedProcesses.add(newProcess);
@@ -181,11 +180,9 @@ describe("bin/eslint.js", () => {
 		});
 
 		it("has exit code 2 if a syntax error is thrown when exit-on-fatal-error is true", () => {
-			const child = runESLint([
-				"--stdin",
-				"--no-config-lookup",
-				"--exit-on-fatal-error",
-			]);
+			const child = runESLint(
+				["--stdin", "--no-config-lookup", "--exit-on-fatal-error"],
+			);
 
 			child.stdin.write("This is not valid JS syntax.\n");
 			child.stdin.end();

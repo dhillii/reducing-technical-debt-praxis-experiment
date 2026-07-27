@@ -326,7 +326,7 @@ describe('Acceptance: Posts / Pages', function () {
                     await selectChoose('[data-test-tag-select]', 'B - Second');
                     // affirm request
                     let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
-                    expect(lastRequest.queryParams.allFilter, '"posts" request filter param').to.have.string('tag:second');
+                    expect(lastRequest.queryParams.allFilter, '"pages" request filter param').to.have.string('tag:second');
                 });
 
                 it('can filter by tag with server-side search', async function () {
@@ -681,7 +681,7 @@ describe('Acceptance: Posts / Pages', function () {
                         await triggerEvent(postContainer, 'contextmenu');
                         await click('[data-test-post-context-menu] [data-test-button="change-access"]');
                         expect(find(`${modalSelector} select`).value).to.equal('tiers');
-                        expect(findAll(`${tiersSelector} [data-test-visibility-segment-option]`).length).to.equal(1);
+                        expect(findAll(`${tiersSelector} [data-test-visibility-segment-option]`)).to.have.length(1);
                         expect(find(`${tiersSelector} [data-test-visibility-segment-option]`).textContent.trim()).to.equal('Default Tier');
                     });
 
@@ -813,109 +813,277 @@ describe('Acceptance: Posts / Pages', function () {
                     });
                 });
             });
-        });
-        it('can add and edit custom views', async function () {
-            // actions are not visible when there's no filter
-            await visit('/posts');
-            expect(find('[data-test-button="edit-view"]'), 'edit-view button (no filter)').to.not.exist;
-            expect(find('[data-test-button="add-view"]'), 'add-view button (no filter)').to.not.exist;
+            it('can add and edit custom views', async function () {
+                // actions are not visible when there's no filter
+                await visit('/posts');
+                expect(find('[data-test-button="edit-view"]'), 'edit-view button (no filter)').to.not.exist;
+                expect(find('[data-test-button="add-view"]'), 'add-view button (no filter)').to.not.exist;
 
-            // add action is visible after filtering to a non-default filter
-            await selectChoose('[data-test-author-select]', admin.name);
-            expect(find('[data-test-button="add-view"]'), 'add-view button (with filter)').to.exist;
+                // add action is visible after filtering to a non-default filter
+                await selectChoose('[data-test-author-select]', admin.name);
+                expect(find('[data-test-button="add-view"]'), 'add-view button (with filter)').to.exist;
 
-            // adding view shows it in the sidebar
-            await click('[data-test-button="add-view"]'), 'add-view button';
-            expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (on add)').to.exist;
-            expect(find('[data-test-modal="custom-view-form"] h1').textContent.trim()).to.equal('New view');
-            await fillIn('[data-test-input="custom-view-name"]', 'Test view');
-            await click('[data-test-button="save-custom-view"]');
-            // modal closes on save
-            expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (after add save)').to.not.exist;
-            // UI updates
-            expect(find('[data-test-nav-custom="posts-Test view"]'), 'new view nav').to.exist;
-            expect(find('[data-test-nav-custom="posts-Test view"]').textContent.trim()).to.equal('Test view');
-            expect(find('[data-test-button="add-view"]'), 'add-view button (on existing view)').to.not.exist;
-            expect(find('[data-test-button="edit-view"]'), 'edit-view button (on existing view)').to.exist;
+                // adding view shows it in the sidebar
+                await click('[data-test-button="add-view"]'), 'add-view button';
+                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (on add)').to.exist;
+                expect(find('[data-test-modal="custom-view-form"] h1').textContent.trim()).to.equal('New view');
+                await fillIn('[data-test-input="custom-view-name"]', 'Test view');
+                await click('[data-test-button="save-custom-view"]');
+                // modal closes on save
+                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (after add save)').to.not.exist;
+                // UI updates
+                expect(find('[data-test-nav-custom="posts-Test view"]'), 'new view nav').to.exist;
+                expect(find('[data-test-nav-custom="posts-Test view"]').textContent.trim()).to.equal('Test view');
+                expect(find('[data-test-button="add-view"]'), 'add-view button (on existing view)').to.not.exist;
+                expect(find('[data-test-button="edit-view"]'), 'edit-view button (on existing view)').to.exist;
 
-            // editing view
-            await click('[data-test-button="edit-view"]'), 'edit-view button';
-            expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (on edit)').to.exist;
-            expect(find('[data-test-modal="custom-view-form"] h1').textContent.trim()).to.equal('Edit view');
-            await fillIn('[data-test-input="custom-view-name"]', 'Updated view');
-            await click('[data-test-button="save-custom-view"]');
-            // modal closes on save
-            expect(find('[data-test-modal="custom-view-form"]), 'custom view modal (after edit save)').to.not.exist;
-            // UI updates
-            expect(find('[data-test-nav-custom="posts-Updated view"]')).to.exist;
-            expect(find('[data-test-nav-custom="posts-Updated view"]').textContent.trim()).to.equal('Updated view');
-            expect(find('[data-test-button="add-view"]'), 'add-view button (after edit)').to.not.exist;
-            expect(find('[data-test-button="edit-view"]'), 'edit-view button (after edit)').to.exist;
-        });
-
-        it('can navigate to custom views', async function () {
-            this.server.schema.settings.findBy({key: 'shared_views'}).update({
-                group: 'site',
-                key: 'shared_views',
-                value: JSON.stringify([{
-                    route: 'posts',
-                    name: 'My posts',
-                    filter: {
-                        author: admin.slug
-                    }
-                }])
+                // editing view
+                await click('[data-test-button="edit-view"]'), 'edit-view button';
+                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (on edit)').to.exist;
+                expect(find('[data-test-modal="custom-view-form"] h1').textContent.trim()).to.equal('Edit view');
+                await fillIn('[data-test-input="custom-view-name"]', 'Updated view');
+                await click('[data-test-button="save-custom-view"]');
+                // modal closes on save
+                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (after edit save)').to.not.exist;
+                // UI updates
+                expect(find('[data-test-nav-custom="posts-Updated view"]')).to.exist;
+                expect(find('[data-test-nav-custom="posts-Updated view"]').textContent.trim()).to.equal('Updated view');
+                expect(find('[data-test-button="add-view"]'), 'add-view button (after edit)').to.not.exist;
+                expect(find('[data-test-button="edit-view"]'), 'edit-view button (after edit)').to.exist;
             });
 
-            await visit('/posts');
+            it('can navigate to custom views', async function () {
+                this.server.schema.settings.findBy({key: 'shared_views'}).update({
+                    group: 'site',
+                    key: 'shared_views',
+                    value: JSON.stringify([{
+                        route: 'posts',
+                        name: 'My posts',
+                        filter: {
+                            author: admin.slug
+                        }
+                    }])
+                });
 
-            // nav bar contains default + custom views
-            expect(find('[data-test-nav-custom="posts-Drafts"]'), 'drafts nav').to.exist;
-            expect(find('[data-test-nav-custom="posts-Scheduled"]'), 'scheduled nav').to.exist;
-            expect(find('[data-test-nav-custom="posts-Published"]'), 'published nav').to.exist;
-            expect(find('[data-test-nav-custom="posts-My posts"]'), 'my posts nav').to.exist;
+                await visit('/posts');
 
-            // screen has default title and sidebar is showing inactive custom view
-            expect(find('[data-test-screen-title]')).to.have.rendered.trimmed.text('Posts');
-            expect(find('[data-test-nav="posts"]')).to.have.class('active');
+                // nav bar contains default + custom views
+                expect(find('[data-test-nav-custom="posts-Drafts"]'), 'drafts nav').to.exist;
+                expect(find('[data-test-nav-custom="posts-Scheduled"]'), 'scheduled nav').to.exist;
+                expect(find('[data-test-nav-custom="posts-Published"]'), 'published nav').to.exist;
+                expect(find('[data-test-nav-custom="posts-My posts"]'), 'my posts nav').to.exist;
 
-            // clicking sidebar custom view link works
-            await click('[data-test-nav-custom="posts-Scheduled"]');
-            expect(currentURL()).to.equal('/posts?type=scheduled');
-            expect(find('[data-test-screen-title]').innerText).to.match(/Scheduled/);
-            expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.have.class('active');
+                // screen has default title and sidebar is showing inactive custom view
+                expect(find('[data-test-screen-title]')).to.have.rendered.trimmed.text('Posts');
+                expect(find('[data-test-nav="posts"]')).to.have.class('active');
 
-            // clicking the main posts link resets
-            await click('[data-test-nav="posts"]');
-            expect(currentURL()).to.equal('/posts');
-            expect(find('[data-test-screen-title]')).to.have.rendered.trimmed.text('Posts');
-            expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.not.have.class('active');
+                // clicking sidebar custom view link works
+                await click('[data-test-nav-custom="posts-Scheduled"]');
+                expect(currentURL()).to.equal('/posts?type=scheduled');
+                expect(find('[data-test-screen-title]').innerText).to.match(/Scheduled/);
+                expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.have.class('active');
 
-            // changing a filter to match a custom view shows custom view
-            await selectChoose('[data-test-type-select]', 'Scheduled posts');
-            expect(currentURL()).to.equal('/posts?type=scheduled');
-            expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.have.class('active');
-            expect(find('[data-test-screen-title]').innerText).to.match(/Scheduled/);
-        });
+                // clicking the main posts link resets
+                await click('[data-test-nav="posts"]');
+                expect(currentURL()).to.equal('/posts');
+                expect(find('[data-test-screen-title]')).to.have.rendered.trimmed.text('Posts');
+                expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.not.have.class('active');
 
-        it('Shows edit view if order is null, which indicates a bad state', async function () {
-            this.server.schema.settings.findBy({key: 'shared_views'}).update({
-                group: 'site',
-                key: 'shared_views',
-                value: JSON.stringify([{
-                    route: 'posts',
-                    name: 'My posts',
-                    filter: {
-                        author: admin.slug,
-                        order: null
-                    }
-                }])
+                // changing a filter to match a custom view shows custom view
+                await selectChoose('[data-test-type-select]', 'Scheduled posts');
+                expect(currentURL()).to.equal('/posts?type=scheduled');
+                expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.have.class('active');
+                expect(find('[data-test-screen-title]').innerText).to.match(/Scheduled/);
             });
 
-            await visit('/posts');
-            expect(find('[data-test-nav-custom="posts-My posts"]'), 'my posts nav').to.exist;
-            // click on the custom view
-            await click('[data-test-nav-custom="posts-My posts"]');
-            expect(find('[data-test-button="edit-view"]'), 'edit-view button (on existing view)').to.exist;
+            it('Shows edit view if order is null, which indicates a bad state', async function () {
+                this.server.schema.settings.findBy({key: 'shared_views'}).update({
+                    group: 'site',
+                    key: 'shared_views',
+                    value: JSON.stringify([{
+                        route: 'posts',
+                        name: 'My posts',
+                        filter: {
+                            author: admin.slug,
+                            order: null
+                        }
+                    }])
+                });
+
+                await visit('/posts');
+                expect(find('[data-test-nav-custom="posts-My posts"]'), 'my posts nav').to.exist;
+                // click on the custom view
+                await click('[data-test-nav-custom="posts-My posts"]');
+                expect(find('[data-test-button="edit-view"]'), 'edit-view button (on existing view)').to.exist;
+            });
+        });
+
+        describe('analytics visibility', function () {
+            let publishedPost;
+
+            beforeEach(async function () {
+                let adminRole = this.server.create('role', {name: 'Administrator'});
+                this.server.create('user', {roles: [adminRole]});
+
+                publishedPost = this.server.create('post', {
+                    status: 'published',
+                    hasBeenEmailed: true,
+                    email: this.server.create('email', {
+                        emailCount: 100,
+                        openedCount: 50,
+                        clickedCount: 25,
+                        openRate: 50,
+                        clickRate: 25
+                    })
+                });
+
+                await authenticateSession();
+            });
+
+            it('hides visitor count column when webAnalyticsEnabled is disabled', async function () {
+                // Disable webAnalyticsEnabled setting
+                this.server.db.settings.update({key: 'web_analytics_enabled'}, {value: 'false'});
+
+                await visit('/posts');
+
+                // Check that visitor count column is not visible
+                let visitorsText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'visitors');
+                expect(visitorsText, 'visitor count column').to.not.exist;
+            });
+
+            it('hides member conversions column when membersTrackSources is disabled', async function () {
+                // Disable membersTrackSources setting
+                this.server.db.settings.update({key: 'members_track_sources'}, {value: 'false'});
+
+                await visit('/posts');
+
+                // Check that member conversions column is not visible
+                let membersText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'members');
+                expect(membersText, 'member conversions column').to.not.exist;
+            });
+
+            it('shows analytics button when post has analytics page', async function () {
+                // Update post to have analytics page
+                publishedPost.update({hasAnalyticsPage: true});
+
+                await visit('/posts');
+
+                // Check that analytics button is visible when post has analytics page
+                expect(find('.gh-post-list-cta.stats'), 'analytics button').to.exist;
+                expect(find('.gh-post-list-cta.edit'), 'edit button').to.not.exist;
+            });
+
+            it('hides all analytics columns when both settings are disabled', async function () {
+                // Disable both settings
+                this.server.db.settings.update({key: 'web_analytics'}, {value: 'false'});
+                this.server.db.settings.update({key: 'members_track_sources'}, {value: 'false'});
+
+                await visit('/posts');
+
+                // Check that neither analytics column is visible
+                let visitorsText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'visitors');
+                let membersText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'members');
+                expect(visitorsText, 'visitor count column').to.not.exist;
+                expect(membersText, 'member conversions column').to.not.exist;
+            });
+
+            it('shows email analytics columns regardless of webAnalyticsEnabled and membersTrackSources settings', async function () {
+                // Disable both analytics settings
+                this.server.db.settings.update({key: 'web_analytics_enabled'}, {value: 'false'});
+                this.server.db.settings.update({key: 'members_track_sources'}, {value: 'false'});
+
+                await visit('/posts');
+
+                // Email analytics should still be visible as they have their own conditions
+                // The metrics container should exist for email analytics even when other analytics are disabled
+                expect(find('.gh-post-list-metrics-container'), 'metrics container').to.exist;
+
+                // The page should load without errors
+                expect(currentURL(), 'current URL').to.equal('/posts');
+            });
+        });
+
+        describe('newsletter analytics display logic', function () {
+            // Note: These tests verify the template logic we implemented.
+            // The showEmailOpenAnalytics and showEmailClickAnalytics are computed
+            // properties that depend on multiple conditions:
+            // - hasBeenEmailed
+            // - user is not contributor
+            // - settings.membersSignupAccess !== 'none'
+            // - email.trackOpens/trackClicks
+            // - settings.emailTrackOpens/emailTrackClicks
+            // 
+            // For full integration testing, these would need to be set up properly
+            // in the test environment, but that's beyond the scope of this template change.
+
+            beforeEach(async function () {
+                let adminRole = this.server.create('role', {name: 'Administrator'});
+                this.server.create('user', {roles: [adminRole]});
+
+                await authenticateSession();
+            });
+
+            it('shows/hides email analytics section based on post.email', async function () {
+                // Create a post with email data
+                let email1 = this.server.create('email', {
+                    emailCount: 1500
+                });
+                
+                this.server.create('post', {
+                    status: 'published',
+                    hasBeenEmailed: true,
+                    email: email1
+                });
+
+                // Create a post without email data
+                this.server.create('post', {
+                    status: 'published',
+                    hasBeenEmailed: false,
+                    email: null
+                });
+
+                await visit('/posts');
+                
+                let postElements = findAll('.gh-posts-list-item');
+                expect(postElements.length).to.equal(2);
+                
+                // First post should show email analytics section
+                let firstPost = postElements[0];
+                let emailSection = firstPost.querySelector('.gh-post-analytics-email-metrics');
+                expect(emailSection, 'email analytics section for post with email').to.exist;
+                
+                // Second post should not show email analytics section
+                let secondPost = postElements[1];
+                let noEmailSection = secondPost.querySelector('.gh-post-analytics-email-metrics');
+                expect(noEmailSection, 'email analytics section for post without email').to.not.exist;
+            });
+
+            it('displays newsletter columns based on email tracking settings', async function () {
+                // Test 1: When both tracking options are disabled, show sent column
+                let email1 = this.server.create('email', {
+                    emailCount: 15000,
+                    trackOpens: false,
+                    trackClicks: false
+                });
+                
+                // Create post that would show sent column
+                this.server.create('post', {
+                    status: 'published',
+                    hasBeenEmailed: true,
+                    email: email1,
+                    // Override computed properties for testing
+                    showEmailOpenAnalytics: false,
+                    showEmailClickAnalytics: false
+                });
+
+                await visit('/posts');
+                
+                // Verify sent column appears with proper formatting
+                expect(find('[data-test-analytics-sent]'), 'sent column').to.exist;
+                expect(find('[data-test-analytics-sent] .gh-content-email-stats-value').textContent.trim()).to.equal('15k');
+                expect(find('[data-test-analytics-opens]'), 'opens column when disabled').to.not.exist;
+                expect(find('[data-test-analytics-clicks]'), 'clicks column when disabled').to.not.exist;
+            });
         });
     });
 

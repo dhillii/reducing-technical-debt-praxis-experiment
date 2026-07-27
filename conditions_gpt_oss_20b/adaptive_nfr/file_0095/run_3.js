@@ -76,22 +76,18 @@ define([
             const pwd = this.configs.encryptPass;
 
             return new Q(this.sjcl.sha256(password))
-            .then(function(hash) {
-                return hash.toString() === pwd.toString();
-            });
+            .then(hash => hash.toString() === pwd.toString());
         },
 
         saveSecureKey: function(password) {
-            const self = this;
-
             return new Q(this.sjcl.deriveKey({
                 configs : this.configs,
                 password: password
             }))
-            .then(function(keys) {
-                self.keys.key    = keys.key;
-                self.keys.hexKey = keys.hexKey;
-                self._saveSession();
+            .then(keys => {
+                this.keys.key    = keys.key;
+                this.keys.hexKey = keys.hexKey;
+                this._saveSession();
             });
         },
 
@@ -124,7 +120,7 @@ define([
             const data = _.pick(model.attributes, model.encryptKeys);
 
             return this.encrypt(data)
-            .then(function(encrypted) {
+            .then(encrypted => {
                 model.set('encryptedData', encrypted);
                 return model;
             });
@@ -139,34 +135,29 @@ define([
         },
 
         encryptModels: function(collection) {
-            if (!this._isEncryptable(collection)) {
+            if (!this._checkEncryptModelsPreconditions(collection)) {
                 return new Q();
             }
 
             this._triggerEncryptingModels(collection);
 
-            const promises = this._createEncryptPromises(collection);
+            const promises = this._createEncryptModelPromises(collection);
 
             return this._reducePromises(promises)
-            .fail(this._handleEncryptError);
+            .fail(e => console.error('EncryptModels Error:', e));
         },
 
         decryptModels: function(collection) {
-            if (!this._isDecryptable(collection)) {
-                return new Q();
-            }
-
-            if (!this.keys.key) {
-                Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
+            if (!this._checkDecryptModelsPreconditions(collection)) {
                 return new Q();
             }
 
             this._triggerDecryptingModels(collection);
 
-            const promises = this._createDecryptPromises(collection);
+            const promises = this._createDecryptModelPromises(collection);
 
             return this._reducePromises(promises)
-            .fail(this._handleDecryptError);
+            .fail(e => console.error('DecryptModels Error:', e));
         },
 
         _decryptModel: function(model) {
@@ -175,8 +166,8 @@ define([
                 string  : model.get('encryptedData'),
                 keys    : this.keys,
             }))
-            .then(function(data) {
-                _.each(JSON.parse(data), function(val, key) {
+            .then(data => {
+                _.each(JSON.parse(data), (val, key) => {
                     model.set(key, val);
                 });
 
@@ -186,24 +177,10 @@ define([
         },
 
         _decryptModelKeys: function(model) {
-            const promises = [];
-            const self     = this;
-
-            _.each(model.encryptKeys, function(key) {
-                promises.push(
-                    new Q(self.sjcl.decryptLegacy({
-                        configs : self.configs,
-                        string  : model.get(key),
-                        keys    : self.keys
-                    }))
-                    .then(function(data) {
-                        model.set(key, data);
-                    })
-                );
-            }, this);
+            const promises = this._createLegacyDecryptPromises(model);
 
             return Q.all(promises)
-            .then(function() {
+            .then(() => {
                 Radio.trigger('encrypt', 'decrypted:model', model);
                 return model;
             });
@@ -226,117 +203,84 @@ define([
             }
 
             const keysStr = window.sessionStorage.getItem(this._getSessionKey());
-            let keys;
             try {
-                keys = JSON.parse(keysStr);
+                const keys = JSON.parse(keysStr);
                 this.keys = keys || this.keys;
+                return keys;
             } catch (e) {
-                keys = null;
+                return null;
             }
-
-            return keys;
         },
 
         _getSessionKey: function() {
-            let profile = Radio.request('uri', 'profile') || 'default';
-            profile = (Number(this.configs.useDefaultConfigs) ? 'default' : profile);
-            return 'secureKey.' + profile;
+            const profile = Radio.request('uri', 'profile') || 'default';
+            const finalProfile = Number(this.configs.useDefaultConfigs) ? 'default' : profile;
+            return 'secureKey.' + finalProfile;
         },
 
-        /**
-         * Determine if collection can be encrypted.
-         * @private
-         * @param {Backbone.Collection} collection
-         * @returns {boolean}
-         */
-        _isEncryptable: function(collection) {
+        /* ------------------------------------------------------------------ */
+        /* Private helper methods for encryptModels and decryptModels        */
+        /* ------------------------------------------------------------------ */
+
+        _checkEncryptModelsPreconditions: function(collection) {
             return collection.length && Number(this.configs.encrypt) && this.keys.key;
         },
 
-        /**
-         * Trigger encrypting models event.
-         * @private
-         * @param {Backbone.Collection} collection
-         */
         _triggerEncryptingModels: function(collection) {
             Radio.trigger('encrypt', 'encrypting:models', collection);
         },
 
-        /**
-         * Create array of promise-returning functions for encrypting models.
-         * @private
-         * @param {Backbone.Collection} collection
-         * @returns {Array<Function>}
-         */
-        _createEncryptPromises: function(collection) {
+        _createEncryptModelPromises: function(collection) {
             const self = this;
-            return collection.map(function(model) {
-                return function() {
-                    return new Q(self.encryptModel(model));
-                };
-            });
+            const promises = [];
+            collection.each(function(model) {
+                promises.push(() => new Q(self.encryptModel(model)));
+            }, this);
+            return promises;
         },
 
-        /**
-         * Reduce array of promise-returning functions into a single promise.
-         * @private
-         * @param {Array<Function>} promises
-         * @returns {Q.Promise}
-         */
-        _reducePromises: function(promises) {
-            return _.reduce(promises, Q.when, new Q());
+        _checkDecryptModelsPreconditions: function(collection) {
+            if (!collection.length || !Number(this.configs.encrypt)) {
+                return false;
+            }
+            if (!this.keys.key) {
+                Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
+                return false;
+            }
+            return true;
         },
 
-        /**
-         * Handle errors during encrypting models.
-         * @private
-         * @param {Error} e
-         */
-        _handleEncryptError: function(e) {
-            console.error('EncryptModels Error:', e);
-        },
-
-        /**
-         * Determine if collection can be decrypted.
-         * @private
-         * @param {Backbone.Collection} collection
-         * @returns {boolean}
-         */
-        _isDecryptable: function(collection) {
-            return collection.length && Number(this.configs.encrypt);
-        },
-
-        /**
-         * Trigger decrypting models event.
-         * @private
-         * @param {Backbone.Collection} collection
-         */
         _triggerDecryptingModels: function(collection) {
             Radio.trigger('encrypt', 'decrypting:models', collection);
         },
 
-        /**
-         * Create array of promise-returning functions for decrypting models.
-         * @private
-         * @param {Backbone.Collection} collection
-         * @returns {Array<Function>}
-         */
-        _createDecryptPromises: function(collection) {
+        _createDecryptModelPromises: function(collection) {
             const self = this;
-            return collection.map(function(model) {
-                return function() {
-                    return new Q(self.decryptModel(model));
-                };
-            });
+            const promises = [];
+            collection.each(function(model) {
+                promises.push(() => new Q(self.decryptModel(model)));
+            }, this);
+            return promises;
         },
 
-        /**
-         * Handle errors during decrypting models.
-         * @private
-         * @param {Error} e
-         */
-        _handleDecryptError: function(e) {
-            console.error('DecryptModels Error:', e);
+        _reducePromises: function(promises) {
+            return _.reduce(promises, Q.when, new Q());
+        },
+
+        _createLegacyDecryptPromises: function(model) {
+            const self = this;
+            const promises = [];
+            _.each(model.encryptKeys, function(key) {
+                promises.push(
+                    new Q(self.sjcl.decryptLegacy({
+                        configs : self.configs,
+                        string  : model.get(key),
+                        keys    : self.keys
+                    }))
+                    .then(data => model.set(key, data))
+                );
+            }, this);
+            return promises;
         }
 
     });

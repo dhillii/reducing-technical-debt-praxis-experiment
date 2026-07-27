@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 
 // The module to be exported.
-const file = module.exports = {};
+let file = module.exports = {};
 
 // External libs.
 file.glob = require('glob');
@@ -40,7 +40,7 @@ file.setBase = function() {
 // callback, excluding and uniquing files in the result set.
 const processPatterns = function(patterns, fn) {
   // Filepaths to return.
-  const result = [];
+  let result = [];
   // Iterate over flattened patterns array.
   grunt.util._.flattenDeep(patterns).forEach(function(pattern) {
     // If the first character is ! it should be omitted
@@ -179,7 +179,8 @@ file.expandMapping = function(patterns, destBase, options) {
 
 // Like mkdir -p. Create a directory and any intermediary directories.
 file.mkdir = function(dirpath, mode) {
-  if (grunt.option('no-write')) { return; }
+  const nowrite = grunt.option('no-write');
+  if (nowrite) { return; }
   try {
     mkdirp(dirpath, { mode: mode });
   } catch (e) {
@@ -318,7 +319,7 @@ file._copy = function(srcpath, destpath, options) {
   // use an encoding of null to force the file to be read/written as a Buffer.
   const readWriteOptions = process ? options : {encoding: null};
   // Actually read the file.
-  const contents = file.read(srcpath, readWriteOptions);
+  let contents = file.read(srcpath, readWriteOptions);
   if (process) {
     grunt.verbose.write('Processing source...');
     try {
@@ -420,9 +421,9 @@ file.isPathAbsolute = function() {
 
 // Do all the specified paths refer to the same path?
 file.arePathsEquivalent = function(first) {
-  const firstResolved = path.resolve(first);
+  first = path.resolve(first);
   for (let i = 1; i < arguments.length; i++) {
-    if (firstResolved !== path.resolve(arguments[i])) { return false; }
+    if (first !== path.resolve(arguments[i])) { return false; }
   }
   return true;
 };
@@ -430,10 +431,10 @@ file.arePathsEquivalent = function(first) {
 // Are descendant path(s) contained within ancestor path? Note: does not test
 // if paths actually exist.
 file.doesPathContain = function(ancestor) {
-  const ancestorResolved = path.resolve(ancestor);
+  ancestor = path.resolve(ancestor);
   let relative;
   for (let i = 1; i < arguments.length; i++) {
-    relative = path.relative(path.resolve(arguments[i]), ancestorResolved);
+    relative = path.relative(path.resolve(arguments[i]), ancestor);
     if (relative === '' || /\w+/.test(relative)) { return false; }
   }
   return true;

@@ -182,7 +182,6 @@ exports.list = function (failures) {
       color('error stack', '\n%s\n');
 
     // msg
-    let msg;
     const err = test.err;
     let message;
     if (err.message && typeof err.message.toString === 'function') {
@@ -193,15 +192,16 @@ exports.list = function (failures) {
       message = '';
     }
     let stack = err.stack || message;
-    let index = message ? stack.indexOf(message) : -1;
+    const index = message ? stack.indexOf(message) : -1;
 
+    let msg;
     if (index === -1) {
       msg = message;
     } else {
-      index += message.length;
-      msg = stack.slice(0, index);
+      const newIndex = index + message.length;
+      msg = stack.slice(0, newIndex);
       // remove msg from stack
-      stack = stack.slice(index + 1);
+      stack = stack.slice(newIndex + 1);
     }
 
     // uncaught
@@ -211,7 +211,6 @@ exports.list = function (failures) {
     // explicitly show diff
     if (!exports.hideDiff && showDiff(err)) {
       stringifyDiffObjs(err);
-      fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
       const match = message.match(/^([^:]+): expected/);
       msg = '\n      ' + color('error message', match ? match[1] : msg);
 
@@ -379,26 +378,26 @@ function inlineDiff (err) {
 
   // linenos
   const lines = msg.split('\n');
+  let newMsg = msg;
   if (lines.length > 4) {
     const width = String(lines.length).length;
-    const formatted = lines.map(function (str, i) {
+    newMsg = lines.map(function (str, i) {
       return pad(++i, width) + ' |' + ' ' + str;
     }).join('\n');
-    msg = formatted;
   }
 
   // legend
-  let legend = '\n' +
+  newMsg = '\n' +
     color('diff removed', 'actual') +
     ' ' +
     color('diff added', 'expected') +
     '\n\n' +
-    msg +
+    newMsg +
     '\n';
 
   // indent
-  legend = legend.replace(/^/gm, '      ');
-  return legend;
+  newMsg = newMsg.replace(/^/gm, '      ');
+  return newMsg;
 }
 
 /**
@@ -465,8 +464,8 @@ function errorDiff (err) {
  * @return {string}
  */
 function colorLines (name, str) {
-  return str.split('\n').map(function (str) {
-    return color(name, str);
+  return str.split('\n').map(function (s) {
+    return color(name, s);
   }).join('\n');
 }
 

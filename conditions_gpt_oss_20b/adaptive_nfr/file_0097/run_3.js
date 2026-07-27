@@ -57,7 +57,7 @@ define([
             }
 
             const success = options.success;
-            const self    = this;
+            const self = this;
 
             options.success = function(resp) {
 
@@ -200,6 +200,42 @@ define([
             return this.models;
         },
 
+        /**
+         * @private
+         * @param {boolean} hasNext
+         * @param {boolean} hasPrev
+         * @param {string} eventNext
+         * @param {string} eventPrev
+         * @param {string} eventEnd
+         * @param {string} eventStart
+         */
+        _triggerPageEvent: function(hasNext, hasPrev, eventNext, eventPrev, eventEnd, eventStart) {
+            if (hasNext) {
+                return this.trigger(eventNext);
+            }
+            if (hasPrev) {
+                return this.trigger(eventPrev);
+            }
+            return this.trigger(eventEnd);
+        },
+
+        /**
+         * @private
+         * @param {number} index
+         * @param {boolean} hasNext
+         * @param {boolean} hasPrev
+         * @param {string} eventNext
+         * @param {string} eventPrev
+         * @param {string} eventEnd
+         * @param {string} eventStart
+         */
+        _handleNavigation: function(index, hasNext, hasPrev, eventNext, eventPrev, eventEnd, eventStart) {
+            if (index >= this.models.length) {
+                return this._triggerPageEvent(hasNext, hasPrev, eventNext, eventPrev, eventEnd, eventStart);
+            }
+            Radio.trigger(this.storeName, 'model:navigate', this.at(index));
+        },
+
         getNextItem: function(id) {
             // The collection is empty
             if (this.length === 0) {
@@ -211,8 +247,13 @@ define([
 
             // It is the last model on this page
             if (index >= this.models.length) {
-                return this.trigger(
-                    this.hasNextPage() ? 'page:next' : 'page:end'
+                return this._triggerPageEvent(
+                    this.hasNextPage(),
+                    this.hasPreviousPage(),
+                    'page:next',
+                    'page:previous',
+                    'page:end',
+                    'page:start'
                 );
             }
 
@@ -230,8 +271,13 @@ define([
 
             // It is the first model on this page
             if (index < 0) {
-                return this.trigger(
-                    this.hasPreviousPage() ? 'page:previous' : 'page:start'
+                return this._triggerPageEvent(
+                    this.hasNextPage(),
+                    this.hasPreviousPage(),
+                    'page:next',
+                    'page:previous',
+                    'page:end',
+                    'page:start'
                 );
             }
 
@@ -244,26 +290,27 @@ define([
          * @type object Backbone model
          */
         _navigateOnRemove: function(model) {
-            model     = this.get(model.id);
+            model = this.get(model.id);
             if (!model) {
                 return false;
             }
 
             const coll  = this.fullCollection || this;
-            let index = this.indexOf(model);
+            const index = this.indexOf(model);
 
             coll.remove(model);
             this.sortFullCollection();
 
-            if (!this.at(index)) {
-                index--;
+            let targetIndex = index;
+            if (!this.at(targetIndex)) {
+                targetIndex--;
             }
 
-            if (!this.at(index)) {
+            if (!this.at(targetIndex)) {
                 return this.hasPreviousPage() ? this.trigger('page:previous') : null;
             }
 
-            Radio.trigger(this.storeName, 'model:navigate', this.at(index));
+            Radio.trigger(this.storeName, 'model:navigate', this.at(targetIndex));
         },
 
         /**

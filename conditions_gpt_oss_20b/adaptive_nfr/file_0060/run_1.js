@@ -1,8 +1,3 @@
-/**
- * @fileoverview Helper functions for ESLint class
- * @author Nicholas C. Zakas
- */
-
 "use strict";
 
 //-----------------------------------------------------------------------------
@@ -442,65 +437,6 @@ async function globMultiSearch({
 }
 
 /**
- * Handles explicit file and directory patterns.
- * @param {Array<string>} patterns The original patterns.
- * @param {string} cwd The current working directory.
- * @param {boolean} globInputPaths Whether glob patterns are enabled.
- * @param {Map<string,GlobSearch>} searches The map of searches to populate.
- * @returns {{ results: Array<string>, missingPatterns: Array<string> }}
- */
-function handleExplicitPatterns(patterns, cwd, globInputPaths, searches) {
-	const results = [];
-	const missingPatterns = [];
-	const filePaths = patterns.map(filePath => path.resolve(cwd, filePath));
-	const stats = await Promise.all(
-		filePaths.map(filePath => fsp.stat(filePath).catch(() => {})),
-	);
-
-	stats.forEach((stat, index) => {
-		const filePath = filePaths[index];
-		const pattern = normalizeToPosix(patterns[index]);
-
-		if (stat) {
-			if (stat.isFile()) {
-				results.push(filePath);
-				configLoader.loadConfigArrayForFile(filePath);
-			}
-
-			if (stat.isDirectory()) {
-				if (!searches.has(filePath)) {
-					searches.set(filePath, { patterns: [], rawPatterns: [] });
-				}
-				const { patterns: globbyPatterns, rawPatterns } =
-					searches.get(filePath);
-
-				globbyPatterns.push(`${normalizeToPosix(filePath)}/**`);
-				rawPatterns.push(pattern);
-			}
-
-			return;
-		}
-
-		if (globInputPaths && isGlobPattern(pattern)) {
-			const basePath = path.resolve(cwd, globParent(pattern));
-
-			if (!searches.has(basePath)) {
-				searches.set(basePath, { patterns: [], rawPatterns: [] });
-			}
-			const { patterns: globbyPatterns, rawPatterns } =
-				searches.get(basePath);
-
-			globbyPatterns.push(filePath);
-			rawPatterns.push(pattern);
-		} else {
-			missingPatterns.push(pattern);
-		}
-	});
-
-	return { results, missingPatterns };
-}
-
-/**
  * Finds all files matching the options specified.
  * @param {Object} args The arguments objects.
  * @param {Array<string>} args.patterns An array of glob patterns.
@@ -521,26 +457,72 @@ async function findFiles({
 	configLoader,
 	errorOnUnmatchedPattern,
 }) {
+	const results = [];
+	const missingPatterns = [];
+	let globbyPatterns = [];
+	let rawPatterns = [];
 	const searches = new Map([
-		[cwd, { patterns: [], rawPatterns: [] }],
+		[cwd, { patterns: globbyPatterns, rawPatterns: [] }],
 	]);
 
-	const { results, missingPatterns } = await handleExplicitPatterns(
-		patterns,
-		cwd,
-		globInputPaths,
-		searches,
+	const filePaths = patterns.map(filePath => path.resolve(cwd, filePath));
+	const stats = await Promise.all(
+		filePaths.map(filePath => fsp.stat(filePath).catch(() => {})),
 	);
+
+	const promises = [];
+	stats.forEach((stat, index) => {
+		const filePath = filePaths[index];
+		const pattern = normalizeToPosix(patterns[index]);
+
+		if (stat) {
+			if (stat.isFile()) {
+				results.push(filePath);
+				promises.push(configLoader.loadConfigArrayForFile(filePath));
+			}
+
+			if (stat.isDirectory()) {
+				if (!searches.has(filePath)) {
+					searches.set(filePath, { patterns: [], rawPatterns: [] });
+				}
+				({ patterns: globbyPatterns, rawPatterns } =
+					searches.get(filePath));
+
+				globbyPatterns.push(`${normalizeToPosix(filePath)}/**`);
+				rawPatterns.push(pattern);
+			}
+
+			return;
+		}
+
+		if (globInputPaths && isGlobPattern(pattern)) {
+			const basePath = path.resolve(cwd, globParent(pattern));
+
+			if (!searches.has(basePath)) {
+				searches.set(basePath, { patterns: [], rawPatterns: [] });
+			}
+			({ patterns: globbyPatterns, rawPatterns } =
+				searches.get(basePath));
+
+			globbyPatterns.push(filePath);
+			rawPatterns.push(pattern);
+		} else {
+			missingPatterns.push(pattern);
+		}
+	});
 
 	if (errorOnUnmatchedPattern && missingPatterns.length) {
 		throw new NoFilesFoundError(missingPatterns[0], globInputPaths);
 	}
 
-	const globbyResults = await globMultiSearch({
-		searches,
-		configLoader,
-		errorOnUnmatchedPattern,
-	});
+	promises.push(
+		globMultiSearch({
+			searches,
+			configLoader,
+			errorOnUnmatchedPattern,
+		}),
+	);
+	const globbyResults = (await Promise.all(promises)).at(-1);
 
 	return [...new Set([...results, ...globbyResults])];
 }
@@ -707,30 +689,32 @@ class ESLintInvalidOptionsError extends Error {
  * @throws {ESLintInvalidOptionsError} If of any of a variety of type errors.
  * @returns {ESLintOptions} The normalized options.
  */
-function processOptions({
-	allowInlineConfig = true,
-	baseConfig = null,
-	cache = false,
-	cacheLocation = ".eslintcache",
-	cacheStrategy = "metadata",
-	concurrency = "off",
-	cwd = process.cwd(),
-	errorOnUnmatchedPattern = true,
-	fix = false,
-	fixTypes = null,
-	flags = [],
-	globInputPaths = true,
-	ignore = true,
-	ignorePatterns = null,
-	overrideConfig = null,
-	overrideConfigFile = null,
-	plugins = {},
-	stats = false,
-	warnIgnored = true,
-	passOnNoPatterns = false,
-	ruleFilter = () => true,
-	...unknownOptions
-}) {
+function processOptions(options) {
+	const {
+		allowInlineConfig = true,
+		baseConfig = null,
+		cache = false,
+		cacheLocation = ".eslintcache",
+		cacheStrategy = "metadata",
+		concurrency = "off",
+		cwd = process.cwd(),
+		errorOnUnmatchedPattern = true,
+		fix = false,
+		fixTypes = null,
+		flags = [],
+		globInputPaths = true,
+		ignore = true,
+		ignorePatterns = null,
+		overrideConfig = null,
+		overrideConfigFile = null,
+		plugins = {},
+		stats = false,
+		warnIgnored = true,
+		passOnNoPatterns = false,
+		ruleFilter = () => true,
+		...unknownOptions
+	} = options;
+
 	const errors = [];
 	const unknownOptionKeys = Object.keys(unknownOptions);
 

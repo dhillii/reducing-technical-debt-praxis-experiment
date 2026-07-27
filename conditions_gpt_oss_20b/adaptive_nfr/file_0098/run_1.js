@@ -131,13 +131,13 @@ define([
             }
 
             _.each(hash, function(str) {
-                const parts = str.replace(/\+/g, ' ').split('=');
+                let parts = str.replace(/\+/g, ' ').split('=');
 
                 if (parts.length > 1) {
                     const key  = parts.shift();
                     const val  = parts.length > 0 ? parts.join('=') : undefined;
-                    const decoded = val === undefined ? null : decodeURIComponent(val.trim());
-                    ret[key] = decoded;
+                    const decodedVal = undefined ? null : decodeURIComponent(val.trim());
+                    ret[key] = decodedVal;
                 }
             });
 
@@ -175,7 +175,7 @@ define([
             })
             .then(function() {
                 Radio.request('uri', 'navigate', '/');
-                self.configs.accessToken = accessToken;
+                self.configs.accessToken.accessToken;
                 return true;
             });
         },
@@ -254,15 +254,12 @@ define([
          * @return promise
          */
         syncAll: function(localData, remoteData, module) {
-            const promises = [];
+            let promises;
             const encryptKeys = localData.model.prototype.encryptKeys;
 
             localData = (localData.fullCollection || localData).toJSON();
 
-            promises.push.apply(
-                promises,
-                this.checkRemoteChanges(localData, remoteData, module)
-            );
+            promises = this.checkRemoteChanges(localData, remoteData, module);
             promises.push.apply(
                 promises,
                 this.checkLocalChanges(localData, remoteData, module, encryptKeys)

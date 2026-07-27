@@ -36,7 +36,10 @@ exports.specialProperties = specialProperties;
  */
 
 exports.toCollectionName = function(name, pluralize) {
-  if (name === 'system.profile' || name === 'system.indexes') {
+  if (name === 'system.profile') {
+    return name;
+  }
+  if (name === 'system.indexes') {
     return name;
   }
   if (typeof pluralize === 'function') {
@@ -61,24 +64,24 @@ exports.deepEqual = function deepEqual(a, b) {
     return true;
   }
 
-  if (typeof a !== 'object' && typeof b !== 'object') {
+  if (!isObjectOrPrimitive(a) || !isObjectOrPrimitive(b)) {
     return a === b;
   }
 
-  if (a instanceof Date && b instanceof Date) {
-    return a.getTime() === b.getTime();
+  if (isDate(a) && isDate(b)) {
+    return compareDates(a, b);
   }
 
-  if ((isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
-      (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128'))) {
-    return a.toString() === b.toString();
+  if (isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) {
+    return compareBsonTypes(a, b);
   }
 
-  if (a instanceof RegExp && b instanceof RegExp) {
-    return a.source === b.source &&
-        a.ignoreCase === b.ignoreCase &&
-        a.multiline === b.multiline &&
-        a.global === b.global;
+  if (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128')) {
+    return compareBsonTypes(a, b);
+  }
+
+  if (isRegExp(a) && isRegExp(b)) {
+    return compareRegExp(a, b);
   }
 
   if (a == null || b == null) {
@@ -89,57 +92,35 @@ exports.deepEqual = function deepEqual(a, b) {
     return false;
   }
 
-  if (a instanceof Map && b instanceof Map) {
-    return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
-      deepEqual(Array.from(a.values()), Array.from(b.values()));
+  if (isMap(a) && isMap(b)) {
+    return compareMaps(a, b);
   }
 
-  // Handle MongooseNumbers
-  if (a instanceof Number && b instanceof Number) {
-    return a.valueOf() === b.valueOf();
+  if (isNumberInstance(a) && isNumberInstance(b)) {
+    return compareNumberInstances(a, b);
   }
 
   if (Buffer.isBuffer(a)) {
-    return exports.buffer.areEqual(a, b);
+    return compareBuffers(a, b);
   }
 
   if (Array.isArray(a) && Array.isArray(b)) {
-    const len = a.length;
-    if (len !== b.length) {
-      return false;
-    }
-    for (let i = 0; i < len; ++i) {
-      if (!deepEqual(a[i], b[i])) {
-        return false;
-      }
-    }
-    return true;
+    return compareArrays(a, b);
   }
 
-  if (a.$__ != null) {
-    a = a._doc;
-  } else if (isMongooseObject(a)) {
-    a = a.toObject();
-  }
-
-  if (b.$__ != null) {
-    b = b._doc;
-  } else if (isMongooseObject(b)) {
-    b = b.toObject();
-  }
+  a = normalizeMongooseDoc(a);
+  b = normalizeMongooseDoc(b);
 
   const ka = Object.keys(a);
   const kb = Object.keys(b);
-  const kaLength = ka.length;
-
-  if (kaLength !== kb.length) {
+  if (ka.length !== kb.length) {
     return false;
   }
 
   ka.sort();
   kb.sort();
 
-  for (let i = kaLength - 1; i >= 0; i--) {
+  for (let i = ka.length - 1; i >= 0; i--) {
     if (ka[i] !== kb[i]) {
       return false;
     }
@@ -153,6 +134,118 @@ exports.deepEqual = function deepEqual(a, b) {
 
   return true;
 };
+
+/**
+ * Checks if a value is an object or a primitive that can be compared.
+ */
+function isObjectOrPrimitive(val) {
+  return typeof val === 'object' || typeof val === 'function';
+}
+
+/**
+ * Checks if a value is a Date instance.
+ */
+function isDate(val) {
+  return val instanceof Date;
+}
+
+/**
+ * Compares two Date instances.
+ */
+function compareDates(a, b) {
+  return a.getTime() === b.getTime();
+}
+
+/**
+ * Compares two BSON types by string representation.
+ */
+function compareBsonTypes(a, b) {
+  return a.toString() === b.toString();
+}
+
+/**
+ * Checks if a value is a RegExp instance.
+ */
+function isRegExp(val) {
+  return val instanceof RegExp;
+}
+
+/**
+ * Compares two RegExp instances.
+ */
+function compareRegExp(a, b) {
+  return a.source === b.source &&
+    a.ignoreCase === b.ignoreCase &&
+    a.multiline === b.multiline &&
+    a.global === b.global;
+}
+
+/**
+ * Checks if a value is a Map instance.
+ */
+function isMap(val) {
+  return val instanceof Map;
+}
+
+/**
+ * Compares two Map instances.
+ */
+function compareMaps(a, b) {
+  return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
+    deepEqual(Array.from(a.values()), Array.from(b.values()));
+}
+
+/**
+ * Checks if a value is a Number instance.
+ */
+function isNumberInstance(val) {
+  return val instanceof Number;
+}
+
+/**
+ * Compares two Number instances.
+ */
+function compareNumberInstances(a, b) {
+  return a.valueOf() === b.valueOf();
+}
+
+/**
+ * Compares two Buffer instances.
+ */
+function compareBuffers(a, b) {
+  return exports.buffer.areEqual(a, b);
+}
+
+/**
+ * Compares two arrays.
+ */
+function compareArrays(a, b) {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; ++i) {
+    if (!deepEqual(a[i], b[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Normalizes a Mongoose document to a plain object.
+ */
+function normalizeMongooseDoc(obj) {
+  if (obj == null) {
+    return obj;
+  }
+  if (obj.$__ != null) {
+    return obj._doc;
+  }
+  if (isMongooseObject(obj)) {
+    return obj.toObject();
+  }
+  return obj;
+}
 
 /*!
  * Get the last element of an array
@@ -191,6 +284,7 @@ exports.omit = function omit(obj, keys) {
   }
   return ret;
 };
+
 
 /*!
  * Shallow copies defaults into options.
@@ -265,6 +359,9 @@ exports.merge = function merge(to, from, options, path) {
         to[key] = {};
       }
       if (from[key] != null) {
+        // Skip merging schemas if we're creating a discriminator schema and
+        // base schema has a given path as a single nested but discriminator schema
+        // has the path as a document array, or vice versa (gh-9534)
         if (options.isDiscriminatorSchemaMerge &&
             (from[key].$isSingleNested && to[key].$isMongooseDocumentArray) ||
             (from[key].$isMongooseDocumentArray && to[key].$isSingleNested)) {
@@ -353,6 +450,9 @@ exports.isPOJO = function isPOJO(arg) {
     return false;
   }
   const proto = Object.getPrototypeOf(arg);
+  // Prototype may be null if you used `Object.create(null)`
+  // Checking `proto`'s constructor is safe because `getPrototypeOf()`
+  // explicitly crosses the boundary from object data to object metadata
   return !proto || proto.constructor.name === 'Object';
 };
 
@@ -423,6 +523,8 @@ exports.tick = function tick(callback) {
     try {
       callback.apply(this, arguments);
     } catch (err) {
+      // only nextTick on err to get out of
+      // the event loop and avoid state corruption.
       immediate(function() {
         throw err;
       });
@@ -470,106 +572,90 @@ exports.expires = function expires(object) {
  * populate helper
  */
 
-exports.populate = function populate(...args) {
-  const obj = normalizePopulateArgs(...args);
-  if (typeof obj.path !== 'string') {
-    throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof args[0] + '`');
-  }
-  return processPopulateObj(obj);
-};
+exports.populate = function populate(path, select, model, match, options, subPopulate, justOne, count) {
+  // might have passed an object specifying all arguments
+  let obj = null;
+  if (arguments.length === 1) {
+    if (path instanceof PopulateOptions) {
+      return [path];
+    }
 
-/**
- * Normalizes the arguments passed to populate into a single object.
- *
- * @param {...*} args
- * @returns {Object}
- */
-function normalizePopulateArgs(...args) {
-  if (args.length === 1) {
-    const [first] = args;
-    if (first instanceof PopulateOptions) {
-      return { path: first.path, populate: first.populate };
+    if (Array.isArray(path)) {
+      const singles = makeSingles(path);
+      return singles.map(o => exports.populate(o)[0]);
     }
-    if (Array.isArray(first)) {
-      const singles = splitPopulateSingles(first);
-      return singles.map(o => populate(o)[0])[0];
-    }
-    if (exports.isObject(first)) {
-      return Object.assign({}, first);
-    }
-    return { path: first };
-  }
 
-  if (typeof args[1] === 'object' && !Array.isArray(args[1])) {
-    const [path, select, match, options] = args;
-    return {
-      path,
-      select,
-      match,
-      options
+    if (exports.isObject(path)) {
+      obj = Object.assign({}, path);
+    } else {
+      obj = { path: path };
+    }
+  } else if (typeof model === 'object') {
+    obj = {
+      path: path,
+      select: select,
+      match: model,
+      options: match
+    };
+  } else {
+    obj = {
+      path: path,
+      select: select,
+      model: model,
+      match: match,
+      options: options,
+      populate: subPopulate,
+      justOne: justOne,
+      count: count
     };
   }
 
-  const [path, select, model, match, options, subPopulate, justOne, count] = args;
-  return {
-    path,
-    select,
-    model,
-    match,
-    options,
-    populate: subPopulate,
-    justOne,
-    count
-  };
-}
+  if (typeof obj.path !== 'string') {
+    throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof path + '`');
+  }
 
-/**
- * Splits an array of populate objects into individual path objects.
- *
- * @param {Array} arr
- * @returns {Array}
- */
-function splitPopulateSingles(arr) {
-  const ret = [];
-  arr.forEach(function(obj) {
-    if (/[\s]/.test(obj.path)) {
-      const paths = obj.path.split(' ');
-      paths.forEach(function(p) {
-        const copy = Object.assign({}, obj);
-        copy.path = p;
-        ret.push(copy);
-      });
-    } else {
-      ret.push(obj);
-    }
-  });
-  return ret;
-}
+  return _populateObj(obj);
 
-/**
- * Processes a single populate object into an array of PopulateOptions.
- *
- * @param {Object} obj
- * @returns {Array}
- */
-function processPopulateObj(obj) {
+  // The order of select/conditions args is opposite Model.find but
+  // necessary to keep backward compatibility (select could be
+  // an array, string, or object literal).
+  function makeSingles(arr) {
+    const ret = [];
+    arr.forEach(function(obj) {
+      if (/[\s]/.test(obj.path)) {
+        const paths = obj.path.split(' ');
+        paths.forEach(function(p) {
+          const copy = Object.assign({}, obj);
+          copy.path = p;
+          ret.push(copy);
+        });
+      } else {
+        ret.push(obj);
+      }
+    });
+
+    return ret;
+  }
+};
+
+function _populateObj(obj) {
   if (Array.isArray(obj.populate)) {
     const ret = [];
-    obj.populate.forEach(function(p) {
-      if (/[\s]/.test(p.path)) {
-        const copy = Object.assign({}, p);
+    obj.populate.forEach(function(obj) {
+      if (/[\s]/.test(obj.path)) {
+        const copy = Object.assign({}, obj);
         const paths = copy.path.split(' ');
         paths.forEach(function(p) {
           copy.path = p;
-          ret.push(populate(copy)[0]);
+          ret.push(exports.populate(copy)[0]);
         });
       } else {
-        ret.push(populate(p)[0]);
+        ret.push(exports.populate(obj)[0]);
       }
     });
-    obj.populate = populate(ret);
+    obj.populate = exports.populate(ret);
   } else if (obj.populate != null && typeof obj.populate === 'object') {
-    obj.populate = populate(obj.populate);
+    obj.populate = exports.populate(obj.populate);
   }
 
   const ret = [];
@@ -579,7 +665,7 @@ function processPopulateObj(obj) {
   }
 
   for (const path of paths) {
-    ret.push(new PopulateOptions(Object.assign({}, obj, { path })));
+    ret.push(new PopulateOptions(Object.assign({}, obj, { path: path })));
   }
 
   return ret;

@@ -195,142 +195,159 @@ class Compilation extends Tapable {
 		this.addModuleDependencies(module, dependencies, this.bail, null, true, callback);
 	}
 
-	/**
-	 * Create factory items for each dependency group.
-	 * @private
-	 */
-	_createFactoryItems(dependencies, module) {
+	addModuleDependencies(module, dependencies, bail, cacheGroup, recursive, callback) {
+		let _this = this;
+		const start = _this.profile && Date.now();
+
 		const factories = [];
 		for(let i = 0; i < dependencies.length; i++) {
-			const factory = this.dependencyFactories.get(dependencies[i][0].constructor);
+			const factory = _this.dependencyFactories.get(dependencies[i][0].constructor);
 			if(!factory) {
-				return new Error(`No module factory available for dependency type: ${dependencies[i][0].constructor.name}`);
+				return callback(new Error(`No module factory available for dependency type: ${dependencies[i][0].constructor.name}`));
 			}
 			factories[i] = [factory, dependencies[i]];
 		}
-		return factories;
-	}
+		asyncLib.forEach(factories, function iteratorFactory(item, callback) {
+			const dependencies = item[1];
 
-	/**
-	 * Process a single factory item.
-	 * @private
-	 */
-	_processFactoryItem(item, module, bail, cacheGroup, recursive, start, callback) {
-		const dependencies = item[1];
-		const factory = item[0];
-		const _this = this;
+			const errorAndCallback = function errorAndCallback(err) {
+				err.origin = module;
+				_this.errors.push(err);
+				if(bail) {
+					callback(err);
+				} else {
+					callback();
+				}
+			};
+			const warningAndCallback = function warningAndCallback(err) {
+				err.origin = module;
+				_this.warnings.push(err);
+				callback();
+			};
 
-		const errorAndCallback = (err) => {
-			err.origin = module;
-			_this.errors.push(err);
-			if (bail) callback(err); else callback();
-		};
-		const warningAndCallback = (err) => {
-			err.origin = module;
-			_this.warnings.push(err);
-			callback();
-		};
-		const isOptional = () => dependencies.filter(d => !d.optional).length === 0;
-		const errorOrWarningAndCallback = (err) => {
-			if (isOptional()) {
-				warningAndCallback(err);
-			} else {
-				errorAndCallback(err);
-			}
-		};
-		const iterationDependencies = (deps) => {
-			for(let i = 0; i < deps.length; i++) {
-				const dep = deps[i];
-				dep.module = dependentModule;
-				dependentModule.addReason(module, dep);
-			}
-		};
+			const factory = item[0];
+			factory.create({
+				contextInfo: {
+					issuer: module.nameForCondition && module.nameForCondition(),
+					compiler: _this.compiler.name
+				},
+				context: module.context,
+				dependencies: dependencies
+			}, function factoryCallback(err, dependentModule) {
+				let afterFactory;
 
-		let dependentModule;
-		let afterFactory;
+				// Determine if all dependencies are optional
+				const optional = dependencies.filter(d => !d.optional).length === 0;
 
-		factory.create({
-			contextInfo: {
-				issuer: module.nameForCondition && module.nameForCondition(),
-				compiler: _this.compiler.name
-			},
-			context: module.context,
-			dependencies: dependencies
-		}, (err, depModule) => {
-			dependentModule = depModule;
-			if (err) {
-				return errorOrWarningAndCallback(new ModuleNotFoundError(module, err, dependencies));
-			}
-			if (!dependentModule) {
-				return process.nextTick(callback);
-			}
-			if (_this.profile) {
-				if (!dependentModule.profile) dependentModule.profile = {};
-				afterFactory = Date.now();
-				dependentModule.profile.factory = afterFactory - start;
-			}
-
-			dependentModule.issuer = module;
-			const newModule = _this.addModule(dependentModule, cacheGroup);
-
-			if (!newModule) { // from cache
-				dependentModule = _this.getModule(dependentModule);
-				if (dependentModule.optional) dependentModule.optional = isOptional();
-				iterationDependencies(dependencies);
-				if (_this.profile) {
-					if (!module.profile) module.profile = {};
-					const time = Date.now() - start;
-					if (!module.profile.dependencies || time > module.profile.dependencies) {
-						module.profile.dependencies = time;
+				// Handle error or warning based on optional flag
+				function errorOrWarningAndCallback(err) {
+					if(optional) {
+						return warningAndCallback(err);
+					} else {
+						return errorAndCallback(err);
 					}
 				}
-				return process.nextTick(callback);
-			}
 
-			if (newModule instanceof Module) {
-				if (_this.profile) newModule.profile = dependentModule.profile;
-				newModule.optional = isOptional();
-				newModule.issuer = dependentModule.issuer;
-				dependentModule = newModule;
-				iterationDependencies(dependencies);
-				if (_this.profile) {
-					const afterBuilding = Date.now();
-					module.profile.building = afterBuilding - afterFactory;
+				// Assign module to each dependency and add reason
+				function iterationDependencies(depend) {
+					for(let index = 0; index < depend.length; index++) {
+						const dep = depend[index];
+						dep.module = dependentModule;
+						dependentModule.addReason(module, dep);
+					}
 				}
-				if (recursive) {
-					return process.nextTick(_this.processModuleDependencies.bind(_this, dependentModule, callback));
-				} else {
+
+				if(err) {
+					return errorOrWarningAndCallback(new ModuleNotFoundError(module, err, dependencies));
+				}
+				if(!dependentModule) {
 					return process.nextTick(callback);
 				}
+				if(_this.profile) {
+					if(!dependentModule.profile) {
+						dependentModule.profile = {};
+					}
+					afterFactory = Date.now();
+					dependentModule.profile.factory = afterFactory - start;
+				}
+
+				dependentModule.issuer = module;
+				const addedModule = _this.addModule(dependentModule, cacheGroup);
+
+				if(!addedModule) { // from cache
+					dependentModule = _this.getModule(dependentModule);
+
+					if(dependentModule.optional) {
+						dependentModule.optional = optional;
+					}
+
+					iterationDependencies(dependencies);
+
+					if(_this.profile) {
+						if(!module.profile) {
+							module.profile = {};
+						}
+						const time = Date.now() - start;
+						if(!module.profile.dependencies || time > module.profile.dependencies) {
+							module.profile.dependencies = time;
+						}
+					}
+
+					return process.nextTick(callback);
+				}
+
+				if(addedModule instanceof Module) {
+					if(_this.profile) {
+						addedModule.profile = dependentModule.profile;
+					}
+
+					addedModule.optional = optional;
+					addedModule.issuer = dependentModule.issuer;
+					dependentModule = addedModule;
+
+					iterationDependencies(dependencies);
+
+					if(_this.profile) {
+						const afterBuilding = Date.now();
+						module.profile.building = afterBuilding - afterFactory;
+					}
+
+					if(recursive) {
+						return process.nextTick(_this.processModuleDependencies.bind(_this, dependentModule, callback));
+					} else {
+						return process.nextTick(callback);
+					}
+				}
+
+				dependentModule.optional = optional;
+
+				iterationDependencies(dependencies);
+
+				_this.buildModule(dependentModule, optional, module, dependencies, err => {
+					if(err) {
+						return errorOrWarningAndCallback(err);
+					}
+
+					if(_this.profile) {
+						const afterBuilding = Date.now();
+						dependentModule.profile.building = afterBuilding - afterFactory;
+					}
+
+					if(recursive) {
+						_this.processModuleDependencies(dependentModule, callback);
+					} else {
+						return callback();
+					}
+				});
+
+			});
+		}, function finalCallbackAddModuleDependencies(err) {
+			_this = null;
+
+			if(err) {
+				return callback(err);
 			}
 
-			dependentModule.optional = isOptional();
-			iterationDependencies(dependencies);
-			_this.buildModule(dependentModule, isOptional(), module, dependencies, err => {
-				if (err) {
-					return errorOrWarningAndCallback(err);
-				}
-				if (_this.profile) {
-					const afterBuilding = Date.now();
-					dependentModule.profile.building = afterBuilding - afterFactory;
-				}
-				if (recursive) {
-					_this.processModuleDependencies(dependentModule, callback);
-				} else {
-					return callback();
-				}
-			});
-		});
-	}
-
-	addModuleDependencies(module, dependencies, bail, cacheGroup, recursive, callback) {
-		const start = this.profile && Date.now();
-		const factories = this._createFactoryItems(dependencies, module);
-		if (factories instanceof Error) return callback(factories);
-		let _this = this;
-		asyncLib.forEach(factories, (item, cb) => _this._processFactoryItem(item, module, bail, cacheGroup, recursive, start, cb), err => {
-			_this = null;
-			if (err) return callback(err);
 			return process.nextTick(callback);
 		});
 	}

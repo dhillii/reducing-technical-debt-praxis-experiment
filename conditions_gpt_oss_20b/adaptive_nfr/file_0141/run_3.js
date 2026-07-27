@@ -199,7 +199,7 @@ class Strapi {
       this.app.use(this.router.routes()).use(this.router.allowedMethods());
 
       // Launch server.
-      await this.listen(cb);
+      this.listen(cb);
     } catch (err) {
       this.stopWithError(err);
     }
@@ -241,12 +241,14 @@ class Strapi {
       if (err) return this.stopWithError(err);
 
       // Is the project initialised?
-      const isInitialised = await Promise.resolve(utils.isInitialised(this));
+      const isInitialised = await utils.isInitialised(this);
 
       // Should the startup message be displayed?
-      const hideStartupMessage = process.env.STRAPI_HIDE_STARTUP_MESSAGE === 'true';
+      const hideStartupMessage = process.env.STRAPI_HIDE_STARTUP_MESSAGE
+        ? process.env.STRAPI_HIDE_STARTUP_MESSAGE === 'true'
+        : false;
 
-      if (!hideStartupMessage) {
+      if (hideStartupMessage === false) {
         if (!isInitialised) {
           this.logFirstStartupMessage();
         } else {
@@ -273,7 +275,7 @@ class Strapi {
           this.config.get('server.admin.autoOpen', true) !== false) ||
         !isInitialised
       ) {
-        await Promise.resolve(utils.openBrowser.call(this));
+        await utils.openBrowser.call(this);
       }
     };
 
@@ -333,7 +335,7 @@ class Strapi {
     this.middleware = modules.middlewares;
     this.hook = modules.hook;
 
-    await bootstrap(this);
+    await Promise.resolve(bootstrap(this));
 
     // init webhook runner
     this.webhookRunner = createWebhookRunner({

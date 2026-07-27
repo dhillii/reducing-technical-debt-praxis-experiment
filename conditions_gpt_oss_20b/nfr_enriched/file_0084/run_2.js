@@ -14,6 +14,7 @@ import type {
 } from '../../../../types'
 import { entriesTyped } from '../../../../lib/core/utils'
 
+// TODO: extract
 const TYPE_OPERATOR_MAP = {
   equals: '=',
   not: '≠',
@@ -52,97 +53,157 @@ function validate_(
     return `${label} must be less than or equal to ${validation.max}`
 }
 
-function createFilter(
+/**
+ * Creates the Filter component used in the controller's filter object.
+ * It renders a NumberField with validation logic based on the controller config.
+ */
+function createFilterComponent(
   config: FieldControllerConfig<{
     validation: Validation
     defaultValue: number | null | 'autoincrement'
-  }>,
-  validate: (value: Value, opts: { isRequired: boolean }) => string | undefined
+  }>
 ) {
-  return {
-    Filter(props: any) {
-      const {
-        autoFocus,
-        context,
-        forceValidation,
-        typeLabel,
-        onChange,
-        type,
-        value,
-        ...otherProps
-      } = props
-      const [isDirty, setDirty] = useState(false)
-      if (type === 'empty' || type === 'not_empty') return null
+  return function Filter(props: {
+    autoFocus?: boolean
+    context: string
+    forceValidation?: boolean
+    typeLabel: string
+    onChange?: (value: number | null) => void
+    type: string
+    value: number | null
+    [key: string]: any
+  }) {
+    const {
+      autoFocus,
+      context,
+      forceValidation,
+      typeLabel,
+      onChange,
+      type,
+      value,
+      ...otherProps
+    } = props
+    const [isDirty, setDirty] = useState(false)
+    if (type === 'empty' || type === 'not_empty') return null
 
-      const labelProps =
-        context === 'add'
-          ? { label: config.label, description: typeLabel }
-          : { label: typeLabel }
+    const labelProps =
+      context === 'add'
+        ? { label: config.label, description: typeLabel }
+        : { label: typeLabel }
 
-      return (
-        <NumberField
-          {...otherProps}
-          {...labelProps}
-          autoFocus={autoFocus}
-          errorMessage={
-            (forceValidation || isDirty) &&
-            !validate({ kind: 'update', initial: null, value }, { isRequired: true })
-              ? 'Required'
-              : null
-          }
-          step={1}
-          width="auto"
-          onBlur={() => setDirty(true)}
-          onChange={x => onChange?.(!Number.isFinite(x) ? null : x)}
-          value={value ?? NaN}
-        />
-      )
-    },
-
-    graphql({ type, value }: any) {
-      if (type === 'empty') return { [config.fieldKey]: { equals: null } }
-      if (type === 'not_empty')
-        return { [config.fieldKey]: { not: { equals: null } } }
-      if (type === 'not')
-        return { [config.fieldKey]: { not: { equals: value } } }
-      return { [config.fieldKey]: { [type]: value } }
-    },
-
-    parseGraphQL(value: any) {
-      return entriesTyped(value).flatMap(([type, val]) => {
-        if (type === 'equals' && val === null) {
-          return [{ type: 'empty', value: null }]
+    return (
+      <NumberField
+        {...otherProps}
+        {...labelProps}
+        autoFocus={autoFocus}
+        errorMessage={
+          (forceValidation || isDirty) &&
+          !validate_(
+            { kind: 'update', initial: null, value },
+            config.fieldMeta.validation,
+            true,
+            config.label,
+            config.fieldMeta.defaultValue === 'autoincrement'
+          )
+            ? 'Required'
+            : null
         }
-        if (!val) return []
-        if (type === 'equals') return { type: 'equals', value: val }
-        if (type === 'not') {
-          if (val?.equals === null) return { type: 'not_empty', value: null }
-          if (val?.equals === undefined) return []
-          return { type: 'not', value: val.equals }
-        }
-        if (['gt', 'gte', 'lt', 'lte'].includes(type))
-          return { type, value: val }
-        return []
-      })
-    },
-
-    Label({ label, type, value }: any) {
-      if (type === 'empty' || type === 'not_empty') return label.toLocaleLowerCase()
-      const operator = TYPE_OPERATOR_MAP[type as keyof typeof TYPE_OPERATOR_MAP]
-      return `${operator} ${value}`
-    },
-
-    types: {
-      equals: { label: 'Is exactly', initialValue: null },
-      not: { label: 'Is not exactly', initialValue: null },
-      gt: { label: 'Is greater than', initialValue: null },
-      lt: { label: 'Is less than', initialValue: null },
-      gte: { label: 'Is greater than or equal to', initialValue: null },
-      lte: { label: 'Is less than or equal to', initialValue: null },
-      empty: { label: 'Is empty', initialValue: null },
-      not_empty: { label: 'Is not empty', initialValue: null },
-    },
+        step={1}
+        width="auto"
+        onBlur={() => setDirty(true)}
+        onChange={x => onChange?.(!Number.isFinite(x) ? null : x)}
+        value={value ?? NaN}
+      />
+    )
   }
+}
+
+/**
+ * Creates the graphql filter function used in the controller's filter object.
+ */
+function createGraphqlFilter(
+  config: FieldControllerConfig<{
+    validation: Validation
+    defaultValue: number | null | 'autoincrement'
+  }>
+) {
+  return function graphql({ type, value }: { type: string; value: number | null }) {
+    if (type === 'empty') return { [config.fieldKey]: { equals: null } }
+    if (type === 'not_empty') return { [config.fieldKey]: { not: { equals: null } } }
+    if (type === 'not') return { [config.fieldKey]: { not: { equals: value } } }
+    return { [config.fieldKey]: { [type]: value } }
+  }
+}
+
+/**
+ * Parses GraphQL filter values into the controller's internal representation.
+ */
+function parseGraphQL(value: any) {
+  return entriesTyped(value).flatMap(([type, val]) => {
+    if (type === 'equals' && val === null) {
+      return [{ type: 'empty', value: null }]
+    }
+    if (!val) return []
+    if (type === 'equals') return { type: 'equals', value: val }
+    if (type === 'not') {
+      if (val?.equals === null) return { type: 'not_empty', value: null }
+      if (val?.equals === undefined) return []
+      return { type: 'not', value: val.equals }
+    }
+    if (type === 'gt' || type === 'gte' || type === 'lt' || type === 'lte') {
+      return { type, value: val }
+    }
+    return []
+  })
+}
+
+/**
+ * Creates the Label function used in the controller's filter object.
+ */
+function createLabel() {
+  return function Label({ label, type, value }: { label: string; type: string; value: number | null }) {
+    if (type === 'empty' || type === 'not_empty') return label.toLocaleLowerCase()
+    const operator = TYPE_OPERATOR_MAP[type as keyof typeof TYPE_OPERATOR_MAP]
+    return `${operator} ${value}`
+  }
+}
+
+/**
+ * Static filter type definitions.
+ */
+const filterTypes = {
+  equals: {
+    label: 'Is exactly',
+    initialValue: null,
+  },
+  not: {
+    label: 'Is not exactly',
+    initialValue: null,
+  },
+  gt: {
+    label: 'Is greater than',
+    initialValue: null,
+  },
+  lt: {
+    label: 'Is less than',
+    initialValue: null,
+  },
+  gte: {
+    label: 'Is greater than or equal to',
+    initialValue: null,
+  },
+  lte: {
+    label: 'Is less than or equal to',
+    initialValue: null,
+  },
+  empty: {
+    label: 'Is empty',
+    initialValue: null,
+  },
+  not_empty: {
+    label: 'Is not empty',
+    initialValue: null,
+  },
 }
 
 export function controller(
@@ -164,6 +225,10 @@ export function controller(
     )
   }
 
+  const Filter = createFilterComponent(config)
+  const graphql = createGraphqlFilter(config)
+  const Label = createLabel()
+
   return {
     fieldKey: config.fieldKey,
     label: config.label,
@@ -173,9 +238,7 @@ export function controller(
     defaultValue: {
       kind: 'create',
       value:
-        config.fieldMeta.defaultValue === 'autoincrement'
-          ? null
-          : config.fieldMeta.defaultValue,
+        config.fieldMeta.defaultValue === 'autoincrement' ? null : config.fieldMeta.defaultValue,
     },
     deserialize: data => ({
       kind: 'update',
@@ -185,16 +248,18 @@ export function controller(
     serialize: value => ({ [config.fieldKey]: value.value }),
     hasAutoIncrementDefault: config.fieldMeta.defaultValue === 'autoincrement',
     validate: (value, opts) => validate(value, opts) === undefined,
-    filter: createFilter(config, validate),
+    filter: {
+      Filter,
+      graphql,
+      parseGraphQL,
+      Label,
+      types: filterTypes,
+    },
   }
 }
 
 export function Field(
-  props: Readonly<
-    FieldProps<typeof controller> & {
-      field: ReturnType<typeof controller>
-    }
-  >
+  props: Readonly<FieldProps<typeof controller>>
 ) {
   const { field, value, onChange, autoFocus, forceValidation, isRequired } = props
   const [isDirty, setDirty] = useState(false)

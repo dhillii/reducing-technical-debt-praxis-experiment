@@ -1502,9 +1502,9 @@ Email.prototype._localStoreMessages = function(options) {
  * @param {Array} options.messages The messages to store
  */
 Email.prototype._localDeleteMessage = function(options) {
-    const path = options.folder.path,
-        uid = options.uid,
-        id = options.id;
+    const path = options.folder.path;
+    const uid = options.uid;
+    const id = options.id;
 
     if (!path || !(uid || id)) {
         return new Promise(function() {
@@ -1572,15 +1572,12 @@ Email.prototype._extractBody = function(message) {
             // PGP/INLINE signed
             message.signed = true;
             message.clearSignedMessage = clearSignedMatch[0];
-            const cleaned = (clearSignedMatch[1] || '').replace(/^- /gm, ''); // remove dash escaping https://tools.ietf.org/html/rfc4880#section-7.1
-            setBody(cleaned, root);
-            return;
+            body = (clearSignedMatch[1] || '').replace(/^- /gm, ''); // remove dash escaping https://tools.ietf.org/html/rfc4880#section-7.1
         }
 
         if (!message.signed) {
             // message is not signed, so we're done here
-            setBody(body, root);
-            return;
+            return setBody(body, root);
         }
 
         // check the signatures for signed messages
@@ -1737,10 +1734,10 @@ function filterBodyParts(bodyParts, type, result) {
  * @param {Object} message DTO
  */
 function inlineExternalImages(message) {
-    message.html = message.html.replace(/(<img[^>]+\bsrc=['"])cid:([^'">]+)(['"])/ig, function(match, prefix, src, suffix) {
-        let localSource = '',
-            payload = '';
+    let localSource = '';
+    let payload = '';
 
+    message.html = message.html.replace(/(<img[^>]+\bsrc=['"])cid:([^'">]+)(['"])/ig, function(match, prefix, src, suffix) {
         const internalReference = _.findWhere(message.attachments, {
             id: src
         });

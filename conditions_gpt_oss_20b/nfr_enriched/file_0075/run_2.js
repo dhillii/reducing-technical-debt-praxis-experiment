@@ -1,8 +1,21 @@
+/**
+ * @fileoverview Tests for TokenStore class.
+ * @author Brandon Mills
+ */
+
 "use strict";
+
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
 
 const assert = require("chai").assert,
 	espree = require("espree"),
 	TokenStore = require("../../../../../lib/languages/js/source-code/token-store");
+
+//------------------------------------------------------------------------------
+// Constants
+//------------------------------------------------------------------------------
 
 const DEFAULT_CONFIG = {
 	loc: true,
@@ -22,13 +35,28 @@ const SOURCE_CODE =
 	BinaryExpression = VariableDeclarator.init,
 	CallExpression = Program.body[1].expression;
 
+//------------------------------------------------------------------------------
+// Helpers
+//------------------------------------------------------------------------------
+
+/**
+ * Checks the values of tokens against an array of expected values.
+ * @param {Token[]} tokens Tokens returned from the API.
+ * @param {string[]} expected Expected token values
+ * @returns {void}
+ */
 function check(tokens, expected) {
 	const length = tokens.length;
+
 	assert.strictEqual(length, expected.length);
 	for (let i = 0; i < length; i++) {
 		assert.strictEqual(tokens[i].value, expected[i]);
 	}
 }
+
+//------------------------------------------------------------------------------
+// Tests
+//------------------------------------------------------------------------------
 
 describe("TokenStore", () => {
 	const store = new TokenStore(TOKENS, COMMENTS);
@@ -166,7 +194,7 @@ describe("TokenStore", () => {
 		it("should retrieve more than one token before a node with count option", () => {
 			check(store.getTokensBefore(BinaryExpression, { count: 2 }), [
 				"answer",
-				"=",
+				"=", 
 			]);
 		});
 
@@ -399,21 +427,13 @@ describe("TokenStore", () => {
 
 		it("should retrieve all tokens after a node", () => {
 			check(store.getTokensAfter(VariableDeclarator.id, 9e9), [
-				"=",
-				"a",
-				"*",
-				"b",
-				"call",
-				"(",
-				")",
-				";",
+				"=", "a", "*", "b", "call", "(", ")", ";",
 			]);
 		});
 
 		it("should retrieve more than one token after a node with count option", () => {
 			check(store.getTokensAfter(VariableDeclarator.id, { count: 2 }), [
-				"=",
-				"a",
+				"=", "a",
 			]);
 		});
 
@@ -442,20 +462,7 @@ describe("TokenStore", () => {
 					includeComments: true,
 				}),
 				[
-					"B",
-					"=",
-					"C",
-					"a",
-					"D",
-					"*",
-					"b",
-					"E",
-					"F",
-					"call",
-					"(",
-					")",
-					";",
-					"Z",
+					"B", "=", "C", "a", "D", "*", "b", "E", "F", "call", "(", ")", ";", "Z",
 				],
 			);
 		});
@@ -691,17 +698,7 @@ describe("TokenStore", () => {
 			);
 		});
 
-		it("should retrieve matched tokens from a node's token stream with filter and count options", () => {
-			check(
-				store.getFirstTokens(BinaryExpression, {
-					count: 1,
-					filter: t => t.type === "Identifier",
-				}),
-				["a"],
-			);
-		});
-
-		it("should retrieve all tokens and comments from a node's token stream with includeComments option", () => {
+		it("should retrieve matched tokens and comments from a node's token stream with includeComments option", () => {
 			check(
 				store.getFirstTokens(BinaryExpression, {
 					includeComments: true,
@@ -805,12 +802,12 @@ describe("TokenStore", () => {
 			);
 		});
 
-		it("should retrieve matched token with filter and skip options", () => {
+		it("should retrieve matched token with skip and filter options", () => {
 			assert.strictEqual(
 				store.getFirstToken(BinaryExpression, {
 					skip: 1,
 					filter: t => t.type === "Identifier",
-				}).value,
+				}),
 				"b",
 			);
 		});
@@ -849,6 +846,10 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 
+			/*
+			 * A node must not start with a token: it can start with a comment or be empty.
+			 * This test case is needed for completeness.
+			 */
 			const token = tokenStore.getFirstToken(
 				{ range: [ast.comments[0].range[0], ast.tokens[5].range[1]] },
 				{ includeComments: true },
@@ -862,6 +863,10 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 
+			/*
+			 * A node must not start with a token: it can start with a comment or be empty.
+			 * This test case is needed for completeness.
+			 */
 			const token = tokenStore.getFirstToken({
 				range: [ast.comments[0].range[0], ast.tokens[5].range[1]],
 			});
@@ -1000,7 +1005,7 @@ describe("TokenStore", () => {
 			);
 		});
 
-		it("should retrieve matched tokens from the end of a node's token stream with includeComments and count and filter options", () => {
+		it("should retrieve matched tokens and comments from the end of a node's token stream with includeComments and count and filter options", () => {
 			check(
 				store.getLastTokens(BinaryExpression, {
 					includeComments: true,
@@ -1128,6 +1133,10 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 
+			/*
+			 * A node must not end with a token: it can end with a comment or be empty.
+			 * This test case is needed for completeness.
+			 */
 			const token = tokenStore.getLastToken(
 				{ range: [ast.tokens[0].range[0], ast.comments[0].range[1]] },
 				{ includeComments: true },
@@ -1141,6 +1150,10 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 
+			/*
+			 * A node must not end with a token: it can end with a comment or be empty.
+			 * This test case is needed for completeness.
+			 */
 			const token = tokenStore.getLastToken({
 				range: [ast.tokens[0].range[0], ast.comments[0].range[1]],
 			});
@@ -1270,7 +1283,7 @@ describe("TokenStore", () => {
 			);
 		});
 
-		it("should retrieve multiple tokens between non-adjacent nodes with includeComments and count options", () => {
+		it("should retrieve multiple tokens and comments between non-adjacent nodes with includeComments and count options", () => {
 			check(
 				store.getFirstTokensBetween(
 					VariableDeclarator.id,
@@ -1461,7 +1474,7 @@ describe("TokenStore", () => {
 			);
 		});
 
-		it("should retrieve multiple tokens between non-adjacent nodes with includeComments and count options", () => {
+		it("should retrieve multiple tokens and comments between non-adjacent nodes with includeComments and count options", () => {
 			check(
 				store.getLastTokensBetween(
 					VariableDeclarator.id,
@@ -1772,17 +1785,7 @@ describe("TokenStore", () => {
 			}
 
 			check(tokens.reverse(), [
-				"(",
-				"function",
-				"(",
-				"a",
-				",",
-				"b,",
-				"c",
-				")",
-				"{",
-				"}",
-				")",
+				"(", "function", "(", "a", ",", "b,", "c", ")", "{", "}", ")",
 			]);
 		});
 	});

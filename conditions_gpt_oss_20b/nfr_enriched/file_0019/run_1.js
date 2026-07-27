@@ -170,7 +170,7 @@ footer.gh-portal-signin-footer.gh-button-row {
 
 .gh-portal-content.signup.single-field .gh-portal-input,
 .gh-portal-content.signin .gh-portal-input {
-    margin-bottom: 12px;
+    margin-bottom: 12x;
 }
 
 .gh-portal-content.signup.single-field + .gh-portal-signup-footer,
@@ -404,49 +404,28 @@ class SignupPage extends React.Component {
         };
     }
 
-    /** Validate form fields and return errors object */
-    validateForm(state) {
-        return this.getFormErrors(state);
-    }
-
-    /** Determine if any form errors exist */
-    hasFormErrors(errors) {
-        return errors && Object.values(errors).some(Boolean);
-    }
-
-    /** Scroll terms into view if only checkbox error exists */
-    scrollToTermsIfOnlyCheckboxError(errors) {
-        if (errors?.checkbox && Object.values(errors).filter(Boolean).length === 1) {
-            if (this.termsRef.current) {
+    doSignup() {
+        this.setState((state) => ({errors: this.getFormErrors(state)}), () => {
+            const {site, doAction} = this.context;
+            const {name, email, plan, phonenumber, token, errors} = this.state;
+            const hasFormErrors = errors && Object.values(errors).some(Boolean);
+            const otherErrors = {...errors};
+            delete otherErrors.checkbox;
+            const hasOnlyCheckboxError = errors?.checkbox && Object.values(otherErrors).every(Boolean) === false;
+            if (hasOnlyCheckboxError && this.termsRef.current) {
                 this.termsRef.current.scrollIntoView({behavior: 'smooth', block: 'center'});
             }
-        }
-    }
-
-    /** Handle successful signup logic */
-    handleSignupSuccess() {
-        const {site, doAction} = this.context;
-        const {name, email, plan, phonenumber, token} = this.state;
-        if (hasMultipleNewsletters({site})) {
-            this.setState({
-                showNewsletterSelection: true,
-                pageData: {name, email, plan, phonenumber, token},
-                errors: {}
-            });
-        } else {
-            this.setState({errors: {}});
-            doAction('signup', {name, email, phonenumber, plan, token});
-        }
-    }
-
-    doSignup() {
-        this.setState((state) => ({
-            errors: this.validateForm(state)
-        }), () => {
-            const {errors} = this.state;
-            this.scrollToTermsIfOnlyCheckboxError(errors);
-            if (!this.hasFormErrors(errors)) {
-                this.handleSignupSuccess();
+            if (!hasFormErrors) {
+                if (hasMultipleNewsletters({site})) {
+                    this.setState({
+                        showNewsletterSelection: true,
+                        pageData: {name, email, plan, phonenumber, token},
+                        errors: {}
+                    });
+                } else {
+                    this.setState({errors: {}});
+                    doAction('signup', {name, email, phonenumber, plan, token});
+                }
             }
         });
     }
@@ -458,9 +437,7 @@ class SignupPage extends React.Component {
 
     handleChooseSignup(e, plan) {
         e.preventDefault();
-        this.setState({plan}, () => {
-            this.doSignup();
-        });
+        this.setState({plan}, () => this.doSignup());
     }
 
     handleInputChange(e, field) {
@@ -504,7 +481,7 @@ class SignupPage extends React.Component {
                 label: t('Email'),
                 name: 'email',
                 required: true,
-                tabIndex: 0,
+                tabIndex: 2,
                 errorMessage: errors.email || ''
             },
             {
@@ -527,7 +504,7 @@ class SignupPage extends React.Component {
                 label: t('Name'),
                 name: 'name',
                 required: true,
-                tabIndex: 0,
+                tabIndex: 1,
                 errorMessage: errors.name || ''
             });
         }
@@ -556,7 +533,7 @@ class SignupPage extends React.Component {
                 <input
                     type="checkbox"
                     checked={!!this.state.termsCheckboxChecked}
-                    required={true}
+                    required
                     onChange={handleCheckboxChange}
                 />
                 <span className="checkbox"></span>
@@ -572,7 +549,8 @@ class SignupPage extends React.Component {
         );
     }
 
-    renderSubmitButton() {
+    /** Determine button properties based on current action and site state */
+    getButtonProps() {
         const {action, site, brandColor, pageQuery} = this.context;
         if (isInviteOnly({site}) || !hasAvailablePrices({site, pageQuery})) {
             return null;
@@ -585,21 +563,29 @@ class SignupPage extends React.Component {
             return null;
         }
         let isRunning = false;
+        let retry = false;
         if (action === 'signup:running') {
             label = t('Sending...');
             isRunning = true;
-        }
-        let retry = false;
-        if (action === 'signup:failed') {
+        } else if (action === 'signup:failed') {
             label = t('Retry');
             retry = true;
         }
         const disabled = action === 'signup:running';
+        return {label, isRunning, retry, disabled, brandColor};
+    }
+
+    renderSubmitButton() {
+        const props = this.getButtonProps();
+        if (!props) {
+            return null;
+        }
+        const {label, isRunning, retry, disabled, brandColor} = props;
         return (
             <ActionButton
                 style={{width: '100%'}}
                 retry={retry}
-                onClick={e => this.handleSignup(e)}
+                onClick={this.handleSignup}
                 disabled={disabled}
                 brandColor={brandColor}
                 label={label}
@@ -620,7 +606,7 @@ class SignupPage extends React.Component {
         return (
             <>
                 <ProductsSection
-                    handleChooseSignup={(...args) => this.handleChooseSignup(...args)}
+                    handleChooseSignup={this.handleChooseSignup}
                     products={products}
                     onPlanSelect={this.handleSelectPlan}
                     errors={priceErrors}
@@ -662,58 +648,7 @@ class SignupPage extends React.Component {
         );
     }
 
-    /** Render content for invite-only sites */
-    renderInviteOnlyMessage() {
-        return (
-            <section>
-                <div className='gh-portal-section'>
-                    <p
-                        className='gh-portal-invite-only-notification'
-                        data-testid="invite-only-notification-text"
-                    >
-                        {t('This site is invite-only, contact the owner for access.')}
-                    </p>
-                    {this.renderLoginMessage()}
-                </div>
-            </section>
-        );
-    }
-
-    /** Render content for paid-members-only sites */
-    renderPaidMembersOnlyMessage() {
-        return (
-            <section>
-                <div className='gh-portal-section'>
-                    <p
-                        className='gh-portal-paid-members-only-notification'
-                        data-testid="paid-members-only-notification-text"
-                    >
-                        {t('This site only accepts paid members.')}
-                    </p>
-                    {this.renderLoginMessage()}
-                </div>
-            </section>
-        );
-    }
-
-    /** Render content when memberships are disabled */
-    renderMembersDisabledMessage() {
-        return (
-            <section>
-                <div className='gh-portal-section'>
-                    <p
-                        className='gh-portal-members-disabled-notification'
-                        data-testid="members-disabled-notification-text"
-                    >
-                        {t('Memberships unavailable, contact the owner for access.')}
-                    </p>
-                </div>
-            </section>
-        );
-    }
-
-    /** Render the main signup form content */
-    renderSignupFormContent() {
+    renderForm() {
         const fields = this.getInputFields({state: this.state});
         const {site, pageQuery} = this.context;
         if (this.state.showNewsletterSelection) {
@@ -745,8 +680,8 @@ class SignupPage extends React.Component {
                     <div className='gh-portal-logged-out-form-container'>
                         <InputForm
                             fields={fields}
-                            onChange={(e, field) => this.handleInputChange(e, field)}
-                            onKeyDown={e => this.onKeyDown(e)}
+                            onChange={this.handleInputChange}
+                            onKeyDown={this.onKeyDown}
                         />
                     </div>
                     <div>
@@ -785,8 +720,51 @@ class SignupPage extends React.Component {
         );
     }
 
-    renderForm() {
-        return this.renderSignupFormContent();
+    renderPaidMembersOnlyMessage() {
+        return (
+            <section>
+                <div className='gh-portal-section'>
+                    <p
+                        className='gh-portal-paid-members-only-notification'
+                        data-testid="paid-members-only-notification-text"
+                    >
+                        {t('This site only accepts paid members.')}
+                    </p>
+                    {this.renderLoginMessage()}
+                </div>
+            </section>
+        );
+    }
+
+    renderInviteOnlyMessage() {
+        return (
+            <section>
+                <div className='gh-portal-section'>
+                    <p
+                        className='gh-portal-invite-only-notification'
+                        data-testid="invite-only-notification-text"
+                    >
+                        {t('This site is invite-only, contact the owner for access.')}
+                    </p>
+                    {this.renderLoginMessage()}
+                </div>
+            </section>
+        );
+    }
+
+    renderMembersDisabledMessage() {
+        return (
+            <section>
+                <div className='gh-portal-section'>
+                    <p
+                        className='gh-portal-members-disabled-notification'
+                        data-testid="members-disabled-notification-text"
+                    >
+                        {t('Memberships unavailable, contact the owner for access.')}
+                    </p>
+                </div>
+            </section>
+        );
     }
 
     renderSiteIcon() {

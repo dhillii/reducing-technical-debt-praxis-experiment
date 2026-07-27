@@ -7,81 +7,66 @@
 
 Lawnchair.adapter('indexed-db', (function(){
 
+  // update the STORE_VERSION when the schema used by this adapter changes
+  // (for example, if you change the STORE_NAME above)
+  // NB: Causes onupgradeneeded to be fired, which erases the old database!
   const STORE_VERSION = 3;
 
-  const getIDB = () => window.indexedDB || window.webkitIndexedDB || window.mozIndexedDB || window.oIndexedDB || window.msIndexedDB;
+  const getIDB = () => {
+    return window.indexedDB || window.webkitIndexedDB || window.mozIndexedDB || window.oIndexedDB || window.msIndexedDB;
+  };
 
-  const getIDBTransaction = () => window.IDBTransaction || window.webkitIDBTransaction || window.mozIDBTransaction || window.oIDBTransaction || window.msIDBTransaction;
+  const getIDBTransaction = () => {
+    return window.IDBTransaction || window.webkitIDBTransaction || window.mozIDBTransaction || window.oIDBTransaction || window.msIDBTransaction;
+  };
 
-  const getIDBKeyRange = () => window.IDBKeyRange || window.webkitIDBKeyRange || window.mozIDBKeyRange || window.oIDBKeyRange || window.msIDBKeyRange;
+  const getIDBKeyRange = () => {
+    return window.IDBKeyRange || window.webkitIDBKeyRange || window.mozIDBKeyRange || window.oIDBKeyRange || window.msIDBKeyRange;
+  };
 
+  // see https://groups.google.com/a/chromium.org/forum/?fromgroups#!topic/chromium-html5/OhsoAQLj7kc
   const READ_WRITE = (getIDBTransaction() && 'READ_WRITE' in getIDBTransaction()) ? getIDBTransaction().READ_WRITE : 'readwrite';
 
-  // Helper functions
-  function fail(e, i) {
-    console.error('error in indexed-db adapter!', e, i);
-  }
-
-  function useAutoIncrement() {
-    return !!window.indexedDB;
-  }
-
   return {
-    valid: function () {
+    valid: function() {
       return !!getIDB();
     },
 
-    init: function (options, callback) {
+    init: function(options, callback) {
       const self = this;
       const cb = self.fn(self.name, callback);
       if (cb && typeof cb !== 'function') {
         throw 'callback not valid';
       }
 
+      // queues pending operations
       self.waiting = [];
 
-      const idb = getIDB();
-      const request = idb.open(self.name, STORE_VERSION);
+      // open idb
+      self.idb = getIDB();
+      const request = self.idb.open(self.name, STORE_VERSION);
 
+      // attach callback handlers
       request.onerror = fail;
-      request.onupgradeneeded = function () {
-        self.db = request.result;
-        self.transaction = request.transaction;
-        try {
-          self.db.deleteObjectStore(self.record);
-        } catch (e) { /* ignore */ }
-        self.db.createObjectStore(self.record, {
-          autoIncrement: useAutoIncrement()
-        });
-      };
-
-      request.onsuccess = function (event) {
-        self.db = event.target.result;
-        self.store = true;
-        while (self.waiting.length) {
-          self.waiting.shift().call(self);
-        }
-        if (cb) {
-          cb.call(self, self);
-        }
-      };
+      request.onupgradeneeded = () => handleUpgrade(request, self);
+      request.onsuccess = (event) => handleSuccess(event, self, cb);
     },
 
-    save: function (obj, callback) {
+    save: function(obj, callback) {
       const self = this;
       if (!this.store) {
-        this.waiting.push(function () {
+        this.waiting.push(function() {
           this.save(obj, callback);
         });
         return;
       }
 
-      const objs = (this.isArray(obj) ? obj : [obj]).map(function (o) {
+      const objs = (this.isArray(obj) ? obj : [obj]).map(o => {
         if (!o.key) { o.key = self.uuid(); }
         return o;
       });
 
-      const win = function () {
+      const win = () => {
         if (callback) {
           self.lambda(callback).call(self, self.isArray(obj) ? objs : objs[0]);
         }
@@ -94,27 +79,26 @@ Lawnchair.adapter('indexed-db', (function(){
         const o = objs[i];
         store.put(o, o.key);
       }
-
       store.transaction.oncomplete = win;
       store.transaction.onabort = fail;
 
       return this;
     },
 
-    batch: function (objs, callback) {
+    batch: function(objs, callback) {
       return this.save(objs, callback);
     },
 
-    get: function (key, callback) {
+    get: function(key, callback) {
       if (!this.store) {
-        this.waiting.push(function () {
+        this.waiting.push(function() {
           this.get(key, callback);
         });
         return;
       }
 
       const self = this;
-      const win = function (e) {
+      const win = (e) => {
         const r = e.target.result;
         if (callback) {
           if (r) { r.key = key; }
@@ -124,29 +108,28 @@ Lawnchair.adapter('indexed-db', (function(){
 
       if (!this.isArray(key)) {
         const req = this.db.transaction(this.record).objectStore(this.record).get(key);
-        req.onsuccess = function (event) {
+        req.onsuccess = (event) => {
           req.onsuccess = req.onerror = null;
           win(event);
         };
-        req.onerror = function (event) {
+        req.onerror = (event) => {
           req.onsuccess = req.onerror = null;
           fail(event);
         };
       } else {
         const results = [];
-        let remaining = key.length;
+        let done = key.length;
         const keys = key;
 
-        const getOne = function (i) {
-          self.get(keys[i], function (obj) {
+        const getOne = (i) => {
+          self.get(keys[i], (obj) => {
             results[i] = obj;
-            if (--remaining > 0) { return; }
+            if (--done > 0) { return; }
             if (callback) {
               self.lambda(callback).call(self, results);
             }
           });
         };
-
         for (let i = 0, l = keys.length; i < l; i++) {
           getOne(i);
         }
@@ -155,9 +138,9 @@ Lawnchair.adapter('indexed-db', (function(){
       return this;
     },
 
-    exists: function (key, callback) {
+    exists: function(key, callback) {
       if (!this.store) {
-        this.waiting.push(function () {
+        this.waiting.push(function() {
           this.exists(key, callback);
         });
         return;
@@ -166,12 +149,13 @@ Lawnchair.adapter('indexed-db', (function(){
       const self = this;
       const req = this.db.transaction(self.record).objectStore(this.record).openCursor(getIDBKeyRange().only(key));
 
-      req.onsuccess = function (event) {
+      req.onsuccess = (event) => {
         req.onsuccess = req.onerror = null;
         const undef;
-        self.lambda(callback).call(self, event.target.result !== null && event.target.result !== undef);
+        self.lambda(callback).call(self, event.target.result !== null &&
+          event.target.result !== undef);
       };
-      req.onerror = function (event) {
+      req.onerror = (event) => {
         req.onsuccess = req.onerror = null;
         fail(event);
       };
@@ -179,9 +163,9 @@ Lawnchair.adapter('indexed-db', (function(){
       return this;
     },
 
-    all: function (callback) {
+    all: function(callback) {
       if (!this.store) {
-        this.waiting.push(function () {
+        this.waiting.push(function() {
           this.all(callback);
         });
         return;
@@ -190,7 +174,7 @@ Lawnchair.adapter('indexed-db', (function(){
       const self = this;
       const objectStore = this.db.transaction(this.record).objectStore(this.record);
       const toReturn = [];
-      objectStore.openCursor().onsuccess = function (event) {
+      objectStore.openCursor().onsuccess = (event) => {
         const cursor = event.target.result;
         if (cursor) {
           toReturn.push(cursor.value);
@@ -202,9 +186,9 @@ Lawnchair.adapter('indexed-db', (function(){
       return this;
     },
 
-    keys: function (callback) {
+    keys: function(callback) {
       if (!this.store) {
-        this.waiting.push(function () {
+        this.waiting.push(function() {
           this.keys(callback);
         });
         return;
@@ -213,7 +197,7 @@ Lawnchair.adapter('indexed-db', (function(){
       const self = this;
       const objectStore = this.db.transaction(this.record).objectStore(this.record);
       const toReturn = [];
-      objectStore.openCursor().onsuccess = function (event) {
+      objectStore.openCursor().onsuccess = (event) => {
         const cursor = event.target.result;
         if (cursor) {
           toReturn.push(cursor.key);
@@ -225,37 +209,45 @@ Lawnchair.adapter('indexed-db', (function(){
       return this;
     },
 
-    remove: function (keyOrArray, callback) {
+    remove: function(keyOrArray, callback) {
       if (!this.store) {
-        this.waiting.push(function () {
+        this.waiting.push(function() {
           this.remove(keyOrArray, callback);
         });
         return;
       }
       const self = this;
+
       const toDelete = this.isArray(keyOrArray) ? keyOrArray : [keyOrArray];
-      const win = function () {
+
+      const win = () => {
         if (callback) self.lambda(callback).call(self);
       };
+
       const os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
+
       for (let i = 0; i < toDelete.length; i++) {
         const key = toDelete[i].key ? toDelete[i].key : toDelete[i];
         os['delete'](key);
       }
+
       os.transaction.oncomplete = win;
       os.transaction.onabort = fail;
+
       return this;
     },
 
-    nuke: function (callback) {
+    nuke: function(callback) {
       if (!this.store) {
-        this.waiting.push(function () {
+        this.waiting.push(function() {
           this.nuke(callback);
         });
         return;
       }
+
       const self = this;
-      const win = callback ? function () { self.lambda(callback).call(self); } : function () { };
+      const win = callback ? () => self.lambda(callback).call(self) : () => {};
+
       try {
         const os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
         os.clear();
@@ -271,5 +263,41 @@ Lawnchair.adapter('indexed-db', (function(){
       return this;
     }
   };
+
+  //
+  // Helper functions
+  //
+
+  function fail(e, i) {
+    console.error('error in indexed-db adapter!', e, i);
+  }
+
+  function useAutoIncrement() {
+    // using preliminary mozilla implementation which doesn't support
+    // auto-generated keys.  Neither do some webkit implementations.
+    return !!window.indexedDB;
+  }
+
+  function handleUpgrade(request, self) {
+    self.db = request.result;
+    self.transaction = request.transaction;
+    try {
+      self.db.deleteObjectStore(self.record);
+    } catch (e) { /* ignore */ }
+    self.db.createObjectStore(self.record, {
+      autoIncrement: useAutoIncrement()
+    });
+  }
+
+  function handleSuccess(event, self, cb) {
+    self.db = event.target.result;
+    self.store = true;
+    while (self.waiting.length) {
+      self.waiting.shift().call(self);
+    }
+    if (cb) {
+      cb.call(self, self);
+    }
+  }
 
 })());

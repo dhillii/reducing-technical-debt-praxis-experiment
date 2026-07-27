@@ -19,9 +19,6 @@ export function countUniqueItems(items: readonly any[]) {
   return new Set(items.map(item => item.id)).size
 }
 
-/**
- * Asserts that two items are equal for the specified fields.
- */
 export function expectEqualItem(l: List, a: any, b: any, keys: string[] = []) {
   assert.notEqual(a, null)
   if ('id' in b) assert.equal(a.id, b.id)
@@ -35,9 +32,6 @@ export function expectEqualItem(l: List, a: any, b: any, keys: string[] = []) {
   }
 }
 
-/**
- * Asserts that two arrays of items are equal for the specified fields.
- */
 export function expectEqualItems(
   l: List,
   a: readonly any[],
@@ -155,20 +149,50 @@ export type Field = ReturnType<typeof makeFieldEntry>
 export type List = ReturnType<typeof makeList> extends Generator<infer T, any, any> ? T : never
 
 /**
- * Returns true if any of the provided boolean values is false.
+ * Checks if any of create, update, or delete access is false.
+ * @param access - Access permissions for a list.
+ * @returns true if any of create, update, or delete is false.
  */
-function hasFalse(...values: boolean[]): boolean {
-  return values.includes(false)
+function hasCreateOrUpdateOrDeleteFalse(access: {
+  query: boolean
+  create: boolean
+  update: boolean
+  delete: boolean
+}): boolean {
+  return [access.create, access.update, access.delete].includes(false)
 }
 
 /**
- * Yields the operation definition for a list.
+ * Checks if any of query, update, or delete access is false.
+ * @param access - Access permissions for a list.
+ * @returns true if any of query, update, or delete is false.
  */
-function* yieldOperation(
-  nameO: string,
-  access: { query: boolean; create: boolean; update: boolean; delete: boolean },
+function hasQueryOrUpdateOrDeleteFalse(access: {
+  query: boolean
+  create: boolean
+  update: boolean
+  delete: boolean
+}): boolean {
+  return [access.query, access.update, access.delete].includes(false)
+}
+
+export function* makeList({
+  prefix = ``,
+  access,
+  fields,
+}: {
+  prefix?: string
+  access: {
+    query: boolean
+    create: boolean
+    update: boolean
+    delete: boolean
+  }
   fields: Field[]
-) {
+}) {
+  const suffix = `${prefix}${makeName(access)}`
+  const nameO = `List_operation_${suffix}`
+
   yield {
     name: nameO,
     expect: { type: 'operation' as const, ...access },
@@ -195,146 +219,99 @@ function* yieldOperation(
       plural: nameO + 's',
     },
   } as const
-}
 
-/**
- * Yields the item definition for a list when any of create, update, delete is false.
- */
-function* yieldItem(
-  nameI: string,
-  access: { query: boolean; create: boolean; update: boolean; delete: boolean },
-  fields: Field[]
-) {
-  yield {
-    name: nameI,
-    expect: { type: 'item' as const, ...access },
-    access: {
-      operation: {
-        query: access.query ? allowAll : denyAll,
-        create: allowAll,
-        update: allowAll,
-        delete: allowAll,
-      },
-      filter: {
-        query: allowAll,
-        update: allowAll,
-        delete: allowAll,
-      },
-      item: {
-        create: access.create ? allowAll : denyAll,
-        update: access.update ? allowAll : denyAll,
-        delete: access.delete ? allowAll : denyAll,
-      },
-    },
-    fields,
-    graphql: {
-      plural: nameI + 's',
-    },
-  } as const
-}
+  const itemsToYield: any[] = []
 
-/**
- * Yields the filter(b) definition for a list when any of query, update, delete is false.
- */
-function* yieldFilterB(
-  nameFB: string,
-  access: { query: boolean; create: boolean; update: boolean; delete: boolean },
-  fields: Field[]
-) {
-  yield {
-    name: nameFB,
-    expect: { type: 'filter(b)' as const, ...access },
-    access: {
-      operation: {
-        query: allowAll,
-        create: access.create ? allowAll : denyAll,
-        update: allowAll,
-        delete: allowAll,
-      },
-      filter: {
-        query: access.query ? allowAll : denyAll,
-        update: access.update ? allowAll : denyAll,
-        delete: access.delete ? allowAll : denyAll,
-      },
-      item: {
-        create: allowAll,
-        update: allowAll,
-        delete: allowAll,
-      },
-    },
-    fields,
-    graphql: {
-      plural: nameFB + 's',
-    },
-  } as const
-}
-
-/**
- * Yields the filter definition for a list when any of query, update, delete is false.
- */
-function* yieldFilter(
-  nameF: string,
-  access: { query: boolean; create: boolean; update: boolean; delete: boolean },
-  fields: Field[]
-) {
-  yield {
-    name: nameF,
-    expect: { type: 'filter' as const, ...access },
-    access: {
-      operation: {
-        query: allowAll,
-        create: access.create ? allowAll : denyAll,
-        update: allowAll,
-        delete: allowAll,
-      },
-      filter: {
-        query: access.query ? allowFilter : denyFilter,
-        update: access.update ? allowFilter : denyFilter,
-        delete: access.delete ? allowFilter : denyFilter,
-      },
-      item: {
-        create: allowAll,
-        update: allowAll,
-        delete: allowAll,
-      },
-    },
-    fields,
-    graphql: {
-      plural: nameF + 's',
-    },
-  } as const
-}
-
-export function* makeList({
-  prefix = ``,
-  access,
-  fields,
-}: {
-  prefix?: string
-  access: {
-    query: boolean
-    create: boolean
-    update: boolean
-    delete: boolean
-  }
-  fields: Field[]
-}) {
-  const suffix = `${prefix}${makeName(access)}`
-  const nameO = `List_operation_${suffix}`
-
-  yield* yieldOperation(nameO, access, fields)
-
-  if (hasFalse(access.create, access.update, access.delete)) {
+  if (hasCreateOrUpdateOrDeleteFalse(access)) {
     const nameI = `List_item_${suffix}`
-    yield* yieldItem(nameI, access, fields)
+    itemsToYield.push({
+      name: nameI,
+      expect: { type: 'item' as const, ...access },
+      access: {
+        operation: {
+          query: access.query ? allowAll : denyAll,
+          create: allowAll,
+          update: allowAll,
+          delete: allowAll,
+        },
+        filter: {
+          query: allowAll,
+          update: allowAll,
+          delete: allowAll,
+        },
+        item: {
+          create: access.create ? allowAll : denyAll,
+          update: access.update ? allowAll : denyAll,
+          delete: access.delete ? allowAll : denyAll,
+        },
+      },
+      fields,
+      graphql: {
+        plural: nameI + 's',
+      },
+    } as const)
   }
 
-  if (hasFalse(access.query, access.update, access.delete)) {
+  if (hasQueryOrUpdateOrDeleteFalse(access)) {
     const nameFB = `List_filterb_${suffix}`
-    yield* yieldFilterB(nameFB, access, fields)
+    itemsToYield.push({
+      name: nameFB,
+      expect: { type: 'filter(b)' as const, ...access },
+      access: {
+        operation: {
+          query: allowAll,
+          create: access.create ? allowAll : denyAll,
+          update: allowAll,
+          delete: allowAll,
+        },
+        filter: {
+          query: access.query ? allowAll : denyAll,
+          update: access.update ? allowAll : denyAll,
+          delete: access.delete ? allowAll : denyAll,
+        },
+        item: {
+          create: allowAll,
+          update: allowAll,
+          delete: allowAll,
+        },
+      },
+      fields,
+      graphql: {
+        plural: nameFB + 's',
+      },
+    } as const)
 
     const nameF = `List_filter_${suffix}`
-    yield* yieldFilter(nameF, access, fields)
+    itemsToYield.push({
+      name: nameF,
+      expect: { type: 'filter' as const, ...access },
+      access: {
+        operation: {
+          query: allowAll,
+          create: access.create ? allowAll : denyAll,
+          update: allowAll,
+          delete: allowAll,
+        },
+        filter: {
+          query: access.query ? allowFilter : denyFilter,
+          update: access.update ? allowFilter : denyFilter,
+          delete: access.delete ? allowFilter : denyFilter,
+        },
+        item: {
+          create: allowAll,
+          update: allowAll,
+          delete: allowAll,
+        },
+      },
+      fields,
+      graphql: {
+        plural: nameF + 's',
+      },
+    } as const)
+  }
+
+  for (const item of itemsToYield) {
+    yield item
   }
 }
 

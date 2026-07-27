@@ -77,77 +77,20 @@ export type DocumentFeaturesForChildField =
       documentFeatures: DocumentFeaturesForNormalization
     }
 
-function isInherit<T>(value: T | 'inherit'): value is 'inherit' {
-  return value === 'inherit'
-}
-
-/**
- * Compute inline marks based on options and editor document features.
- */
-function computeInlineMarks(
-  options: ChildField['options'],
-  editorDocumentFeatures: DocumentFeatures
-): 'inherit' | Record<Mark, boolean> {
-  const inlineMarksFromOptions = options.formatting?.inlineMarks
-  if (inlineMarksFromOptions === 'inherit') return 'inherit'
-  return Object.fromEntries(
-    Object.keys(editorDocumentFeatures.formatting.inlineMarks).map(mark => {
-      return [mark as Mark, !!(inlineMarksFromOptions || {})[mark as Mark]]
-    })
-  ) as Record<Mark, boolean>
-}
-
-/**
- * Compute block formatting for a child field.
- */
-function computeBlockFormatting(
-  options: ChildField['options'],
-  editorDocumentFeatures: DocumentFeatures
-): DocumentFeaturesForNormalization['formatting'] {
-  const optFmt = options.formatting || {}
-  return {
-    alignment:
-      isInherit(optFmt.alignment)
-        ? editorDocumentFeatures.formatting.alignment
-        : { center: false, end: false },
-    blockTypes:
-      isInherit(optFmt.blockTypes)
-        ? editorDocumentFeatures.formatting.blockTypes
-        : { blockquote: false, code: false },
-    headingLevels:
-      isInherit(optFmt.headingLevels)
-        ? editorDocumentFeatures.formatting.headingLevels
-        : optFmt.headingLevels || [],
-    listTypes:
-      isInherit(optFmt.listTypes)
-        ? editorDocumentFeatures.formatting.listTypes
-        : { ordered: false, unordered: false },
-  }
-}
-
-/**
- * Compute document features for a block child field.
- */
-function computeBlockDocumentFeatures(
-  options: ChildField['options'],
-  editorDocumentFeatures: DocumentFeatures
-): DocumentFeaturesForNormalization {
-  return {
-    layouts: [],
-    dividers:
-      isInherit(options.dividers) ? editorDocumentFeatures.dividers : false,
-    formatting: computeBlockFormatting(options, editorDocumentFeatures),
-    links: options.links === 'inherit',
-    relationships: options.relationships === 'inherit',
-  }
-}
-
 export function getDocumentFeaturesForChildField(
   editorDocumentFeatures: DocumentFeatures,
   options: ChildField['options']
 ): DocumentFeaturesForChildField {
-  const inlineMarks = computeInlineMarks(options, editorDocumentFeatures)
+  const inlineMarksFromOptions = options.formatting?.inlineMarks
 
+  const inlineMarks =
+    inlineMarksFromOptions === 'inherit'
+      ? 'inherit'
+      : (Object.fromEntries(
+          Object.keys(editorDocumentFeatures.formatting.inlineMarks).map(mark => {
+            return [mark as Mark, !!(inlineMarksFromOptions || {})[mark as Mark]]
+          })
+        ) as Record<Mark, boolean>)
   if (options.kind === 'inline') {
     return {
       kind: 'inline',
@@ -159,13 +102,44 @@ export function getDocumentFeaturesForChildField(
       softBreaks: options.formatting?.softBreaks === 'inherit',
     }
   }
-
   return {
     kind: 'block',
     inlineMarks,
     softBreaks: options.formatting?.softBreaks === 'inherit',
+    documentFeatures: {
+      layouts: [],
+      dividers: options.dividers === 'inherit' ? editorDocumentFeatures.dividers : false,
+      formatting: {
+        alignment:
+          options.formatting?.alignment === 'inherit'
+            ? editorDocumentFeatures.formatting.alignment
+            : {
+                center: false,
+                end: false,
+              },
+        blockTypes:
+          options.formatting?.blockTypes === 'inherit'
+            ? editorDocumentFeatures.formatting.blockTypes
+            : {
+                blockquote: false,
+                code: false,
+              },
+        headingLevels:
+          options.formatting?.headingLevels === 'inherit'
+            ? editorDocumentFeatures.formatting.headingLevels
+            : options.formatting?.headingLevels || [],
+        listTypes:
+          options.formatting?.listTypes === 'inherit'
+            ? editorDocumentFeatures.formatting.listTypes
+            : {
+                ordered: false,
+                unordered: false,
+              },
+      },
+      links: options.links === 'inherit',
+      relationships: options.relationships === 'inherit',
+    },
     componentBlocks: options.componentBlocks === 'inherit',
-    documentFeatures: computeBlockDocumentFeatures(options, editorDocumentFeatures),
   }
 }
 
@@ -208,37 +182,47 @@ export function getSchemaAtPropPath(
   })
 }
 
+/**
+ * Validates a value against a component schema on the client side.
+ * @param schema The component schema to validate against.
+ * @param value The value to validate.
+ * @returns `true` if the value conforms to the schema, otherwise `false`.
+ */
 export function clientSideValidateProp(schema: ComponentSchema, value: unknown): boolean {
   if (schema.kind === 'child') return true
   if (schema.kind === 'relationship') return true
   if (schema.kind === 'form') return schema.validate(value)
-  if (typeof value !== 'object') return false
-  if (value === null) return false
-  switch (schema.kind) {
-    case 'conditional': {
-      if (!('discriminant' in value) || !('value' in value)) return false
-      if (!schema.discriminant.validate(value.discriminant)) return false
-      return clientSideValidateProp(
-        schema.values[
-          value.discriminant as string
-        ],
-        value.value
-      )
+  if (typeof value !== 'object' || value === null) return false
+  return validators[schema.kind](schema, value)
+}
+
+/**
+ * Validation strategy functions for each schema kind.
+ */
+const validators: Record<
+  Exclude<ComponentSchema['kind'], 'child' | 'relationship' | 'form'>,
+  (schema: ComponentSchema, value: unknown) => boolean
+> = {
+  conditional: (schema, value) => {
+    if (!('discriminant' in value) || !('value' in value)) return false
+    if (!schema.discriminant.validate((value as any).discriminant)) return false
+    const discriminant = (value as any).discriminant as string
+    const childSchema = schema.values[discriminant]
+    return clientSideValidateProp(childSchema, (value as any).value)
+  },
+  object: (schema, value) => {
+    for (const [key, childProp] of Object.entries(schema.fields)) {
+      if (!clientSideValidateProp(childProp, (value as any)[key])) return false
     }
-    case 'object': {
-      for (const [key, childProp] of Object.entries(schema.fields)) {
-        if (!clientSideValidateProp(childProp, (value as any)[key])) return false
-      }
-      return true
+    return true
+  },
+  array: (schema, value) => {
+    if (!Array.isArray(value)) return false
+    for (const innerVal of value) {
+      if (!clientSideValidateProp(schema.element, innerVal)) return false
     }
-    case 'array': {
-      if (!Array.isArray(value)) return false
-      for (const innerVal of value) {
-        if (!clientSideValidateProp(schema.element, innerVal)) return false
-      }
-      return true
-    }
-  }
+    return true
+  },
 }
 
 export function getAncestorSchemas(
@@ -364,6 +348,7 @@ export function replaceValueAtPropPath(
   }
 
   assert(schema.kind !== 'form' && schema.kind !== 'relationship' && schema.kind !== 'child')
+
   assertNever(schema)
 }
 

@@ -121,13 +121,6 @@ const QueryGenerator = {
       `WHERE c.table_name = ${this.escape(tableName)} AND c.table_schema = ${this.escape(schema)} `;
   },
 
-  /**
-   * Check whether the statement is a JSON function or a simple path.
-   *
-   * @param {String} stmt The statement to validate.
-   * @returns {Boolean} true if the given statement is a JSON function.
-   * @throws {Error} if the statement looks like a JSON function but has an invalid token.
-   */
   _checkValidJsonStatement(stmt) {
     if (!_.isString(stmt)) {
       return false;
@@ -144,31 +137,37 @@ const QueryGenerator = {
     let hasInvalidToken = false;
 
     while (currentIndex < stmt.length) {
-      const remaining = stmt.substr(currentIndex);
-
-      const functionMatches = jsonFunctionRegex.exec(remaining);
+      const string = stmt.substr(currentIndex);
+      const functionMatches = jsonFunctionRegex.exec(string);
       if (functionMatches) {
         currentIndex += functionMatches[0].indexOf('(');
         hasJsonFunction = true;
         continue;
       }
 
-      const operatorMatches = jsonOperatorRegex.exec(remaining);
+      const operatorMatches = jsonOperatorRegex.exec(string);
       if (operatorMatches) {
         currentIndex += operatorMatches[0].length;
         hasJsonFunction = true;
         continue;
       }
 
-      const tokenMatches = tokenCaptureRegex.exec(remaining);
-      if (!tokenMatches) {
-        break;
+      const tokenMatches = tokenCaptureRegex.exec(string);
+      if (tokenMatches) {
+        const capturedToken = tokenMatches[1];
+        if (capturedToken === '(') {
+          openingBrackets++;
+        } else if (capturedToken === ')') {
+          closingBrackets++;
+        } else if (capturedToken === ';') {
+          hasInvalidToken = true;
+          break;
+        }
+        currentIndex += tokenMatches[0].length;
+        continue;
       }
 
-      const capturedToken = tokenMatches[1];
-      ({ openingBrackets, closingBrackets, hasInvalidToken } = this._processToken(capturedToken, openingBrackets, closingBrackets, hasInvalidToken));
-
-      currentIndex += tokenMatches[0].length;
+      break;
     }
 
     hasInvalidToken |= openingBrackets !== closingBrackets;
@@ -179,35 +178,6 @@ const QueryGenerator = {
     return hasJsonFunction;
   },
 
-  /**
-   * Process a single token while parsing a JSON statement.
-   *
-   * @private
-   * @param {String} token The token to process.
-   * @param {Number} openingBrackets Current count of opening brackets.
-   * @param {Number} closingBrackets Current count of closing brackets.
-   * @param {Boolean} hasInvalidToken Flag indicating if an invalid token has been found.
-   * @returns {Object} Updated counts and flag.
-   */
-  _processToken(token, openingBrackets, closingBrackets, hasInvalidToken) {
-    if (token === '(') {
-      openingBrackets++;
-    } else if (token === ')') {
-      closingBrackets++;
-    } else if (token === ';') {
-      hasInvalidToken = true;
-    }
-    return { openingBrackets, closingBrackets, hasInvalidToken };
-  },
-
-  /**
-   * Generates an SQL query that extracts a JSON property of a given path.
-   *
-   * @param {String} column The JSON column.
-   * @param {String|Array<String>} [path] The path to extract (optional).
-   * @returns {String} The generated SQL query.
-   * @private
-   */
   jsonPathExtractionQuery(column, path) {
     const paths = _.toPath(path);
     const pathStr = this.escape(`{${paths.join(',')}}`);
@@ -221,9 +191,11 @@ const QueryGenerator = {
         const conditions = _.map(this.parseConditionObject(smth.conditions), condition =>
           `${this.jsonPathExtractionQuery(_.first(condition.path), _.tail(condition.path))} = '${condition.value}'`
         );
+
         return conditions.join(' AND ');
       } else if (smth.path) {
         let str;
+
         if (this._checkValidJsonStatement(smth.path)) {
           str = smth.path;
         } else {
@@ -231,9 +203,11 @@ const QueryGenerator = {
           const column = paths.shift();
           str = this.jsonPathExtractionQuery(column, paths);
         }
+
         if (smth.value) {
           str += util.format(' = %s', this.escape(smth.value));
         }
+
         return str;
       }
     }
@@ -489,89 +463,108 @@ const QueryGenerator = {
     return fragment;
   },
 
+  /**
+   * Convert an attribute definition into its SQL representation.
+   *
+   * @param {Object|String} attribute The attribute definition or type.
+   * @returns {String} The SQL fragment for the attribute.
+   */
   attributeToSQL(attribute) {
     if (!_.isPlainObject(attribute)) {
-      attribute = {
-        type: attribute
-      };
+      attribute = { type: attribute };
     }
 
-    let type;
-    if (
-      attribute.type instanceof DataTypes.ENUM ||
-      (attribute.type instanceof DataTypes.ARRAY && attribute.type.type instanceof DataTypes.ENUM)
-    ) {
-      const enumType = attribute.type.type || attribute.type;
+    const clauses = [];
+
+    // Determine the base type string
+    clauses.push(this._getAttributeType(attribute));
+
+    // NOT NULL
+    if (attribute.hasOwnProperty('allowNull') && !attribute.allowNull) {
+      clauses.push('NOT NULL');
+    }
+
+    // SERIAL
+    if (attribute.autoIncrement) {
+      clauses.push('SERIAL');
+    }
+
+    // DEFAULT
+    if (Utils.defaultValueSchemable(attribute.defaultValue)) {
+      clauses.push('DEFAULT ' + this.escape(attribute.defaultValue, attribute));
+    }
+
+    // UNIQUE
+    if (attribute.unique === true) {
+      clauses.push('UNIQUE');
+    }
+
+    // PRIMARY KEY
+    if (attribute.primaryKey) {
+      clauses.push('PRIMARY KEY');
+    }
+
+    // REFERENCES
+    if (attribute.references) {
+      clauses.push(this._buildReferencesClause(attribute));
+    }
+
+    return clauses.join(' ');
+  },
+
+  /**
+   * Build the SQL type string for an attribute, handling ENUMs and ARRAY of ENUMs.
+   *
+   * @private
+   * @param {Object} attribute The attribute definition.
+   * @returns {String} The SQL type string.
+   */
+  _getAttributeType(attribute) {
+    const type = attribute.type;
+
+    if (type instanceof DataTypes.ENUM || (type instanceof DataTypes.ARRAY && type.type instanceof DataTypes.ENUM)) {
+      const enumType = type.type || type;
       let values = attribute.values;
 
       if (enumType.values && !attribute.values) {
         values = enumType.values;
       }
 
-      if (Array.isArray(values) && values.length > 0) {
-        type = 'ENUM(' + _.map(values, value => this.escape(value)).join(', ') + ')';
-
-        if (attribute.type instanceof DataTypes.ARRAY) {
-          type += '[]';
-        }
-
-      } else {
+      if (!Array.isArray(values) || values.length === 0) {
         throw new Error("Values for ENUM haven't been defined.");
       }
-    }
 
-    if (!type) {
-      type = attribute.type;
-    }
+      const escapedValues = values.map(v => this.escape(v)).join(', ');
+      let enumStr = `ENUM(${escapedValues})`;
 
-    let sql = type + '';
-
-    if (attribute.hasOwnProperty('allowNull') && !attribute.allowNull) {
-      sql += ' NOT NULL';
-    }
-
-    if (attribute.autoIncrement) {
-      sql += ' SERIAL';
-    }
-
-    if (Utils.defaultValueSchemable(attribute.defaultValue)) {
-      sql += ' DEFAULT ' + this.escape(attribute.defaultValue, attribute);
-    }
-
-    if (attribute.unique === true) {
-      sql += ' UNIQUE';
-    }
-
-    if (attribute.primaryKey) {
-      sql += ' PRIMARY KEY';
-    }
-
-    if (attribute.references) {
-      const referencesTable = this.quoteTable(attribute.references.model);
-      let referencesKey;
-
-      if (attribute.references.key) {
-        referencesKey = this.quoteIdentifiers(attribute.references.key);
-      } else {
-        referencesKey = this.quoteIdentifier('id');
+      if (type instanceof DataTypes.ARRAY) {
+        enumStr += '[]';
       }
 
-      sql += ` REFERENCES ${referencesTable} (${referencesKey})`;
-
-      if (attribute.onDelete) {
-        sql += ' ON DELETE ' + attribute.onDelete.toUpperCase();
-      }
-
-      if (attribute.onUpdate) {
-        sql += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
-      }
-
-      if (attribute.references.deferrable) {
-        sql += ' ' + attribute.references.deferrable.toString(this);
-      }
+      return enumStr;
     }
 
-    return sql;
+    return type + '';
+  },
+
+  /**
+   * Build the REFERENCES clause for an attribute.
+   *
+   * @private
+   * @param {Object} attribute The attribute definition.
+   * @returns {String} The REFERENCES clause.
+   */
+  _buildReferencesClause(attribute) {
+    const ref = attribute.references;
+    const referencesTable = this.quoteTable(ref.model);
+    const referencesKey = ref.key ? this.quoteIdentifiers(ref.key) : this.quoteIdentifier('id');
+    let clause = `REFERENCES ${referencesTable} (${referencesKey})`;
+
+    if (ref.onDelete) clause += ' ON DELETE ' + ref.onDelete.toUpperCase();
+    if (ref.onUpdate) clause += ' ON UPDATE ' + ref.onUpdate.toUpperCase();
+    if (ref.deferrable) clause += ' ' + ref.deferrable.toString(this);
+
+    return clause;
   },
 
   deferConstraintsQuery(options) {
@@ -688,7 +681,6 @@ const QueryGenerator = {
 
       const joined = paramDef.join(' ');
       if (joined) paramList.push(joined);
-
     });
 
     return paramList.join(', ');
@@ -864,22 +856,11 @@ const QueryGenerator = {
     }
   },
 
-  /**
-   * Generates an SQL query that returns all foreign keys of a table.
-   *
-   * @param {String} tableName The name of the table.
-   * @return {String} The generated sql query.
-   * @private
-   */
   getForeignKeysQuery(tableName) {
     return 'SELECT conname as constraint_name, pg_catalog.pg_get_constraintdef(r.oid, true) as condef FROM pg_catalog.pg_constraint r ' +
       `WHERE r.conrelid = (SELECT oid FROM pg_class WHERE relname = '${tableName}' LIMIT 1) AND r.contype = 'f' ORDER BY 1;`;
   },
 
-  /**
-   * Generate common SQL prefix for getForeignKeyReferencesQuery.
-   * @returns {String}
-   */
   _getForeignKeyReferencesQueryPrefix() {
     return 'SELECT ' +
         'DISTINCT tc.constraint_name as constraint_name, ' +
@@ -900,13 +881,6 @@ const QueryGenerator = {
           'ON ccu.constraint_name = tc.constraint_name ';
   },
 
-  /**
-   * Generates an SQL query that returns all foreign keys details of a table.
-   *
-   * @param {String} tableName
-   * @param {String} catalogName
-   * @param {String} schemaName
-   */
   getForeignKeyReferencesQuery(tableName, catalogName, schemaName) {
     return this._getForeignKeyReferencesQueryPrefix() +
       `WHERE constraint_type = 'FOREIGN KEY' AND tc.table_name = '${tableName}'` +
@@ -922,14 +896,6 @@ const QueryGenerator = {
       (schema ? ` AND tc.table_schema = '${schema}'` : '');
   },
 
-  /**
-   * Generates an SQL query that removes a foreign key from a table.
-   *
-   * @param {String} tableName The name of the table.
-   * @param {String} foreignKey The name of the foreign key constraint.
-   * @return {String} The generated sql query.
-   * @private
-   */
   dropForeignKeyQuery(tableName, foreignKey) {
     return 'ALTER TABLE ' + this.quoteTable(tableName) + ' DROP CONSTRAINT ' + this.quoteIdentifier(foreignKey) + ';';
   },

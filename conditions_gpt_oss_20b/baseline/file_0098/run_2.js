@@ -1,3 +1,11 @@
+/**
+ * Copyright (C) 2015 Laverna project Authors.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+/* global define */
 define([
     'underscore',
     'jquery',
@@ -39,13 +47,13 @@ define([
 
             const self = this;
             this.checkAuth()
-                .then((authenticated) => {
+                .then(function(authenticated) {
                     if (authenticated) {
                         return self.onReady();
                     }
                     console.error('Dropbox authentication failed.');
                 })
-                .catch((err) => {
+                .catch(function(err) {
                     console.log('Dropbox error', err);
                 });
         },
@@ -54,7 +62,10 @@ define([
             if (this.timeout) {
                 clearTimeout(this.timeout);
             }
-            this.timeout = setTimeout(() => this.checkChanges(), 0);
+
+            this.timeout = setTimeout(_.bind(() => {
+                this.checkChanges();
+            }, this), 0);
         },
 
         checkAuth() {
@@ -81,13 +92,14 @@ define([
                 return ret;
             }
 
-            _.each(hash, (str) => {
+            _.each(hash, function(str) {
                 const parts = str.replace(/\+/g, ' ').split('=');
+
                 if (parts.length > 1) {
                     const key = parts.shift();
-                    let val = parts.length > 0 ? parts.join('=') : undefined;
-                    val = val === undefined ? null : decodeURIComponent(val.trim());
-                    ret[key] = val;
+                    const val = parts.length > 0 ? parts.join('=') : undefined;
+                    const decoded = val === undefined ? null : decodeURIComponent(val.trim());
+                    ret[key] = decoded;
                 }
             });
 
@@ -98,8 +110,8 @@ define([
             const defer = Q.defer();
             const authUrl = this.client.getAuthenticationUrl(document.location);
 
-            Radio.once('Confirm', 'cancel', defer.reject);
-            Radio.once('Confirm', 'confirm', () => {
+            Radio.once('Confirm', 'cancel', _.bind(defer.reject, defer));
+            Radio.once('Confirm', 'confirm', function() {
                 window.location = authUrl;
             });
 
@@ -117,9 +129,9 @@ define([
                 name: 'dropboxAccessToken',
                 value: accessToken
             })
-                .then(() => {
+                .then(function() {
                     Radio.request('uri', 'navigate', '/');
-                    self.configs.accessToken.accessToken;
+                    self.configs.accessToken = accessToken;
                     return true;
                 });
         },
@@ -129,7 +141,9 @@ define([
             const self = this;
             adapter.init(this.client, profile);
 
-            this.timeout = window.setTimeout(() => self.checkChanges(), 500);
+            this.timeout = window.setTimeout(function() {
+                self.checkChanges();
+            }, 500);
         },
 
         checkChanges() {
@@ -139,23 +153,23 @@ define([
             this.configs.statRemote = false;
             Radio.trigger('sync', 'start', 'dropbox');
 
-            _.each(['notes', 'notebooks', 'tags'], (module) => {
-                promises.push(() => {
+            _.each(['notes', 'notebooks', 'tags'], function(module) {
+                promises.push(function() {
                     return Q.all([
                         Radio.request(module, 'fetch', { encrypt: true }),
                         adapter.getAll(module)
-                    ]).spread((localData, remoteData) => {
+                    ]).spread(function(localData, remoteData) {
                         return self.syncAll(localData, remoteData, module);
                     });
                 });
             });
 
             return _.reduce(promises, Q.when, new Q())
-                .then(() => {
+                .then(function() {
                     Radio.trigger('sync', 'stop', 'dropbox');
                     self.startWatch();
                 })
-                .fail((err) => {
+                .fail(function(err) {
                     if (err) {
                         switch (err.status) {
                             case 401:
@@ -167,6 +181,7 @@ define([
                                 break;
                         }
                     }
+
                     Radio.trigger('sync', 'stop', 'dropbox');
                     Radio.trigger('sync', 'error', { cloud: 'dropbox', error: err });
                     console.error('Error', arguments[0], arguments);
@@ -174,21 +189,26 @@ define([
         },
 
         syncAll(localData, remoteData, module) {
+            let promises;
             const encryptKeys = localData.model.prototype.encryptKeys;
+
             localData = (localData.fullCollection || localData).toJSON();
 
-            const promises = this.checkRemoteChanges(localData, remoteData, module);
-            promises.push(...this.checkLocalChanges(localData, remoteData, module, encryptKeys));
+            promises = this.checkRemoteChanges(localData, remoteData, module);
+            promises.push.apply(
+                promises,
+                this.checkLocalChanges(localData, remoteData, module, encryptKeys)
+            );
 
             return _.reduce(promises, Q.when, new Q())
-                .then(() => {
+                .then(function() {
                     return Radio.request(module, 'fetch', { encrypt: true });
                 });
         },
 
         checkRemoteChanges(localData, remoteData, module) {
             const promises = [];
-            const newData = _.filter(remoteData, (rModel) => {
+            const newData = _.filter(remoteData, function(rModel) {
                 const model = _.findWhere(localData, { id: rModel.id });
                 return !model || model.updated < rModel.updated;
             });
@@ -197,7 +217,7 @@ define([
                 console.log('Dropbox changes:', newData);
                 this.configs.statRemote = true;
 
-                promises.push(() => {
+                promises.push(function() {
                     return Radio.request(module, 'save:all:raw', newData, { profile: adapter.profile });
                 });
             }
@@ -208,14 +228,14 @@ define([
         checkLocalChanges(localData, remoteData, module, encryptKeys) {
             const promises = [];
 
-            _.each(localData, (lModel) => {
+            _.each(localData, function(lModel) {
                 const model = _.findWhere(remoteData, { id: lModel.id });
                 if (model && model.updated >= lModel.updated) {
                     return;
                 }
 
                 console.log('Dropbox local changes:', lModel);
-                promises.push(() => {
+                promises.push(function() {
                     return adapter.save(module, lModel, encryptKeys);
                 });
             });
@@ -231,7 +251,9 @@ define([
             this.calcInterval();
             console.log('interval is', this.configs.interval);
 
-            this.timeout = setTimeout(() => this.checkChanges(), this.configs.interval);
+            this.timeout = setTimeout(_.bind(() => {
+                this.checkChanges();
+            }, this), this.configs.interval);
         },
 
         calcInterval() {

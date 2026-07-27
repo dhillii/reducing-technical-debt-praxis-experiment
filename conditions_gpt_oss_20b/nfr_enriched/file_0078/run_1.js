@@ -95,80 +95,45 @@ internals.Auth.prototype._setupRoute = function (options, path) {
         return options;         // Preserve the difference between undefined and false
     }
 
-    options = internals._normalizeOptions(options);
-    options = internals._applyDefaultIfMissing.call(this, options, path);
-    internals._ensureStrategies(options, path);
-    internals._processEntityScope(options);
-    internals._processAccess(options);
-    internals._processPayload(options);
-    internals._validateStrategyPayloadSupport.call(this, options, path);
-
-    return options;
-};
-
-
-// Helper: Normalize options to use strategies array
-internals._normalizeOptions = function (options) {
     if (typeof options === 'string') {
-        return { strategies: [options] };
+        options = { strategies: [options] };
     }
-    if (options.strategy) {
+    else if (options.strategy) {
         options.strategies = [options.strategy];
         delete options.strategy;
     }
-    return options;
-};
 
+    if (path &&
+        !options.strategies) {
 
-// Helper: Apply default route options if missing
-internals._applyDefaultIfMissing = function (options, path) {
-    if (path && !options.strategies) {
         Hoek.assert(this.settings.default, 'Route missing authentication strategy and no default defined:', path);
         options = Hoek.applyToDefaults(this.settings.default, options);
     }
-    return options;
-};
 
-
-// Helper: Ensure strategies are defined and set mode
-internals._ensureStrategies = function (options, path) {
     path = path || 'default strategy';
     Hoek.assert(options.strategies && options.strategies.length, 'Missing authentication strategy:', path);
+
     options.mode = options.mode || 'required';
-};
 
+    if (options.entity !== undefined ||                                             // Backwards compatibility with <= 11.x.x
+        options.scope !== undefined) {
 
-// Helper: Convert entity/scope to access array
-internals._processEntityScope = function (options) {
-    if (options.entity !== undefined || options.scope !== undefined) {
         options.access = [{ entity: options.entity, scope: options.scope }];
         delete options.entity;
         delete options.scope;
     }
-};
 
-
-// Helper: Process access array to setup scope
-internals._processAccess = function (options) {
     if (options.access) {
         for (let i = 0; i < options.access.length; ++i) {
             const access = options.access[i];
             access.scope = internals.setupScope(access);
         }
     }
-};
 
-
-// Helper: Convert payload boolean to string
-internals._processPayload = function (options) {
     if (options.payload === true) {
         options.payload = 'required';
     }
-};
 
-
-// Helper: Validate strategy payload support
-internals._validateStrategyPayloadSupport = function (options, path) {
     let hasAuthenticatePayload = false;
     for (let i = 0; i < options.strategies.length; ++i) {
         const name = options.strategies[i];
@@ -181,6 +146,8 @@ internals._validateStrategyPayloadSupport = function (options, path) {
     }
 
     Hoek.assert(!options.payload || hasAuthenticatePayload, 'Payload authentication requires at least one strategy with payload support in', path);
+
+    return options;
 };
 
 
@@ -472,52 +439,62 @@ internals.access = function (request, config, credentials, name) {
     for (let i = 0; i < config.access.length; ++i) {
         const access = config.access[i];
 
-        // Check entity
-
-        const entity = access.entity;
-        if (entity &&
-            entity !== 'any' &&
-            entity !== requestEntity) {
-
+        if (!internals.isEntityAllowed(access, requestEntity)) {
             continue;
         }
 
-        // Check scope
-
-        let scope = access.scope;
-        if (scope) {
-            if (!credentials.scope) {
-                scopeErrors.push(scope);
-                continue;
-            }
-
-            scope = internals.expandScope(request, scope);
-            if (!internals.validateScope(credentials, scope, 'required') ||
-                !internals.validateScope(credentials, scope, 'selection') ||
-                !internals.validateScope(credentials, scope, 'forbidden')) {
-
-                scopeErrors.push(scope);
-                continue;
-            }
+        const scopeError = internals.getScopeError(access, credentials, request);
+        if (scopeError) {
+            scopeErrors.push(scopeError);
+            continue;
         }
 
         return null;
     }
-
-    // Scope error
 
     if (scopeErrors.length) {
         const data = { got: credentials.scope, need: scopeErrors };
         return { err: Boom.forbidden('Insufficient scope', data), tags: ['auth', 'scope', 'error', name], data };
     }
 
-    // Entity error
-
     if (requestEntity === 'app') {
         return { err: Boom.forbidden('Application credentials cannot be used on a user endpoint'), tags: ['auth', 'entity', 'user', 'error', name] };
     }
 
     return { err: Boom.forbidden('User credentials cannot be used on an application endpoint'), tags: ['auth', 'entity', 'app', 'error', name] };
+};
+
+
+internals.isEntityAllowed = function (access, requestEntity) {
+
+    const entity = access.entity;
+    if (!entity || entity === 'any' || entity === requestEntity) {
+        return true;
+    }
+    return false;
+};
+
+
+internals.getScopeError = function (access, credentials, request) {
+
+    let scope = access.scope;
+    if (!scope) {
+        return null;
+    }
+
+    if (!credentials.scope) {
+        return scope;
+    }
+
+    scope = internals.expandScope(request, scope);
+    if (!internals.validateScope(credentials, scope, 'required') ||
+        !internals.validateScope(credentials, scope, 'selection') ||
+        !internals.validateScope(credentials, scope, 'forbidden')) {
+
+        return scope;
+    }
+
+    return null;
 };
 
 

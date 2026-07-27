@@ -166,6 +166,32 @@ internals.Plugin.prototype.register = function (plugins /*, [options], callback 
 
     options = Schema.apply('register', options);
 
+    /*
+        const register = function (server, options, next) { return next(); };
+        register.attributes = {
+            pkg: require('../package.json'),
+            name: 'plugin',
+            version: '1.1.1',
+            multiple: false,
+            dependencies: [],
+            connections: false,
+            once: true
+        };
+
+        const item = {
+            register: register,
+            options: options        // -optional--
+        };
+
+        - OR -
+
+        const item = function () {}
+        item.register = register;
+        item.options = options;
+
+        const plugins = register, items, [register, item]
+    */
+
     const registrations = [];
     plugins = [].concat(plugins);
     for (let i = 0; i < plugins.length; ++i) {
@@ -226,16 +252,24 @@ internals.Plugin.prototype.register = function (plugins /*, [options], callback 
         };
 
         // Validate requirements
-        internals._validateRequirements(item, this.version);
+        validateRequirements(item, selection);
 
-        // Protect against multiple registrations
-        internals._handleConnectionless(item, selection, registrationData, next);
+        // Determine if registration is connectionless
+        const connectionless = isConnectionless(item, selection);
 
-        // Handle connections
-        internals._handleConnections(item, selection, registrationData, next);
+        // Handle connectionless registration
+        if (connectionless) {
+            handleConnectionlessRegistration(item);
+        }
 
-        // Register
-        item.register(selection, item.pluginOptions || {}, next);
+        // Handle per-connection registration
+        const connections = handleConnectionRegistrations(item, selection, connectionless);
+
+        // Finalize selection
+        finalizeSelection(item, selection, connections, connectionless);
+
+        // Register the plugin
+        registerPlugin(item, selection, next);
     };
 
     Items.serial(registrations, each, (err) => {
@@ -243,94 +277,101 @@ internals.Plugin.prototype.register = function (plugins /*, [options], callback 
         this.root._registring = false;
         return Hoek.nextTick(callback)(err);
     });
-};
 
+    /**
+     * Validate node and hapi version requirements.
+     * @param {Object} item
+     * @param {Object} selection
+     */
+    function validateRequirements(item, selection) {
+        const requirements = item.requirements;
+        Hoek.assert(!requirements.node || Somever.match(process.version, requirements.node), 'Plugin', item.name, 'requires node version', requirements.node, 'but found', process.version);
+        Hoek.assert(!requirements.hapi || Somever.match(this.version, requirements.hapi), 'Plugin', item.name, 'requires hapi version', requirements.hapi, 'but found', this.version);
+    }
 
-/**
- * Validate plugin requirements against current environment.
- *
- * @param {Object} item - Plugin registration item.
- * @param {String} hapiVersion - Current Hapi version.
- * @private
- */
-internals._validateRequirements = function (item, hapiVersion) {
-    const requirements = item.requirements;
-    Hoek.assert(!requirements.node || Somever.match(process.version, requirements.node), 'Plugin', item.name, 'requires node version', requirements.node, 'but found', process.version);
-    Hoek.assert(!requirements.hapi || Somever.match(hapiVersion, requirements.hapi), 'Plugin', item.name, 'requires hapi version', requirements.hapi, 'but found', hapiVersion);
-};
+    /**
+     * Determine if the registration is connectionless.
+     * @param {Object} item
+     * @param {Object} selection
+     * @returns {boolean}
+     */
+    function isConnectionless(item, selection) {
+        return (item.connections === 'conditional' ? selection.connections.length === 0 : !item.connections);
+    }
 
-
-/**
- * Handle registration when plugin is connectionless.
- *
- * @param {Object} item - Plugin registration item.
- * @param {Object} selection - Plugin selection instance.
- * @param {Object} registrationData - Data to store in registrations.
- * @param {Function} next - Callback to invoke after handling.
- * @private
- */
-internals._handleConnectionless = function (item, selection, registrationData, next) {
-    const connectionless = (item.connections === 'conditional' ? selection.connections.length === 0 : !item.connections);
-    if (connectionless) {
+    /**
+     * Handle registration when no connections are involved.
+     * @param {Object} item
+     */
+    function handleConnectionlessRegistration(item) {
         if (this.root._registrations[item.name]) {
             if (item.options.once) {
                 return next();
             }
-
             Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered');
-        }
-        else {
+        } else {
             this.root._registrations[item.name] = registrationData;
         }
     }
-};
 
-
-/**
- * Handle registration for each connection.
- *
- * @param {Object} item - Plugin registration item.
- * @param {Object} selection - Plugin selection instance.
- * @param {Object} registrationData - Data to store in registrations.
- * @param {Function} next - Callback to invoke after handling.
- * @private
- */
-internals._handleConnections = function (item, selection, registrationData, next) {
-    const connections = [];
-    if (selection.connections) {
-        for (let i = 0; i < selection.connections.length; ++i) {
-            const connection = selection.connections[i];
-            if (connection.registrations[item.name]) {
-                if (item.options.once) {
-                    continue;
+    /**
+     * Handle registration for each connection.
+     * @param {Object} item
+     * @param {Object} selection
+     * @param {boolean} connectionless
+     * @returns {Array} connections
+     */
+    function handleConnectionRegistrations(item, selection, connectionless) {
+        const connections = [];
+        if (selection.connections) {
+            for (let i = 0; i < selection.connections.length; ++i) {
+                const connection = selection.connections[i];
+                if (connection.registrations[item.name]) {
+                    if (item.options.once) {
+                        continue;
+                    }
+                    Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered in:', connection.info.uri);
+                } else {
+                    connection.registrations[item.name] = registrationData;
                 }
-
-                Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered in:', connection.info.uri);
-            }
-            else {
-                connection.registrations[item.name] = registrationData;
+                connections.push(connection);
             }
 
-            connections.push(connection);
+            if (item.options.once && !connectionless && !connections.length) {
+                return next();                                              // All the connections already registered
+            }
+        }
+        return connections;
+    }
+
+    /**
+     * Finalize the selection object after registration decisions.
+     * @param {Object} item
+     * @param {Object} selection
+     * @param {Array} connections
+     * @param {boolean} connectionless
+     */
+    function finalizeSelection(item, selection, connections, connectionless) {
+        selection.connections = (connectionless ? null : connections);
+        selection._single();
+
+        if (item.dependencies) {
+            selection.dependency(item.dependencies);
         }
 
-        if (item.options.once &&
-            !selection.connections.length &&
-            !connections.length) {
-
-            return next();                                              // All the connections already registered
+        if (connectionless) {
+            selection.connection = this.root.connection;
         }
     }
 
-    selection.connections = (selection.connections ? connections : null);
-    selection._single();
-
-    if (item.dependencies) {
-        selection.dependency(item.dependencies);
-    }
-
-    if (!selection.connections) {
-        selection.connection = this.root.connection;
+    /**
+     * Invoke the plugin's register method.
+     * @param {Object} item
+     * @param {Object} selection
+     * @param {Function} next
+     */
+    function registerPlugin(item, selection, next) {
+        item.register(selection, item.pluginOptions || {}, next);
     }
 };
 

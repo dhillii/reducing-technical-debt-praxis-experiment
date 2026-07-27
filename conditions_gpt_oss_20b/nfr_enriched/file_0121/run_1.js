@@ -87,96 +87,80 @@ const QueryGenerator = {
   },
 
   /**
-   * Generates a CREATE TABLE statement for MSSQL.
+   * Generates a CREATE TABLE query for MSSQL.
    * @param {String} tableName
    * @param {Object} attributes
    * @param {Object} options
    * @returns {String}
    */
   createTableQuery(tableName, attributes, options) {
-    const query = "IF OBJECT_ID('<%= table %>', 'U') IS NULL CREATE TABLE <%= table %> (<%= attributes %>)";
+    const queryTemplate = "IF OBJECT_ID('<%= table %>', 'U') IS NULL CREATE TABLE <%= table %> (<%= attributes %>)";
     const primaryKeys = [];
     const foreignKeys = {};
     const attrStr = [];
 
-    this._processAttributes(attributes, primaryKeys, foreignKeys, attrStr);
-
-    const values = {
-      table: this.quoteTable(tableName),
-      attributes: attrStr.join(', ')
-    };
-
-    this._appendUniqueConstraints(options, tableName, values);
-    this._appendPrimaryKey(values, primaryKeys);
-    this._appendForeignKeys(values, foreignKeys);
-
-    return _.template(query, this._templateSettings)(values).trim() + ';';
-  },
-
-  /**
-   * Processes each attribute to build column definitions and collect primary/foreign keys.
-   * @private
-   */
-  _processAttributes(attributes, primaryKeys, foreignKeys, attrStr) {
-    _.forOwn(attributes, (dataType, attr) => {
-      let match;
+    /**
+     * Processes a single attribute definition and updates the attribute string,
+     * primary key list, and foreign key map.
+     * @param {String} attr
+     * @param {String} dataType
+     */
+    const processAttribute = (attr, dataType) => {
       if (_.includes(dataType, 'PRIMARY KEY')) {
         primaryKeys.push(attr);
+
         if (_.includes(dataType, 'REFERENCES')) {
-          match = dataType.match(/^(.+) (REFERENCES.*)$/);
+          const match = dataType.match(/^(.+) (REFERENCES.*)$/);
           attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1].replace(/PRIMARY KEY/, ''));
           foreignKeys[attr] = match[2];
         } else {
           attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType.replace(/PRIMARY KEY/, ''));
         }
       } else if (_.includes(dataType, 'REFERENCES')) {
-        match = dataType.match(/^(.+) (REFERENCES.*)$/);
+        const match = dataType.match(/^(.+) (REFERENCES.*)$/);
         attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1]);
         foreignKeys[attr] = match[2];
       } else {
         attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType);
       }
-    });
-  },
+    };
 
-  /**
-   * Appends unique constraints defined in options to the attributes string.
-   * @private
-   */
-  _appendUniqueConstraints(options, tableName, values) {
-    if (options.uniqueKeys) {
+    for (const attr in attributes) {
+      if (attributes.hasOwnProperty(attr)) {
+        processAttribute(attr, attributes[attr]);
+      }
+    }
+
+    const values = {
+      table: this.quoteTable(tableName),
+      attributes: attrStr.join(', ')
+    };
+    const pkString = primaryKeys.map(pk => this.quoteIdentifier(pk)).join(', ');
+
+    // Handle unique keys
+    if (options && options.uniqueKeys) {
       _.each(options.uniqueKeys, (columns, indexName) => {
         if (columns.customIndex) {
-          if (!_.isString(indexName)) {
-            indexName = 'uniq_' + tableName + '_' + columns.fields.join('_');
-          }
-          values.attributes += `, CONSTRAINT ${this.quoteIdentifier(indexName)} UNIQUE (${columns.fields.map(field => this.quoteIdentifier(field)).join(', ')})`;
+          const idxName = _.isString(indexName)
+            ? indexName
+            : 'uniq_' + tableName + '_' + columns.fields.join('_');
+          values.attributes += `, CONSTRAINT ${this.quoteIdentifier(idxName)} UNIQUE (${columns.fields.map(field => this.quoteIdentifier(field)).join(', ')})`;
         }
       });
     }
-  },
 
-  /**
-   * Appends primary key definition to the attributes string.
-   * @private
-   */
-  _appendPrimaryKey(values, primaryKeys) {
-    const pkString = primaryKeys.map(pk => this.quoteIdentifier(pk)).join(', ');
     if (pkString.length > 0) {
       values.attributes += `, PRIMARY KEY (${pkString})`;
     }
-  },
 
-  /**
-   * Appends foreign key definitions to the attributes string.
-   * @private
-   */
-  _appendForeignKeys(values, foreignKeys) {
+    // Append foreign key constraints
     for (const fkey in foreignKeys) {
       if (foreignKeys.hasOwnProperty(fkey)) {
         values.attributes += ', FOREIGN KEY (' + this.quoteIdentifier(fkey) + ') ' + foreignKeys[fkey];
       }
     }
+
+    return _.template(queryTemplate, this._templateSettings)(values).trim() + ';';
   },
 
   describeTableQuery(tableName, schema) {
@@ -879,9 +863,9 @@ const QueryGenerator = {
          * 1. The outermost query selects all items from the inner query block.
          *    This is due to a limitation in SQL server with the use of computed
          *    columns (e.g. SELECT ROW_NUMBER()...AS x) in WHERE clauses.
-         *  2. The next query handles the LIMIT and OFFSET behavior by getting
-         *     the TOP N rows of the query where the row number is > OFFSET
-         *  3. The innermost query is the actual set we want information from
+         * 2. The next query handles the LIMIT and OFFSET behavior by getting
+         *    the TOP N rows of the query where the row number is > OFFSET
+         * 3. The innermost query is the actual set we want information from
          */
         const fragment = 'SELECT TOP 100 PERCENT ' + attributes.join(', ') + ' FROM ' +
                         '(SELECT ' + topFragment + '*' +

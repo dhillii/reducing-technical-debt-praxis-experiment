@@ -42,12 +42,11 @@ const STRIPE_API_VERSION = '2020-08-27';
  * @prop {string} checkoutSetupSessionSuccessUrl
  * @prop {string} checkoutSetupSessionCancelUrl
  * @prop {string} billingPortalReturnUrl
- * @prop {boolean} testEnv
+ * @prop {boolean} testEnv  - indicates if the module is run in test environment (note, NOT the test mode)
  */
 
 module.exports = class StripeAPI {
     constructor(deps) {
-        /** @type {Stripe} */
         this._stripe = null;
         this._configured = false;
         this.labs = deps.labs;
@@ -187,13 +186,6 @@ module.exports = class StripeAPI {
         return customer;
     }
 
-    /**
-     * Finds a Stripe Customer ID based on the provided email address. Returns null if no customer is found.
-     * @param {string} email
-     * @see https://stripe.com/docs/api/customers/search
-     *
-     * @returns {Promise<string|null>} Stripe Customer ID, if found
-     */
     async getCustomerIdByEmail(email) {
         await this._searchRateLimitBucket.throttle();
         try {
@@ -203,50 +195,42 @@ module.exports = class StripeAPI {
                 expand: ['data.subscriptions']
             });
             const customers = result.data;
-
-            if (!customers.length) {
-                return;
+            if (!customers || customers.length === 0) {
+                return null;
             }
-
             if (customers.length === 1) {
                 return customers[0].id;
             }
-
             const latestCustomer = this._findLatestCustomerWithSubscription(customers);
-            return latestCustomer?.id;
+            return latestCustomer ? latestCustomer.id : null;
         } catch (err) {
             debug(`getCustomerByEmail(${email}) -> ${err.type}:${err.message}`);
+            return null;
         }
     }
 
     /**
-     * Helper to find the customer with the most recent subscription end time.
-     * @param {Array<any>} customers
-     * @returns {any|undefined}
+     * Find the customer with the most recent subscription end time.
+     * @private
+     * @param {Array} customers
+     * @returns {object|null}
      */
     _findLatestCustomerWithSubscription(customers) {
-        const customersWithSubs = customers.filter(c => c.subscriptions?.data?.length);
-        if (!customersWithSubs.length) {
-            return undefined;
-        }
-
-        let latestCustomer = customersWithSubs[0];
+        let latestCustomer = null;
         let latestEnd = 0;
-
-        for (const cust of customersWithSubs) {
-            const latestSub = cust.subscriptions.data.reduce((prev, sub) => {
-                if (sub.current_period_end && sub.current_period_end > (prev?.current_period_end || 0)) {
-                    return sub;
+        for (const customer of customers) {
+            const subs = customer.subscriptions?.data;
+            if (!Array.isArray(subs) || subs.length === 0) {
+                continue;
+            }
+            for (const sub of subs) {
+                const end = sub.current_period_end;
+                if (end && end > latestEnd) {
+                    latestEnd = end;
+                    latestCustomer = customer;
                 }
-                return prev;
-            }, null);
-
-            if (latestSub && latestSub.current_period_end > latestEnd) {
-                latestEnd = latestSub.current_period_end;
-                latestCustomer = cust;
             }
         }
-
         return latestCustomer;
     }
 

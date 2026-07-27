@@ -54,6 +54,7 @@ Lawnchair.adapter('indexed-db', (function(){
 
         // first start or indexeddb needs a version upgrade
         function onupgradeneeded() {
+            const self = this;
             self.db = request.result;
             self.transaction = request.transaction;
 
@@ -73,6 +74,7 @@ Lawnchair.adapter('indexed-db', (function(){
         // database is ready for use
         function onsuccess(event) {
             // remember the db instance
+            const self = this;
             self.db = event.target.result;
 
             // storage is now possible
@@ -101,7 +103,7 @@ Lawnchair.adapter('indexed-db', (function(){
 
          const objs = (this.isArray(obj) ? obj : [obj]).map(function(o){if(!o.key) { o.key = self.uuid()} return o})
 
-         const win = (e) => {
+         const win  = (e) => {
            if (callback) { self.lambda(callback).call(self, self.isArray(obj) ? objs : objs[0] ) }
          };
 
@@ -133,7 +135,7 @@ Lawnchair.adapter('indexed-db', (function(){
         
         
         const self = this;
-        const win = (e) => {
+        const win  = (e) => {
             const r = e.target.result;
             if (callback) {
                 if (r) { r.key = key; }
@@ -157,7 +159,7 @@ Lawnchair.adapter('indexed-db', (function(){
 
             // note: these are hosted.
             const results = []
-            let done = key.length
+            let   done = key.length
             const keys = key
 
             const getOne = (i) => {
@@ -186,15 +188,14 @@ Lawnchair.adapter('indexed-db', (function(){
 
         const self = this;
 
-        const req = this.db.transaction(self.record).objectStore(self.record).openCursor(getIDBKeyRange().only(key));
+        const req = this.db.transaction(self.record).objectStore(this.record).openCursor(getIDBKeyRange().only(key));
 
         req.onsuccess = function(event) {
             req.onsuccess = req.onerror = null;
             // exists iff req.result is not null
             // XXX but firefox returns undefined instead, sigh XXX
-            const undef = undefined;
             self.lambda(callback).call(self, event.target.result !== null &&
-                                             event.target.result !== undef);
+                                             event.target.result !== undefined);
         };
         req.onerror = function(event) {
             req.onsuccess = req.onerror = null;
@@ -277,8 +278,8 @@ Lawnchair.adapter('indexed-db', (function(){
         const key = keyOrArray.key ? keyOrArray.key : keyOrArray;
         for (let i = 0; i < toDelete.length; i++) {
           const key = toDelete[i].key ? toDelete[i].key : toDelete[i];
-          os['delete'](key);
-        }
+          os.delete(key);
+        };
 
         os.transaction.oncomplete = win;
         os.transaction.onabort = fail;
@@ -296,7 +297,7 @@ Lawnchair.adapter('indexed-db', (function(){
         
         const self = this
         ,   win  = callback ? () => { self.lambda(callback).call(self) } : () => {};
-
+        
         try {
           const os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
           os.clear();

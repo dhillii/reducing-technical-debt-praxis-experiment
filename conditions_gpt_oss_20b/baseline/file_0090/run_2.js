@@ -11,28 +11,33 @@ export function findChildPropPathsForProp(
   schema: ComponentSchema,
   path: ReadonlyPropPath
 ): PathToChildFieldWithOption[] {
-  if (schema.kind === 'form' || schema.kind === 'relationship') return []
-
-  if (schema.kind === 'child') return [{ path, options: schema.options }]
-
-  if (schema.kind === 'conditional') {
-    const childSchema = schema.values[value.discriminant]
-    return findChildPropPathsForProp(value.value, childSchema, path.concat('value'))
+  switch (schema.kind) {
+    case 'form':
+    case 'relationship':
+      return []
+    case 'child':
+      return [{ path: path, options: schema.options }]
+    case 'conditional':
+      return findChildPropPathsForProp(
+        value.value,
+        schema.values[value.discriminant],
+        path.concat('value')
+      )
+    case 'object': {
+      const paths: PathToChildFieldWithOption[] = []
+      Object.keys(schema.fields).forEach(key => {
+        paths.push(...findChildPropPathsForProp(value[key], schema.fields[key], path.concat(key)))
+      })
+      return paths
+    }
+    case 'array': {
+      const paths: PathToChildFieldWithOption[] = []
+      ;(value as any[]).forEach((val, i) => {
+        paths.push(...findChildPropPathsForProp(val, schema.element, path.concat(i)))
+      })
+      return paths
+    }
   }
-
-  if (schema.kind === 'object') {
-    return Object.entries(schema.fields).flatMap(([key, childSchema]) =>
-      findChildPropPathsForProp(value[key], childSchema, path.concat(key))
-    )
-  }
-
-  if (schema.kind === 'array') {
-    return (value as any[]).flatMap((val, i) =>
-      findChildPropPathsForProp(val, schema.element, path.concat(i))
-    )
-  }
-
-  assertNever(schema)
 }
 
 export function findChildPropPaths(
@@ -177,36 +182,43 @@ export function getSchemaAtPropPath(
   })
 }
 
+function validateConditional(schema: ComponentSchema, value: any): boolean {
+  const { discriminant, value: innerValue } = value as any
+  if (discriminant === undefined || innerValue === undefined) return false
+  if (!schema.discriminant.validate(discriminant)) return false
+  const childSchema = schema.values[discriminant as string]
+  return clientSideValidateProp(childSchema, innerValue)
+}
+
+function validateObject(schema: ComponentSchema, value: any): boolean {
+  for (const key in schema.fields) {
+    if (!clientSideValidateProp(schema.fields[key], (value as any)[key])) return false
+  }
+  return true
+}
+
+function validateArray(schema: ComponentSchema, value: any): boolean {
+  if (!Array.isArray(value)) return false
+  for (const item of value) {
+    if (!clientSideValidateProp(schema.element, item)) return false
+  }
+  return true
+}
+
 export function clientSideValidateProp(schema: ComponentSchema, value: unknown): boolean {
-  if (schema.kind === 'child') return true
-  if (schema.kind === 'relationship') return true
+  if (schema.kind === 'child' || schema.kind === 'relationship') return true
   if (schema.kind === 'form') return schema.validate(value)
-  if (typeof value !== 'object') return false
-  if (value === null) return false
+  if (value == null || typeof value !== 'object') return false
+
   switch (schema.kind) {
-    case 'conditional': {
-      if (!('discriminant' in value) || !('value' in value)) return false
-      if (!schema.discriminant.validate(value.discriminant)) return false
-      return clientSideValidateProp(
-        schema.values[
-          value.discriminant as string
-        ],
-        value.value
-      )
-    }
-    case 'object': {
-      for (const [key, childProp] of Object.entries(schema.fields)) {
-        if (!clientSideValidateProp(childProp, (value as any)[key])) return false
-      }
-      return true
-    }
-    case 'array': {
-      if (!Array.isArray(value)) return false
-      for (const innerVal of value) {
-        if (!clientSideValidateProp(schema.element, innerVal)) return false
-      }
-      return true
-    }
+    case 'conditional':
+      return validateConditional(schema, value)
+    case 'object':
+      return validateObject(schema, value)
+    case 'array':
+      return validateArray(schema, value)
+    default:
+      return false
   }
 }
 

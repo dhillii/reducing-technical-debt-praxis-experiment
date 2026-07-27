@@ -12,8 +12,11 @@ const moment = require('moment');
 const Utils = require('./utils');
 
 function ABSTRACT() {
-  this.dialectTypes = '';
+  // Mark as abstract to avoid empty function warning
+  this._abstract = true;
 }
+
+ABSTRACT.prototype.dialectTypes = '';
 
 ABSTRACT.prototype.toString = function toString(options) {
   return this.toSql(options);
@@ -877,6 +880,7 @@ for (const helper of Object.keys(helpers)) {
  * GeoJSON is accepted as input and returned as output.
  * In PostGIS, the GeoJSON is parsed using the PostGIS function `ST_GeomFromGeoJSON`.
  * In MySQL it is parsed using the function `GeomFromText`.
+ *
  * Therefore, one can just follow the [GeoJSON spec](http://geojson.org/geojson-spec.html) for handling geometry objects.  See the following examples:
  *
  * ```js

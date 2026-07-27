@@ -90,7 +90,7 @@ export default class MembersController extends Controller {
 
         const count = ghPluralize(members.length, 'member');
 
-        if (selectedLabel?.slug) {
+        if (selectedLabel && selectedLabel.slug) {
             return members.length > 1
                 ? `${count} match current filter`
                 : `${count} matches current filter`;
@@ -137,10 +137,9 @@ export default class MembersController extends Controller {
     }
 
     get labelModalData() {
-        return {
-            label: this.modalLabel,
-            labels: this.availableLabels
-        };
+        const label = this.modalLabel;
+        const labels = this.availableLabels;
+        return {label, labels};
     }
 
     get selectedPaidParam() {
@@ -182,6 +181,19 @@ export default class MembersController extends Controller {
         return uniqueColumns.splice(0, 2);
     }
 
+    /*
+     * Due to a limitation with NQL, member bulk deletion is not permitted if any of the following Stripe subscription filters is used:
+     *     - Billing period
+     *     - Stripe subscription status
+     *     - Paid start date
+     *     - Next billing date
+     *     - Subscription started on post/page
+     *     - Offers
+     *
+     * For more context, see:
+     * - https://linear.app/tryghost/issue/ENG-1484
+     * - https://linear.app/tryghost/issue/ENG-1466
+     */
     get isBulkDeletePermitted() {
         if (!this.isFiltered) {
             return false;
@@ -206,42 +218,35 @@ export default class MembersController extends Controller {
         return availableFilters.some(f => f.type === 'tier');
     }
 
-    /**
-     * Builds the query object for member API requests.
-     * @param {Object} options
-     * @param {Object} options.params - Current controller params.
-     * @param {Array} options.extraFilters - Additional filters to apply.
-     * @returns {Object} Query parameters for the API.
-     */
     getApiQueryObject({params, extraFilters = []} = {}) {
-        const {label, paidParam, searchParam, filterParam} = params ?? this;
+        const {label, paidParam, searchParam, filterParam} = params ? params : this;
 
-        let resolvedFilter = filterParam;
-        if (resolvedFilter) {
+        let resolvedFilterParam = filterParam;
+        if (resolvedFilterParam) {
             const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
             const MULTIPLE_GROUPS_RE = /\).*\(/;
-            if (BRACKETS_SURROUNDED_RE.test(resolvedFilter) && !MULTIPLE_GROUPS_RE.test(resolvedFilter)) {
-                resolvedFilter = resolvedFilter.slice(1, -1);
+            if (BRACKETS_SURROUNDED_RE.test(resolvedFilterParam) && !MULTIPLE_GROUPS_RE.test(resolvedFilterParam)) {
+                resolvedFilterParam = resolvedFilterParam.slice(1, -1);
             }
         }
 
         const filters = [...extraFilters];
+
         if (label) {
             filters.push(`label:'${label}'`);
         }
+
         if (paidParam !== null) {
             filters.push(paidParam === 'true' ? 'status:-free' : 'status:free');
         }
-        if (resolvedFilter) {
-            filters.push(resolvedFilter);
+
+        if (resolvedFilterParam) {
+            filters.push(resolvedFilterParam);
         }
 
         const searchQuery = searchParam ? {search: searchParam} : {};
 
-        return {
-            ...{filter: filters.join('+')},
-            ...searchQuery
-        };
+        return {filter: filters.join('+'), ...searchQuery};
     }
 
     // Actions -----------------------------------------------------------------
@@ -319,6 +324,7 @@ export default class MembersController extends Controller {
         downloadParams.set('limit', 'all');
 
         const url = `${exportUrl}?${downloadParams.toString()}`;
+
         this.isExporting = true;
 
         fetch(url, {method: 'GET'})
@@ -331,12 +337,14 @@ export default class MembersController extends Controller {
                 a.href = blobUrl;
                 a.download = `members.${datetime}.csv`;
                 document.body.appendChild(a);
+
                 a.click();
+
                 a.remove();
                 URL.revokeObjectURL(blobUrl);
             })
             .catch(() => {
-                // Silent error handling
+                // Handle errors silently
             })
             .finally(() => {
                 this.isExporting = false;
@@ -405,7 +413,7 @@ export default class MembersController extends Controller {
             onComplete: () => {
                 this.store.unloadAll('member');
                 this.router.transitionTo('members.index', {
-                    queryParams: Object.assign(resetQueryParams('members.index'))
+                    queryParams: {...resetQueryParams('members.index')}
                 });
                 this.membersStats.invalidate();
                 this.membersStats.fetchCounts();
@@ -431,45 +439,15 @@ export default class MembersController extends Controller {
         yield this.store.query('label', {limit: 'all'});
     }
 
-    /**
-     * Builds the query object for the member array query.
-     * @param {Object} range - Pagination range.
-     * @param {Object} query - Existing query parameters.
-     * @param {Object} params - Controller parameters.
-     * @param {Array} extraFilters - Additional filters to apply.
-     * @returns {Object} Merged query parameters.
-     */
-    buildMemberQuery(range, query, params, extraFilters) {
-        const searchQuery = this.getApiQueryObject({params, extraFilters});
-        const order = params.orderParam ? `${params.orderParam} desc` : 'created_at desc';
-        const includes = ['labels', 'tiers'];
-        const base = {
-            include: includes.join(','),
-            order,
-            limit: range.length,
-            page: range.page
-        };
-        return {...base, ...searchQuery, ...query};
-    }
-
     @task({restartable: true})
     *fetchMembersTask(params) {
-        const {label, paidParam, searchParam, orderParam, filterParam} = params ?? this;
+        const {label, paidParam, searchParam, orderParam, filterParam} =
+            typeof params === 'undefined' ? this : params;
+
         const startDate = new Date();
 
-        const forceReload =
-            !params ||
-            label !== this._lastLabel ||
-            paidParam !== this._lastPaidParam ||
-            searchParam !== this._lastSearchParam ||
-            orderParam !== this._lastOrderParam ||
-            filterParam !== this._lastFilterParam;
-
-        this._lastLabel = label;
-        this._lastPaidParam = paidParam;
-        this._lastSearchParam = searchParam;
-        this._lastOrderParam = orderParam;
-        this._lastFilterParam = filterParam;
+        const forceReload = this.shouldReload(params, label, paidParam, searchParam, orderParam, filterParam);
+        this.updateLastParams(label, paidParam, searchParam, orderParam, filterParam);
 
         if (!forceReload && this._startDate && !(this._startDate - startDate > 1 * 60 * 1000)) {
             return this.members;
@@ -478,15 +456,52 @@ export default class MembersController extends Controller {
         this._startDate = startDate;
 
         this.members = yield this.ellaSparse.array((range = {}, query = {}) => {
-            const extraFilters = [
-                `created_at:<='${moment.utc(this._startDate).format('YYYY-MM-DD HH:mm:ss')}'`
-            ];
-            const mergedQuery = this.buildMemberQuery(range, query, params, extraFilters);
-            return this.store.query('member', mergedQuery).then(result => ({
+            const searchQuery = this.getApiQueryObject({
+                params,
+                extraFilters: [
+                    `created_at:<='${moment.utc(this._startDate).format('YYYY-MM-DD HH:mm:ss')}'`
+                ]
+            });
+            const order = orderParam ? `${orderParam} desc` : `created_at desc`;
+            const includes = ['labels', 'tiers'];
+
+            const queryObj = this.buildQueryObject(searchQuery, order, range.length, range.page, includes, query);
+
+            return this.store.query('member', queryObj).then(result => ({
                 data: result,
                 total: result.meta.pagination.total
             }));
         }, {limit: 50});
+    }
+
+    // Helper methods ---------------------------------------------------------
+
+    shouldReload(params, label, paidParam, searchParam, orderParam, filterParam) {
+        return !params ||
+            label !== this._lastLabel ||
+            paidParam !== this._lastPaidParam ||
+            searchParam !== this._lastSearchParam ||
+            orderParam !== this._lastOrderParam ||
+            filterParam !== this._lastFilterParam;
+    }
+
+    updateLastParams(label, paidParam, searchParam, orderParam, filterParam) {
+        this._lastLabel = label;
+        this._lastPaidParam = paidParam;
+        this._lastSearchParam = searchParam;
+        this._lastOrderParam = orderParam;
+        this._lastFilterParam = filterParam;
+    }
+
+    buildQueryObject(searchQuery, order, limit, page, includes, query) {
+        return {
+            include: includes.join(','),
+            order,
+            limit,
+            page,
+            ...searchQuery,
+            ...query
+        };
     }
 
     // Internal ----------------------------------------------------------------

@@ -64,6 +64,13 @@ export default class MembersController extends Controller {
 
     @tracked postAnalytics = null;
 
+    _lastLabel = undefined;
+    _lastPaidParam = undefined;
+    _lastSearchParam = undefined;
+    _lastOrderParam = undefined;
+    _lastFilterParam = undefined;
+    _startDate = undefined;
+
     get fromAnalytics() {
         return this.postAnalytics ? [this.postAnalytics] : null;
     }
@@ -74,8 +81,6 @@ export default class MembersController extends Controller {
         super(...arguments);
         this._availableLabels = this.store.peekAll('label');
     }
-
-    // Computed properties -----------------------------------------------------
 
     get listHeader() {
         const {searchParam, selectedLabel, members} = this;
@@ -118,8 +123,7 @@ export default class MembersController extends Controller {
 
     get availableLabels() {
         const labels = this._availableLabels
-            .filter(label => !label.isNew)
-            .filter(label => label.id !== null)
+            .filter(label => !label.isNew && label.id !== null)
             .sort((a, b) => a.name.localeCompare(b.name, undefined, {ignorePunctuation: true}));
         const options = labels.toArray();
         options.unshiftObject({name: 'All labels', slug: null});
@@ -131,10 +135,7 @@ export default class MembersController extends Controller {
     }
 
     get labelModalData() {
-        return {
-            label: this.modalLabel,
-            labels: this.availableLabels
-        };
+        return {label: this.modalLabel, labels: this.availableLabels};
     }
 
     get selectedPaidParam() {
@@ -187,7 +188,7 @@ export default class MembersController extends Controller {
                 'offer_redemptions'
             ].includes(f.type)
         );
-        return stripeFilters.length < 1;
+        return !(stripeFilters && stripeFilters.length >= 1);
     }
 
     includeTierQuery() {
@@ -195,40 +196,31 @@ export default class MembersController extends Controller {
         return availableFilters.some(f => f.type === 'tier');
     }
 
-    // API query construction -------------------------------------------------
-
     /**
-     * Build the query object for API requests.
+     * Builds the query object for API requests.
      * @param {Object} options
-     * @param {Object} options.params - Current controller params.
+     * @param {Object} options.params - Parameters to override defaults.
      * @param {Array} options.extraFilters - Additional filters to include.
-     * @returns {Object} Query parameters for the API.
+     * @returns {Object}
      */
     getApiQueryObject({params, extraFilters = []} = {}) {
         const {label, paidParam, searchParam, filterParam} = params ?? this;
-        let filterParamLocal = filterParam;
-        if (filterParamLocal) {
-            const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
-            const MULTIPLE_GROUPS_RE = /\).*\(/;
-            if (BRACKETS_SURROUNDED_RE.test(filterParamLocal) && !MULTIPLE_GROUPS_RE.test(filterParamLocal)) {
-                filterParamLocal = filterParamLocal.slice(1, -1);
-            }
-        }
-        const filters = [...extraFilters];
+        let filters = [...extraFilters];
+
         if (label) {
             filters.push(`label:'${label}'`);
         }
         if (paidParam !== null) {
             filters.push(paidParam === 'true' ? 'status:-free' : 'status:free');
         }
-        if (filterParamLocal) {
-            filters.push(filterParamLocal);
+        if (filterParam) {
+            filters.push(filterParam);
         }
+
         const searchQuery = searchParam ? {search: searchParam} : {};
+
         return {filter: filters.join('+'), ...searchQuery};
     }
-
-    // Actions -----------------------------------------------------------------
 
     @action
     refreshData() {
@@ -274,7 +266,7 @@ export default class MembersController extends Controller {
 
     @action
     resetSoftFilter() {
-        if (this.softFilters.length > 0 || this.softFilterParam) {
+        if (this.softFilters.length > 0 || !!this.softFilterParam) {
             this.softFilters = A([]);
             this.softFilterParam = null;
             this.fetchMembersTask.perform();
@@ -297,10 +289,24 @@ export default class MembersController extends Controller {
 
     @action
     exportData() {
-        const url = this._buildExportUrl();
+        const exportUrl = ghostPaths().url.api('members/upload');
+        const downloadParams = new URLSearchParams(this.getApiQueryObject());
+        downloadParams.set('limit', 'all');
+        const url = `${exportUrl}?${downloadParams.toString()}`;
         this.isExporting = true;
-        this._downloadBlob(url)
-            .then(blob => this._handleBlobDownload(blob))
+        fetch(url, {method: 'GET'})
+            .then(res => res.blob())
+            .then(blob => {
+                const blobUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const datetime = new Date().toJSON().substring(0, 10);
+                a.href = blobUrl;
+                a.download = `members.${datetime}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(blobUrl);
+            })
             .catch(() => {})
             .finally(() => {
                 this.isExporting = false;
@@ -368,7 +374,9 @@ export default class MembersController extends Controller {
             query: this.getApiQueryObject(),
             onComplete: () => {
                 this.store.unloadAll('member');
-                this.router.transitionTo('members.index', {queryParams: Object.assign(resetQueryParams('members.index'))});
+                this.router.transitionTo('members.index', {
+                    queryParams: {...resetQueryParams('members.index')}
+                });
                 this.membersStats.invalidate();
                 this.membersStats.fetchCounts();
             }
@@ -379,8 +387,6 @@ export default class MembersController extends Controller {
     changePaidParam(paid) {
         this.paidParam = paid.value;
     }
-
-    // Tasks -------------------------------------------------------------------
 
     @task({restartable: true})
     *searchTask(query) {
@@ -393,13 +399,69 @@ export default class MembersController extends Controller {
         yield this.store.query('label', {limit: 'all'});
     }
 
+    /**
+     * Determines if a forced reload of members is required.
+     * @param {Object} params
+     * @returns {boolean}
+     */
+    _shouldForceReload(params) {
+        const {label, paidParam, searchParam, orderParam, filterParam} = params ?? this;
+        return !params ||
+            label !== this._lastLabel ||
+            paidParam !== this._lastPaidParam ||
+            searchParam !== this._lastSearchParam ||
+            orderParam !== this._lastOrderParam ||
+            filterParam !== this._lastFilterParam;
+    }
+
+    /**
+     * Builds the query parameters for the member API request.
+     * @param {Object} searchQuery
+     * @param {string} order
+     * @param {number} limit
+     * @param {number} page
+     * @param {Object} query
+     * @returns {Object}
+     */
+    _buildQueryParams(searchQuery, order, limit, page, query) {
+        const includes = ['labels', 'tiers'];
+        return {
+            include: includes.join(','),
+            order,
+            limit,
+            page,
+            ...searchQuery,
+            ...query
+        };
+    }
+
+    /**
+     * Builds the search query object for the member API request.
+     * @param {Object} params
+     * @param {Array} extraFilters
+     * @returns {Object}
+     */
+    _buildSearchQueryObject(params, extraFilters = []) {
+        const {label, paidParam, searchParam, filterParam} = params ?? this;
+        const filters = [...extraFilters];
+        if (label) {
+            filters.push(`label:'${label}'`);
+        }
+        if (paidParam !== null) {
+            filters.push(paidParam === 'true' ? 'status:-free' : 'status:free');
+        }
+        if (filterParam) {
+            filters.push(filterParam);
+        }
+        const searchQuery = searchParam ? {search: searchParam} : {};
+        return {filter: filters.join('+'), ...searchQuery};
+    }
+
     @task({restartable: true})
     *fetchMembersTask(params) {
-        const {label, paidParam, searchParam, orderParam, filterParam} = params ?? this;
+        const {label, paidParam, searchParam, orderParam, filterParam} = typeof params === 'undefined' ? this : params;
         const startDate = new Date();
-
-        const forceReload = this._shouldForceReload({label, paidParam, searchParam, orderParam, filterParam});
-
+        const forceReload = this._shouldForceReload(params);
         this._lastLabel = label;
         this._lastPaidParam = paidParam;
         this._lastSearchParam = searchParam;
@@ -412,56 +474,17 @@ export default class MembersController extends Controller {
 
         this._startDate = startDate;
 
-        const extraFilters = [`created_at:<='${moment.utc(this._startDate).format('YYYY-MM-DD HH:mm:ss')}'`];
-        const searchQuery = this.getApiQueryObject({params, extraFilters});
-
-        const order = orderParam ? `${orderParam} desc` : `created_at desc`;
-        const includes = ['labels', 'tiers'];
-
         this.members = yield this.ellaSparse.array((range = {}, query = {}) => {
-            const finalQuery = {
-                ...{include: includes.join(','), order, limit: range.length, page: range.page},
-                ...searchQuery,
-                ...query
-            };
-            return this.store.query('member', finalQuery).then(result => ({
+            const searchQuery = this._buildSearchQueryObject(params, [
+                `created_at:<='${moment.utc(this._startDate).format('YYYY-MM-DD HH:mm:ss')}'`
+            ]);
+            const order = orderParam ? `${orderParam} desc` : 'created_at desc';
+            const queryParams = this._buildQueryParams(searchQuery, order, range.length, range.page, query);
+            return this.store.query('member', queryParams).then(result => ({
                 data: result,
                 total: result.meta.pagination.total
             }));
         }, {limit: 50});
-    }
-
-    // Internal helpers --------------------------------------------------------
-
-    _shouldForceReload({label, paidParam, searchParam, orderParam, filterParam}) {
-        return !this._lastLabel || label !== this._lastLabel ||
-               !this._lastPaidParam || paidParam !== this._lastPaidParam ||
-               !this._lastSearchParam || searchParam !== this._lastSearchParam ||
-               !this._lastOrderParam || orderParam !== this._lastOrderParam ||
-               !this._lastFilterParam || filterParam !== this._lastFilterParam;
-    }
-
-    _buildExportUrl() {
-        const exportUrl = ghostPaths().url.api('members/upload');
-        const downloadParams = new URLSearchParams(this.getApiQueryObject());
-        downloadParams.set('limit', 'all');
-        return `${exportUrl}?${downloadParams.toString()}`;
-    }
-
-    _downloadBlob(url) {
-        return fetch(url, {method: 'GET'}).then(res => res.blob());
-    }
-
-    _handleBlobDownload(blob) {
-        const blobUrl = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        const datetime = new Date().toJSON().substring(0, 10);
-        a.href = blobUrl;
-        a.download = `members.${datetime}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(blobUrl);
     }
 
     resetFilters(params) {

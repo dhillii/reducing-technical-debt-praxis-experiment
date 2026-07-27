@@ -225,7 +225,7 @@ class Strapi {
     const onListen = async err => {
       if (err) return this.stopWithError(err);
 
-      const isInitialised = utils.isInitialised(this);
+      const isInitialised = await utils.isInitialised(this);
 
       const hideStartupMessage = process.env.STRAPI_HIDE_STARTUP_MESSAGE
         ? process.env.STRAPI_HIDE_STARTUP_MESSAGE === 'true'
@@ -256,10 +256,7 @@ class Strapi {
           this.config.get('server.admin.autoOpen', true) !== false) ||
         !isInitialised
       ) {
-        const openResult = utils.openBrowser.call(this);
-        if (openResult && typeof openResult.then === 'function') {
-          await openResult;
-        }
+        await utils.openBrowser.call(this);
       }
     };
 
@@ -317,7 +314,7 @@ class Strapi {
     this.middleware = modules.middlewares;
     this.hook = modules.hook;
 
-    await bootstrap(this);
+    await Promise.resolve(bootstrap(this));
 
     this.webhookRunner = createWebhookRunner({
       eventHub: this.eventHub,

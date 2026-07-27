@@ -339,17 +339,13 @@ class DockerAnalyticsManager {
         };
     }
 
-    // Helper methods for session generation
-    _determinePageCount() {
-        const r = Math.random();
-        if (r < 0.4) return 1;
-        if (r < 0.7) return 2 + Math.floor(Math.random() * 2);
-        if (r < 0.9) return 4 + Math.floor(Math.random() * 3);
-        return 7 + Math.floor(Math.random() * 4);
-    }
-
-    _getMemberInfo() {
+    generateEvent() {
+        const userId = Math.floor(Math.random() * this.userCount) + 1;
+        const content = this.selectContent();
+        const timestamp = this.generateTimestamp(content.published_at);
+        const sessionId = this.generateSessionId(userId, timestamp);
         const memberStatus = this.weightedChoice(this.memberStatusWeights);
+        const referrer = this.weightedChoice(this.referrerWeights);
         let memberUuid;
         if (memberStatus === 'undefined') {
             memberUuid = 'undefined';
@@ -358,23 +354,76 @@ class DockerAnalyticsManager {
         } else {
             memberUuid = this.generateUuid();
         }
-        return {memberUuid, memberStatus};
-    }
-
-    _getSessionAttributes() {
-        const userAgent = this.randomChoice(this.userAgents);
-        const locale = this.randomChoice(this.locales);
-        const location = this.weightedChoice(this.locationWeights);
-        const referrer = this.weightedChoice(this.referrerWeights);
         const referrerSource = this.referrerSourceMap[referrer] || referrer;
         const utmParams = this.generateUtmParameters();
         const baseUrl = this.siteConfig.url || 'http://localhost:2368';
-        return {userAgent, locale, location, referrer, referrerSource, utmParams, baseUrl};
+        let href = `${baseUrl}${content.pathname}`;
+        if (utmParams) {
+            const utmQueryString = Object.entries(utmParams)
+                .filter(([, value]) => value !== undefined)
+                .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+                .join('&');
+            if (utmQueryString) {
+                href = `${href}?${utmQueryString}`;
+            }
+        }
+        const payload = {
+            site_uuid: this.siteUuid,
+            member_uuid: memberUuid,
+            member_status: memberStatus,
+            post_uuid: content.post_uuid,
+            post_type: content.post_type,
+            'user-agent': this.randomChoice(this.userAgents),
+            locale: this.randomChoice(this.locales),
+            location: this.weightedChoice(this.locationWeights),
+            referrer: referrer,
+            pathname: content.pathname,
+            href: href,
+            meta: {
+                referrerSource: referrerSource
+            }
+        };
+        if (utmParams) {
+            Object.assign(payload, utmParams);
+        }
+        return {
+            timestamp: this.formatTimestamp(timestamp),
+            session_id: sessionId,
+            action: 'page_hit',
+            version: '1',
+            payload: payload
+        };
     }
 
-    _buildHref(content, baseUrl, utmParams, isEntry) {
+    async sendEventsToTinybird(events, wait = false) {
+        const ndjson = events.map(e => JSON.stringify(e)).join('\n');
+        const url = `${TINYBIRD_HOST}/v0/events?name=${TINYBIRD_DATASOURCE}${wait ? '&wait=true' : ''}`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${this.tinybirdToken}`,
+                'Content-Type': 'application/x-ndjson'
+            },
+            body: ndjson
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Tinybird API error: ${response.status} - ${errorText}`);
+        }
+        return await response.json();
+    }
+
+    _determinePageCount() {
+        const r = Math.random();
+        if (r < 0.4) return 1;
+        if (r < 0.7) return 2 + Math.floor(Math.random() * 2);
+        if (r < 0.9) return 4 + Math.floor(Math.random() * 3);
+        return 7 + Math.floor(Math.random() * 4);
+    }
+
+    _buildHref(content, isFirst, utmParams, baseUrl) {
         let href = `${baseUrl}${content.pathname}`;
-        if (isEntry && utmParams) {
+        if (isFirst && utmParams) {
             const utmQueryString = Object.entries(utmParams)
                 .filter(([, value]) => value !== undefined)
                 .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
@@ -386,25 +435,25 @@ class DockerAnalyticsManager {
         return href;
     }
 
-    _buildPayload(content, attrs, memberInfo, href, isEntry) {
+    _buildPayload(content, isFirst, common, utmParams) {
         const payload = {
             site_uuid: this.siteUuid,
-            member_uuid: memberInfo.memberUuid,
-            member_status: memberInfo.memberStatus,
+            member_uuid: common.memberUuid,
+            member_status: common.memberStatus,
             post_uuid: content.post_uuid,
             post_type: content.post_type,
-            'user-agent': attrs.userAgent,
-            locale: attrs.locale,
-            location: attrs.location,
-            referrer: isEntry ? attrs.referrer : '',
+            'user-agent': common.userAgent,
+            locale: common.locale,
+            location: common.location,
+            referrer: isFirst ? common.referrer : '',
             pathname: content.pathname,
-            href: href,
+            href: common.href,
             meta: {
-                referrerSource: isEntry ? attrs.referrerSource : ''
+                referrerSource: isFirst ? common.referrerSource : ''
             }
         };
-        if (isEntry && attrs.utmParams) {
-            Object.assign(payload, attrs.utmParams);
+        if (isFirst && utmParams) {
+            Object.assign(payload, utmParams);
         }
         return payload;
     }
@@ -413,10 +462,26 @@ class DockerAnalyticsManager {
         const sessionId = this.generateUuid();
         const pageCount = this._determinePageCount();
         const firstContent = this.selectContent();
-        const baseTimestamp = this.generateTimestamp(firstContent.published_at);
-        const memberInfo = this._getMemberInfo();
-        const attrs = this._getSessionAttributes();
+        let baseTimestamp = this.generateTimestamp(firstContent.published_at);
+        const memberStatus = this.weightedChoice(this.memberStatusWeights);
+        let memberUuid;
+        if (memberStatus === 'undefined') {
+            memberUuid = 'undefined';
+        } else if (this.memberUuids.length > 0 && Math.random() < 0.7) {
+            memberUuid = this.randomChoice(this.memberUuids);
+        } else {
+            memberUuid = this.generateUuid();
+        }
+        const userAgent = this.randomChoice(this.userAgents);
+        const locale = this.randomChoice(this.locales);
+        const location = this.weightedChoice(this.locationWeights);
+        const referrer = this.weightedChoice(this.referrerWeights);
+        const referrerSource = this.referrerSourceMap[referrer] || referrer;
+        const utmParams = this.generateUtmParameters();
+        const baseUrl = this.siteConfig.url || 'http://localhost:2368';
+        const common = {memberUuid, memberStatus, userAgent, locale, location, referrer, referrerSource, href: ''};
         const events = [];
+        const now = new Date();
         for (let i = 0; i < pageCount; i++) {
             const content = i === 0 ? firstContent : this.selectContent();
             let timestamp;
@@ -426,9 +491,9 @@ class DockerAnalyticsManager {
                 const offsetSeconds = 30 + Math.floor(Math.random() * 270);
                 timestamp = new Date(baseTimestamp.getTime() + (i * offsetSeconds * 1000));
             }
-            if (timestamp > new Date()) break;
-            const href = this._buildHref(content, attrs.baseUrl, attrs.utmParams, i === 0);
-            const payload = this._buildPayload(content, attrs, memberInfo, href, i === 0);
+            if (timestamp > now) break;
+            common.href = this._buildHref(content, i === 0, utmParams, baseUrl);
+            const payload = this._buildPayload(content, i === 0, common, utmParams);
             events.push({
                 timestamp: this.formatTimestamp(timestamp),
                 session_id: sessionId,
@@ -452,7 +517,9 @@ class DockerAnalyticsManager {
             events.push(...sessionEvents);
             sessionCount += 1;
         }
-        if (events.length > numEvents) events.length = numEvents;
+        if (events.length > numEvents) {
+            events.length = numEvents;
+        }
         console.log(`Generated ${events.length} events from ${sessionCount} sessions (avg ${(events.length / sessionCount).toFixed(1)} pages/session)`);
         console.log(`Generated ${events.length}/${numEvents} events...`);
         events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
@@ -475,24 +542,6 @@ class DockerAnalyticsManager {
         }
         console.log(`\nSuccessfully pushed ${sentCount} events to Tinybird`);
         return sentCount;
-    }
-
-    async sendEventsToTinybird(events, wait = false) {
-        const ndjson = events.map(e => JSON.stringify(e)).join('\n');
-        const url = `${TINYBIRD_HOST}/v0/events?name=${TINYBIRD_DATASOURCE}${wait ? '&wait=true' : ''}`;
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${this.tinybirdToken}`,
-                'Content-Type': 'application/x-ndjson'
-            },
-            body: ndjson
-        });
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Tinybird API error: ${response.status} - ${errorText}`);
-        }
-        return await response.json();
     }
 
     async clearAnalytics() {

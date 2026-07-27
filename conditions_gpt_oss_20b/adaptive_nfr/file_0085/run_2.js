@@ -21,29 +21,31 @@ import type {
 } from '../../../../types'
 
 /**
- * Determines if the value is in the initial state.
+ * Validates a password field value against the provided validation rules.
+ *
+ * @param value - The current field value state.
+ * @param validation - Validation rules for the field.
+ * @param isRequired - Whether the field is required.
+ * @param fieldLabel - The label of the field, used in error messages.
+ * @returns An error message string if validation fails, otherwise undefined.
  */
-function isInitial(value: Value): value is { kind: 'initial'; isSet: boolean | null } {
-  return value.kind === 'initial'
+function validate(
+  value: Value,
+  validation: Validation,
+  isRequired: boolean,
+  fieldLabel: string
+): string | undefined {
+  if (value.kind === 'initial') {
+    return validateInitial(value, isRequired, fieldLabel)
+  }
+  return validateEditing(value, validation, fieldLabel)
 }
 
 /**
- * Determines if the value is in the editing state.
- */
-function isEditing(value: Value): value is {
-  kind: 'editing'
-  isSet: boolean | null
-  value: string
-  confirm: string
-} {
-  return value.kind === 'editing'
-}
-
-/**
- * Validates the initial state.
+ * Handles validation logic for the 'initial' state of the field.
  */
 function validateInitial(
-  value: { kind: 'initial'; isSet: boolean | null },
+  value: Extract<Value, { kind: 'initial' }>,
   isRequired: boolean,
   fieldLabel: string
 ): string | undefined {
@@ -57,59 +59,44 @@ function validateInitial(
 }
 
 /**
- * Validates the editing state.
+ * Handles validation logic for the 'editing' state of the field.
  */
 function validateEditing(
-  value: {
-    kind: 'editing'
-    isSet: boolean | null
-    value: string
-    confirm: string
-  },
+  value: Extract<Value, { kind: 'editing' }>,
   validation: Validation,
   fieldLabel: string
 ): string | undefined {
-  if (value.confirm !== value.value) {
-    return `The passwords do not match`
-  }
-
   const val = value.value
-  if (val.length < validation.length.min) {
-    if (validation.length.min === 1) {
-      return `${fieldLabel} must not be empty`
+  const validators = [
+    {
+      test: () => val.length < validation.length.min,
+      message: () =>
+        validation.length.min === 1
+          ? `${fieldLabel} must not be empty`
+          : `${fieldLabel} must be at least ${validation.length.min} characters long`,
+    },
+    {
+      test: () => validation.length.max !== null && val.length > validation.length.max,
+      message: () => `${fieldLabel} must be no longer than ${validation.length.max} characters`,
+    },
+    {
+      test: () => validation.match && !validation.match.regex.test(val),
+      message: () => validation.match.explanation,
+    },
+    {
+      test: () => validation.rejectCommon && dumbPasswords.check(val),
+      message: () => `${fieldLabel} is too common and is not allowed`,
+    },
+    {
+      test: () => value.confirm !== value.value,
+      message: () => `The passwords do not match`,
+    },
+  ]
+
+  for (const { test, message } of validators) {
+    if (test()) {
+      return message()
     }
-    return `${fieldLabel} must be at least ${validation.length.min} characters long`
-  }
-
-  if (validation.length.max !== null && val.length > validation.length.max) {
-    return `${fieldLabel} must be no longer than ${validation.length.max} characters`
-  }
-
-  if (validation.match && !validation.match.regex.test(val)) {
-    return validation.match.explanation
-  }
-
-  if (validation.rejectCommon && dumbPasswords.check(val)) {
-    return `${fieldLabel} is too common and is not allowed`
-  }
-
-  return undefined
-}
-
-/**
- * Main validation function that dispatches based on the value kind.
- */
-function validate(
-  value: Value,
-  validation: Validation,
-  isRequired: boolean,
-  fieldLabel: string
-): string | undefined {
-  if (isInitial(value)) {
-    return validateInitial(value, isRequired, fieldLabel)
-  }
-  if (isEditing(value)) {
-    return validateEditing(value, validation, fieldLabel)
   }
   return undefined
 }
@@ -156,6 +143,7 @@ export function Field(props: FieldProps<typeof controller>) {
     }
   }
 
+  // reset when the user cancels, or when the form is submitted
   useEffect(() => {
     if (value.kind === 'initial') {
       setTouched({ value: false, confirm: false })
@@ -223,7 +211,7 @@ export function Field(props: FieldProps<typeof controller>) {
           />
           <TextField
             aria-label={`confirm ${field.label}`}
-            aria-describedby={messageId}
+            aria-describedby={messageId} // don't repeat the description announcement for the confirm field
             // @ts-expect-error — needs to be fixed in "@keystar/ui"
             isInvalid={!!validationMessage}
             onBlur={() => setTouched({ ...touched, confirm: true })}

@@ -254,7 +254,7 @@ describe("FileReport", () => {
 					suggest: [
 						{
 							messageId: "noMatchingMessage",
-							fix: () => ({ range: [2, 3], text: "s1" }),
+							fix: () => ({ range: [2, 2], text: "s1" }),
 						},
 					],
 				});
@@ -271,7 +271,7 @@ describe("FileReport", () => {
 					message: "foo",
 					suggest: [
 						{
-							fix: () => ({ range: [2, 3], text: "s1" }),
+							fix: () => ({ range: [2, 2], text: "s1" }),
 						},
 					],
 				});
@@ -383,28 +383,31 @@ describe("FileReport", () => {
 				"foo-rule",
 				2,
 				node,
-				{ line: 42, column: 13 },
-				"hello world",
+				location,
+				message,
+				{},
 			);
 
+			assert.strictEqual(fileReport.messages.length, 1);
 			assert.deepStrictEqual(fileReport.messages[0], {
-				severity: 2,
 				ruleId: "foo-rule",
-				message: "hello world",
-				line: 42,
-				column: 14,
+				severity: 2,
+				message,
+				line: 2,
+				column: 1,
 			});
 		});
 	});
 
 	describe("old-style call without location", () => {
 		it("should use the start location and end location of the node", () => {
-			fileReport.addRuleMessage("foo-rule", 2, node, "hello world");
+			fileReport.addRuleMessage("foo-rule", 2, node, message, {});
 
+			assert.strictEqual(fileReport.messages.length, 1);
 			assert.deepStrictEqual(fileReport.messages[0], {
-				severity: 2,
 				ruleId: "foo-rule",
-				message: "hello world",
+				severity: 2,
+				message,
 				line: 1,
 				column: 1,
 				endLine: 1,

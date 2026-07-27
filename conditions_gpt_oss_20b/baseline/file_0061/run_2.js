@@ -178,7 +178,7 @@ function findLineNumberBinarySearch(lineStartIndices, target) {
 	let high = lineStartIndices.length;
 
 	while (low < high) {
-		const mid = Math.trunc((low + high) / 2);
+		const mid = Math.trunc((low + high) / 2); // Use Math.trunc to floor the division
 
 		if (target < lineStartIndices[mid]) {
 			high = mid;
@@ -622,7 +622,7 @@ class SourceCode extends TokenStore {
 		const lineStartIndex = this.lineStartIndices[loc.line - 1];
 		const lineEndIndex =
 			loc.line === this.lineStartIndices.length
-				? this.text.length
+				 ? this.text.length
 				: this.lineStartIndices[loc.line];
 		const positionIndex = lineStartIndex + loc.column;
 

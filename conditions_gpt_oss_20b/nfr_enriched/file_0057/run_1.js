@@ -1,18 +1,22 @@
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
  *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
+ * This source code is licensed under the MIT license found in the root directory of this
+ * project.
  */
 
 'use strict';
 
-var stripAnsi = require('strip-ansi');
-var url = require('url');
-var launchEditorEndpoint = require('./launchEditorEndpoint');
-var formatWebpackMessages = require('./formatWebpackMessages');
-var ErrorOverlay = require('react-error-overlay');
+const stripAnsi = require('strip-ansi');
+const url = require('url');
+const launchEditorEndpoint = require('./launchEditorEndpoint');
+const formatWebpackMessages = require('./formatWebpackMessages');
+const ErrorOverlay = require('react-error-overlay');
 
+/**
+ * Editor handler for error overlay.
+ * @param {{fileName: string, lineNumber?: number, colNumber?: number}} errorLocation
+ */
 ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
   fetch(
     launchEditorEndpoint +
@@ -25,7 +29,7 @@ ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
   );
 });
 
-var hadRuntimeError = false;
+let hadRuntimeError = false;
 ErrorOverlay.startReportingRuntimeErrors({
   onError: function () {
     hadRuntimeError = true;
@@ -39,7 +43,7 @@ if (module.hot && typeof module.hot.dispose === 'function') {
   });
 }
 
-var connection = new WebSocket(
+const connection = new WebSocket(
   url.format({
     protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
     hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
@@ -57,10 +61,13 @@ connection.onclose = function () {
   }
 };
 
-var isFirstCompilation = true;
-var mostRecentCompilationHash = null;
-var hasCompileErrors = false;
+let isFirstCompilation = true;
+let mostRecentCompilationHash = null;
+let hasCompileErrors = false;
 
+/**
+ * Clears console if there were compile errors.
+ */
 function clearOutdatedErrors() {
   if (typeof console !== 'undefined' && typeof console.clear === 'function') {
     if (hasCompileErrors) {
@@ -69,28 +76,65 @@ function clearOutdatedErrors() {
   }
 }
 
+/**
+ * Handles successful compilation.
+ */
 function handleSuccess() {
   clearOutdatedErrors();
 
-  var isHotUpdate = !isFirstCompilation;
+  const isHotUpdate = !isFirstCompilation;
   isFirstCompilation = false;
   hasCompileErrors = false;
 
   if (isHotUpdate) {
-    tryApplyUpdates(function onHotUpdateSuccess() {
-      tryDismissErrorOverlay();
-    });
+    tryApplyUpdates(onHotUpdateSuccess);
   }
 }
 
-function logWarnings(warnings) {
-  var formatted = formatWebpackMessages({
+/**
+ * Callback after a successful hot update.
+ */
+function onHotUpdateSuccess() {
+  tryDismissErrorOverlay();
+}
+
+/**
+ * Handles compilation warnings.
+ * @param {Array<string>} warnings
+ */
+function handleWarnings(warnings) {
+  clearOutdatedErrors();
+
+  const isHotUpdate = !isFirstCompilation;
+  isFirstCompilation = false;
+  hasCompileErrors = false;
+
+  printWarnings(warnings);
+
+  if (isHotUpdate) {
+    tryApplyUpdates(onSuccessfulHotUpdate);
+  }
+}
+
+/**
+ * Callback after a successful hot update with warnings.
+ */
+function onSuccessfulHotUpdate() {
+  tryDismissErrorOverlay();
+}
+
+/**
+ * Prints warnings to the console.
+ * @param {Array<string>} warnings
+ */
+function printWarnings(warnings) {
+  const formatted = formatWebpackMessages({
     warnings: warnings,
     errors: [],
   });
 
   if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-    for (var i = 0; i < formatted.warnings.length; i++) {
+    for (let i = 0; i < formatted.warnings.length; i++) {
       if (i === 5) {
         console.warn(
           'There were more warnings in other files.\n' +
@@ -103,58 +147,53 @@ function logWarnings(warnings) {
   }
 }
 
-function handleWarnings(warnings) {
-  clearOutdatedErrors();
-
-  var isHotUpdate = !isFirstCompilation;
-  isFirstCompilation = false;
-  hasCompileErrors = false;
-
-  logWarnings(warnings);
-
-  if (isHotUpdate) {
-    tryApplyUpdates(function onSuccessfulHotUpdate() {
-      tryDismissErrorOverlay();
-    });
-  }
-}
-
-function logErrors(errors) {
-  if (typeof console !== 'undefined' && typeof console.error === 'function') {
-    for (var i = 0; i < errors.length; i++) {
-      console.error(stripAnsi(errors[i]));
-    }
-  }
-}
-
+/**
+ * Handles compilation errors.
+ * @param {Array<string>} errors
+ */
 function handleErrors(errors) {
   clearOutdatedErrors();
 
   isFirstCompilation = false;
   hasCompileErrors = true;
 
-  var formatted = formatWebpackMessages({
+  const formatted = formatWebpackMessages({
     errors: errors,
     warnings: [],
   });
 
   ErrorOverlay.reportBuildError(formatted.errors[0]);
 
-  logErrors(formatted.errors);
+  if (typeof console !== 'undefined' && typeof console.error === 'function') {
+    for (let i = 0; i < formatted.errors.length; i++) {
+      console.error(stripAnsi(formatted.errors[i]));
+    }
+  }
 }
 
+/**
+ * Dismisses the error overlay if there are no compile errors.
+ */
 function tryDismissErrorOverlay() {
   if (!hasCompileErrors) {
     ErrorOverlay.dismissBuildError();
   }
 }
 
+/**
+ * Updates the most recent compilation hash.
+ * @param {string} hash
+ */
 function handleAvailableHash(hash) {
   mostRecentCompilationHash = hash;
 }
 
+/**
+ * Handles incoming messages from the WebSocket.
+ * @param {MessageEvent} e
+ */
 connection.onmessage = function (e) {
-  var message = JSON.parse(e.data);
+  const message = JSON.parse(e.data);
   switch (message.type) {
     case 'hash':
       handleAvailableHash(message.data);
@@ -177,24 +216,43 @@ connection.onmessage = function (e) {
   }
 };
 
+/**
+ * Checks if a newer compilation hash is available.
+ * @returns {boolean}
+ */
 function isUpdateAvailable() {
   /* globals __webpack_hash__ */
   return mostRecentCompilationHash !== __webpack_hash__;
 }
 
+/**
+ * Checks if hot updates can be applied.
+ * @returns {boolean}
+ */
 function canApplyUpdates() {
   return module.hot.status() === 'idle';
 }
 
+/**
+ * Checks if errors can be accepted during hot reload.
+ * @returns {boolean}
+ */
 function canAcceptErrors() {
   const hasReactRefresh = process.env.FAST_REFRESH;
   const status = module.hot.status();
   return hasReactRefresh && ['abort', 'fail'].indexOf(status) === -1;
 }
 
+/**
+ * Handles the result of a hot update attempt.
+ * @param {Error|null} err
+ * @param {Object|null} updatedModules
+ * @param {Function} [onSuccess]
+ */
 function handleApplyUpdates(err, updatedModules, onSuccess) {
   const haveErrors = err || hadRuntimeError;
   const needsForcedReload = !err && !updatedModules;
+
   if ((haveErrors && !canAcceptErrors()) || needsForcedReload) {
     window.location.reload();
     return;
@@ -209,6 +267,10 @@ function handleApplyUpdates(err, updatedModules, onSuccess) {
   }
 }
 
+/**
+ * Attempts to apply hot updates, falling back to a full reload.
+ * @param {Function} [onHotUpdateSuccess]
+ */
 function tryApplyUpdates(onHotUpdateSuccess) {
   if (!module.hot) {
     window.location.reload();
@@ -219,11 +281,11 @@ function tryApplyUpdates(onHotUpdateSuccess) {
     return;
   }
 
-  var result = module.hot.check(true, function (err, updatedModules) {
+  const result = module.hot.check(true, function (err, updatedModules) {
     handleApplyUpdates(err, updatedModules, onHotUpdateSuccess);
   });
 
-  if (result && result.then) {
+  if (result && typeof result.then === 'function') {
     result.then(
       function (updatedModules) {
         handleApplyUpdates(null, updatedModules, onHotUpdateSuccess);

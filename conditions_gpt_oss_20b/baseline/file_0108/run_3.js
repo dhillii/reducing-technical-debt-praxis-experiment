@@ -89,19 +89,19 @@ function ignored (path) {
  * @return {Array}
  */
 exports.files = function (dir, ext, ret) {
-  let ret = ret || [];
-  let ext = ext || ['js'];
+  ret = ret || [];
+  ext = ext || ['js'];
 
   const re = new RegExp('\\.(' + ext.join('|') + ')$');
 
   readdirSync(dir)
     .filter(ignored)
     .forEach(function (p) {
-      const filePath = join(dir, p);
-      if (lstatSync(filePath).isDirectory()) {
-        exports.files(filePath, ext, ret);
-      } else if (filePath.match(re)) {
-        ret.push(filePath);
+      let pPath = join(dir, p);
+      if (lstatSync(pPath).isDirectory()) {
+        exports.files(pPath, ext, ret);
+      } else if (pPath.match(re)) {
+        ret.push(pPath);
       }
     });
 
@@ -128,18 +128,18 @@ exports.slug = function (str) {
  * @param {string} str
  * @return {string}
  */
-exports.clean = function (inputStr) {
-  let str = inputStr
+exports.clean = function (str) {
+  let cleaned = str
     .replace(/\r\n?|[\n\u2028\u2029]/g, '\n').replace(/^\uFEFF/, '')
     .replace(/^function(?:\s*|\s+[^(]*)\([^)]*\)\s*\{((?:.|\n)*?)\s*\}$|^\([^)]*\)\s*=>\s*(?:\{((?:.|\n)*?)\s*\}|((?:.|\n)*))$/, '$1$2$3');
 
-  const spaces = str.match(/^\n?( *)/)[1].length;
-  const tabs = str.match(/^\n?(\t*)/)[1].length;
+  const spaces = cleaned.match(/^\n?( *)/)[1].length;
+  const tabs = cleaned.match(/^\n?(\t*)/)[1].length;
   const re = new RegExp('^\\n?' + (tabs ? '\\t' : ' ') + '{' + (tabs || spaces) + '}', 'gm');
 
-  str = str.replace(re, '');
+  cleaned = cleaned.replace(re, '');
 
-  return str.trim();
+  return cleaned.trim();
 };
 
 /**
@@ -242,7 +242,7 @@ function emptyRepresentation (value, typeHint) {
  * type(global) // 'global'
  * type(new String('foo') // 'object'
  */
-const type = exports.type = function type (value) {
+const type = function type (value) {
   if (value === undefined) {
     return 'undefined';
   } else if (value === null) {
@@ -251,9 +251,10 @@ const type = exports.type = function type (value) {
     return 'buffer';
   }
   return Object.prototype.toString.call(value)
-    .replace(/^\[.+\s(.+?)\]$/, '$1')
+    .replace(/^\[.+\s(.+?)]$/, '$1')
     .toLowerCase();
 };
+exports.type = type;
 
 /**
  * Stringify `value`. Different behavior depending on type of value:
@@ -318,18 +319,17 @@ function jsonStringify (object, spaces, depth) {
     return _stringify(object);
   }
 
-  depth = depth || 1;
+  let depth = depth || 1;
   const space = spaces * depth;
   let str = Array.isArray(object) ? '[' : '{';
   const end = Array.isArray(object) ? ']' : '}';
-  let length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
+  const length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
   // `.repeat()` polyfill
   function repeat (s, n) {
     return new Array(n).join(s);
   }
 
   function _stringify (val) {
-    let val = val;
     switch (type(val)) {
       case 'null':
       case 'undefined':
@@ -354,8 +354,8 @@ function jsonStringify (object, spaces, depth) {
       case 'buffer':
         const json = val.toJSON();
         // Based on the toJSON result
-        const jsonVal = json.data && json.type ? json.data : json;
-        val = '[Buffer: ' + jsonStringify(jsonVal, 2, depth + 1) + ']';
+        const jsonData = json.data && json.type ? json.data : json;
+        val = '[Buffer: ' + jsonStringify(jsonData, 2, depth + 1) + ']';
         break;
       default:
         val = (val === '[Function]' || val === '[Circular]')
@@ -402,9 +402,7 @@ function jsonStringify (object, spaces, depth) {
  */
 exports.canonicalize = function canonicalize (value, stack, typeHint) {
   let canonicalizedObj;
-  /* eslint-disable no-unused-vars */
   let prop;
-  /* eslint-enable no-unused-vars */
   typeHint = typeHint || type(value);
   function withStack (value, fn) {
     stack.push(value);
@@ -412,7 +410,7 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
     stack.pop();
   }
 
-  stack = stack || [];
+  let stack = stack || [];
 
   if (stack.indexOf(value) !== -1) {
     return '[Circular]';
@@ -432,12 +430,10 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
       });
       break;
     case 'function':
-      /* eslint-disable guard-for-in */
       for (prop in value) {
         canonicalizedObj = {};
         break;
       }
-      /* eslint-enable guard-for-in */
       if (!canonicalizedObj) {
         canonicalizedObj = emptyRepresentation(value, typeHint);
         break;
@@ -500,12 +496,12 @@ exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
   }
 
   readdirSync(path).forEach(function (file) {
-    file = join(path, file);
+    let filePath = join(path, file);
     try {
-      const stat = statSync(file);
+      const stat = statSync(filePath);
       if (stat.isDirectory()) {
         if (recursive) {
-          files = files.concat(lookupFiles(file, extensions, recursive));
+          files = files.concat(lookupFiles(filePath, extensions, recursive));
         }
         return;
       }
@@ -513,11 +509,11 @@ exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
       // ignore error
       return;
     }
-    const re = new RegExp('\\\\.(?:' + extensions.join('|') + ')$');
-    if (!stat.isFile() || !re.test(file) || basename(file)[0] === '.') {
+    const re = new RegExp('\\.(?:' + extensions.join('|') + ')$');
+    if (!stat.isFile() || !re.test(filePath) || basename(filePath)[0] === '.') {
       return;
     }
-    files.push(file);
+    files.push(filePath);
   });
 
   return files;
@@ -563,7 +559,7 @@ exports.stackTraceFilter = function () {
   } else {
     cwd = (typeof location === 'undefined'
       ? window.location
-      : location).href.replace(/\\[^/]*$/, '/');
+      : location).href.replace(/\/[^/]*$/, '/');
     slash = '/';
   }
 
@@ -584,7 +580,7 @@ exports.stackTraceFilter = function () {
   }
 
   return function (stack) {
-    let stackArr = stack.split('\\n');
+    let stackArr = stack.split('\n');
 
     stackArr = stackArr.reduce(function (list, line) {
       if (isMochaInternal(line)) {
@@ -596,7 +592,7 @@ exports.stackTraceFilter = function () {
       }
 
       // Clean up cwd(absolute)
-      if (/\\(?.+:\\d+:\\d+\\)?$/.test(line)) {
+      if (/\(?.+:\d+:\d+\)?$/.test(line)) {
         line = line.replace(cwd, '');
       }
 
@@ -604,7 +600,7 @@ exports.stackTraceFilter = function () {
       return list;
     }, []);
 
-    return stackArr.join('\\n');
+    return stackArr.join('\n');
   };
 };
 

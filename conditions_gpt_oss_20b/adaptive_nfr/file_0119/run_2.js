@@ -12,10 +12,11 @@ const moment = require('moment');
 const Utils = require('./utils');
 
 /**
- * Base data type constructor.
+ * Base constructor for all data types. It intentionally performs no operations.
+ * @private
  */
-class ABSTRACT {
-  constructor() {}
+function ABSTRACT() {
+  return;
 }
 
 ABSTRACT.prototype.dialectTypes = '';
@@ -85,12 +86,6 @@ CHAR.prototype.toSql = function toSql() {
   return 'CHAR(' + this._length + ')' + (this._binary ? ' BINARY' : '');
 };
 
-const textSqlMap = {
-  tiny: 'TINYTEXT',
-  medium: 'MEDIUMTEXT',
-  long: 'LONGTEXT'
-};
-
 function TEXT(length) {
   const options = typeof length === 'object' && length || {length};
   if (!(this instanceof TEXT)) return new TEXT(options);
@@ -99,9 +94,15 @@ function TEXT(length) {
 }
 inherits(TEXT, ABSTRACT);
 
+const TEXT_SQL_MAP = {
+  tiny: 'TINYTEXT',
+  medium: 'MEDIUMTEXT',
+  long: 'LONGTEXT'
+};
+
 TEXT.prototype.key = TEXT.key = 'TEXT';
 TEXT.prototype.toSql = function toSql() {
-  return textSqlMap[this._length.toLowerCase()] || this.key;
+  return TEXT_SQL_MAP[this._length.toLowerCase()] || this.key;
 };
 TEXT.prototype.validate = function validate(value) {
   if (!_.isString(value)) {
@@ -494,12 +495,6 @@ inherits(NOW, ABSTRACT);
 
 NOW.prototype.key = NOW.key = 'NOW';
 
-const blobSqlMap = {
-  tiny: 'TINYBLOB',
-  medium: 'MEDIUMBLOB',
-  long: 'LONGBLOB'
-};
-
 function BLOB(length) {
   const options = typeof length === 'object' && length || {length};
   if (!(this instanceof BLOB)) return new BLOB(options);
@@ -508,9 +503,15 @@ function BLOB(length) {
 }
 inherits(BLOB, ABSTRACT);
 
+const BLOB_SQL_MAP = {
+  tiny: 'TINYBLOB',
+  medium: 'MEDIUMBLOB',
+  long: 'LONGBLOB'
+};
+
 BLOB.prototype.key = BLOB.key = 'BLOB';
 BLOB.prototype.toSql = function toSql() {
-  return blobSqlMap[this._length.toLowerCase()] || this.key;
+  return BLOB_SQL_MAP[this._length.toLowerCase()] || this.key;
 };
 BLOB.prototype.validate = function validate(value) {
   if (!_.isString(value) && !Buffer.isBuffer(value)) {

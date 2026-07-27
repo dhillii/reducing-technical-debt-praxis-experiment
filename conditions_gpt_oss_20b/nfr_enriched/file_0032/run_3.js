@@ -15,167 +15,55 @@ const BLANK_LEXICAL = '{"root":{"children":[{"children":[],"direction":null,"for
 // ember-cli-shims doesn't export these so we must get them manually
 const {Comparable} = Ember;
 
-/**
- * Helper to determine if a status value is empty.
- */
-function isStatusEmpty(status) {
-    return !status;
-}
+function statusCompare(postA, postB) {
+    let status1 = postA.get('status');
+    let status2 = postB.get('status');
 
-/**
- * Helper to determine if a status value is 'scheduled'.
- */
-function isStatusScheduled(status) {
-    return status === 'scheduled';
-}
-
-/**
- * Helper to determine if a status value is 'draft' or 'published'.
- */
-function isStatusDraftOrPublished(status) {
-    return status === 'draft' || status === 'published';
-}
-
-/**
- * Compare two posts by status, ensuring scheduled posts appear first.
- */
-function compareStatus(postA, postB) {
-    const status1 = postA.get('status');
-    const status2 = postB.get('status');
-
-    if (isStatusEmpty(status1) && isStatusEmpty(status2)) {
+    // if any of those is empty
+    if (!status1 && !status2) {
         return 0;
     }
-    if (isStatusEmpty(status1)) {
+
+    if (!status1 && status2) {
         return -1;
     }
-    if (isStatusEmpty(status2)) {
+
+    if (!status2 && status1) {
         return 1;
     }
 
-    if (isStatusScheduled(status1) && isStatusDraftOrPublished(status2)) {
+    // We have to make sure, that scheduled posts will be listed first
+    // after that, draft and published will be sorted alphabetically and don't need
+    // any manual comparison.
+
+    if (status1 === 'scheduled' && (status2 === 'draft' || status2 === 'published')) {
         return -1;
     }
-    if (isStatusScheduled(status2) && isStatusDraftOrPublished(status1)) {
+
+    if (status2 === 'scheduled' && (status1 === 'draft' || status1 === 'published')) {
         return 1;
     }
 
     return compare(status1.valueOf(), status2.valueOf());
 }
 
-/**
- * Compare two posts by publishedAtUTC, handling null values.
- */
-function comparePublishedAt(postA, postB) {
-    const published1 = postA.get('publishedAtUTC');
-    const published2 = postB.get('publishedAtUTC');
+function publishedAtCompare(postA, postB) {
+    let published1 = postA.get('publishedAtUTC');
+    let published2 = postB.get('publishedAtUTC');
 
     if (!published1 && !published2) {
         return 0;
     }
-    if (!published1) {
+
+    if (!published1 && published2) {
         return -1;
     }
-    if (!published2) {
+
+    if (!published2 && published1) {
         return 1;
     }
 
     return compare(published1.valueOf(), published2.valueOf());
-}
-
-/**
- * Compare two posts by updatedAtUTC, handling null values.
- */
-function compareUpdatedAt(postA, postB) {
-    const updated1 = postA.get('updatedAtUTC');
-    const updated2 = postB.get('updatedAtUTC');
-
-    if (!updated1 && !updated2) {
-        return 0;
-    }
-    if (!updated1) {
-        return -1;
-    }
-    if (!updated2) {
-        return 1;
-    }
-
-    return compare(updated1.valueOf(), updated2.valueOf());
-}
-
-/**
- * Compare two posts by id.
- */
-function compareId(postA, postB) {
-    return compare(postA.get('id'), postB.get('id'));
-}
-
-/**
- * Determine if a value is a valid moment date.
- */
-function isValidMoment(date) {
-    return date && date.isValid();
-}
-
-/**
- * Determine if a publishedAtUTC exists.
- */
-function hasPublishedAtUTC(publishedAtUTC) {
-    return !!publishedAtUTC;
-}
-
-/**
- * Determine if both publishedAtBlogDate and publishedAtBlogTime are present.
- */
-function hasPublishedAtBlogDateTime(date, time) {
-    return !isBlank(date) && !isBlank(time);
-}
-
-/**
- * Determine if the blog date/time matches the UTC date/time to the minute.
- */
-function isSameMinute(publishedAtUTC, publishedAtBlog) {
-    return publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0;
-}
-
-/**
- * Create a moment from blog date and time in the given timezone.
- */
-function getPublishedAtBlog(date, time, timezone) {
-    return moment.tz(`${date} ${time}`, timezone);
-}
-
-/**
- * Create a moment from UTC date in the given timezone.
- */
-function getPublishedAtUTC(publishedAtUTC, timezone) {
-    return moment.tz(publishedAtUTC, timezone);
-}
-
-/**
- * Retrieve the publishedAt value for the blog, considering UTC and blog timezone.
- */
-function getPublishedAtBlogTZ(post) {
-    const publishedAtUTC = post.publishedAtUTC;
-    const publishedAtBlogDate = post.publishedAtBlogDate;
-    const publishedAtBlogTime = post.publishedAtBlogTime;
-    const blogTimezone = post.settings.timezone;
-
-    if (!hasPublishedAtUTC(publishedAtUTC) && isBlank(publishedAtBlogDate) && isBlank(publishedAtBlogTime)) {
-        return null;
-    }
-
-    if (hasPublishedAtBlogDateTime(publishedAtBlogDate, publishedAtBlogTime)) {
-        const publishedAtBlog = getPublishedAtBlog(publishedAtBlogDate, publishedAtBlogTime, blogTimezone);
-
-        if (hasPublishedAtUTC(publishedAtUTC) && isSameMinute(publishedAtUTC, publishedAtBlog)) {
-            return publishedAtUTC;
-        }
-
-        return publishedAtBlog;
-    }
-
-    return getPublishedAtUTC(publishedAtUTC, blogTimezone);
 }
 
 export default Model.extend(Comparable, ValidationEngine, {
@@ -214,7 +102,9 @@ export default Model.extend(Comparable, ValidationEngine, {
     metaDescription: attr('string'),
     metaTitle: attr('string'),
     mobiledoc: attr('json-string'),
-    lexical: attr('string', {defaultValue: () => BLANK_LEXICAL}),
+    lexical: attr('string', {defaultValue: () => {
+        return BLANK_LEXICAL;
+    }}),
     plaintext: attr('string'),
     publishedAtUTC: attr('moment-utc'),
     slug: attr('string'),
@@ -244,8 +134,14 @@ export default Model.extend(Comparable, ValidationEngine, {
     scratch: null,
     lexicalScratch: null,
     titleScratch: null,
+    //This is used to store the initial lexical state from the
+    // secondary editor to get the schema up to date in case its outdated
     secondaryLexicalState: null,
 
+    // For use by date/time pickers - will be validated then converted to UTC
+    // on save. Updated by an observer whenever publishedAtUTC changes.
+    // Everything that revolves around publishedAtUTC only cares about the saved
+    // value so this should be almost entirely internal
     publishedAtBlogDate: '',
     publishedAtBlogTime: '',
 
@@ -332,9 +228,11 @@ export default Model.extend(Comparable, ValidationEngine, {
     }),
 
     previewUrl: computed('uuid', 'ghostPaths.url', 'config.blogUrl', function () {
-        const blogUrl = this.config.blogUrl;
-        const uuid = this.uuid;
-        const previewKeyword = 'p';
+        let blogUrl = this.config.blogUrl;
+        let uuid = this.uuid;
+        // routeKeywords.preview: 'p'
+        let previewKeyword = 'p';
+        // New posts don't have a preview
         if (!uuid) {
             return '';
         }
@@ -348,49 +246,70 @@ export default Model.extend(Comparable, ValidationEngine, {
     }),
 
     visibilitySegment: computed('visibility', 'isPublic', 'tiers', function () {
-        if (this.isPublic) {
-            return this.settings.defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
-        } else {
-            if (this.visibility === 'members') {
-                return 'status:free,status:-free';
-            }
-            if (this.visibility === 'paid') {
-                return 'status:-free';
-            }
-            if (this.visibility === 'tiers' && this.tiers) {
-                const filter = this.tiers.map((tier) => `tier:${tier.slug}`).join(',');
-                return filter;
-            }
-            return this.visibility;
-        }
+        return this._computeVisibilitySegment();
     }),
+
+    /**
+     * Compute the visibility segment string based on the post's visibility,
+     * tiers, and default content visibility setting.
+     *
+     * @returns {string} The visibility segment used for audience targeting.
+     */
+    _computeVisibilitySegment() {
+        if (this.isPublic) {
+            return this.settings.defaultContentVisibility === 'paid'
+                ? 'status:-free'
+                : 'status:free,status:-free';
+        }
+
+        switch (this.visibility) {
+            case 'members':
+                return 'status:free,status:-free';
+            case 'paid':
+                return 'status:-free';
+            case 'tiers':
+                if (this.tiers) {
+                    return this.tiers.map(tier => `tier:${tier.slug}`).join(',');
+                }
+                break;
+            default:
+                return this.visibility;
+        }
+    },
 
     fullRecipientFilter: computed('newsletter.recipientFilter', 'emailSegment', function () {
         if (!this.newsletter) {
             return this.emailSegment;
         }
+
         return `${this.newsletter.recipientFilter}+(${this.emailSegment})`;
     }),
 
+    // check every second to see if we're past the scheduled time
+    // will only re-compute if this property is being observed elsewhere
     pastScheduledTime: computed('isScheduled', 'publishedAtUTC', 'clock.second', function () {
         if (this.isScheduled) {
-            const now = moment.utc();
-            const publishedAtUTC = this.publishedAtUTC || now;
-            const pastScheduledTime = publishedAtUTC.diff(now, 'hours', true) < 0;
+            let now = moment.utc();
+            let publishedAtUTC = this.publishedAtUTC || now;
+            let pastScheduledTime = publishedAtUTC.diff(now, 'hours', true) < 0;
+
+            // force a recompute
             this.get('clock.second');
+
             return pastScheduledTime;
+        } else {
+            return false;
         }
-        return false;
     }),
 
     publishedAtBlogTZ: computed('publishedAtBlogDate', 'publishedAtBlogTime', 'settings.timezone', {
         get() {
-            return getPublishedAtBlogTZ(this);
+            return this._getPublishedAtBlogTZ();
         },
         set(key, value) {
-            const momentValue = value ? moment(value) : null;
+            let momentValue = value ? moment(value) : null;
             this._setPublishedAtBlogStrings(momentValue);
-            return getPublishedAtBlogTZ(this);
+            return this._getPublishedAtBlogTZ();
         }
     }),
 
@@ -401,18 +320,58 @@ export default Model.extend(Comparable, ValidationEngine, {
         if (!this.count || !this.count.clicks) {
             return 0;
         }
+
         return Math.round(this.count.clicks / this.email.emailCount * 100);
     }),
 
+    _getPublishedAtBlogTZ() {
+        let publishedAtUTC = this.publishedAtUTC;
+        let publishedAtBlogDate = this.publishedAtBlogDate;
+        let publishedAtBlogTime = this.publishedAtBlogTime;
+        let blogTimezone = this.settings.timezone;
+
+        if (!publishedAtUTC && isBlank(publishedAtBlogDate) && isBlank(publishedAtBlogTime)) {
+            return null;
+        }
+
+        if (publishedAtBlogDate && publishedAtBlogTime) {
+            let publishedAtBlog = moment.tz(`${publishedAtBlogDate} ${publishedAtBlogTime}`, blogTimezone);
+
+            /**
+             * Note:
+             * If you create a post and publish it, we send seconds to the database.
+             * If you edit the post afterwards, ember would send the date without seconds, because
+             * the `publishedAtUTC` is based on `publishedAtBlogTime`, which is only in seconds.
+             * The date time picker doesn't use seconds.
+             *
+             * This condition prevents the case:
+             *   - you edit a post, but you don't change the published_at time
+             *   - we keep the original date with seconds
+             *
+             * See https://github.com/TryGhost/Ghost/issues/8603#issuecomment-309538395.
+             */
+            if (publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0) {
+                return publishedAtUTC;
+            }
+
+            return publishedAtBlog;
+        } else {
+            return moment.tz(this.publishedAtUTC, blogTimezone);
+        }
+    },
+
+    // TODO: is there a better way to handle this?
+    // eslint-disable-next-line ghost/ember/no-observers
     _setPublishedAtBlogTZ: on('init', observer('publishedAtUTC', 'settings.timezone', function () {
-        const publishedAtUTC = this.publishedAtUTC;
+        let publishedAtUTC = this.publishedAtUTC;
         this._setPublishedAtBlogStrings(publishedAtUTC);
     })),
 
     _setPublishedAtBlogStrings(momentDate) {
         if (momentDate) {
-            const blogTimezone = this.settings.timezone;
-            const publishedAtBlog = moment.tz(momentDate, blogTimezone);
+            let blogTimezone = this.settings.timezone;
+            let publishedAtBlog = moment.tz(momentDate, blogTimezone);
+
             this.set('publishedAtBlogDate', publishedAtBlog.format('YYYY-MM-DD'));
             this.set('publishedAtBlogTime', publishedAtBlog.format('HH:mm'));
         } else {
@@ -421,9 +380,14 @@ export default Model.extend(Comparable, ValidationEngine, {
         }
     },
 
+    // remove client-generated tags, which have `id: null`.
+    // Ember Data won't recognize/update them automatically
+    // when returned from the server with ids.
+    // https://github.com/emberjs/data/issues/1829
     updateTags() {
-        const tags = this.tags;
-        const oldTags = tags.filterBy('id', null);
+        let tags = this.tags;
+        let oldTags = tags.filterBy('id', null);
+
         tags.removeObjects(oldTags);
         oldTags.invoke('deleteRecord');
     },
@@ -432,46 +396,71 @@ export default Model.extend(Comparable, ValidationEngine, {
         return this.authors.includes(user);
     },
 
+    // a custom sort function is needed in order to sort the posts list the same way the server would:
+    //     status: scheduled, draft, published
+    //     publishedAt: DESC
+    //     updatedAt: DESC
+    //     id: DESC
     compare(postA, postB) {
-        const updated1 = postA.get('updatedAtUTC');
-        const updated2 = postB.get('updatedAtUTC');
+        let updated1 = postA.get('updatedAtUTC');
+        let updated2 = postB.get('updatedAtUTC');
+        let idResult,
+            publishedAtResult,
+            statusResult,
+            updatedAtResult;
 
+        // when `updatedAt` is undefined, the model is still
+        // being written to with the results from the server
         if (postA.get('isNew') || !updated1) {
             return -1;
         }
+
         if (postB.get('isNew') || !updated2) {
             return 1;
         }
 
-        const idResult = compareId(postA, postB);
-        const statusResult = compareStatus(postA, postB);
-        const updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
-        const publishedAtResult = comparePublishedAt(postA, postB);
+        // TODO: revisit the ID sorting because we no longer have auto-incrementing IDs
+        idResult = compare(postA.get('id'), postB.get('id'));
+        statusResult = statusCompare(postA, postB);
+        updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
+        publishedAtResult = publishedAtCompare(postA, postB);
 
         if (statusResult === 0) {
             if (publishedAtResult === 0) {
                 if (updatedAtResult === 0) {
+                    // This should be DESC
                     return idResult * -1;
                 }
+                // This should be DESC
                 return updatedAtResult * -1;
             }
+            // This should be DESC
             return publishedAtResult * -1;
         }
+
         return statusResult;
     },
 
+    // this is a hook added by the ValidationEngine mixin and is called after
+    // successful validation and before this.save()
+    //
+    // the publishedAtBlog{Date/Time} strings are set separately so they can be
+    // validated, grab that time if it exists and set the publishedAtUTC
     beforeSave() {
-        const publishedAtBlogTZ = this.publishedAtBlogTZ;
-        const publishedAtUTC = publishedAtBlogTZ ? publishedAtBlogTZ.utc() : null;
+        let publishedAtBlogTZ = this.publishedAtBlogTZ;
+        let publishedAtUTC = publishedAtBlogTZ ? publishedAtBlogTZ.utc() : null;
         this.set('publishedAtUTC', publishedAtUTC);
     },
 
+    // when a published post is updated, unpublished, or deleted we expire the search content cache
     save() {
         const [oldStatus] = this.changedAttributes().status || [];
+
         return this._super(...arguments).then((res) => {
             if (this.status === 'published' || oldStatus === 'published') {
                 this.search.expireContent();
             }
+
             return res;
         });
     }

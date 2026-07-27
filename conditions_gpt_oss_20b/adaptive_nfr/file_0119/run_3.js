@@ -11,31 +11,22 @@ const momentTz = require('moment-timezone');
 const moment = require('moment');
 const Utils = require('./utils');
 
-/**
- * Base constructor for all data types.
- * @private
- */
-function ABSTRACT() {
-  this._initialized = true;
-}
+class ABSTRACT {}
 
 ABSTRACT.prototype.dialectTypes = '';
 
 ABSTRACT.prototype.toString = function toString(options) {
   return this.toSql(options);
 };
-
 ABSTRACT.prototype.toSql = function toSql() {
   return this.key;
 };
-
 ABSTRACT.warn = function warn(link, text) {
   if (!warnings[text]) {
     warnings[text] = true;
     Utils.warn(`${text}, '\n>> Check:', ${link}`);
   }
 };
-
 ABSTRACT.prototype.stringify = function stringify(value, options) {
   if (this._stringify) {
     return this._stringify(value, options);
@@ -44,7 +35,7 @@ ABSTRACT.prototype.stringify = function stringify(value, options) {
 };
 
 function STRING(length, binary) {
-  const options = typeof length === 'object' && length || { length, binary };
+  const options = typeof length === 'object' && length || {length, binary};
 
   if (!(this instanceof STRING)) return new STRING(options);
 
@@ -77,7 +68,7 @@ Object.defineProperty(STRING.prototype, 'BINARY', {
 });
 
 function CHAR(length, binary) {
-  const options = typeof length === 'object' && length || { length, binary };
+  const options = typeof length === 'object' && length || {length, binary};
 
   if (!(this instanceof CHAR)) return new CHAR(options);
   STRING.apply(this, arguments);
@@ -90,7 +81,7 @@ CHAR.prototype.toSql = function toSql() {
 };
 
 function TEXT(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof TEXT)) return new TEXT(options);
   this.options = options;
   this._length = options.length || '';
@@ -98,16 +89,17 @@ function TEXT(length) {
 inherits(TEXT, ABSTRACT);
 
 TEXT.prototype.key = TEXT.key = 'TEXT';
-/**
- * @private
- */
 TEXT.prototype.toSql = function toSql() {
-  const textTypes = {
-    tiny: 'TINYTEXT',
-    medium: 'MEDIUMTEXT',
-    long: 'LONGTEXT'
-  };
-  return textTypes[this._length.toLowerCase()] || this.key;
+  switch (this._length.toLowerCase()) {
+    case 'tiny':
+      return 'TINYTEXT';
+    case 'medium':
+      return 'MEDIUMTEXT';
+    case 'long':
+      return 'LONGTEXT';
+    default:
+      return this.key;
+  }
 };
 TEXT.prototype.validate = function validate(value) {
   if (!_.isString(value)) {
@@ -181,7 +173,7 @@ Object.defineProperty(NUMBER.prototype, 'ZEROFILL', {
 });
 
 function INTEGER(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof INTEGER)) return new INTEGER(options);
   NUMBER.call(this, options);
 }
@@ -197,7 +189,7 @@ INTEGER.prototype.validate = function validate(value) {
 };
 
 function TINYINT(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof TINYINT)) return new TINYINT(options);
   NUMBER.call(this, options);
 }
@@ -206,7 +198,7 @@ inherits(TINYINT, INTEGER);
 TINYINT.prototype.key = TINYINT.key = 'TINYINT';
 
 function SMALLINT(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof SMALLINT)) return new SMALLINT(options);
   NUMBER.call(this, options);
 }
@@ -215,7 +207,7 @@ inherits(SMALLINT, INTEGER);
 SMALLINT.prototype.key = SMALLINT.key = 'SMALLINT';
 
 function MEDIUMINT(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof MEDIUMINT)) return new MEDIUMINT(options);
   NUMBER.call(this, options);
 }
@@ -224,7 +216,7 @@ inherits(MEDIUMINT, INTEGER);
 MEDIUMINT.prototype.key = MEDIUMINT.key = 'MEDIUMINT';
 
 function BIGINT(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof BIGINT)) return new BIGINT(options);
   NUMBER.call(this, options);
 }
@@ -233,7 +225,7 @@ inherits(BIGINT, INTEGER);
 BIGINT.prototype.key = BIGINT.key = 'BIGINT';
 
 function FLOAT(length, decimals) {
-  const options = typeof length === 'object' && length || { length, decimals };
+  const options = typeof length === 'object' && length || {length, decimals};
   if (!(this instanceof FLOAT)) return new FLOAT(options);
   NUMBER.call(this, options);
 }
@@ -249,7 +241,7 @@ FLOAT.prototype.validate = function validate(value) {
 };
 
 function REAL(length, decimals) {
-  const options = typeof length === 'object' && length || { length, decimals };
+  const options = typeof length === 'object' && length || {length, decimals};
   if (!(this instanceof REAL)) return new REAL(options);
   NUMBER.call(this, options);
 }
@@ -258,7 +250,7 @@ inherits(REAL, NUMBER);
 REAL.prototype.key = REAL.key = 'REAL';
 
 function DOUBLE(length, decimals) {
-  const options = typeof length === 'object' && length || { length, decimals };
+  const options = typeof length === 'object' && length || {length, decimals};
   if (!(this instanceof DOUBLE)) return new DOUBLE(options);
   NUMBER.call(this, options);
 }
@@ -267,7 +259,7 @@ inherits(DOUBLE, NUMBER);
 DOUBLE.prototype.key = DOUBLE.key = 'DOUBLE PRECISION';
 
 function DECIMAL(precision, scale) {
-  const options = typeof precision === 'object' && precision || { precision, scale };
+  const options = typeof precision === 'object' && precision || {precision, scale};
   if (!(this instanceof DECIMAL)) return new DECIMAL(options);
   NUMBER.call(this, options);
 }
@@ -275,6 +267,7 @@ inherits(DECIMAL, NUMBER);
 
 DECIMAL.prototype.key = DECIMAL.key = 'DECIMAL';
 DECIMAL.prototype.toSql = function toSql() {
+
   if (this._precision || this._scale) {
     return 'DECIMAL(' + [this._precision, this._scale].filter(_.identity).join(',') + ')';
   }
@@ -352,7 +345,7 @@ TIME.prototype.toSql = function toSql() {
 };
 
 function DATE(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
 
   if (!(this instanceof DATE)) return new DATE(options);
 
@@ -500,7 +493,7 @@ inherits(NOW, ABSTRACT);
 NOW.prototype.key = NOW.key = 'NOW';
 
 function BLOB(length) {
-  const options = typeof length === 'object' && length || { length };
+  const options = typeof length === 'object' && length || {length};
   if (!(this instanceof BLOB)) return new BLOB(options);
   this.options = options;
   this._length = options.length || '';
@@ -508,16 +501,17 @@ function BLOB(length) {
 inherits(BLOB, ABSTRACT);
 
 BLOB.prototype.key = BLOB.key = 'BLOB';
-/**
- * @private
- */
 BLOB.prototype.toSql = function toSql() {
-  const blobTypes = {
-    tiny: 'TINYBLOB',
-    medium: 'MEDIUMBLOB',
-    long: 'LONGBLOB'
-  };
-  return blobTypes[this._length.toLowerCase()] || this.key;
+  switch (this._length.toLowerCase()) {
+    case 'tiny':
+      return 'TINYBLOB';
+    case 'medium':
+      return 'MEDIUMBLOB';
+    case 'long':
+      return 'LONGBLOB';
+    default:
+      return this.key;
+  }
 };
 BLOB.prototype.validate = function validate(value) {
   if (!_.isString(value) && !Buffer.isBuffer(value)) {
@@ -546,7 +540,7 @@ BLOB.prototype._hexify = function _hexify(hex) {
 };
 
 function RANGE(subtype) {
-  const options = _.isPlainObject(subtype) ? subtype : { subtype };
+  const options = _.isPlainObject(subtype) ? subtype : {subtype};
 
   if (!options.subtype) options.subtype = new INTEGER();
 
@@ -677,7 +671,7 @@ ENUM.prototype.validate = function validate(value) {
 };
 
 function ARRAY(type) {
-  const options = _.isPlainObject(type) ? type : { type };
+  const options = _.isPlainObject(type) ? type : {type};
   if (!(this instanceof ARRAY)) return new ARRAY(options);
   this.type = typeof options.type === 'function' ? new options.type() : options.type;
 }
@@ -707,7 +701,7 @@ const helpers = {
 };
 
 function GEOMETRY(type, srid) {
-  const options = _.isPlainObject(type) ? type : { type, srid };
+  const options = _.isPlainObject(type) ? type : {type, srid};
 
   if (!(this instanceof GEOMETRY)) return new GEOMETRY(options);
 
@@ -725,7 +719,7 @@ GEOMETRY.prototype._stringify = function _stringify(value, options) {
 };
 
 function GEOGRAPHY(type, srid) {
-  const options = _.isPlainObject(type) ? type : { type, srid };
+  const options = _.isPlainObject(type) ? type : {type, srid};
 
   if (!(this instanceof GEOGRAPHY)) return new GEOGRAPHY(options);
 

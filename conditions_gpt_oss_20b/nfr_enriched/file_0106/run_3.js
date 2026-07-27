@@ -3,6 +3,7 @@
 /**
  * Module dependencies.
  */
+
 const EventEmitter = require('events').EventEmitter;
 const Pending = require('./pending');
 const debug = require('debug')('mocha:runnable');
@@ -12,20 +13,25 @@ const utils = require('./utils');
 /**
  * Save timer references to avoid Sinon interfering (see GH-237).
  */
+
+/* eslint-disable no-unused-vars, no-native-reassign */
 const Date = global.Date;
 const setTimeout = global.setTimeout;
 const setInterval = global.setInterval;
 const clearTimeout = global.clearTimeout;
 const clearInterval = global.clearInterval;
+/* eslint-enable no-unused-vars, no-native-reassign */
 
 /**
  * Object#toString().
  */
+
 const toString = Object.prototype.toString;
 
 /**
  * Expose `Runnable`.
  */
+
 module.exports = Runnable;
 
 /**
@@ -34,6 +40,8 @@ module.exports = Runnable;
  * @param {String} title
  * @param {Function} fn
  * @api private
+ * @param {string} title
+ * @param {Function} fn
  */
 function Runnable (title, fn) {
   this.title = title;
@@ -67,6 +75,7 @@ Runnable.prototype.timeout = function (ms) {
   if (!arguments.length) {
     return this._timeout;
   }
+  // see #1652 for reasoning
   if (ms === 0 || ms > Math.pow(2, 31)) {
     this._enableTimeouts = false;
   }
@@ -215,18 +224,20 @@ Runnable.prototype.inspect = function () {
  * @api private
  */
 Runnable.prototype.resetTimeout = function () {
+  const self = this;
   const ms = this.timeout() || 1e9;
+
   if (!this._enableTimeouts) {
     return;
   }
   this.clearTimeout();
-  this.timer = setTimeout(() => {
-    if (!this._enableTimeouts) {
+  this.timer = setTimeout(function () {
+    if (!self._enableTimeouts) {
       return;
     }
-    this.callback(new Error('Timeout of ' + ms +
+    self.callback(new Error('Timeout of ' + ms +
       'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.'));
-    this.timedOut = true;
+    self.timedOut = true;
   }, ms);
 };
 
@@ -260,110 +271,116 @@ Runnable.prototype.run = function (fn) {
     ctx.runnable(this);
   }
 
-  const multiple = function (err) {
-    if (emitted) {
-      return;
-    }
+  const emitError = (err) => {
+    if (emitted) return;
     emitted = true;
     self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
   };
 
-  const done = function (err) {
+  const finish = (err) => {
     const ms = self.timeout();
-    if (self.timedOut) {
-      return;
-    }
-    if (finished) {
-      return multiple(err || self._trace);
-    }
-
+    if (self.timedOut) return;
+    if (finished) return emitError(err || self._trace);
     self.clearTimeout();
     self.duration = new Date() - start;
     finished = true;
     if (!err && self.duration > ms && self._enableTimeouts) {
-      err = new Error('Timeout of ' + ms +
-        'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.');
+      err = new Error(`Timeout of ${ms}ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.`);
     }
     fn(err);
   };
 
-  this.callback = done;
+  this.callback = finish;
 
   if (this.async) {
     this.resetTimeout();
 
     this.skip = function asyncSkip () {
-      done(new Pending('async skip call'));
+      finish(new Pending('async skip call'));
       throw new Pending('async skip; aborting execution');
     };
 
     if (this.allowUncaught) {
-      return callFnAsync(this.fn);
+      return callFnAsync.call(this, this.fn, finish, emitError);
     }
     try {
-      callFnAsync(this.fn);
+      callFnAsync.call(this, this.fn, finish, emitError);
     } catch (err) {
       emitted = true;
-      done(utils.getError(err));
+      finish(utils.getError(err));
     }
     return;
   }
 
   if (this.allowUncaught) {
     if (this.isPending()) {
-      done();
+      finish();
     } else {
-      callFn(this.fn);
+      callFn.call(this, this.fn, finish, emitError);
     }
     return;
   }
 
   try {
     if (this.isPending()) {
-      done();
+      finish();
     } else {
-      callFn(this.fn);
+      callFn.call(this, this.fn, finish, emitError);
     }
   } catch (err) {
     emitted = true;
-    done(utils.getError(err));
-  }
-
-  function callFn (fn) {
-    const result = fn.call(ctx);
-    if (result && typeof result.then === 'function') {
-      self.resetTimeout();
-      result
-        .then(function () {
-          done();
-          return null;
-        }, function (reason) {
-          done(reason || new Error('Promise rejected with no or falsy reason'));
-        });
-    } else {
-      if (self.asyncOnly) {
-        return done(new Error('--async-only option in use without declaring `done()` or returning a promise'));
-      }
-      done();
-    }
-  }
-
-  function callFnAsync (fn) {
-    const result = fn.call(ctx, function (err) {
-      if (err instanceof Error || toString.call(err) === '[object Error]') {
-        return done(err);
-      }
-      if (err) {
-        if (Object.prototype.toString.call(err) === '[object Object]') {
-          return done(new Error('done() invoked with non-Error: ' +
-            JSON.stringify(err)));
-        }
-        return done(new Error('done() invoked with non-Error: ' + err));
-      }
-      if (result && utils.isPromise(result)) {
-        return done(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
-      }
-      done();
-    });
+    finish(utils.getError(err));
   }
 };
+
+/**
+ * Execute a function that may return a Promise.
+ *
+ * @private
+ * @param {Function} fn - The function to execute.
+ * @param {Function} finish - Callback to invoke when done.
+ * @param {Function} emitError - Error emitter for multiple calls.
+ */
+function callFn (fn, finish, emitError) {
+  const result = fn.call(this.ctx);
+  if (result && typeof result.then === 'function') {
+    this.resetTimeout();
+    result.then(() => {
+      finish();
+      return null;
+    }, (reason) => {
+      finish(reason || new Error('Promise rejected with no or falsy reason'));
+    });
+  } else {
+    if (this.asyncOnly) {
+      return finish(new Error('--async-only option in use without declaring `done()` or returning a promise'));
+    }
+    finish();
+  }
+}
+
+/**
+ * Execute a function that expects a callback.
+ *
+ * @private
+ * @param {Function} fn - The function to execute.
+ * @param {Function} finish - Callback to invoke when done.
+ * @param {Function} emitError - Error emitter for multiple calls.
+ */
+function callFnAsync (fn, finish, emitError) {
+  const result = fn.call(this.ctx, function (err) {
+    if (err instanceof Error || toString.call(err) === '[object Error]') {
+      return finish(err);
+    }
+    if (err) {
+      if (Object.prototype.toString.call(err) === '[object Object]') {
+        return finish(new Error('done() invoked with non-Error: ' + JSON.stringify(err)));
+      }
+      return finish(new Error('done() invoked with non-Error: ' + err));
+    }
+    if (result && utils.isPromise(result)) {
+      return finish(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
+    }
+    finish();
+  });
+}

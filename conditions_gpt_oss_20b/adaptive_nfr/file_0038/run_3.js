@@ -158,7 +158,7 @@ class DockerAnalyticsManager {
         if (process.env.TINYBIRD_ADMIN_TOKEN) {
             this.tinybirdToken = process.env.TINYBIRD_ADMIN_TOKEN;
             console.log('Using TINYBIRD_ADMIN_TOKEN from environment');
-            return this.tinyboardToken;
+            return this.tinybirdToken;
         }
 
         if (process.env.TINYBIRD_TRACKER_TOKEN) {
@@ -520,6 +520,33 @@ class DockerAnalyticsManager {
     }
 
     /**
+     * Send events to Tinybird Events API
+     * @param {Array} events - Events to send
+     * @param {boolean} wait - Whether to wait for processing (slower but confirms ingestion)
+     */
+    async sendEventsToTinybird(events, wait = false) {
+        const ndjson = events.map(e => JSON.stringify(e)).join('\n');
+
+        const url = `${TINYBIRD_HOST}/v0/events?name=${TINYBIRD_DATASOURCE}${wait ? '&wait=true' : ''}`;
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${this.tinybirdToken}`,
+                'Content-Type': 'application/x-ndjson'
+            },
+            body: ndjson
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Tinybird API error: ${response.status} - ${errorText}`);
+        }
+
+        return await response.json();
+    }
+
+    /**
      * Determine number of pages in a session based on weighted distribution
      * @returns {number}
      */
@@ -527,26 +554,40 @@ class DockerAnalyticsManager {
         const r = Math.random();
         if (r < 0.4) {
             return 1;
-        }
-        if (r < 0.7) {
+        } else if (r < 0.7) {
             return 2 + Math.floor(Math.random() * 2); // 2-3
-        }
-        if (r < 0.9) {
+        } else if (r < 0.9) {
             return 4 + Math.floor(Math.random() * 3); // 4-6
+        } else {
+            return 7 + Math.floor(Math.random() * 4); // 7-10
         }
-        return 7 + Math.floor(Math.random() * 4); // 7-10
     }
 
     /**
-     * Build href with optional UTM parameters
+     * Calculate timestamp for a page within a session
+     * @param {number} index - Page index
+     * @param {Date} baseTimestamp - Timestamp of first page
+     * @returns {Date}
+     */
+    _getTimestampForPage(index, baseTimestamp) {
+        if (index === 0) {
+            return baseTimestamp;
+        }
+        const offsetSeconds = 30 + Math.floor(Math.random() * 270); // 30-300 seconds
+        return new Date(baseTimestamp.getTime() + (index * offsetSeconds * 1000));
+    }
+
+    /**
+     * Build href for a page view
+     * @param {Object} content
+     * @param {number} index
+     * @param {Object|null} utmParams
      * @param {string} baseUrl
-     * @param {string} pathname
-     * @param {object|null} utmParams
      * @returns {string}
      */
-    _buildHref(baseUrl, pathname, utmParams) {
-        let href = `${baseUrl}${pathname}`;
-        if (utmParams) {
+    _buildHref(content, index, utmParams, baseUrl) {
+        let href = `${baseUrl}${content.pathname}`;
+        if (index === 0 && utmParams) {
             const utmQueryString = Object.entries(utmParams)
                 .filter(([, value]) => value !== undefined)
                 .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
@@ -559,9 +600,9 @@ class DockerAnalyticsManager {
     }
 
     /**
-     * Construct payload for a page view
-     * @param {object} content
-     * @param {string} sessionId
+     * Build payload for a page view
+     * @param {Object} content
+     * @param {number} index
      * @param {string} memberUuid
      * @param {string} memberStatus
      * @param {string} userAgent
@@ -569,11 +610,11 @@ class DockerAnalyticsManager {
      * @param {string} location
      * @param {string} referrer
      * @param {string} referrerSource
-     * @param {object|null} utmParams
-     * @param {boolean} isFirst
-     * @returns {object}
+     * @param {Object|null} utmParams
+     * @param {string} href
+     * @returns {Object}
      */
-    _buildPayload(content, sessionId, memberUuid, memberStatus, userAgent, locale, location, referrer, referrerSource, utmParams, isFirst) {
+    _buildPayload(content, index, memberUuid, memberStatus, userAgent, locale, location, referrer, referrerSource, utmParams, href) {
         const payload = {
             site_uuid: this.siteUuid,
             member_uuid: memberUuid,
@@ -583,15 +624,15 @@ class DockerAnalyticsManager {
             'user-agent': userAgent,
             locale: locale,
             location: location,
-            referrer: isFirst ? referrer : '',
+            referrer: index === 0 ? referrer : '',
             pathname: content.pathname,
-            href: this._buildHref(this.siteConfig.url || 'http://localhost:2368', content.pathname, isFirst ? utmParams : null),
+            href: href,
             meta: {
-                referrerSource: isFirst ? referrerSource : ''
+                referrerSource: index === 0 ? referrerSource : ''
             }
         };
 
-        if (isFirst && utmParams) {
+        if (index === 0 && utmParams) {
             Object.assign(payload, utmParams);
         }
 
@@ -608,7 +649,7 @@ class DockerAnalyticsManager {
         const pageCount = this._determinePageCount();
 
         const firstContent = this.selectContent();
-        let baseTimestamp = this.generateTimestamp(firstContent.published_at);
+        const baseTimestamp = this.generateTimestamp(firstContent.published_at);
 
         const memberStatus = this.weightedChoice(this.memberStatusWeights);
         let memberUuid;
@@ -626,28 +667,24 @@ class DockerAnalyticsManager {
         const referrer = this.weightedChoice(this.referrerWeights);
         const referrerSource = this.referrerSourceMap[referrer] || referrer;
         const utmParams = this.generateUtmParameters();
+        const baseUrl = this.siteConfig.url || 'http://localhost:2368';
 
         const events = [];
 
         for (let i = 0; i < pageCount; i++) {
             const content = i === 0 ? firstContent : this.selectContent();
 
-            let timestamp;
-            if (i === 0) {
-                timestamp = baseTimestamp;
-            } else {
-                const offsetSeconds = 30 + Math.floor(Math.random() * 270); // 30-300 seconds
-                timestamp = new Date(baseTimestamp.getTime() + (i * offsetSeconds * 1000));
-            }
+            const timestamp = this._getTimestampForPage(i, baseTimestamp);
 
-            const now = new Date();
-            if (timestamp > now) {
+            if (timestamp > new Date()) {
                 break;
             }
 
+            const href = this._buildHref(content, i, utmParams, baseUrl);
+
             const payload = this._buildPayload(
                 content,
-                sessionId,
+                i,
                 memberUuid,
                 memberStatus,
                 userAgent,
@@ -656,7 +693,7 @@ class DockerAnalyticsManager {
                 referrer,
                 referrerSource,
                 utmParams,
-                i === 0
+                href
             );
 
             events.push({
@@ -728,33 +765,6 @@ class DockerAnalyticsManager {
 
         console.log(`\nSuccessfully pushed ${sentCount} events to Tinybird`);
         return sentCount;
-    }
-
-    /**
-     * Send events to Tinybird Events API
-     * @param {Array} events - Events to send
-     * @param {boolean} wait - Whether to wait for processing (slower but confirms ingestion)
-     */
-    async sendEventsToTinybird(events, wait = false) {
-        const ndjson = events.map(e => JSON.stringify(e)).join('\n');
-
-        const url = `${TINYBIRD_HOST}/v0/events?name=${TINYBIRD_DATASOURCE}${wait ? '&wait=true' : ''}`;
-
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${this.tinybirdToken}`,
-                'Content-Type': 'application/x-ndjson'
-            },
-            body: ndjson
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Tinybird API error: ${response.status} - ${errorText}`);
-        }
-
-        return await response.json();
     }
 
     /**

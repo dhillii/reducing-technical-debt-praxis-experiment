@@ -42,30 +42,6 @@ const getGhostKey = doBlock(() => {
     };
 });
 
-/**
- * Convert a value to a boolean if it represents a boolean.
- * @param {*} value
- * @returns {*} The converted boolean or the original value.
- */
-function convertBooleanValue(value) {
-    if (value === '0' || value === '1') {
-        return !!+value;
-    }
-    if (value === 'false' || value === 'true') {
-        return JSON.parse(value);
-    }
-    return value;
-}
-
-/**
- * Determine if a key is one that should have its URL transformed.
- * @param {string} key
- * @returns {boolean}
- */
-function isTransformableUrlKey(key) {
-    return ['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'].includes(key);
-}
-
 // For neatness, the defaults file is split into categories.
 // It's much easier for us to work with it as a single level
 // instead of iterating those categories every time
@@ -168,11 +144,18 @@ Settings = ghostBookshelf.Model.extend({
         const settingType = attrs.type;
 
         if (settingType === 'boolean') {
-            const converted = convertBooleanValue(attrs.value);
-            if (_.isBoolean(converted)) {
-                attrs.value = converted.toString();
-            } else {
-                attrs.value = converted;
+            // CASE: Ensure we won't forward strings, otherwise model events or model interactions can fail
+            if (attrs.value === '0' || attrs.value === '1') {
+                attrs.value = !!+attrs.value;
+            }
+
+            // CASE: Ensure we won't forward strings, otherwise model events or model interactions can fail
+            if (attrs.value === 'false' || attrs.value === 'true') {
+                attrs.value = JSON.parse(attrs.value);
+            }
+
+            if (_.isBoolean(attrs.value)) {
+                attrs.value = attrs.value.toString();
             }
         }
 
@@ -180,7 +163,7 @@ Settings = ghostBookshelf.Model.extend({
     },
 
     formatOnWrite(attrs) {
-        if (attrs.value && isTransformableUrlKey(attrs.key)) {
+        if (attrs.value && ['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'].includes(attrs.key)) {
             attrs.value = urlUtils.toTransformReady(attrs.value);
         }
 
@@ -192,17 +175,17 @@ Settings = ghostBookshelf.Model.extend({
 
         // transform "0" to false for boolean type
         const settingType = attrs.type;
-        if (settingType === 'boolean') {
-            const converted = convertBooleanValue(attrs.value);
-            if (_.isBoolean(converted)) {
-                attrs.value = converted;
-            } else {
-                attrs.value = converted;
-            }
+        if (settingType === 'boolean' && (attrs.value === '0' || attrs.value === '1')) {
+            attrs.value = !!+attrs.value;
+        }
+
+        // transform "false" to false for boolean type
+        if (settingType === 'boolean' && (attrs.value === 'false' || attrs.value === 'true')) {
+            attrs.value = JSON.parse(attrs.value);
         }
 
         // transform URLs from __GHOST_URL__ to absolute
-        if (isTransformableUrlKey(attrs.key)) {
+        if (['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'].includes(attrs.key)) {
             attrs.value = urlUtils.transformReadyToAbsolute(attrs.value);
         }
 

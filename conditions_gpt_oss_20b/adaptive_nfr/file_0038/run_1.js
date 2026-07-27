@@ -552,35 +552,29 @@ class DockerAnalyticsManager {
      */
     _determinePageCount() {
         const r = Math.random();
-        if (r < 0.4) return 1;
-        if (r < 0.7) return 2 + Math.floor(Math.random() * 2); // 2-3
-        if (r < 0.9) return 4 + Math.floor(Math.random() * 3); // 4-6
+        if (r < 0.4) {
+            return 1;
+        }
+        if (r < 0.7) {
+            return 2 + Math.floor(Math.random() * 2); // 2-3
+        }
+        if (r < 0.9) {
+            return 4 + Math.floor(Math.random() * 3); // 4-6
+        }
         return 7 + Math.floor(Math.random() * 4); // 7-10
     }
 
     /**
-     * Select a member UUID based on status and availability
-     * @param {string} memberStatus
-     * @returns {string}
-     */
-    _selectMemberUuid(memberStatus) {
-        if (memberStatus === 'undefined') return 'undefined';
-        if (this.memberUuids.length > 0 && Math.random() < 0.7) {
-            return this.randomChoice(this.memberUuids);
-        }
-        return this.generateUuid();
-    }
-
-    /**
      * Build href with optional UTM parameters
+     * @param {Object} content
      * @param {string} baseUrl
-     * @param {string} pathname
-     * @param {object|null} utmParams
+     * @param {Object|null} utmParams
+     * @param {boolean} includeUtm
      * @returns {string}
      */
-    _buildHref(baseUrl, pathname, utmParams) {
-        let href = `${baseUrl}${pathname}`;
-        if (utmParams) {
+    _buildHref(content, baseUrl, utmParams, includeUtm) {
+        let href = `${baseUrl}${content.pathname}`;
+        if (includeUtm && utmParams) {
             const utmQueryString = Object.entries(utmParams)
                 .filter(([, value]) => value !== undefined)
                 .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
@@ -593,35 +587,38 @@ class DockerAnalyticsManager {
     }
 
     /**
-     * Construct payload for a page hit event
-     * @param {object} content
+     * Build payload for a page hit event
+     * @param {Object} content
      * @param {string} memberUuid
      * @param {string} memberStatus
+     * @param {string} userAgent
+     * @param {string} locale
+     * @param {string} location
      * @param {string} referrer
      * @param {string} referrerSource
-     * @param {object|null} utmParams
-     * @param {string} href
-     * @returns {object}
+     * @param {Object|null} utmParams
+     * @param {boolean} isFirst
+     * @returns {Object}
      */
-    _buildPayload(content, memberUuid, memberStatus, referrer, referrerSource, utmParams, href) {
+    _buildPayload(content, memberUuid, memberStatus, userAgent, locale, location, referrer, referrerSource, utmParams, isFirst) {
         const payload = {
             site_uuid: this.siteUuid,
             member_uuid: memberUuid,
             member_status: memberStatus,
             post_uuid: content.post_uuid,
             post_type: content.post_type,
-            'user-agent': this.randomChoice(this.userAgents),
-            locale: this.randomChoice(this.locales),
-            location: this.weightedChoice(this.locationWeights),
-            referrer: referrer,
+            'user-agent': userAgent,
+            locale: locale,
+            location: location,
+            referrer: isFirst ? referrer : '',
             pathname: content.pathname,
-            href: href,
+            href: this._buildHref(content, this.siteConfig.url || 'http://localhost:2368', utmParams, isFirst),
             meta: {
-                referrerSource: referrerSource
+                referrerSource: isFirst ? referrerSource : ''
             }
         };
 
-        if (utmParams) {
+        if (isFirst && utmParams) {
             Object.assign(payload, utmParams);
         }
 
@@ -641,7 +638,14 @@ class DockerAnalyticsManager {
         let baseTimestamp = this.generateTimestamp(firstContent.published_at);
 
         const memberStatus = this.weightedChoice(this.memberStatusWeights);
-        const memberUuid = this._selectMemberUuid(memberStatus);
+        let memberUuid;
+        if (memberStatus === 'undefined') {
+            memberUuid = 'undefined';
+        } else if (this.memberUuids.length > 0 && Math.random() < 0.7) {
+            memberUuid = this.randomChoice(this.memberUuids);
+        } else {
+            memberUuid = this.generateUuid();
+        }
 
         const userAgent = this.randomChoice(this.userAgents);
         const locale = this.randomChoice(this.locales);
@@ -649,7 +653,6 @@ class DockerAnalyticsManager {
         const referrer = this.weightedChoice(this.referrerWeights);
         const referrerSource = this.referrerSourceMap[referrer] || referrer;
         const utmParams = this.generateUtmParameters();
-        const baseUrl = this.siteConfig.url || 'http://localhost:2368';
 
         const events = [];
 
@@ -669,16 +672,17 @@ class DockerAnalyticsManager {
                 break;
             }
 
-            const href = this._buildHref(baseUrl, content.pathname, i === 0 ? utmParams : null);
-
             const payload = this._buildPayload(
                 content,
                 memberUuid,
                 memberStatus,
-                i === 0 ? referrer : '',
-                i === 0 ? referrerSource : '',
-                i === 0 ? utmParams : null,
-                href
+                userAgent,
+                locale,
+                location,
+                referrer,
+                referrerSource,
+                utmParams,
+                i === 0
             );
 
             events.push({

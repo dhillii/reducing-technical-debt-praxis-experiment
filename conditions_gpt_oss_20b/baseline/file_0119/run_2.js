@@ -15,6 +15,8 @@ function ABSTRACT() {
   this.dialectTypes = '';
 }
 
+ABSTRACT.prototype.dialectTypes = '';
+
 ABSTRACT.prototype.toString = function toString(options) {
   return this.toSql(options);
 };

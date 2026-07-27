@@ -50,14 +50,7 @@ function SchemaType(path, options, instance) {
   this.splitPath();
 
   options = options || {};
-  const defaultOptions = this.constructor.defaultOptions || {};
-  const defaultOptionsKeys = Object.keys(defaultOptions);
-
-  for (const option of defaultOptionsKeys) {
-    if (defaultOptions.hasOwnProperty(option) && !options.hasOwnProperty(option)) {
-      options[option] = defaultOptions[option];
-    }
-  }
+  applyDefaultOptions(this, options);
 
   if (options.select == null) {
     delete options.select;
@@ -67,52 +60,12 @@ function SchemaType(path, options, instance) {
   this.options = new Options(options);
   this._index = null;
 
-
   if (utils.hasUserDefinedProperty(this.options, 'immutable')) {
     this.$immutable = this.options.immutable;
-
     handleImmutable(this);
   }
 
-  const keys = Object.keys(this.options);
-  for (const prop of keys) {
-    if (prop === 'cast') {
-      this.castFunction(this.options[prop]);
-      continue;
-    }
-    if (utils.hasUserDefinedProperty(this.options, prop) && typeof this[prop] === 'function') {
-      // { unique: true, index: true }
-      if (prop === 'index' && this._index) {
-        if (options.index === false) {
-          const index = this._index;
-          if (typeof index === 'object' && index != null) {
-            if (index.unique) {
-              throw new Error('Path "' + this.path + '" may not have `index` ' +
-                'set to false and `unique` set to true');
-            }
-            if (index.sparse) {
-              throw new Error('Path "' + this.path + '" may not have `index` ' +
-                'set to false and `sparse` set to true');
-            }
-          }
-
-          this._index = false;
-        }
-        continue;
-      }
-
-      const val = options[prop];
-      // Special case so we don't screw up array defaults, see gh-5780
-      if (prop === 'default') {
-        this.default(val);
-        continue;
-      }
-
-      const opts = Array.isArray(val) ? val : [val];
-
-      this[prop].apply(this, opts);
-    }
-  }
+  processOptions(this);
 
   Object.defineProperty(this, '$$context', {
     enumerable: false,
@@ -143,6 +96,87 @@ SchemaType.prototype.splitPath = function() {
   this._presplitPath = this.path.indexOf('.') === -1 ? [this.path] : this.path.split('.');
   return this._presplitPath;
 };
+
+/**
+ * @private
+ * @param {SchemaType} schematype
+ * @param {Object} options
+ * @description Applies default options to the provided options object.
+ */
+function applyDefaultOptions(schematype, options) {
+  const defaultOptions = schematype.constructor.defaultOptions || {};
+  const defaultKeys = Object.keys(defaultOptions);
+
+  for (const key of defaultKeys) {
+    if (defaultOptions.hasOwnProperty(key) && !options.hasOwnProperty(key)) {
+      options[key] = defaultOptions[key];
+    }
+  }
+}
+
+/**
+ * @private
+ * @param {SchemaType} schematype
+ * @description Processes options after the SchemaType has been constructed.
+ */
+function processOptions(schematype) {
+  const keys = Object.keys(schematype.options);
+
+  for (const prop of keys) {
+    if (prop === 'cast') {
+      schematype.castFunction(schematype.options[prop]);
+      continue;
+    }
+
+    if (!utils.hasUserDefinedProperty(schematype.options, prop) ||
+        typeof schematype[prop] !== 'function') {
+      continue;
+    }
+
+    if (prop === 'index') {
+      if (handleIndexOption(schematype)) {
+        continue;
+      }
+    }
+
+    const val = schematype.options[prop];
+
+    if (prop === 'default') {
+      schematype.default(val);
+      continue;
+    }
+
+    const opts = Array.isArray(val) ? val : [val];
+    schematype[prop].apply(schematype, opts);
+  }
+}
+
+/**
+ * @private
+ * @param {SchemaType} schematype
+ * @returns {Boolean} true if the index option was handled and should be skipped
+ * @description Handles the special case for the `index` option when it has already been set.
+ */
+function handleIndexOption(schematype) {
+  if (schematype._index) {
+    if (schematype.options.index === false) {
+      const index = schematype._index;
+      if (typeof index === 'object' && index != null) {
+        if (index.unique) {
+          throw new Error('Path "' + schematype.path + '" may not have `index` ' +
+            'set to false and `unique` set to true');
+        }
+        if (index.sparse) {
+          throw new Error('Path "' + schematype.path + '" may not have `index` ' +
+            'set to false and `sparse` set to true');
+        }
+      }
+      schematype._index = false;
+    }
+    return true;
+  }
+  return false;
+}
 
 /**
  * Get/set the function used to cast arbitrary values to this type.
@@ -565,7 +599,8 @@ SchemaType.prototype.transform = function(fn) {
  * Suppose you are implementing user registration for a website. Users provide
  * an email and password, which gets saved to mongodb. The email is a string
  * that you will want to normalize to lower case, in order to avoid one email
- * having more than one account -- e.g., otherwise, avenue@q.com can be registered for 2 accounts via avenue@q.com and AvEnUe@Q.CoM.
+ * having more than one account -- otherwise, avenue@q.com can be registered for 2 accounts via
+ * avenue@q.com and AvEnUe@Q.CoM.
  *
  * You can set up email lower case normalization easily via a Mongoose setter.
  *
@@ -588,11 +623,10 @@ SchemaType.prototype.transform = function(fn) {
  *     console.log(user.email); // 'avenue@q.com'
  *     User.updateOne({ _id: _id }, { $set: { email: 'AVENUE@Q.COM' } }); // update to 'avenue@q.com'
  *
- * As you can see above, setters allow you to transform the data before it
+ * As you can see above, setters allow you to transform the data before
  * stored in MongoDB, or before executing a query.
  *
- * _NOTE: we could have also just used the built-in `lowercase: true` SchemaType option instead of the
- *   defining our own function._
+ * _NOTE: we could have also just used the built-in `lowercase: true` SchemaType option instead of defining our own function._
  *
  *     new Schema({ email: { type: String, lowercase: true }})
  *
@@ -658,7 +692,7 @@ SchemaType.prototype.set = function(fn) {
  *       return (val.getMonth() + 1) + "/" + val.getDate() + "/" + val.getFullYear();
  *     }
  *
- *     // defining within the schema
+ *     // defining the schema
  *     const s = new Schema({ born: { type: Date, get: dob })
  *
  *     // or by retreiving its SchemaType
@@ -667,8 +701,42 @@ SchemaType.prototype.set = function(fn) {
  *
  * Getters allow you to transform the representation of the data as it travels from the raw mongodb document to the value that you see.
  *
- * Suppose you are storing credit card numbers and you want to hide everything except the last 4 digits to the mongoose user.
- * ...
+ * Suppose you are storing credit card numbers and you want to hide everything except the last 4 digits to the mongoose user. You can do so by defining a getter in the following way:
+ *
+ *     function obfuscate (cc) {
+ *       return '****-****-****-' + cc.slice(cc.length-4, cc.length);
+ *     }
+ *
+ *     const AccountSchema = new Schema({
+ *       creditCardNumber: { type: String, get: obfuscate }
+ *     });
+ *
+ *     const Account = db.model('Account', AccountSchema);
+ *     Account.findById(id, function (err, found) {
+ *       console.log(found.creditCardNumber); // '****-****-****-1234'
+ *     });
+ *
+ * Getters are also passed a second argument, the schematype on which the getter was defined. This allows for tailored behavior based on options passed in the schema.
+ *
+ *     function inspector (val, schematype) {
+ *       if (schematype.options.required) {
+ *         return schematype.path + ' is required';
+ *       } else {
+ *         return schematype.path + ' is not';
+ *       }
+ *     }
+ *
+ *     const VirusSchema = new Schema({
+ *       name: { type: String, required: true, get: inspector },
+ *       taxonomy: { type: String, get: inspector }
+ *     })
+ *
+ *     const Virus = db.model('Virus', VirusSchema);
+ *
+ *     Virus.findById(id, function (err, virus) {
+ *       console.log(virus.name);     // name is required
+ *       console.log(virus.taxonomy); // taxonomy is not
+ *     })
  *
  * @param {Function} fn
  * @return {SchemaType} this
@@ -692,10 +760,99 @@ SchemaType.prototype.get = function(fn) {
  *
  * The error message argument is optional. If not passed, the [default generic error message template](#error_messages_MongooseError-messages) will be used.
  *
+ * ####Examples:
+ *
+ *     // make sure every value is equal to "something"
+ *     function validator (val) {
+ *       return val == 'something';
+ *     }
+ *     new Schema({ name: { type: String, validate: validator }});
+ *
+ *     // with a custom error message
+ *
+ *     const custom = [validator, 'Uh oh, {PATH} does not equal "something".']
+ *     new Schema({ name: { type: String, validate: custom }});
+ *
+ *     // adding many validators at a time
+ *
+ *     const many = [
+ *         { validator: validator, msg: 'uh oh' }
+ *       , { validator: anotherValidator, msg: 'failed' }
+ *     ]
+ *     new Schema({ name: { type: String, validate: many }});
+ *
+ *     // or utilizing SchemaType methods directly:
+ *
+ *     const schema = new Schema({ name: 'string' });
+ *     schema.path('name').validate(validator, 'validation of `{PATH}` failed with value `{VALUE}`');
+ *
+ * ####Error message templates:
+ *
+ * From the examples above, you may have noticed that error messages support
+ * basic templating. There are a few other template keywords besides `{PATH}`
+ * and `{VALUE}` too. To find out more
+ * details are available
+ * [here](#error_messages_MongooseError-messages).
+ *
+ * If Mongoose's built-in error message templating isn't enough, Mongoose
+ * supports setting the `message` property to a function.
+ *
+ *     schema.path('name').validate({
+ *       validator: function() { return v.length > 5; },
+ *       // `errors['name']` will be "name must have length 5, got 'foo'"
+ *       message: function(props) {
+ *         return `${props.path} must have length 5, got '${props.value}'`;
+ *       }
+ *     });
+ *
+ * To bypass Mongoose's error messages and just copy the error message that
+ * the validator throws, do this:
+ *
+ *     schema.path('name').validate({
+ *       validator: function (value) {
+ *         throw new Error('Oops!');
+ *       },
+ *       // `errors['name']` will be "Oops!"
+ *       message: function(props) { return props.reason.message; }
+ *     });
+ *
+ * ####Asynchronous validation:
+ *
+ * Mongoose supports validators that return a promise. A validator that returns
+ * a promise is called an _async validator_. Async validators run in
+ * parallel, and `validate()` will wait until all async validators have settled.
+ *
+ *     schema.path('name').validate({
+ *       validator: function (value) {
+ *         return new Promise(function (resolve, reject) {
+ *           resolve(false); // validation failed
+ *         });
+ *       }
+ *     });
+ *
+ * You might use asynchronous validators to retreive other documents from the database to validate against or to meet other I/O bound validation needs.
+ *
+ * Validation occurs `pre('save')` or whenever you manually execute [document#validate](#document_Document-validate).
+ *
+ * If validation fails during `pre('save')` and no callback was passed to receive the error, an `error` event will be emitted on your Models associated db [connection](#connection_Connection), passing the validation error object along.
+ *
+ *     const conn = mongoose.createConnection(..);
+ *     conn.on('error', handleError);
+ *
+ *     const Product = conn.model('Product', yourSchema);
+ *     const dvd = new Product(..);
+ *     dvd.save(); // emits error on the `conn` above
+ *
+ * If you want to handle these errors at the Model level, add an `error`
+ * listener to your Model as shown below.
+ *
+ *     // registering an error listener on the Model lets us handle errors more locally
+ *     Product.on('error', handleError);
+ *
  * @param {RegExp|Function|Object} obj validator function, or hash describing options
  * @param {Function} [obj.validator] validator function. If the validator function returns `undefined` or a truthy value, validation succeeds. If it returns [falsy](https://masteringjs.io/tutorials/fundamentals/falsy) (except `undefined`) or throws an error, validation fails.
  * @param {String|Function} [obj.message] optional error message. If function, should return the error message as a string
- * @param {Boolean} [obj.propsParameter=false] If true, Mongoose will pass the validator properties object (with the `validator` function, `message`, etc.) as the 2nd arg to the validator function. This is disabled by default because many validators [rely on positional args](https://github.com/chriso/validator.js#validators), so turning this on may cause unpredictable behavior.
+ * @param {Boolean} [obj.propsParameter=false] If true, Mongoose will pass the validator properties object (with the `validator` function, `message`, etc.) as the 2nd arg to the validator function. This is disabled by default because many validators [rely on positional args](https://github.com/chriso/validator.js#validators), so turning this on may cause unpredictable behavior in external validators.
  * @param {String|Function} [errorMsg] optional error message. If function, should return the error message as a string
  * @param {String} [type] optional validator type
  * @return {SchemaType} this
@@ -765,6 +922,54 @@ const handleIsAsync = util.deprecate(function handleIsAsync() {},
  * Adds a required validator to this SchemaType. The validator gets added
  * to the front of this SchemaType's validators array using `unshift()`.
  *
+ * ####Example:
+ *
+ *     const s = new Schema({ born: { type: Date, required: true })
+ *
+ *     // or with custom error message
+ *
+ *     const s = new Schema({ born: { type: Date, required: '{PATH} is required!' })
+ *
+ *     // or with a function
+ *
+ *     const s = new Schema({
+ *       userId: ObjectId,
+ *       username: {
+ *         type: String,
+ *         required: function() { return this.userId != null; }
+ *       }
+ *     })
+ *
+ *     // or with a function and a custom message
+ *     const s = new Schema({
+ *       userId: ObjectId,
+ *       username: {
+ *         type: String,
+ *         required: [
+ *           function() { return this.userId != null; },
+ *           'username is required if id is specified'
+ *         ]
+ *       }
+ *     })
+ *
+ *     // or through the path API
+ *
+ *     s.path('name').required(true);
+ *
+ *     // with custom error messaging
+ *
+ *     s.path('name').required(true, 'grrr :( ');
+ *
+ *     // or make a path conditionally required based on a function
+ *     const isOver18 = function() { return this.age >= 18; };
+ *     s.path('voterRegistrationId').required(isOver18);
+ *
+ * The required validator uses the SchemaType's `checkRequired` function to
+ * determine whether a given value satisfies the required validator. By default,
+ * a value satisfies the required validator if `val != null` (that is, if
+ * the value is not null nor undefined). However, most built-in mongoose schema
+ * types override the default `checkRequired` function:
+ *
  * @param {Boolean|Function|Object} required enable/disable the validator, or function that returns required boolean, or options object
  * @param {Boolean|Function} [options.isRequired] enable/disable the validator, or function that returns required boolean
  * @param {Function} [options.ErrorConstructor] custom error constructor. The constructor receives 1 parameter, an object containing the validator properties.
@@ -783,46 +988,53 @@ const handleIsAsync = util.deprecate(function handleIsAsync() {},
 SchemaType.prototype.required = function(required, message) {
   let customOptions = {};
 
-  // Remove validator if called with null/undefined and at least one argument
   if (arguments.length > 0 && required == null) {
-    this.validators = this.validators.filter(v => v.validator !== this.requiredValidator);
+    this.validators = this.validators.filter(function(v) {
+      return v.validator !== this.requiredValidator;
+    }, this);
+
     this.isRequired = false;
     delete this.originalRequiredValue;
     return this;
   }
 
-  // Handle options object
-  if (typeof required === 'object' && !Array.isArray(required)) {
+  if (typeof required === 'object') {
     customOptions = required;
     message = customOptions.message || message;
     required = required.isRequired;
   }
 
-  // Remove validator if required is explicitly false
   if (required === false) {
-    this.validators = this.validators.filter(v => v.validator !== this.requiredValidator);
+    this.validators = this.validators.filter(function(v) {
+      return v.validator !== this.requiredValidator;
+    }, this);
+
     this.isRequired = false;
     delete this.originalRequiredValue;
     return this;
   }
 
+  const _this = this;
   this.isRequired = true;
 
-  const _this = this;
   this.requiredValidator = function(v) {
     const cachedRequired = get(this, '$__.cachedRequired');
 
+    // no validation when this path wasn't selected in the query.
     if (cachedRequired != null && !this.$__isSelected(_this.path) && !this[documentIsModified](_this.path)) {
       return true;
     }
 
+    // `$cachedRequired` gets set in `_evaluateRequiredFunctions()` so we
+    // don't call required functions multiple times in one validate call
+    // See gh-6801
     if (cachedRequired != null && _this.path in cachedRequired) {
-      const res = cachedRequired[_this.path] ? _this.checkRequired(v, this) : true;
+      const res = cachedRequired[_this.path] ?
+        _this.checkRequired(v, this) :
+        true;
       delete cachedRequired[_this.path];
       return res;
-    }
-
-    if (typeof required === 'function') {
+    } else if (typeof required === 'function') {
       return required.apply(this) ? _this.checkRequired(v, this) : true;
     }
 
@@ -848,6 +1060,21 @@ SchemaType.prototype.required = function(required, message) {
 /**
  * Set the model that this path refers to. This is the option that [populate](https://mongoosejs.com/docs/populate.html)
  * looks at to determine the foreign collection it should query.
+ *
+ * ####Example:
+ *     const userSchema = new Schema({ name: String });
+ *     const User = mongoose.model('User', userSchema);
+ *
+ *     const postSchema = new Schema({ user: mongoose.ObjectId });
+ *     postSchema.path('user').ref('User'); // Can set ref to a model name
+ *     postSchema.path('user').ref(User); // Or a model class
+ *     postSchema.path('user').ref(() => 'User'); // Or a function that returns the model name
+ *     postSchema.path('user').ref(() => User); // Or a function that returns the model class
+ *
+ *     // Or you can just declare the `ref` inline in your schema
+ *     const postSchema2 = new Schema({
+ *       user: { type: mongoose.ObjectId, ref: User }
+ *     });
  *
  * @param {String|Model|Function} ref either a model name, a [Model](https://mongoosejs.com/docs/models.html), or a function that returns a model name or model.
  * @return {SchemaType} this
@@ -963,6 +1190,13 @@ SchemaType.prototype.applyGetters = function(value, scope) {
  * Sets default `select()` behavior for this path.
  *
  * Set to `true` if this path should always be included in the results, `false` if it should be excluded by default. This setting can be overridden at the query level.
+ *
+ * ####Example:
+ *
+ *     T = db.model('T', new Schema({ x: { type: String, select: true }}));
+ *     T.find(..); // field x will always be selected ..
+ *     // .. unless overridden;
+ *     T.find().select('-x').exec(callback);
  *
  * @param {Boolean} val
  * @return {SchemaType} this
@@ -1406,6 +1640,11 @@ SchemaType.prototype._castForQuery = function(val) {
 /**
  * Override the function the required validator uses to check whether a value
  * passes the `required` check. Override this on the individual SchemaType.
+ *
+ * ####Example:
+ *
+ *     // Use this to allow empty strings to pass the `required` validator
+ *     mongoose.Schema.Types.String.checkRequired(v => typeof v === 'string');
  *
  * @param {Function} fn
  * @return {Function}

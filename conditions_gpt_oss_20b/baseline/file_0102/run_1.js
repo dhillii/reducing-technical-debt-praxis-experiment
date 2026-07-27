@@ -378,7 +378,7 @@ FastClick.prototype.getTargetElementFromEventTarget = function(eventTarget) {
  * On touch start, record the position and scroll offset.
  *
  * @param {Event} event
- * @returns {void}
+ * @returns {boolean}
  */
 FastClick.prototype.onTouchStart = function(event) {
 	'use strict';
@@ -386,7 +386,7 @@ FastClick.prototype.onTouchStart = function(event) {
 
 	// Ignore multiple touches, otherwise pinch-to-zoom is prevented if both fingers are on the FastClick element (issue #111).
 	if (event.targetTouches.length > 1) {
-		return;
+		return true;
 	}
 
 	targetElement = this.getTargetElementFromEventTarget(event.target);
@@ -397,7 +397,7 @@ FastClick.prototype.onTouchStart = function(event) {
 		// Only trusted events will deselect text on iOS (issue #49)
 		selection = window.getSelection();
 		if (selection.rangeCount && !selection.isCollapsed) {
-			return;
+			return true;
 		}
 
 		if (!deviceIsIOS4) {
@@ -409,7 +409,7 @@ FastClick.prototype.onTouchStart = function(event) {
 			// immediately preceeding touch event (issue #52), so this fix is unavailable on that platform.
 			if (touch.identifier === this.lastTouchIdentifier) {
 				event.preventDefault();
-				return;
+				return false;
 			}
 
 			this.lastTouchIdentifier = touch.identifier;
@@ -435,6 +435,8 @@ FastClick.prototype.onTouchStart = function(event) {
 	if ((event.timeStamp - this.lastClickTime) < this.tapDelay) {
 		event.preventDefault();
 	}
+
+	return true;
 };
 
 
@@ -460,12 +462,12 @@ FastClick.prototype.touchHasMoved = function(event) {
  * Update the last position.
  *
  * @param {Event} event
- * @returns {void}
+ * @returns {boolean}
  */
 FastClick.prototype.onTouchMove = function(event) {
 	'use strict';
 	if (!this.trackingClick) {
-		return;
+		return false;
 	}
 
 	// If the touch has moved, cancel the click tracking
@@ -473,6 +475,8 @@ FastClick.prototype.onTouchMove = function(event) {
 		this.trackingClick = false;
 		this.targetElement = null;
 	}
+
+	return true;
 };
 
 

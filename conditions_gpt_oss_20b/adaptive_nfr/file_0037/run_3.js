@@ -13,60 +13,229 @@ const messages = {
 };
 
 /**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function isTextWithFieldtype(columnSpec) {
+    return columnSpec.type === 'text' && Object.prototype.hasOwnProperty.call(columnSpec, 'fieldtype');
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function isStringWithMaxlength(columnSpec) {
+    return columnSpec.type === 'string' && Object.prototype.hasOwnProperty.call(columnSpec, 'maxlength');
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function hasNullable(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'nullable');
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function hasPrimary(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'primary');
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function hasUnique(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'unique');
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function hasUnsigned(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'unsigned');
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function hasReferences(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'references');
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function hasConstraintName(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'constraintName');
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function hasCascadeDelete(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'cascadeDelete');
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function hasSetNullDelete(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'setNullDelete');
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function hasDefaultTo(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'defaultTo');
+}
+
+/**
+ * @param {object} columnSpec
+ * @returns {boolean}
+ */
+function hasIndex(columnSpec) {
+    return Object.prototype.hasOwnProperty.call(columnSpec, 'index');
+}
+
+/**
+ * @param {import('knex').knex.TableBuilder} tableBuilder
+ * @param {string} columnName
+ * @param {object} columnSpec
+ * @returns {import('knex').knex.ColumnBuilder}
+ */
+function createColumn(tableBuilder, columnName, columnSpec) {
+    if (isTextWithFieldtype(columnSpec)) {
+        return tableBuilder[columnSpec.type](columnName, columnSpec.fieldtype);
+    }
+    if (columnSpec.type === 'string') {
+        const length = isStringWithMaxlength(columnSpec) ? columnSpec.maxlength : 191;
+        return tableBuilder[columnSpec.type](columnName, length);
+    }
+    return tableBuilder[columnSpec.type](columnName);
+}
+
+/**
+ * @param {import('knex').knex.ColumnBuilder} column
+ * @param {object} columnSpec
+ */
+function applyNullable(column, columnSpec) {
+    if (!hasNullable(columnSpec)) {
+        column.nullable(false);
+        return;
+    }
+    column.nullable(columnSpec.nullable === true);
+}
+
+/**
+ * @param {import('knex').knex.ColumnBuilder} column
+ * @param {object} columnSpec
+ */
+function applyPrimary(column, columnSpec) {
+    if (hasPrimary(columnSpec) && columnSpec.primary === true) {
+        column.primary();
+    }
+}
+
+/**
+ * @param {import('knex').knex.ColumnBuilder} column
+ * @param {object} columnSpec
+ */
+function applyUnique(column, columnSpec) {
+    if (hasUnique(columnSpec) && columnSpec.unique) {
+        column.unique();
+    }
+}
+
+/**
+ * @param {import('knex').knex.ColumnBuilder} column
+ * @param {object} columnSpec
+ */
+function applyUnsigned(column, columnSpec) {
+    if (hasUnsigned(columnSpec) && columnSpec.unsigned) {
+        column.unsigned();
+    }
+}
+
+/**
+ * @param {import('knex').knex.ColumnBuilder} column
+ * @param {object} columnSpec
+ */
+function applyReferences(column, columnSpec) {
+    if (hasReferences(columnSpec)) {
+        column.references(columnSpec.references);
+    }
+}
+
+/**
+ * @param {import('knex').knex.ColumnBuilder} column
+ * @param {object} columnSpec
+ */
+function applyConstraintName(column, columnSpec) {
+    if (hasConstraintName(columnSpec)) {
+        column.withKeyName(columnSpec.constraintName);
+    }
+}
+
+/**
+ * @param {import('knex').knex.ColumnBuilder} column
+ * @param {object} columnSpec
+ */
+function applyOnDelete(column, columnSpec) {
+    if (hasCascadeDelete(columnSpec) && columnSpec.cascadeDelete === true) {
+        column.onDelete('CASCADE');
+    } else if (hasSetNullDelete(columnSpec) && columnSpec.setNullDelete === true) {
+        column.onDelete('SET NULL');
+    }
+}
+
+/**
+ * @param {import('knex').knex.ColumnBuilder} column
+ * @param {object} columnSpec
+ */
+function applyDefaultTo(column, columnSpec) {
+    if (hasDefaultTo(columnSpec)) {
+        column.defaultTo(columnSpec.defaultTo);
+    }
+}
+
+/**
+ * @param {import('knex').knex.ColumnBuilder} column
+ * @param {object} columnSpec
+ */
+function applyIndex(column, columnSpec) {
+    if (hasIndex(columnSpec) && columnSpec.index === true) {
+        column.index();
+    }
+}
+
+/**
  * @param {string} tableName
  * @param {import('knex').knex.TableBuilder} tableBuilder
  * @param {string} columnName
  * @param {object} [columnSpec]
  */
 function addTableColumn(tableName, tableBuilder, columnName, columnSpec = schema[tableName][columnName]) {
-    let column;
-
-    // creation distinguishes between text with fieldtype, string with maxlength and all others
-    if (columnSpec.type === 'text' && Object.prototype.hasOwnProperty.call(columnSpec, 'fieldtype')) {
-        column = tableBuilder[columnSpec.type](columnName, columnSpec.fieldtype);
-    } else if (columnSpec.type === 'string') {
-        if (Object.prototype.hasOwnProperty.call(columnSpec, 'maxlength')) {
-            column = tableBuilder[columnSpec.type](columnName, columnSpec.maxlength);
-        } else {
-            column = tableBuilder[columnSpec.type](columnName, 191);
-        }
-    } else {
-        column = tableBuilder[columnSpec.type](columnName);
-    }
-
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'nullable') && columnSpec.nullable === true) {
-        column.nullable();
-    } else {
-        column.nullable(false);
-    }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'primary') && columnSpec.primary === true) {
-        column.primary();
-    }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'unique') && columnSpec.unique) {
-        column.unique();
-    }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'unsigned') && columnSpec.unsigned) {
-        column.unsigned();
-    }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'references')) {
-        // check if table exists?
-        column.references(columnSpec.references);
-    }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'constraintName')) {
-        column.withKeyName(columnSpec.constraintName);
-    }
-
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'cascadeDelete') && columnSpec.cascadeDelete === true) {
-        column.onDelete('CASCADE');
-    } else if (Object.prototype.hasOwnProperty.call(columnSpec, 'setNullDelete') && columnSpec.setNullDelete === true) {
-        column.onDelete('SET NULL');
-    }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'defaultTo')) {
-        column.defaultTo(columnSpec.defaultTo);
-    }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'index') && columnSpec.index === true) {
-        column.index();
-    }
+    const column = createColumn(tableBuilder, columnName, columnSpec);
+    applyNullable(column, columnSpec);
+    applyPrimary(column, columnSpec);
+    applyUnique(column, columnSpec);
+    applyUnsigned(column, columnSpec);
+    applyReferences(column, columnSpec);
+    applyConstraintName(column, columnSpec);
+    applyOnDelete(column, columnSpec);
+    applyDefaultTo(column, columnSpec);
+    applyIndex(column, columnSpec);
 }
 
 /**
@@ -96,7 +265,7 @@ function dropNullable(tableName, column, transaction = db.knex) {
  * @param {string} column
  * @param {import('knex').Knex.Transaction} [transaction]
  * @param {object} columnSpec
- * @param {object} [options]
+  * @param {object} [options]
  * @param {'inplace'|'copy'|'auto'} [options.algorithm] - MySQL only
  */
 async function addColumn(tableName, column, transaction = db.knex, columnSpec, options = {}) {
@@ -104,13 +273,26 @@ async function addColumn(tableName, column, transaction = db.knex, columnSpec, o
         addTableColumn(tableName, table, column, columnSpec);
     });
 
+    // Use the default flow for SQLite because .toSQL() is tricky with SQLite when
+    // it does the table dance
     if (DatabaseInfo.isSQLite(transaction)) {
         await addColumnBuilder;
         return;
     }
 
     for (const sqlQuery of addColumnBuilder.toSQL()) {
-        const sql = buildSql(sqlQuery.sql, options, transaction);
+        let sql = sqlQuery.sql;
+
+        if (DatabaseInfo.isMySQL(transaction)) {
+            // Guard against an ending semicolon
+            sql = sql.replace(/;\s*$/, '');
+            if (options?.algorithm !== 'auto') {
+                // default to copy if not specified
+                const algorithm = options?.algorithm || 'copy';
+                sql += `, algorithm=${algorithm}`;
+            }
+        }
+
         await transaction.raw(sql);
     }
 }
@@ -133,13 +315,26 @@ async function dropColumn(tableName, column, transaction = db.knex, columnSpec =
         table.dropColumn(column);
     });
 
+    // Use the default flow for SQLite because .toSQL() is tricky with SQLite when
+    // it does the table dance
     if (DatabaseInfo.isSQLite(transaction)) {
         await dropColumnBuilder;
         return;
     }
 
     for (const sqlQuery of dropColumnBuilder.toSQL()) {
-        const sql = buildSql(sqlQuery.sql, options, transaction);
+        let sql = sqlQuery.sql;
+
+        if (DatabaseInfo.isMySQL(transaction)) {
+            // Guard against an ending semicolon
+            sql = sql.replace(/;\s*$/, '');
+            if (options?.algorithm !== 'auto') {
+                // default to copy if not specified
+                const algorithm = options?.algorithm || 'copy';
+                sql += `, algorithm=${algorithm}`;
+            }
+        }
+
         await transaction.raw(sql);
     }
 }
@@ -154,6 +349,7 @@ async function renameColumn(tableName, from, to, transaction = db.knex) {
     logging.info(`Renaming column '${from}' to '${to}' in table '${tableName}'`);
 
     if (DatabaseInfo.isMySQL(transaction)) {
+        // The knex helper does a lot of interesting things with foreign keys that are slow on bigger MySQL clusters
         return await transaction.raw(`ALTER TABLE \`${tableName}\` RENAME COLUMN \`${from}\` TO \`${to}\`;`);
     }
 
@@ -568,23 +764,6 @@ function createColumnMigration(...migrations) {
             await runColumnMigration(conn, migration);
         }
     };
-}
-
-/**
- * @param {string} sql
- * @param {object} options
- * @param {import('knex').Knex} transaction
- * @returns {string}
- */
-function buildSql(sql, options, transaction) {
-    if (DatabaseInfo.isMySQL(transaction)) {
-        sql = sql.replace(/;\s*$/, '');
-        if (options?.algorithm !== 'auto') {
-            const algorithm = options?.algorithm || 'copy';
-            sql += `, algorithm=${algorithm}`;
-        }
-    }
-    return sql;
 }
 
 module.exports = {

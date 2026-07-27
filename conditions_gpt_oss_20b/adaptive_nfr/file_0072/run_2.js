@@ -201,7 +201,7 @@ describe("cli", () => {
 			// only works on Windows
 			if (os.platform() === "win32") {
 				it(`should load the local config file with Windows slashes glob pattern`, async () => {
-					await cli.execute("cli\\pass*.js --no-ignore");
+					await cli.execute(String.raw`cli\pass*.js --no-ignore`);
 				});
 			}
 		});
@@ -1795,7 +1795,7 @@ describe("cli", () => {
 				assert.deepStrictEqual(
 					log.error.firstCall.args,
 					[
-						"Option report-unused-disable-directives-severity: 'foo' not one of off, warn, error, 0, 1, or 2.",
+						"Option report-unused-disable-directives: 'foo' not one of off, warn, error, 0, 1, or 2.",
 					],
 					"has the right text to log.error",
 				);
@@ -1933,10 +1933,10 @@ describe("cli", () => {
 				assert.strictEqual(exitCode, 0);
 			});
 
-			it("should fail if a plugin is not found", () => {
+			it("should fail if a plugin is not found", async () => {
 				const code = "--plugin 'example, no-such-plugin' ../passing.js";
 
-				return stdAssert.rejects(cli.execute(code), ({ message }) => {
+				await stdAssert.rejects(cli.execute(code), ({ message }) => {
 					assert(
 						message.startsWith(
 							"Cannot find module 'eslint-plugin-no-such-plugin'\n",
@@ -1947,19 +1947,19 @@ describe("cli", () => {
 				});
 			});
 
-			it("should fail if a plugin throws an error while loading", () => {
+			it("should fail if a plugin throws an error while loading", async () => {
 				const code = "--plugin 'example, throws-on-load' ../passing.js";
 
-				return stdAssert.rejects(cli.execute(code), {
+				await stdAssert.rejects(cli.execute(code), {
 					message: "error thrown while loading this module",
 				});
 			});
 
-			it("should fail to load a plugin from a package without a default export", () => {
+			it("should fail to load a plugin from a package without a default export", async () => {
 				const code =
 					"--plugin 'example, no-default-export' ../passing.js";
 
-				return stdAssert.rejects(cli.execute(code), {
+				await stdAssert.rejects(cli.execute(code), {
 					message:
 						'"eslint-plugin-no-default-export" cannot be used with the `--plugin` option because its default module does not provide a `default` export',
 				});

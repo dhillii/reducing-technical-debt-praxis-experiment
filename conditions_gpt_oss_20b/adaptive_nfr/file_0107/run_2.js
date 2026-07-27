@@ -145,7 +145,7 @@ Runner.prototype.grepTotal = function (suite) {
  * @api private
  */
 Runner.prototype.globalProps = function () {
-  let props = Object.keys(global);
+  const props = Object.keys(global);
 
   // non-enumerables
   for (let i = 0; i < globals.length; ++i) {
@@ -278,7 +278,6 @@ Runner.prototype.failHook = function (hook, err) {
  * @param {string} name
  * @param {Function} fn
  */
-
 Runner.prototype.hook = function (name, fn) {
   const suite = this.suite;
   const hooks = suite['_' + name];
@@ -402,7 +401,7 @@ Runner.prototype.hookDown = function (name, fn) {
  * @api private
  */
 Runner.prototype.parents = function () {
-  let suite = this.suite;
+  const suite = this.suite;
   const suites = [];
   while (suite.parent) {
     suite = suite.parent;
@@ -419,7 +418,7 @@ Runner.prototype.parents = function () {
  */
 Runner.prototype.runTest = function (fn) {
   const self = this;
-  let test = this.test;
+  const test = this.test;
 
   if (!test) {
     return;
@@ -601,6 +600,199 @@ Runner.prototype.runTests = function (suite, fn) {
 
 function alwaysFalse () {
   return false;
+}
+
+/**
+ * Run the given `suite` and invoke the callback `fn()` when complete.
+ *
+ * @api private
+ * @param {Suite} suite
+ * @param {Function} fn
+ */
+Runner.prototype.runSuite = function (suite, fn) {
+  let i = 0;
+  const self = this;
+  const total = this.grepTotal(suite);
+  let afterAllHookCalled = false;
+
+  debug('run suite %s', suite.fullTitle());
+
+  if (!total || (self.failures && suite._bail)) {
+    return fn();
+  }
+
+  this.emit('suite', this.suite = suite);
+
+  function next (errSuite) {
+    if (errSuite) {
+      // current suite failed on a hook from errSuite
+      if (errSuite === suite) {
+        // if errSuite is current suite
+        // continue to the next sibling suite
+        return done();
+      }
+      // errSuite is among the parents of current suite
+      // stop execution of errSuite and all sub-suites
+      return done(errSuite);
+    }
+
+    if (self._abort) {
+      return done();
+    }
+
+    const curr = suite.suites[i++];
+    if (!curr) {
+      return done();
+    }
+
+    // Avoid grep neglecting large number of tests causing a
+    // huge recursive loop and thus a maximum call stack error.
+    // See comment in `this.runTests()` for more information.
+    if (self._grep !== self._defaultGrep) {
+      Runner.immediately(function () {
+        self.runSuite(curr, next);
+      });
+    } else {
+      self.runSuite(curr, next);
+    }
+  }
+
+  function done (errSuite) {
+    self.suite = suite;
+    self.nextSuite = next;
+
+    if (afterAllHookCalled) {
+      fn(errSuite);
+    } else {
+      // mark that the afterAll block has been called once
+      // and so can be skipped if there is an error in it.
+      afterAllHookCalled = true;
+
+      // remove reference to test
+      delete self.test;
+
+      self.hook('afterAll', function () {
+        self.emit('suite end', suite);
+        fn(errSuite);
+      });
+    }
+  }
+
+  this.nextSuite = next;
+
+  this.hook('beforeAll', function (err) {
+    if (err) {
+      return done();
+    }
+    self.runTests(suite, next);
+  });
+};
+
+/**
+ * Handle uncaught exceptions.
+ *
+ * @param {Error} err
+ * @api private
+ */
+Runner.prototype.uncaught = function (err) {
+  if (err) {
+    debug('uncaught exception %s', err === (function () {
+      return this;
+    }.call(err)) ? (err.message || err) : err);
+  } else {
+    debug('uncaught undefined exception');
+    err = undefinedError();
+  }
+  err.uncaught = true;
+
+  let runnable = this.currentRunnable;
+
+  if (!runnable) {
+    runnable = new Runnable('Uncaught error outside test suite');
+    runnable.parent = this.suite;
+
+    if (this.started) {
+      this.fail(runnable, err);
+    } else {
+      // Can't recover from this failure
+      this.emit('start');
+      this.fail(runnable, err);
+      this.emit('end');
+    }
+
+    return;
+  }
+
+  runnable.clearTimeout();
+
+  // Ignore errors if complete or pending
+  if (runnable.state || runnable.isPending()) {
+    return;
+  }
+  this.fail(runnable, err);
+
+  // recover from test
+  if (runnable.type === 'test') {
+    this.emit('test end', runnable);
+    this.hookUp('afterEach', this.next);
+    return;
+  }
+
+  // recover from hooks
+  if (runnable.type === 'hook') {
+    const errSuite = this.suite;
+    // if hook failure is in afterEach block
+    if (runnable.fullTitle().indexOf('after each') > -1) {
+      return this.hookErr(err, errSuite, true);
+    }
+    // if hook failure is in beforeEach block
+    if (runnable.fullTitle().indexOf('before each') > -1) {
+      return this.hookErr(err, errSuite, false);
+    }
+    // if hook failure is in after or before blocks
+    return this.nextSuite(errSuite);
+  }
+
+  // bail
+  this.emit('end');
+};
+
+/**
+ * Cleans up the references to all the deferred functions
+ * (before/after/beforeEach/afterEach) and tests of a Suite.
+ * These must be deleted otherwise a memory leak can happen,
+ * as those functions may reference variables from closures,
+ * thus those variables can never be garbage collected as long
+ * as the deferred functions exist.
+ *
+ * @param {Suite} suite
+ */
+function cleanSuiteReferences (suite) {
+  function cleanArrReferences (arr) {
+    for (let i = 0; i < arr.length; i++) {
+      delete arr[i].fn;
+    }
+  }
+
+  if (Array.isArray(suite._beforeAll)) {
+    cleanArrReferences(suite._beforeAll);
+  }
+
+  if (Array.isArray(suite._beforeEach)) {
+    cleanArrReferences(suite._beforeEach);
+  }
+
+  if (Array.isArray(suite._afterAll)) {
+    cleanArrReferences(suite._afterAll);
+  }
+
+  if (Array.isArray(suite._afterEach)) {
+    cleanArrReferences(suite._afterEach);
+  }
+
+  for (let i = 0; i < suite.tests.length; i++) {
+    delete suite.tests[i].fn;
+  }
 }
 
 /**

@@ -68,65 +68,48 @@ const InputModalStepper = ({
   const filesToUploadLength = filesToUpload.length;
   const editModalRef = useRef();
 
+  /**
+   * Emits an event when media is replaced and triggers the hidden file input.
+   */
   const handleReplaceMedia = () => {
     emitEvent('didReplaceMedia', { location: 'upload' });
     editModalRef.current.click();
   };
 
-  useEffect(() => {
-    if (currentStep === 'upload') {
-      if (filesToUploadLength === 0) {
-        goToList();
-      } else {
-        downloadFiles();
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filesToUploadLength, currentStep]);
-
+  /**
+   * Adds files to the upload list and moves to the next step.
+   */
   const addFilesToUploadList = ({ target: { value } }) => {
     addFilesToUpload({ target: { value } });
     goNext();
   };
 
-  const handleBackFromUpload = (elementName) => {
-    const hasFiles = !isEmpty(filesToUpload);
+  /**
+   * Navigates back based on the current step and user actions.
+   */
+  const goBack = (elementName = null) => {
+    const hasFilesToUpload = !isEmpty(filesToUpload);
+
     if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
-      if (hasFiles) {
-        const confirm = globalThis.confirm(
-          formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-        );
-        if (!confirm) {
-          return;
-        }
+      if (hasFilesToUpload && !confirmCloseModalFiles(getTrad('window.confirm.close-modal.files'))) {
+        return;
       }
       goTo(backButtonDestination);
       handleClearFilesToUploadAndDownload();
-      return true;
+      return;
     }
-    return false;
-  };
 
-  const handleBackFromBrowse = (elementName) => {
-    const hasFiles = !isEmpty(filesToUpload);
-    if (
-      elementName === 'backButton' &&
-      backButtonDestination &&
-      currentStep === 'browse' &&
-      hasFiles
-    ) {
+    if (elementName === 'backButton' && backButtonDestination && currentStep === 'browse' && hasFilesToUpload) {
       goTo(backButtonDestination);
-      return true;
+      return;
     }
-    return false;
-  };
 
-  const goBack = (elementName = null) => {
-    if (handleBackFromUpload(elementName)) return;
-    if (handleBackFromBrowse(elementName)) return;
     goTo(prev);
   };
 
+  /**
+   * Moves to the next step or closes the modal if at the end.
+   */
   const goNext = () => {
     if (next === null) {
       onToggle();
@@ -135,15 +118,24 @@ const InputModalStepper = ({
     goTo(next);
   };
 
+  /**
+   * Fetches the media library and navigates to the list view.
+   */
   const goToList = () => {
     fetchMediaLib();
     goTo('list');
   };
 
-  const handleClickDeleteFile = async () => {
+  /**
+   * Triggers the warning modal for file deletion.
+   */
+  const handleClickDeleteFile = () => {
     toggleModalWarning();
   };
 
+  /**
+   * Removes a file from the upload list and handles state updates.
+   */
   const handleClickDeleteFileToUpload = (fileIndex) => {
     handleRemoveFileToUpload(fileIndex);
     if (currentStep === 'edit-new') {
@@ -152,33 +144,51 @@ const InputModalStepper = ({
     }
   };
 
+  /**
+   * Closes the modal and resets the next button visibility.
+   */
   const handleCloseModal = () => {
     setDisplayNextButton(false);
     handleClose();
   };
 
+  /**
+   * Sets the flag to delete a file and shows the warning modal.
+   */
   const handleConfirmDeleteFile = () => {
     setShouldDeleteFile(true);
     toggleModalWarning();
   };
 
+  /**
+   * Navigates to the add/browse files step and clears errors.
+   */
   const handleGoToAddBrowseFiles = () => {
     handleCleanFilesError();
     goBack();
   };
 
+  /**
+   * Submits the new file edit form.
+   */
   const handleSubmitEditNewFile = (e) => {
     e.preventDefault();
     submitEditNewFile();
     goNext();
   };
 
+  /**
+   * Submits the final form for the selected media.
+   */
   const handleSubmit = (e) => {
     e.preventDefault();
     onInputMediaChange(multiple ? selectedFiles : selectedFiles[0]);
     goNext();
   };
 
+  /**
+   * Handles the deletion of a file after confirmation.
+   */
   const handleCloseModalWarning = async () => {
     if (!shouldDeleteFile) return;
     const { id } = fileToEdit;
@@ -207,6 +217,9 @@ const InputModalStepper = ({
     }
   };
 
+  /**
+   * Handles the submission of an existing file edit, including cropping and duplication.
+   */
   const handleSubmitEditExistingFile = async (
     e,
     shouldDuplicateMedia = false,
@@ -261,24 +274,35 @@ const InputModalStepper = ({
     }
   };
 
+  /**
+   * Confirms the user wants to close the modal when files are pending upload.
+   */
+  const confirmCloseModalFiles = (messageId) => {
+    const confirm = globalThis.confirm(formatMessage({ id: messageId }));
+    return confirm;
+  };
+
+  /**
+   * Confirms the user wants to close the modal when a file is pending edit.
+   */
+  const confirmCloseModalFile = (messageId) => {
+    const confirm = globalThis.confirm(formatMessage({ id: messageId }));
+    return confirm;
+  };
+
+  /**
+   * Handles the toggle action for the modal, including confirmation prompts.
+   */
   const handleToggle = () => {
-    if (filesToUploadLength > 0) {
-      const confirm = globalThis.confirm(
-        formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-      );
-      if (!confirm) {
-        return;
-      }
+    if (filesToUploadLength > 0 && !confirmCloseModalFiles(getTrad('window.confirm.close-modal.files'))) {
+      return;
     }
     if (
       (currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles)) ||
       (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
       (currentStep === 'edit' && selectedFiles.length > 0)
     ) {
-      const confirm = globalThis.confirm(
-        formatMessage({ id: getTrad('window.confirm.close-modal.file') })
-      );
-      if (!confirm) {
+      if (!confirmCloseModalFile(getTrad('window.confirm.close-modal.file'))) {
         return;
       }
     }

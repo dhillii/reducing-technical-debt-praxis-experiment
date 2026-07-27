@@ -294,34 +294,22 @@ internals.Request.prototype.getLog = function (tags, internal) {
     }
 
     tags = [].concat(tags || []);
-    if (!tags.length &&
-        internal === undefined) {
 
+    if (!tags.length && internal === undefined) {
         return this._logger;
     }
 
     const filter = tags.length ? Hoek.mapToObject(tags) : null;
-    const result = [];
 
-    for (let i = 0; i < this._logger.length; ++i) {
-        const event = this._logger[i];
-        if (internal === undefined || event.internal === internal) {
-            if (filter) {
-                for (let j = 0; j < event.tags.length; ++j) {
-                    const tag = event.tags[j];
-                    if (filter[tag]) {
-                        result.push(event);
-                        break;
-                    }
-                }
-            }
-            else {
-                result.push(event);
-            }
+    return this._logger.filter(event => {
+        if (internal !== undefined && event.internal !== internal) {
+            return false;
         }
-    }
-
-    return result;
+        if (!filter) {
+            return true;
+        }
+        return (event.tags || []).some(tag => filter[tag]);
+    });
 };
 
 
@@ -384,23 +372,22 @@ internals.Request.prototype._lifecycle = function () {
 
     this._setTimeouts();
 
-    Items.serial(this._route._cycle, this._lifecycleEach.bind(this), (err) => this._reply(err));
-};
+    const each = (func, next) => {
 
+        if (this._isReplied ||
+            this._isBailed) {
 
-internals.Request.prototype._lifecycleEach = function (func, next) {
+            return next(Boom.internal('Already closed'));                       // Error is not used
+        }
 
-    if (this._isReplied ||
-        this._isBailed) {
+        if (typeof func !== 'function') {                                       // Extension point
+            return this._invoke(func, next);                                    // next() called with response object which ends processing (treated like error)
+        }
 
-        return next(Boom.internal('Already closed'));
-    }
+        return func(this, next);
+    };
 
-    if (typeof func !== 'function') {
-        return this._invoke(func, next);
-    }
-
-    return func(this, next);
+    return Items.serial(this._route._cycle, each, (err) => this._reply(err));
 };
 
 
@@ -436,7 +423,15 @@ internals.Request.prototype._invoke = function (event, callback) {
 
         const each = (ext, next) => {
 
-            const finalize = (result, override) => this._invokeFinalize(result, override, next);
+            const finalize = (result, override) => {
+
+                if (override) {
+                    this._setResponse(override);
+                }
+
+                return next(result);            // next() called with response object which ends processing (treated like error)
+            };
+
             const options = { postHandler: (event.type === 'onPostHandler' || event.type === 'onPreResponse') };
             const reply = this.server._replier.interface(this, ext.plugin.realm, options, finalize);
             const bind = (ext.bind || ext.plugin.realm.settings.bind);
@@ -449,19 +444,9 @@ internals.Request.prototype._invoke = function (event, callback) {
 };
 
 
-internals.Request.prototype._invokeFinalize = function (result, override, next) {
-
-    if (override) {
-        this._setResponse(override);
-    }
-
-    next(result);
-};
-
-
 internals.Request.prototype._reply = function (exit) {
 
-    if (this._isReplied) {
+    if (this._isReplied) {                                  // Prevent any future responses to this request
         return;
     }
 
@@ -473,16 +458,17 @@ internals.Request.prototype._reply = function (exit) {
         return this._finalize();
     }
 
-    if (this.response && this.response.closed) {
+    if (this.response &&
+        this.response.closed) {
 
         if (this.response.end) {
-            this.raw.res.end();
+            this.raw.res.end();                             // End the response in case it wasn't already closed
         }
 
         return this._finalize();
     }
 
-    if (exit) {
+    if (exit) {                                             // Can be a valid response or error (if returned from an ext, already handled because this.response is also set)
         this._setResponse(Response.wrap(exit, this));
     }
 
@@ -490,7 +476,7 @@ internals.Request.prototype._reply = function (exit) {
 
     const transmit = (err) => {
 
-        if (err) {
+        if (err) {                                          // Can be valid response or error
             this._setResponse(Response.wrap(err, this));
         }
 
@@ -509,8 +495,15 @@ internals.Request.prototype._finalize = function () {
 
     this.info.responded = Date.now();
 
-    this._finalizeLogError();
-    this._finalizeEmitResponse();
+    if (this.response &&
+        this.response.statusCode === 500 &&
+        this.response._error) {
+
+        this.connection.emit('request-error', [this, this.response._error]);
+        this._log(this.response._error.isDeveloperError ? ['internal', 'implementation', 'error'] : ['internal', 'error'], this.response._error);
+    }
+
+    this.connection.emit('response', this);
 
     this._isFinalized = true;
     this.addTail = undefined;
@@ -520,38 +513,42 @@ internals.Request.prototype._finalize = function () {
         this.connection.emit('tail', this);
     }
 
-    this._finalizeCleanup();
-};
-
-
-internals.Request.prototype._finalizeLogError = function () {
-
-    if (this.response && this.response.statusCode === 500 && this.response._error) {
-
-        this.connection.emit('request-error', [this, this.response._error]);
-        this._log(this.response._error.isDeveloperError ? ['internal', 'implementation', 'error'] : ['internal', 'error'], this.response._error);
-    }
-};
-
-
-internals.Request.prototype._finalizeEmitResponse = function () {
-
-    this.connection.emit('response', this);
-};
-
-
-internals.Request.prototype._finalizeCleanup = function () {
+    // Cleanup
 
     this.raw.req.removeListener('end', this._onEnd);
     this.raw.req.removeListener('close', this._onClose);
     this.raw.req.removeListener('error', this._onError);
     this.raw.req.removeListener('error', this._onAbort);
 
-    if (this.response && this.response._close) {
+    if (this.response &&
+        this.response._close) {
+
         this.response._close();
     }
 
     this._protect.logger = this.server;
+};
+
+
+internals.Request.prototype._setResponse = function (response) {
+
+    if (this.response &&
+        !this.response.isBoom &&
+        this.response !== response &&
+        (response.isBoom || this.response.source !== response.source)) {
+
+        this.response._close();
+    }
+
+    if (this._isFinalized) {
+        if (response._close) {
+            response._close();
+        }
+
+        return;
+    }
+
+    this.response = response;
 };
 
 
@@ -565,16 +562,19 @@ internals.Request.prototype._addTail = function (name) {
     const drop = () => {
 
         if (!this._tails[tailId]) {
-            this._log(['tail', 'remove', 'error'], { name, id: tailId });
+            this._log(['tail', 'remove', 'error'], { name, id: tailId });             // Already removed
             return;
         }
 
         delete this._tails[tailId];
 
-        if (Object.keys(this._tails).length === 0 && this._isFinalized) {
+        if (Object.keys(this._tails).length === 0 &&
+            this._isFinalized) {
+
             this._log(['tail', 'remove', 'last'], { name, id: tailId });
             this.connection.emit('tail', this);
-        } else {
+        }
+        else {
             this._log(['tail', 'remove'], { name, id: tailId });
         }
     };

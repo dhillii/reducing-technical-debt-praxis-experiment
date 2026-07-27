@@ -1,3 +1,7 @@
+/*
+	MIT License http://www.opensource.org/licenses/mit-license.php
+	Author Tobias Koppers @sokra
+*/
 "use strict";
 
 const RequestShortener = require("./RequestShortener");
@@ -13,22 +17,31 @@ class Stats {
 	}
 
 	static filterWarnings(warnings, warningsFilter) {
-		if (!warningsFilter) {
+		// we dont have anything to filter so all warnings can be shown
+		if(!warningsFilter) {
 			return warnings;
 		}
+
+		// create a chain of filters
+		// if they return "true" a warning should be surpressed
 		const normalizedWarningsFilters = [].concat(warningsFilter).map(filter => {
-			if (typeof filter === "string") {
+			if(typeof filter === "string") {
 				return warning => warning.indexOf(filter) > -1;
 			}
-			if (filter instanceof RegExp) {
+
+			if(filter instanceof RegExp) {
 				return warning => filter.test(warning);
 			}
-			if (typeof filter === "function") {
+
+			if(typeof filter === "function") {
 				return filter;
 			}
+
 			throw new Error(`Can only filter warnings with Strings or RegExps. (Given: ${filter})`);
 		});
-		return warnings.filter(warning => !normalizedWarningsFilters.some(check => check(warning)));
+		return warnings.filter(warning => {
+			return !normalizedWarningsFilters.some(check => check(warning));
+		});
 	}
 
 	hasWarnings() {
@@ -39,21 +52,26 @@ class Stats {
 		return this.compilation.errors.length > 0;
 	}
 
+	// remove a prefixed "!" that can be specified to reverse sort order
 	normalizeFieldKey(field) {
-		if (field[0] === "!") {
+		if(field[0] === "!") {
 			return field.substr(1);
 		}
 		return field;
 	}
 
+	// if a field is prefixed by a "!" reverse sort order
 	sortOrderRegular(field) {
-		return field[0] !== "!";
+		if(field[0] === "!") {
+			return false;
+		}
+		return true;
 	}
 
 	toJson(options, forToString) {
-		if (typeof options === "boolean" || typeof options === "string") {
+		if(typeof options === "boolean" || typeof options === "string") {
 			options = Stats.presetToOptions(options);
-		} else if (!options) {
+		} else if(!options) {
 			options = {};
 		}
 
@@ -84,7 +102,7 @@ class Stats {
 		const warningsFilter = optionOrFallback(options.warningsFilter, null);
 		const showPublicPath = optionOrFallback(options.publicPath, !forToString);
 		const excludeModules = [].concat(optionOrFallback(options.exclude, [])).map(str => {
-			if (typeof str !== "string") return str;
+			if(typeof str !== "string") return str;
 			return new RegExp(`[\\\\/]${str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&")}([\\\\/]|$|!|\\?)`);
 		});
 		const maxModules = optionOrFallback(options.maxModules, forToString ? 15 : Infinity);
@@ -95,74 +113,119 @@ class Stats {
 		const createModuleFilter = () => {
 			let i = 0;
 			return module => {
-				if (!showCachedModules && !module.built) {
+				if(!showCachedModules && !module.built) {
 					return false;
 				}
-				if (excludeModules.length > 0) {
+				if(excludeModules.length > 0) {
 					const ident = requestShortener.shorten(module.resource);
 					const excluded = excludeModules.some(regExp => regExp.test(ident));
-					if (excluded) return false;
+					if(excluded)
+						return false;
 				}
 				return i++ < maxModules;
 			};
 		};
 
 		const sortByFieldAndOrder = (fieldKey, a, b) => {
-			if (a[fieldKey] === null && b[fieldKey] === null) return 0;
-			if (a[fieldKey] === null) return 1;
-			if (b[fieldKey] === null) return -1;
-			if (a[fieldKey] === b[fieldKey]) return 0;
+			if(a[fieldKey] === null && b[fieldKey] === null) return 0;
+			if(a[fieldKey] === null) return 1;
+			if(b[fieldKey] === null) return -1;
+			if(a[fieldKey] === b[fieldKey]) return 0;
 			return a[fieldKey] < b[fieldKey] ? -1 : 1;
 		};
 
-		const sortByField = field => (a, b) => {
-			if (!field) return 0;
+		const sortByField = (field) => (a, b) => {
+			if(!field) {
+				return 0;
+			}
+
 			const fieldKey = this.normalizeFieldKey(field);
+
+			// if a field is prefixed with a "!" the sort is reversed!
 			const sortIsRegular = this.sortOrderRegular(field);
+
 			return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
 		};
 
 		/**
-		 * Formats an error or warning into a string.
-		 * @param {Object|string} e - The error object or string.
-		 * @returns {string} Formatted error string.
+		 * Formats the chunk part of an error.
+		 * @param {Object} e
+		 * @param {RequestShortener} requestShortener
+		 * @returns {string}
 		 */
-		const formatError = e => {
-			const lines = [];
-			if (typeof e === "string") {
+		const formatErrorChunk = (e, requestShortener) => {
+			if (!e.chunk) return "";
+			const name = e.chunk.name || e.chunk.id;
+			const runtime = e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : "";
+			return `chunk ${name}${runtime}\n`;
+		};
+
+		/**
+		 * Formats the file part of an error.
+		 * @param {Object} e
+		 * @returns {string}
+		 */
+		const formatErrorFile = (e) => e.file ? `${e.file}\n` : "";
+
+		/**
+		 * Formats the module part of an error.
+		 * @param {Object} e
+		 * @param {RequestShortener} requestShortener
+		 * @returns {string}
+		 */
+		const formatErrorModule = (e, requestShortener) => {
+			if (!e.module || !e.module.readableIdentifier) return "";
+			return `${e.module.readableIdentifier(requestShortener)}\n`;
+		};
+
+		/**
+		 * Formats error details and missing items.
+		 * @param {Object} e
+		 * @param {boolean} showErrorDetails
+		 * @returns {string}
+		 */
+		const formatErrorDetails = (e, showErrorDetails) => {
+			let text = "";
+			if (showErrorDetails && e.details) text += `\n${e.details}`;
+			if (showErrorDetails && e.missing) text += e.missing.map(item => `\n[${item}]`).join("");
+			return text;
+		};
+
+		/**
+		 * Formats the trace of an error.
+		 * @param {Object} e
+		 * @param {RequestShortener} requestShortener
+		 * @param {boolean} showModuleTrace
+		 * @returns {string}
+		 */
+		const formatErrorTrace = (e, requestShortener, showModuleTrace) => {
+			if (!showModuleTrace || !e.dependencies || !e.origin) return "";
+			let text = `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
+			e.dependencies.forEach(dep => {
+				if (!dep.loc || typeof dep.loc === "string") return;
+				const locInfo = formatLocation(dep.loc);
+				if (!locInfo) return;
+				text += ` ${locInfo}`;
+			});
+			let current = e.origin;
+			while (current.issuer) {
+				current = current.issuer;
+				text += `\n @ ${current.readableIdentifier(requestShortener)}`;
+			}
+			return text;
+		};
+
+		const formatError = (e) => {
+			if(typeof e === "string")
 				e = { message: e };
-			}
-			if (e.chunk) {
-				lines.push(`chunk ${e.chunk.name || e.chunk.id}${e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : ""}`);
-			}
-			if (e.file) {
-				lines.push(e.file);
-			}
-			if (e.module && e.module.readableIdentifier && typeof e.module.readableIdentifier === "function") {
-				lines.push(e.module.readableIdentifier(requestShortener));
-			}
-			lines.push(e.message);
-			if (showErrorDetails && e.details) {
-				lines.push(e.details);
-			}
-			if (showErrorDetails && e.missing) {
-				lines.push(...e.missing.map(item => `[${item}]`));
-			}
-			if (showModuleTrace && e.dependencies && e.origin) {
-				lines.push(`@ ${e.origin.readableIdentifier(requestShortener)}`);
-				e.dependencies.forEach(dep => {
-					if (!dep.loc || typeof dep.loc === "string") return;
-					const locInfo = formatLocation(dep.loc);
-					if (!locInfo) return;
-					lines.push(` ${locInfo}`);
-				});
-				let current = e.origin;
-				while (current.issuer) {
-					current = current.issuer;
-					lines.push(`@ ${current.readableIdentifier(requestShortener)}`);
-				}
-			}
-			return lines.join("\n");
+			let text = "";
+			text += formatErrorChunk(e, requestShortener);
+			text += formatErrorFile(e);
+			text += formatErrorModule(e, requestShortener);
+			text += e.message;
+			text += formatErrorDetails(e, showErrorDetails);
+			text += formatErrorTrace(e, requestShortener, showModuleTrace);
+			return text;
 		};
 
 		const obj = {
@@ -170,6 +233,8 @@ class Stats {
 			warnings: Stats.filterWarnings(compilation.warnings.map(formatError), warningsFilter)
 		};
 
+		//We just hint other renderers since actually omitting
+		//errors/warnings from the JSON would be kind of weird.
 		Object.defineProperty(obj, "_showWarnings", {
 			value: showWarnings,
 			enumerable: false
@@ -179,27 +244,27 @@ class Stats {
 			enumerable: false
 		});
 
-		if (showVersion) {
+		if(showVersion) {
 			obj.version = require("../package.json").version;
 		}
 
-		if (showHash) obj.hash = this.hash;
-		if (showTimings && this.startTime && this.endTime) {
+		if(showHash) obj.hash = this.hash;
+		if(showTimings && this.startTime && this.endTime) {
 			obj.time = this.endTime - this.startTime;
 		}
-		if (compilation.needAdditionalPass) {
+		if(compilation.needAdditionalPass) {
 			obj.needAdditionalPass = true;
 		}
-		if (showPublicPath) {
+		if(showPublicPath) {
 			obj.publicPath = this.compilation.mainTemplate.getPublicPath({
 				hash: this.compilation.hash
 			});
 		}
-		if (showAssets) {
+		if(showAssets) {
 			const assetsByFile = {};
 			obj.assetsByChunkName = {};
 			obj.assets = Object.keys(compilation.assets).map(asset => {
-				const assetObj = {
+				const obj = {
 					name: asset,
 					size: compilation.assets[asset].size(),
 					chunks: [],
@@ -207,23 +272,23 @@ class Stats {
 					emitted: compilation.assets[asset].emitted
 				};
 
-				if (showPerformance) {
-					assetObj.isOverSizeLimit = compilation.assets[asset].isOverSizeLimit;
+				if(showPerformance) {
+					obj.isOverSizeLimit = compilation.assets[asset].isOverSizeLimit;
 				}
 
-				assetsByFile[asset] = assetObj;
-				return assetObj;
+				assetsByFile[asset] = obj;
+				return obj;
 			}).filter(asset => showCachedAssets || asset.emitted);
 
 			compilation.chunks.forEach(chunk => {
 				chunk.files.forEach(asset => {
-					if (assetsByFile[asset]) {
+					if(assetsByFile[asset]) {
 						chunk.ids.forEach(id => {
 							assetsByFile[asset].chunks.push(id);
 						});
-						if (chunk.name) {
+						if(chunk.name) {
 							assetsByFile[asset].chunkNames.push(chunk.name);
-							if (obj.assetsByChunkName[chunk.name])
+							if(obj.assetsByChunkName[chunk.name])
 								obj.assetsByChunkName[chunk.name] = [].concat(obj.assetsByChunkName[chunk.name]).concat([asset]);
 							else
 								obj.assetsByChunkName[chunk.name] = asset;
@@ -234,7 +299,7 @@ class Stats {
 			obj.assets.sort(sortByField(sortAssets));
 		}
 
-		if (showEntrypoints) {
+		if(showEntrypoints) {
 			obj.entrypoints = {};
 			Object.keys(compilation.entrypoints).forEach(name => {
 				const ep = compilation.entrypoints[name];
@@ -242,14 +307,14 @@ class Stats {
 					chunks: ep.chunks.map(c => c.id),
 					assets: ep.chunks.reduce((array, c) => array.concat(c.files || []), [])
 				};
-				if (showPerformance) {
+				if(showPerformance) {
 					obj.entrypoints[name].isOverSizeLimit = ep.isOverSizeLimit;
 				}
 			});
 		}
 
-		const fnModule = module => {
-			const moduleObj = {
+		function fnModule(module) {
+			const obj = {
 				id: module.id,
 				identifier: module.identifier(),
 				name: module.readableIdentifier(requestShortener),
@@ -270,9 +335,9 @@ class Stats {
 				errors: module.errors && module.dependenciesErrors && (module.errors.length + module.dependenciesErrors.length),
 				warnings: module.errors && module.dependenciesErrors && (module.warnings.length + module.dependenciesWarnings.length)
 			};
-			if (showReasons) {
-				moduleObj.reasons = module.reasons.filter(reason => reason.dependency && reason.module).map(reason => {
-					const reasonObj = {
+			if(showReasons) {
+				obj.reasons = module.reasons.filter(reason => reason.dependency && reason.module).map(reason => {
+					const obj = {
 						moduleId: reason.module.id,
 						moduleIdentifier: reason.module.identifier(),
 						module: reason.module.readableIdentifier(requestShortener),
@@ -281,27 +346,27 @@ class Stats {
 						userRequest: reason.dependency.userRequest
 					};
 					const locInfo = formatLocation(reason.dependency.loc);
-					if (locInfo) reasonObj.loc = locInfo;
-					return reasonObj;
+					if(locInfo) obj.loc = locInfo;
+					return obj;
 				}).sort((a, b) => a.moduleId - b.moduleId);
 			}
-			if (showUsedExports) {
-				moduleObj.usedExports = module.used ? module.usedExports : false;
+			if(showUsedExports) {
+				obj.usedExports = module.used ? module.usedExports : false;
 			}
-			if (showProvidedExports) {
-				moduleObj.providedExports = Array.isArray(module.providedExports) ? module.providedExports : null;
+			if(showProvidedExports) {
+				obj.providedExports = Array.isArray(module.providedExports) ? module.providedExports : null;
 			}
-			if (showDepth) {
-				moduleObj.depth = module.depth;
+			if(showDepth) {
+				obj.depth = module.depth;
 			}
-			if (showSource && module._source) {
-				moduleObj.source = module._source.source();
+			if(showSource && module._source) {
+				obj.source = module._source.source();
 			}
-			return moduleObj;
-		};
-		if (showChunks) {
+			return obj;
+		}
+		if(showChunks) {
 			obj.chunks = compilation.chunks.map(chunk => {
-				const chunkObj = {
+				const obj = {
 					id: chunk.id,
 					rendered: chunk.rendered,
 					initial: chunk.isInitial(),
@@ -314,17 +379,17 @@ class Stats {
 					hash: chunk.renderedHash,
 					parents: chunk.parents.map(c => c.id)
 				};
-				if (showChunkModules) {
-					chunkObj.modules = chunk.modules
+				if(showChunkModules) {
+					obj.modules = chunk.modules
 						.slice()
 						.sort(sortByField("depth"))
 						.filter(createModuleFilter())
 						.map(fnModule);
-					chunkObj.filteredModules = chunk.modules.length - chunkObj.modules.length;
-					chunkObj.modules.sort(sortByField(sortModules));
+					obj.filteredModules = chunk.modules.length - obj.modules.length;
+					obj.modules.sort(sortByField(sortModules));
 				}
-				if (showChunkOrigins) {
-					chunkObj.origins = chunk.origins.map(origin => ({
+				if(showChunkOrigins) {
+					obj.origins = chunk.origins.map(origin => ({
 						moduleId: origin.module ? origin.module.id : undefined,
 						module: origin.module ? origin.module.identifier() : "",
 						moduleIdentifier: origin.module ? origin.module.identifier() : "",
@@ -334,11 +399,11 @@ class Stats {
 						reasons: origin.reasons || []
 					}));
 				}
-				return chunkObj;
+				return obj;
 			});
 			obj.chunks.sort(sortByField(sortChunks));
 		}
-		if (showModules) {
+		if(showModules) {
 			obj.modules = compilation.modules
 				.slice()
 				.sort(sortByField("depth"))
@@ -347,14 +412,14 @@ class Stats {
 			obj.filteredModules = compilation.modules.length - obj.modules.length;
 			obj.modules.sort(sortByField(sortModules));
 		}
-		if (showChildren) {
+		if(showChildren) {
 			obj.children = compilation.children.map((child, idx) => {
 				const childOptions = Stats.getChildOptions(options, idx);
-				const childObj = new Stats(child).toJson(childOptions, forToString);
-				delete childObj.hash;
-				delete childObj.version;
-				childObj.name = child.name;
-				return childObj;
+				const obj = new Stats(child).toJson(childOptions, forToString);
+				delete obj.hash;
+				delete obj.version;
+				obj.name = child.name;
+				return obj;
 			});
 		}
 
@@ -362,9 +427,9 @@ class Stats {
 	}
 
 	toString(options) {
-		if (typeof options === "boolean" || typeof options === "string") {
+		if(typeof options === "boolean" || typeof options === "string") {
 			options = Stats.presetToOptions(options);
-		} else if (!options) {
+		} else if(!options) {
 			options = {};
 		}
 
@@ -389,14 +454,14 @@ class Stats {
 
 		const colors = Object.keys(defaultColors).reduce((obj, color) => {
 			obj[color] = str => {
-				if (useColors) {
+				if(useColors) {
 					buf.push(
 						(useColors === true || useColors[color] === undefined) ?
 						defaultColors[color] : useColors[color]
 					);
 				}
 				buf.push(str);
-				if (useColors) {
+				if(useColors) {
 					buf.push("\u001b[39m\u001b[22m");
 				}
 			};
@@ -407,16 +472,16 @@ class Stats {
 
 		const coloredTime = (time) => {
 			let times = [800, 400, 200, 100];
-			if (obj.time) {
+			if(obj.time) {
 				times = [obj.time / 2, obj.time / 4, obj.time / 8, obj.time / 16];
 			}
-			if (time < times[3])
+			if(time < times[3])
 				colors.normal(`${time}ms`);
-			else if (time < times[2])
+			else if(time < times[2])
 				colors.bold(`${time}ms`);
-			else if (time < times[1])
+			else if(time < times[1])
 				colors.green(`${time}ms`);
-			else if (time < times[0])
+			else if(time < times[0])
 				colors.yellow(`${time}ms`);
 			else
 				colors.red(`${time}ms`);
@@ -432,28 +497,28 @@ class Stats {
 			const rows = array.length;
 			const cols = array[0].length;
 			const colSizes = new Array(cols);
-			for (let col = 0; col < cols; col++)
+			for(let col = 0; col < cols; col++)
 				colSizes[col] = 0;
-			for (let row = 0; row < rows; row++) {
-				for (let col = 0; col < cols; col++) {
+			for(let row = 0; row < rows; row++) {
+				for(let col = 0; col < cols; col++) {
 					const value = `${getText(array, row, col)}`;
-					if (value.length > colSizes[col]) {
+					if(value.length > colSizes[col]) {
 						colSizes[col] = value.length;
 					}
 				}
 			}
-			for (let row = 0; row < rows; row++) {
-				for (let col = 0; col < cols; col++) {
+			for(let row = 0; row < rows; row++) {
+				for(let col = 0; col < cols; col++) {
 					const format = array[row][col].color;
 					const value = `${getText(array, row, col)}`;
 					let l = value.length;
-					if (align[col] === "l")
+					if(align[col] === "l")
 						format(value);
-					for (; l < colSizes[col] && col !== cols - 1; l++)
+					for(; l < colSizes[col] && col !== cols - 1; l++)
 						colors.normal(" ");
-					if (align[col] === "r")
+					if(align[col] === "r")
 						format(value);
-					if (col + 1 < cols && colSizes[col] !== 0)
+					if(col + 1 < cols && colSizes[col] !== 0)
 						colors.normal(splitter || "  ");
 				}
 				newline();
@@ -461,35 +526,36 @@ class Stats {
 		};
 
 		const getAssetColor = (asset, defaultColor) => {
-			if (asset.isOverSizeLimit) {
+			if(asset.isOverSizeLimit) {
 				return colors.yellow;
 			}
+
 			return defaultColor;
 		};
 
-		if (obj.hash) {
+		if(obj.hash) {
 			colors.normal("Hash: ");
 			colors.bold(obj.hash);
 			newline();
 		}
-		if (obj.version) {
+		if(obj.version) {
 			colors.normal("Version: webpack ");
 			colors.bold(obj.version);
 			newline();
 		}
-		if (typeof obj.time === "number") {
+		if(typeof obj.time === "number") {
 			colors.normal("Time: ");
 			colors.bold(obj.time);
 			colors.normal("ms");
 			newline();
 		}
-		if (obj.publicPath) {
+		if(obj.publicPath) {
 			colors.normal("PublicPath: ");
 			colors.bold(obj.publicPath);
 			newline();
 		}
 
-		if (obj.assets && obj.assets.length > 0) {
+		if(obj.assets && obj.assets.length > 0) {
 			const t = [
 				[{
 					value: "Asset",
@@ -534,12 +600,12 @@ class Stats {
 			});
 			table(t, "rrrlll");
 		}
-		if (obj.entrypoints) {
+		if(obj.entrypoints) {
 			Object.keys(obj.entrypoints).forEach(name => {
 				const ep = obj.entrypoints[name];
 				colors.normal("Entrypoint ");
 				colors.bold(name);
-				if (ep.isOverSizeLimit) {
+				if(ep.isOverSizeLimit) {
 					colors.normal(" ");
 					colors.yellow("[big]");
 				}
@@ -552,13 +618,13 @@ class Stats {
 			});
 		}
 		const modulesByIdentifier = {};
-		if (obj.modules) {
+		if(obj.modules) {
 			obj.modules.forEach(module => {
 				modulesByIdentifier[`$${module.identifier}`] = module;
 			});
-		} else if (obj.chunks) {
+		} else if(obj.chunks) {
 			obj.chunks.forEach(chunk => {
-				if (chunk.modules) {
+				if(chunk.modules) {
 					chunk.modules.forEach(module => {
 						modulesByIdentifier[`$${module.identifier}`] = module;
 					});
@@ -566,56 +632,56 @@ class Stats {
 			});
 		}
 
-		const processModuleAttributes = module => {
+		const processModuleAttributes = (module) => {
 			colors.normal(" ");
 			colors.normal(SizeFormatHelpers.formatSize(module.size));
-			if (module.chunks) {
+			if(module.chunks) {
 				module.chunks.forEach(chunk => {
 					colors.normal(" {");
 					colors.yellow(chunk);
 					colors.normal("}");
 				});
 			}
-			if (typeof module.depth === "number") {
+			if(typeof module.depth === "number") {
 				colors.normal(` [depth ${module.depth}]`);
 			}
-			if (!module.cacheable) {
+			if(!module.cacheable) {
 				colors.red(" [not cacheable]");
 			}
-			if (module.optional) {
+			if(module.optional) {
 				colors.yellow(" [optional]");
 			}
-			if (module.built) {
+			if(module.built) {
 				colors.green(" [built]");
 			}
-			if (module.prefetched) {
+			if(module.prefetched) {
 				colors.magenta(" [prefetched]");
 			}
-			if (module.failed)
+			if(module.failed)
 				colors.red(" [failed]");
-			if (module.warnings)
+			if(module.warnings)
 				colors.yellow(` [${module.warnings} warning${module.warnings === 1 ? "" : "s"}]`);
-			if (module.errors)
+			if(module.errors)
 				colors.red(` [${module.errors} error${module.errors === 1 ? "" : "s"}]`);
 		};
 
 		const processModuleContent = (module, prefix) => {
-			if (Array.isArray(module.providedExports)) {
+			if(Array.isArray(module.providedExports)) {
 				colors.normal(prefix);
 				colors.cyan(`[exports: ${module.providedExports.join(", ")}]`);
 				newline();
 			}
-			if (module.usedExports !== undefined) {
-				if (module.usedExports !== true) {
+			if(module.usedExports !== undefined) {
+				if(module.usedExports !== true) {
 					colors.normal(prefix);
-					if (module.usedExports === false)
+					if(module.usedExports === false)
 						colors.cyan("[no exports used]");
 					else
 						colors.cyan(`[only some exports used: ${module.usedExports.join(", ")}]`);
 					newline();
 				}
 			}
-			if (module.reasons) {
+			if(module.reasons) {
 				module.reasons.forEach(reason => {
 					colors.normal(prefix);
 					colors.normal(reason.type);
@@ -625,26 +691,26 @@ class Stats {
 					colors.normal(reason.moduleId);
 					colors.normal("] ");
 					colors.magenta(reason.module);
-					if (reason.loc) {
+					if(reason.loc) {
 						colors.normal(" ");
 						colors.normal(reason.loc);
 					}
 					newline();
 				});
 			}
-			if (module.profile) {
+			if(module.profile) {
 				colors.normal(prefix);
 				let sum = 0;
 				const path = [];
 				let current = module;
-				while (current.issuer) {
+				while(current.issuer) {
 					path.unshift(current = current.issuer);
 				}
 				path.forEach(module => {
 					colors.normal("[");
 					colors.normal(module.id);
 					colors.normal("] ");
-					if (module.profile) {
+					if(module.profile) {
 						const time = (module.profile.factory || 0) + (module.profile.building || 0);
 						coloredTime(time);
 						sum += time;
@@ -664,17 +730,17 @@ class Stats {
 			}
 		};
 
-		if (obj.chunks) {
+		if(obj.chunks) {
 			obj.chunks.forEach(chunk => {
 				colors.normal("chunk ");
-				if (chunk.id < 1000) colors.normal(" ");
-				if (chunk.id < 100) colors.normal(" ");
-				if (chunk.id < 10) colors.normal(" ");
+				if(chunk.id < 1000) colors.normal(" ");
+				if(chunk.id < 100) colors.normal(" ");
+				if(chunk.id < 10) colors.normal(" ");
 				colors.normal("{");
 				colors.yellow(chunk.id);
 				colors.normal("} ");
 				colors.green(chunk.files.join(", "));
-				if (chunk.names && chunk.names.length > 0) {
+				if(chunk.names && chunk.names.length > 0) {
 					colors.normal(" (");
 					colors.normal(chunk.names.join(", "));
 					colors.normal(")");
@@ -686,51 +752,51 @@ class Stats {
 					colors.yellow(id);
 					colors.normal("}");
 				});
-				if (chunk.entry) {
+				if(chunk.entry) {
 					colors.yellow(" [entry]");
-				} else if (chunk.initial) {
+				} else if(chunk.initial) {
 					colors.yellow(" [initial]");
 				}
-				if (chunk.rendered) {
+				if(chunk.rendered) {
 					colors.green(" [rendered]");
 				}
-				if (chunk.recorded) {
+				if(chunk.recorded) {
 					colors.green(" [recorded]");
 				}
 				newline();
-				if (chunk.origins) {
+				if(chunk.origins) {
 					chunk.origins.forEach(origin => {
 						colors.normal("    > ");
-						if (origin.reasons && origin.reasons.length) {
+						if(origin.reasons && origin.reasons.length) {
 							colors.yellow(origin.reasons.join(" "));
 							colors.normal(" ");
 						}
-						if (origin.name) {
+						if(origin.name) {
 							colors.normal(origin.name);
 							colors.normal(" ");
 						}
-						if (origin.module) {
+						if(origin.module) {
 							colors.normal("[");
 							colors.normal(origin.moduleId);
 							colors.normal("] ");
 							const module = modulesByIdentifier[`$${origin.module}`];
-							if (module) {
+							if(module) {
 								colors.bold(module.name);
 								colors.normal(" ");
 							}
-							if (origin.loc) {
+							if(origin.loc) {
 								colors.normal(origin.loc);
 							}
 						}
 						newline();
 					});
 				}
-				if (chunk.modules) {
+				if(chunk.modules) {
 					chunk.modules.forEach(module => {
 						colors.normal(" ");
-						if (module.id < 1000) colors.normal(" ");
-						if (module.id < 100) colors.normal(" ");
-						if (module.id < 10) colors.normal(" ");
+						if(module.id < 1000) colors.normal(" ");
+						if(module.id < 100) colors.normal(" ");
+						if(module.id < 10) colors.normal(" ");
 						colors.normal("[");
 						colors.normal(module.id);
 						colors.normal("] ");
@@ -739,18 +805,18 @@ class Stats {
 						newline();
 						processModuleContent(module, "        ");
 					});
-					if (chunk.filteredModules > 0) {
+					if(chunk.filteredModules > 0) {
 						colors.normal(`     + ${chunk.filteredModules} hidden modules`);
 						newline();
 					}
 				}
 			});
 		}
-		if (obj.modules) {
+		if(obj.modules) {
 			obj.modules.forEach(module => {
-				if (module.id < 1000) colors.normal(" ");
-				if (module.id < 100) colors.normal(" ");
-				if (module.id < 10) colors.normal(" ");
+				if(module.id < 1000) colors.normal(" ");
+				if(module.id < 100) colors.normal(" ");
+				if(module.id < 10) colors.normal(" ");
 				colors.normal("[");
 				colors.normal(module.id);
 				colors.normal("] ");
@@ -759,31 +825,31 @@ class Stats {
 				newline();
 				processModuleContent(module, "       ");
 			});
-			if (obj.filteredModules > 0) {
+			if(obj.filteredModules > 0) {
 				colors.normal(`    + ${obj.filteredModules} hidden modules`);
 				newline();
 			}
 		}
 
-		if (obj._showWarnings && obj.warnings) {
+		if(obj._showWarnings && obj.warnings) {
 			obj.warnings.forEach(warning => {
 				newline();
 				colors.yellow(`WARNING in ${warning}`);
 				newline();
 			});
 		}
-		if (obj._showErrors && obj.errors) {
+		if(obj._showErrors && obj.errors) {
 			obj.errors.forEach(error => {
 				newline();
 				colors.red(`ERROR in ${error}`);
 				newline();
 			});
 		}
-		if (obj.children) {
+		if(obj.children) {
 			obj.children.forEach(child => {
 				const childString = Stats.jsonToString(child, useColors);
-				if (childString) {
-					if (child.name) {
+				if(childString) {
+					if(child.name) {
 						colors.normal("Child ");
 						colors.bold(child.name);
 						colors.normal(":");
@@ -797,17 +863,19 @@ class Stats {
 				}
 			});
 		}
-		if (obj.needAdditionalPass) {
+		if(obj.needAdditionalPass) {
 			colors.yellow("Compilation needs an additional pass and will compile again.");
 		}
 
-		while (buf[buf.length - 1] === "\n") buf.pop();
+		while(buf[buf.length - 1] === "\n") buf.pop();
 		return buf.join("");
 	}
 
 	static presetToOptions(name) {
+		//Accepted values: none, errors-only, minimal, normal, verbose
+		//Any other falsy value will behave as 'none', truthy values as 'normal'
 		const pn = (typeof name === "string") && name.toLowerCase() || name;
-		if (pn === "none" || !pn) {
+		if(pn === "none" || !pn) {
 			return {
 				hash: false,
 				version: false,
@@ -838,6 +906,7 @@ class Stats {
 				entrypoints: pn === "verbose",
 				chunks: pn !== "errors-only",
 				chunkModules: pn === "verbose",
+				//warnings: pn !== "errors-only",
 				errorDetails: pn !== "errors-only" && pn !== "minimal",
 				reasons: pn === "verbose",
 				depth: pn === "verbose",
@@ -847,22 +916,23 @@ class Stats {
 				performance: true
 			};
 		}
+
 	}
 
 	static getChildOptions(options, idx) {
 		let innerOptions;
-		if (Array.isArray(options.children)) {
-			if (idx < options.children.length)
+		if(Array.isArray(options.children)) {
+			if(idx < options.children.length)
 				innerOptions = options.children[idx];
-		} else if (typeof options.children === "object" && options.children) {
+		} else if(typeof options.children === "object" && options.children) {
 			innerOptions = options.children;
 		}
-		if (typeof innerOptions === "boolean" || typeof innerOptions === "string")
+		if(typeof innerOptions === "boolean" || typeof innerOptions === "string")
 			innerOptions = Stats.presetToOptions(innerOptions);
-		if (!innerOptions)
+		if(!innerOptions)
 			return options;
 		const childOptions = Object.assign({}, options);
-		delete childOptions.children;
+		delete childOptions.children; // do not inherit children
 		return Object.assign(childOptions, innerOptions);
 	}
 }

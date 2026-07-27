@@ -136,7 +136,7 @@ exports.clean = function (str) {
 
   const spaces = str.match(/^\n?( *)/)[1].length;
   const tabs = str.match(/^\n?(\t*)/)[1].length;
-  const re = new RegExp('^\n?' + (tabs ? '\t' : ' ') + '{' + (tabs || spaces) + '}', 'gm');
+  const re = new RegExp('^\\n?' + (tabs ? '\\t' : ' ') + '{' + (tabs || spaces) + '}', 'gm');
 
   str = str.replace(re, '');
 
@@ -348,14 +348,14 @@ function jsonStringify (object, spaces, depth) {
           : val.toString();
         break;
       case 'date':
-        const sDate = isNaN(val.getTime()) ? val.toString() : val.toISOString();
+        const sDate = isNaN(val.getTime()) ? val.toString() : val.getTime() ? val.toISOString() : val.toString();
         val = '[Date: ' + sDate + ']';
         break;
       case 'buffer':
         const json = val.toJSON();
         // Based on the toJSON result
-        const jsonVal = json.data && json.type ? json.data : json;
-        val = '[Buffer: ' + jsonStringify(jsonVal, 2, depth + 1) + ']';
+        const jsonData = json.data && json.type ? json.data : json;
+        val = '[Buffer: ' + jsonStringify(jsonData, 2, depth + 1) + ']';
         break;
       default:
         val = (val === '[Function]' || val === '[Circular]')
@@ -475,17 +475,17 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
  * @return {string[]} An array of paths.
  */
 exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
-  const files = [];
+  let files = [];
 
   if (!exists(path)) {
     if (exists(path + '.js')) {
       path += '.js';
     } else {
-      const globFiles = glob.sync(path);
-      if (!globFiles.length) {
+      files = glob.sync(path);
+      if (!files.length) {
         throw new Error("cannot resolve path (or pattern) '" + path + "'");
       }
-      return globFiles;
+      return files;
     }
   }
 
@@ -584,9 +584,9 @@ exports.stackTraceFilter = function () {
   }
 
   return function (stack) {
-    stack = stack.split('\n');
+    let stackArr = stack.split('\n');
 
-    stack = stack.reduce(function (list, line) {
+    stackArr = stackArr.reduce(function (list, line) {
       if (isMochaInternal(line)) {
         return list;
       }
@@ -604,7 +604,7 @@ exports.stackTraceFilter = function () {
       return list;
     }, []);
 
-    return stack.join('\n');
+    return stackArr.join('\n');
   };
 };
 

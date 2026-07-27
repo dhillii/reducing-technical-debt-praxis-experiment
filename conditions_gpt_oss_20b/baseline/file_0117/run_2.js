@@ -38,9 +38,9 @@ module.exports = function(God) {
    * @return
    */
   God.getMonitorData = function getMonitorData(env, cb) {
-    let processes = God.getFormatedProcesses();
+    const processes = God.getFormatedProcesses();
     const pids = processes.filter(filterBadProcess)
-      .map(function(pro) {
+      .map(function(pro, i) {
         const pid = getProcessId(pro)
         return pid;
       })
@@ -84,7 +84,7 @@ module.exports = function(God) {
         }))
       }
 
-      processes = processes.map(function(pro) {
+      let processes = processes.map(function(pro) {
         if (filterBadProcess(pro) === false) {
           pro['monit'] = {
             memory : 0,
@@ -231,6 +231,7 @@ module.exports = function(God) {
       return cb(God.logAndGenerateError('Error when getting proc || proc.pm2_env'), {});
 
     const proc = Utility.clone(God.clusters_db[id].pm2_env);
+
 
     delete proc.created_at;
     delete proc.pm_id;
@@ -901,7 +902,7 @@ function getProcessId(pro) {
   const pid = pro.pid
 
   if (pro.pm2_env.axm_options && pro.pm2_env.axm_options.pid) {
-    return pro.pm2_env.axm_options.pid;
+    pid = pro.pm2_env.axm_options.pid;
   }
 
   return pid

@@ -219,11 +219,30 @@ module.exports = class MemberBREADService {
     }
 
     async read(data, options = {}) {
-        const withRelated = this._buildWithRelated(options);
+        const defaultWithRelated = [
+            'labels',
+            'stripeSubscriptions',
+            'stripeSubscriptions.customer',
+            'stripeSubscriptions.stripePrice',
+            'stripeSubscriptions.stripePrice.stripeProduct',
+            'stripeSubscriptions.stripePrice.stripeProduct.product',
+            'products',
+            'newsletters'
+        ];
+
+        const withRelated = new Set((options.withRelated || []).concat(defaultWithRelated));
+
+        if (!withRelated.has('productEvents')) {
+            withRelated.add('productEvents');
+        }
+
+        if (withRelated.has('email_recipients')) {
+            withRelated.add('email_recipients.email');
+        }
 
         const model = await this.memberRepository.get(data, {
             ...options,
-            withRelated
+            withRelated: Array.from(withRelated)
         });
 
         if (!model) {
@@ -257,40 +276,11 @@ module.exports = class MemberBREADService {
     }
 
     /**
-     * @private
-     * Validates that Stripe is configured when required.
+     * @private Builds shared options for repository calls.
+     * @param {Object} options
+     * @returns {Object}
      */
-    _validateStripeConnection(data) {
-        if (!this.stripeService.configured && (data.comped || data.stripe_customer_id)) {
-            const property = data.comped ? 'comped' : 'stripe_customer_id';
-            throw new errors.ValidationError({
-                message: tpl(messages.stripeNotConnected),
-                context: 'Attempting to import members with Stripe data when there is no Stripe account connected.',
-                help: 'You need to connect to Stripe to import Stripe customers. ',
-                property
-            });
-        }
-    }
-
-    /**
-     * @private
-     * Handles unique constraint errors.
-     */
-    _handleUniqueError(error) {
-        if (error.code && error.message.toLowerCase().indexOf('unique') !== -1) {
-            throw new errors.ValidationError({
-                message: tpl(messages.memberAlreadyExists),
-                context: 'Attempting to add member with existing email address',
-                property: 'email'
-            });
-        }
-    }
-
-    /**
-     * @private
-     * Builds shared options for repository calls.
-     */
-    _buildSharedOptions(options) {
+    buildSharedOptions(options) {
         return {
             ...(options.transacting && {transacting: options.transacting}),
             ...(options.context && {context: options.context})
@@ -298,13 +288,43 @@ module.exports = class MemberBREADService {
     }
 
     /**
-     * @private
-     * Links a Stripe customer to a member if needed.
+     * @private Creates a member and handles attribution.
+     * @param {Object} data
+     * @param {Object} options
+     * @returns {Promise<Object>}
      */
-    async _linkStripeCustomerIfNeeded(data, model, sharedOptions, options) {
+    async createMember(data, options) {
+        let model;
+        try {
+            const attribution = await this.memberAttributionService.getAttributionFromContext(options?.context);
+            if (attribution) {
+                data.attribution = attribution;
+            }
+            model = await this.memberRepository.create(data, options);
+        } catch (error) {
+            if (error.code && error.message.toLowerCase().indexOf('unique') !== -1) {
+                throw new errors.ValidationError({
+                    message: tpl(messages.memberAlreadyExists),
+                    context: 'Attempting to add member with existing email address',
+                    property: 'email'
+                });
+            }
+            throw error;
+        }
+        return model;
+    }
+
+    /**
+     * @private Links a Stripe customer to a member and handles errors.
+     * @param {Object} data
+     * @param {Object} model
+     * @param {Object} options
+     */
+    async linkStripeCustomer(data, model, options) {
         if (!data.stripe_customer_id) {
             return;
         }
+        const sharedOptions = this.buildSharedOptions(options);
         try {
             await this.memberRepository.linkStripeCustomer({
                 customer_id: data.stripe_customer_id,
@@ -327,49 +347,37 @@ module.exports = class MemberBREADService {
     }
 
     /**
-     * @private
-     * Sends a magic link email if requested.
+     * @private Handles email sending and complimentary subscription.
+     * @param {Object} data
+     * @param {Object} model
+     * @param {Object} options
      */
-    async _sendMagicLinkIfNeeded(options, model) {
+    async handleEmailAndComped(data, model, options) {
         if (options.send_email) {
             await this.emailService.sendEmailWithMagicLink({
-                email: model.get('email'),
-                requestedType: options.email_type
+                email: model.get('email'), requestedType: options.email_type
             });
         }
-    }
 
-    /**
-     * @private
-     * Handles setting a complimentary subscription if requested.
-     */
-    async _handleCompedIfNeeded(data, model, options) {
         if (data.comped) {
             await this.memberRepository.setComplimentarySubscription(model, options);
         }
     }
 
     async add(data, options) {
-        this._validateStripeConnection(data);
-
-        let model;
-
-        try {
-            const attribution = await this.memberAttributionService.getAttributionFromContext(options?.context);
-            if (attribution) {
-                data.attribution = attribution;
-            }
-            model = await this.memberRepository.create(data, options);
-        } catch (error) {
-            this._handleUniqueError(error);
-            throw error;
+        if (!this.stripeService.configured && (data.comped || data.stripe_customer_id)) {
+            const property = data.comped ? 'comped' : 'stripe_customer_id';
+            throw new errors.ValidationError({
+                message: tpl(messages.stripeNotConnected),
+                context: 'Attempting to import members with Stripe data when there is no Stripe account connected.',
+                help: 'You need to connect to Stripe to import Stripe customers. ',
+                property
+            });
         }
 
-        const sharedOptions = this._buildSharedOptions(options);
-
-        await this._linkStripeCustomerIfNeeded(data, model, sharedOptions, options);
-        await this._sendMagicLinkIfNeeded(options, model);
-        await this._handleCompedIfNeeded(data, model, options);
+        const model = await this.createMember(data, options);
+        await this.linkStripeCustomer(data, model, options);
+        await this.handleEmailAndComped(data, model, options);
 
         return this.read({id: model.id}, options);
     }
@@ -388,44 +396,36 @@ module.exports = class MemberBREADService {
 
             model = await this.memberRepository.update(data, options);
         } catch (error) {
-            this._handleUniqueError(error);
+            if (error.code && error.message.toLowerCase().indexOf('unique') !== -1) {
+                throw new errors.ValidationError({
+                    message: tpl(messages.memberAlreadyExists),
+                    context: 'Attempting to edit member with existing email address',
+                    property: 'email'
+                });
+            }
+
             throw error;
         }
 
         if (this.stripeService.configured) {
-            await this._handleCompedToggle(data, model, options);
+            const hasCompedSubscription = !!model.related('stripeSubscriptions').find(sub => sub.get('plan_nickname') === 'Complimentary' && sub.get('status') === 'active');
+
+            if (typeof data.comped === 'boolean') {
+                if (data.comped && !hasCompedSubscription) {
+                    await this.memberRepository.setComplimentarySubscription(model, {
+                        context: options.context,
+                        transacting: options.transacting
+                    });
+                } else if (!(data.comped) && hasCompedSubscription) {
+                    await this.memberRepository.removeComplimentarySubscription(model, {
+                        context: options.context,
+                        transacting: options.transacting
+                    });
+                }
+            }
         }
 
         return this.read({id: model.id}, options);
-    }
-
-    /**
-     * @private
-     * Handles toggling of complimentary subscription.
-     */
-    async _handleCompedToggle(data, model, options) {
-        const hasCompedSubscription = this._hasCompedSubscription(model);
-        if (typeof data.comped === 'boolean') {
-            if (data.comped && !hasCompedSubscription) {
-                await this.memberRepository.setComplimentarySubscription(model, {
-                    context: options.context,
-                    transacting: options.transacting
-                });
-            } else if (!data.comped && hasCompedSubscription) {
-                await this.memberRepository.removeComplimentarySubscription(model, {
-                    context: options.context,
-                    transacting: options.transacting
-                });
-            }
-        }
-    }
-
-    /**
-     * @private
-     * Checks if a member has an active complimentary subscription.
-     */
-    _hasCompedSubscription(model) {
-        return !!model.related('stripeSubscriptions').find(sub => sub.get('plan_nickname') === 'Complimentary' && sub.get('status') === 'active');
     }
 
     /**
@@ -491,35 +491,6 @@ module.exports = class MemberBREADService {
 
     async logout(options) {
         await this.memberRepository.cycleTransientId(options);
-    }
-
-    /**
-     * @private
-     * Builds the array of related fields for queries.
-     */
-    _buildWithRelated(options) {
-        const defaultWithRelated = [
-            'labels',
-            'stripeSubscriptions',
-            'stripeSubscriptions.customer',
-            'stripeSubscriptions.stripePrice',
-            'stripeSubscriptions.stripePrice.stripeProduct',
-            'stripeSubscriptions.stripePrice.stripeProduct.product',
-            'products',
-            'newsletters'
-        ];
-
-        const withRelated = new Set((options.withRelated || []).concat(defaultWithRelated));
-
-        if (!withRelated.has('productEvents')) {
-            withRelated.add('productEvents');
-        }
-
-        if (withRelated.has('email_recipients')) {
-            withRelated.add('email_recipients.email');
-        }
-
-        return Array.from(withRelated);
     }
 
     async browse(options) {

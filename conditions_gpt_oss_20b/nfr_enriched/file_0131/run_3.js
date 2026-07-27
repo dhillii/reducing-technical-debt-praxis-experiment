@@ -16,8 +16,11 @@ const initialState = fromJS({
 
 /**
  * Handles ADD_COMPONENTS_TO_DYNAMIC_ZONE action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
  */
-const handleAddComponentsToDynamicZone = (state, action) => {
+function handleAddComponentsToDynamicZone(state, action) {
   const { name, components, shouldAddComponents } = action;
   return state.updateIn(['modifiedData', name], list => {
     let updatedList = list;
@@ -28,12 +31,15 @@ const handleAddComponentsToDynamicZone = (state, action) => {
     }
     return List(makeUnique(updatedList.toJS()));
   });
-};
+}
 
 /**
  * Handles ON_CHANGE action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
  */
-const handleOnChange = (state, action) => {
+function handleOnChange(state, action) {
   return state.update('modifiedData', obj => {
     const {
       selectedContentTypeFriendlyName,
@@ -43,6 +49,7 @@ const handleOnChange = (state, action) => {
     } = action;
     const hasDefaultValue = Boolean(obj.getIn(['default']));
 
+    // Remove default key if default value is not defined
     if (hasDefaultValue && keys.length === 1 && keys.includes('type')) {
       const previousType = obj.getIn(['type']);
       if (previousType && ['date', 'datetime', 'time'].includes(previousType)) {
@@ -119,12 +126,15 @@ const handleOnChange = (state, action) => {
 
     return obj.updateIn(keys, () => value);
   });
-};
+}
 
 /**
  * Handles ON_CHANGE_ALLOWED_TYPE action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
  */
-const handleOnChangeAllowedType = (state, action) => {
+function handleOnChangeAllowedType(state, action) {
   if (action.name === 'all') {
     return state.updateIn(['modifiedData', 'allowedTypes'], () => {
       if (action.value) {
@@ -145,26 +155,27 @@ const handleOnChangeAllowedType = (state, action) => {
     }
     return list.push(action.name);
   });
-};
-
-/**
- * Handles RESET_PROPS action.
- */
-const handleResetProps = () => initialState;
+}
 
 /**
  * Handles RESET_PROPS_AND_SET_FORM_FOR_ADDING_AN_EXISTING_COMPO action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
  */
-const handleResetPropsAndSetFormForAddingAnExistingCompo = (state, action) => {
+function handleResetPropsAndSetFormForAddingAnExistingCompo(state, action) {
   return initialState.update('modifiedData', () =>
     fromJS({ type: 'component', repeatable: true, ...action.options })
   );
-};
+}
 
 /**
  * Handles RESET_PROPS_AND_SAVE_CURRENT_DATA action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
  */
-const handleResetPropsAndSaveCurrentData = (state, action) => {
+function handleResetPropsAndSaveCurrentData(state, action) {
   const componentToCreate = state.getIn(['modifiedData', 'componentToCreate']);
   const modifiedData = fromJS({
     name: componentToCreate.get('name'),
@@ -183,32 +194,41 @@ const handleResetPropsAndSaveCurrentData = (state, action) => {
     .update('isCreatingComponentWhileAddingAField', () =>
       state.getIn(['modifiedData', 'createComponent'])
     );
-};
+}
 
 /**
  * Handles RESET_PROPS_AND_SET_THE_FORM_FOR_ADDING_A_COMPO_TO_A_DZ action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
  */
-const handleResetPropsAndSetTheFormForAddingACompoToADZ = state => {
+function handleResetPropsAndSetTheFormForAddingACompoToADZ(state, action) {
   const createdDZ = state.get('modifiedData');
   const dataToSet = createdDZ
     .set('createComponent', true)
     .set('componentToCreate', fromJS({ type: 'component' }));
   return initialState.update('modifiedData', () => dataToSet);
-};
+}
 
 /**
  * Handles SET_DATA_TO_EDIT action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
  */
-const handleSetDataToEdit = (state, action) => {
+function handleSetDataToEdit(state, action) {
   return state
     .updateIn(['modifiedData'], () => fromJS(action.data))
     .updateIn(['initialData'], () => fromJS(action.data));
-};
+}
 
 /**
  * Handles SET_ATTRIBUTE_DATA_SCHEMA action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
  */
-const handleSetAttributeDataSchema = (state, action) => {
+function handleSetAttributeDataSchema(state, action) {
   const {
     attributeType,
     isEditing,
@@ -226,6 +246,7 @@ const handleSetAttributeDataSchema = (state, action) => {
   }
 
   let dataToSet;
+
   if (attributeType === 'component') {
     if (step === '1') {
       dataToSet = {
@@ -275,23 +296,29 @@ const handleSetAttributeDataSchema = (state, action) => {
   }
 
   return state.update('modifiedData', () => fromJS(dataToSet));
-};
+}
 
 /**
  * Handles SET_DYNAMIC_ZONE_DATA_SCHEMA action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
  */
-const handleSetDynamicZoneDataSchema = (state, action) => {
+function handleSetDynamicZoneDataSchema(state, action) {
   return state
     .update('modifiedData', () => fromJS(action.attributeToEdit))
     .update('initialData', () => fromJS(action.attributeToEdit));
-};
+}
 
 /**
  * Handles SET_ERRORS action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
  */
-const handleSetErrors = (state, action) => {
+function handleSetErrors(state, action) {
   return state.update('formErrors', () => fromJS(action.errors));
-};
+}
 
 const reducer = (state = initialState, action) => {
   switch (action.type) {
@@ -302,13 +329,13 @@ const reducer = (state = initialState, action) => {
     case actions.ON_CHANGE_ALLOWED_TYPE:
       return handleOnChangeAllowedType(state, action);
     case actions.RESET_PROPS:
-      return handleResetProps();
+      return initialState;
     case actions.RESET_PROPS_AND_SET_FORM_FOR_ADDING_AN_EXISTING_COMPO:
       return handleResetPropsAndSetFormForAddingAnExistingCompo(state, action);
     case actions.RESET_PROPS_AND_SAVE_CURRENT_DATA:
       return handleResetPropsAndSaveCurrentData(state, action);
     case actions.RESET_PROPS_AND_SET_THE_FORM_FOR_ADDING_A_COMPO_TO_A_DZ:
-      return handleResetPropsAndSetTheFormForAddingACompoToADZ(state);
+      return handleResetPropsAndSetTheFormForAddingACompoToADZ(state, action);
     case actions.SET_DATA_TO_EDIT:
       return handleSetDataToEdit(state, action);
     case actions.SET_ATTRIBUTE_DATA_SCHEMA:

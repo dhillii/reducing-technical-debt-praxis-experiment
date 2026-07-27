@@ -68,6 +68,16 @@ const InputModalStepper = ({
   const filesToUploadLength = filesToUpload.length;
   const editModalRef = useRef();
 
+  /**
+   * Shows a confirmation dialog using globalThis.confirm.
+   * @param {string} messageId - The message ID for the confirmation dialog.
+   * @returns {boolean} - The user's confirmation result.
+   */
+  const confirmDialog = (messageId) => {
+    // eslint-disable-next-line no-alert
+    return globalThis.confirm(formatMessage({ id: messageId }));
+  };
+
   const handleReplaceMedia = () => {
     emitEvent('didReplaceMedia', { location: 'upload' });
 
@@ -76,6 +86,8 @@ const InputModalStepper = ({
 
   useEffect(() => {
     if (currentStep === 'upload') {
+      // Go to the modal list view when file uploading is over
+
       if (filesToUploadLength === 0) {
         goToList();
       } else {
@@ -94,11 +106,10 @@ const InputModalStepper = ({
   const goBack = (elementName = null) => {
     const hasFilesToUpload = !isEmpty(filesToUpload);
 
+    // Redirect the user to the list modal from the upload one
     if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
       if (hasFilesToUpload) {
-        const confirm = globalThis.confirm(
-          formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-        );
+        const confirm = confirmDialog(getTrad('window.confirm.close-modal.files'));
 
         if (!confirm) {
           return;
@@ -193,6 +204,7 @@ const InputModalStepper = ({
 
         setShouldDeleteFile(false);
 
+        // Remove file from selected files on delete and go back to the list.
         handleFileSelection({ target: { name: id } });
         goToList();
       } catch (err) {
@@ -237,6 +249,8 @@ const InputModalStepper = ({
     const headers = {};
     const formData = new FormData();
 
+    // If the file has been cropped we need to add it to the formData
+    // otherwise we just don't send it
     const didCropFile = file instanceof File;
     const { abortController, id, fileInfo } = fileToEdit;
     const requestURL = shouldDuplicateMedia ? `/${pluginId}` : `/${pluginId}?id=${id}`;
@@ -271,6 +285,7 @@ const InputModalStepper = ({
         get(err, ['response', 'payload', 'message'], statusText)
       );
 
+      // TODO fix errors globally when the back-end sends readable one
       if (status === 413) {
         errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
       }
@@ -283,9 +298,7 @@ const InputModalStepper = ({
 
   const handleToggle = () => {
     if (filesToUploadLength > 0) {
-      const confirm = globalThis.confirm(
-        formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-      );
+      const confirm = confirmDialog(getTrad('window.confirm.close-modal.files'));
 
       if (!confirm) {
         return;
@@ -297,9 +310,7 @@ const InputModalStepper = ({
       (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
       (currentStep === 'edit' && selectedFiles.length > 0)
     ) {
-      const confirm = globalThis.confirm(
-        formatMessage({ id: getTrad('window.confirm.close-modal.file') })
-      );
+      const confirm = confirmDialog(getTrad('window.confirm.close-modal.file'));
 
       if (!confirm) {
         return;
@@ -317,12 +328,14 @@ const InputModalStepper = ({
   return (
     <>
       <Modal isOpen={isOpen} onToggle={handleToggle} onClosed={handleCloseModal}>
+        {/* header title */}
         <ModalHeader
           goBack={goBack}
           HeaderComponent={HeaderComponent}
           headerBreadcrumbs={headerBreadcrumbs}
           withBackButton={withBackButton}
         />
+        {/* body of the modal */}
         {Component && (
           <Component
             {...allowedActions}

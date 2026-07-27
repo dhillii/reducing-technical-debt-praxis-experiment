@@ -5,14 +5,12 @@ import {task} from 'ember-concurrency';
 import {tracked} from '@glimmer/tracking';
 
 export default class PublishOptions {
-    // passed in services
     config = null;
     limit = null;
     settings = null;
     store = null;
     membersCountCache = null;
 
-    // passed in models
     post = null;
     user = null;
 
@@ -46,8 +44,6 @@ export default class PublishOptions {
         return this.publishType === 'send';
     }
 
-    // publish date ------------------------------------------------------------
-
     @tracked isScheduled = false;
     @tracked scheduledAtUTC = this.minScheduledAt;
 
@@ -74,8 +70,6 @@ export default class PublishOptions {
 
     @action
     setScheduledAt(date) {
-        // API only stores seconds so providing non-zero milliseconds can
-        // trigger unexpected validation when updating scheduled posts
         date = moment.utc(date).milliseconds(0);
 
         if (date.isBefore(this.minScheduledAt)) {
@@ -94,16 +88,14 @@ export default class PublishOptions {
         }
     }
 
-    // publish type ------------------------------------------------------------
-
     @tracked publishType = 'publish+send';
     @tracked emailDisabledError;
 
     get publishTypeOptions() {
         return [{
-            value: 'publish+send', // internal
-            label: 'Publish and email', // shown in expanded options
-            display: 'Publish and email', // shown in option title
+            value: 'publish+send',
+            label: 'Publish and email',
+            display: 'Publish and email',
             disabled: this.emailDisabled
         }, {
             value: 'publish',
@@ -126,12 +118,10 @@ export default class PublishOptions {
             || this.settings.membersSignupAccess === 'none';
     }
 
-    // publish type dropdown is not shown at all
     get emailUnavailable() {
         return this.post.isPage || this.post.email || this.emailDisabledInSettings;
     }
 
-    // publish type dropdown is shown but email options are disabled
     get emailDisabled() {
         const hasNoMembers = this.totalMemberCount === 0;
 
@@ -145,16 +135,11 @@ export default class PublishOptions {
 
     @action
     setPublishType(newValue) {
-        // TODO: validate option is allowed when setting?
         this.publishType = newValue;
     }
 
-    // recipients --------------------------------------------------------------
-
-    // set in constructor because services are not injected
     allNewsletters = [];
 
-    // both of these are set to site defaults in `setupTask`
     @tracked newsletter = null;
     @tracked selectedRecipientFilter = undefined;
 
@@ -233,8 +218,6 @@ export default class PublishOptions {
         this.selectedRecipientFilter = newFilter;
     }
 
-    // setup -------------------------------------------------------------------
-
     constructor({config, limit, post, settings, store, user, membersCountCache} = {}) {
         this.config = config;
         this.limit = limit;
@@ -244,9 +227,6 @@ export default class PublishOptions {
         this.user = user;
         this.membersCountCache = membersCountCache;
 
-        // this needs to be set here rather than a class-level property because
-        // unlike Ember-based classes the services are not injected so can't be
-        // used until after they are assigned above
         this.allNewsletters = this.store.peekAll('newsletter');
 
         this.setupTask.perform();
@@ -256,17 +236,12 @@ export default class PublishOptions {
     *setupTask() {
         yield this.fetchRequiredDataTask.perform();
 
-        // TODO: set up initial state / defaults
-
         this.newsletter = this.defaultNewsletter;
 
         if (this.emailUnavailable || this.emailDisabled) {
             this.publishType = 'publish';
         }
 
-        // When default recipients is set to "Usually nobody":
-        // Set publish type to "Publish" but keep email recipients matching post visibility
-        // to avoid multiple clicks to turn on emailing
         if (
             this.settings.editorDefaultEmailRecipients === 'filter' &&
             this.settings.editorDefaultEmailRecipientsFilter === null
@@ -281,32 +256,31 @@ export default class PublishOptions {
 
     @task
     *fetchRequiredDataTask() {
-        const promises = [
-            this.user.isAdmin
-                ? this.membersCountCache.count({}).then((res) => {
+        const promises = [];
+
+        if (this.user.isAdmin) {
+            promises.push(
+                this.membersCountCache.count({}).then((res) => {
                     this.totalMemberCount = res;
                 })
-                : null,
-            this._checkSendingLimit(),
-            this._checkPublishingLimit(),
-            !this.user.isContributor
-                ? this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})
-                : null
-        ].filter(Boolean);
-
-        if (!this.user.isAdmin) {
+            );
+        } else {
             this.totalMemberCount = 1;
+        }
+
+        promises.push(this._checkSendingLimit(), this._checkPublishingLimit());
+
+        if (!this.user.isContributor) {
+            promises.push(
+                this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})
+            );
         }
 
         yield Promise.all(promises);
     }
 
-    // saving ------------------------------------------------------------------
-
     @task({drop: true})
     *saveTask() {
-        // willEmail can change after model changes are applied because the post
-        // can leave draft status - grab it now before that happens
         const willEmail = this.willEmail;
 
         this._applyModelChanges();
@@ -347,20 +321,11 @@ export default class PublishOptions {
         }
     }
 
-    // Publishing/scheduling is a side-effect of changing model properties.
-    // We don't want to get into a situation where we've applied these changes
-    // but they haven't been saved because that would result in confusing UI.
-    //
-    // Here we apply those changes from the selected publish options but keep
-    // track of the previous values in case saving fails. We can't use ED's
-    // rollbackAttributes() because it would also rollback any other unsaved edits
     _applyModelChanges() {
         const willEmail = this.willEmail;
 
-        // store backup of original values in case we need to revert
         this._originalModelValues = {};
 
-        // this only applies to the full publish flow which is only available for drafts
         if (!this.post.isDraft) {
             return;
         }
@@ -403,7 +368,6 @@ export default class PublishOptions {
     }
 
     async _checkPublishingLimit() {
-        // non-admin users cannot fetch members count so we can't error at this stage for them
         if (!this.user.isAdmin) {
             return;
         }

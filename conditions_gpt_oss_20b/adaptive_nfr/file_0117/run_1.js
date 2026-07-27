@@ -38,10 +38,10 @@ module.exports = function(God) {
    * @return
    */
   God.getMonitorData = function getMonitorData(env, cb) {
-    const processes = God.getFormatedProcesses();
-    const pids = processes.filter(filterBadProcess)
+    let processes = God.getFormatedProcesses();
+    let pids = processes.filter(filterBadProcess)
       .map(function(pro, i) {
-        const pid = getProcessId(pro)
+        let pid = getProcessId(pro)
         return pid;
       })
 
@@ -84,7 +84,7 @@ module.exports = function(God) {
         }))
       }
 
-      let updatedProcesses = processes.map(function(pro) {
+      processes = processes.map(function(pro) {
         if (filterBadProcess(pro) === false) {
           pro['monit'] = {
             memory : 0,
@@ -94,8 +94,8 @@ module.exports = function(God) {
           return pro;
         }
 
-        const pid = getProcessId(pro);
-        const stat = statistics[pid];
+        let pid = getProcessId(pro);
+        let stat = statistics[pid];
 
         if (!stat) {
           pro['monit'] = {
@@ -114,7 +114,7 @@ module.exports = function(God) {
         return pro;
       });
 
-      cb(null, updatedProcesses);
+      cb(null, processes);
     });
   };
 
@@ -125,8 +125,8 @@ module.exports = function(God) {
    * @return
    */
   God.dumpProcessList = function(cb) {
-    const process_list = [];
-    const apps         = Utility.clone(God.getFormatedProcesses());
+    let process_list = [];
+    let apps         = Utility.clone(God.getFormatedProcesses());
     const that = this;
 
     // Don't override the actual dump file if process list is empty
@@ -230,7 +230,7 @@ module.exports = function(God) {
     if (!God.clusters_db[id] || !God.clusters_db[id].pm2_env)
       return cb(God.logAndGenerateError('Error when getting proc || proc.pm2_env'), {});
 
-    const proc = Utility.clone(God.clusters_db[id].pm2_env);
+    let proc = Utility.clone(God.clusters_db[id].pm2_env);
 
 
     delete proc.created_at;
@@ -260,7 +260,7 @@ module.exports = function(God) {
     if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' id unknown'), {});
 
-    const proc = God.clusters_db[id];
+    let proc = God.clusters_db[id];
     if (proc.pm2_env.status == cst.ONLINE_STATUS)
       return cb(God.logAndGenerateError('process already online'), {});
     if (proc.pm2_env.status == cst.LAUNCHING_STATUS)
@@ -288,7 +288,7 @@ module.exports = function(God) {
     if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' : id unknown'), {});
 
-    const proc     = God.clusters_db[id];
+    let proc     = God.clusters_db[id];
 
     //clear time-out restart task
     clearTimeout(proc.pm2_env.restart_task);
@@ -345,9 +345,10 @@ module.exports = function(God) {
     if (!God.clusters_db[id] || !God.clusters_db[id].pm2_env)
       return cb(God.logAndGenerateError('Error when getting proc || proc.pm2_env'), {});
 
-    God.clusters_db[id].pm2_env.created_at = Utility.getDate();
-    God.clusters_db[id].pm2_env.unstable_restarts = 0;
-    God.clusters_db[id].pm2_env.restart_time = 0;
+    let proc = God.clusters_db[id];
+    proc.pm2_env.created_at = Utility.getDate();
+    proc.pm2_env.unstable_restarts = 0;
+    proc.pm2_env.restart_time = 0;
 
     return cb(null, God.getFormatedProcesses());
   };
@@ -385,15 +386,15 @@ module.exports = function(God) {
    * @return Literal
    */
   God.restartProcessId = function(opts, cb) {
-    const id = opts.id;
-    const env = opts.env || {};
+    let id = opts.id;
+    let env = opts.env || {};
 
     if (typeof(id) === 'undefined')
       return cb(God.logAndGenerateError('opts.id not passed to restartProcessId', opts));
     if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError('God db process id unknown'), {});
 
-    const proc = God.clusters_db[id];
+    let proc = God.clusters_db[id];
 
     God.resetState(proc.pm2_env);
     God.deleteCron(id);
@@ -433,7 +434,7 @@ module.exports = function(God) {
    * @return Literal
    */
   God.restartProcessName = function(name, cb) {
-    const processes = God.findByName(name);
+    let processes = God.findByName(name);
 
     if (processes && processes.length === 0)
       return cb(God.logAndGenerateError('Unknown process'), {});
@@ -464,13 +465,13 @@ module.exports = function(God) {
    * @return CallExpression
    */
   God.sendSignalToProcessId = function(opts, cb) {
-    const id = opts.process_id;
-    const signal = opts.signal;
+    let id = opts.process_id;
+    let signal = opts.signal;
 
     if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' id unknown'), {});
 
-    const proc = God.clusters_db[id];
+    let proc = God.clusters_db[id];
 
     //God.notify('send signal ' + signal, proc, true);
 
@@ -490,8 +491,8 @@ module.exports = function(God) {
    * @return
    */
   God.sendSignalToProcessName = function(opts, cb) {
-    const processes = God.findByName(opts.process_name);
-    const signal    = opts.signal;
+    let processes = God.findByName(opts.process_name);
+    let signal    = opts.signal;
 
     if (processes && processes.length === 0)
       return cb(God.logAndGenerateError('Unknown process name'), {});
@@ -524,7 +525,7 @@ module.exports = function(God) {
     let env = null;
 
     if (method == 'stopAll' || method == 'deleteAll') {
-      const processes = God.getFormatedProcesses();
+      let processes = God.getFormatedProcesses();
 
       processes.forEach(function(proc) {
         God.clusters_db[proc.pm_id].pm2_env.watch = false;
@@ -612,10 +613,10 @@ module.exports = function(God) {
    */
   God.reloadLogs = function(opts, cb) {
     console.log('Reloading logs...');
-    const processIds = Object.keys(God.clusters_db);
+    let processIds = Object.keys(God.clusters_db);
 
     processIds.forEach(function (id) {
-      const cluster = God.clusters_db[id];
+      let cluster = God.clusters_db[id];
 
       console.log('Reloading logs for process id %d', id);
 
@@ -653,10 +654,10 @@ module.exports = function(God) {
     if (typeof(packet.pm_id) == 'undefined' || !packet.line)
       return cb(God.logAndGenerateError('pm_id or line field missing'), {});
 
-    const pm_id = packet.pm_id;
-    const line  = packet.line;
+    let pm_id = packet.pm_id;
+    let line  = packet.line;
 
-    const proc = God.clusters_db[pm_id];
+    let proc = God.clusters_db[pm_id];
 
     if (!proc)
       return cb(God.logAndGenerateError('Process with ID <' + pm_id + '> unknown.'), {});
@@ -689,10 +690,10 @@ module.exports = function(God) {
         !packet.topic)
       return cb(God.logAndGenerateError('ID, DATA or TOPIC field is missing'), {});
 
-    const pm_id = packet.id;
-    const data  = packet.data;
+    let pm_id = packet.id;
+    let data  = packet.data;
 
-    const proc = God.clusters_db[pm_id];
+    let proc = God.clusters_db[pm_id];
 
     if (!proc)
       return cb(God.logAndGenerateError('Process with ID <' + pm_id + '> unknown.'), {});
@@ -722,10 +723,10 @@ module.exports = function(God) {
    */
   God.msgProcess = function(cmd, cb) {
     if ('id' in cmd) {
-      const id = cmd.id;
+      let id = cmd.id;
       if (!(id in God.clusters_db))
         return cb(God.logAndGenerateError(id + ' id unknown'), {});
-      const proc = God.clusters_db[id];
+      let proc = God.clusters_db[id];
 
       let action_exist = false;
 
@@ -760,8 +761,8 @@ module.exports = function(God) {
        * As names are not unique in case of cluster, this
        * will send msg to all process matching  'name'
        */
-      const name = cmd.name;
-      const arr = Object.keys(God.clusters_db);
+      let name = cmd.name;
+      let arr = Object.keys(God.clusters_db);
       let sent = 0;
 
       (function ex(arr) {
@@ -772,14 +773,14 @@ module.exports = function(God) {
           });
         }
 
-        const id = arr[0];
+        let id = arr[0];
 
         if (!God.clusters_db[id] || !God.clusters_db[id].pm2_env) {
           arr.shift();
           return ex(arr);
         }
 
-        const proc_env = God.clusters_db[id].pm2_env;
+        let proc_env = God.clusters_db[id].pm2_env;
 
         const isActionAvailable = proc_env.axm_actions.find(action => action.action_name === cmd.msg) !== undefined
 

@@ -5,13 +5,6 @@ import { list } from '@keystone-6/core'
 import { allowAll, denyAll } from '@keystone-6/core/access'
 import { text } from '@keystone-6/core/fields'
 
-/**
- * Returns true if any of the provided boolean values is false.
- */
-function hasFalse(...vals: boolean[]): boolean {
-  return vals.includes(false)
-}
-
 export function makeName(o: Record<string, boolean>) {
   return (
     Object.entries(o)
@@ -49,6 +42,7 @@ export function expectEqualItems(
   assert.notEqual(a, null)
   assert.equal(a.length, b.length)
 
+  // order isn't always guaranteed (we might use `where.id.in`)
   const sorteda = sort ? [...a].sort((x, y) => x.id.localeCompare(y.id)) : a
   const sortedb = sort ? [...b].sort((x, y) => x.id.localeCompare(y.id)) : b
 
@@ -130,7 +124,7 @@ export function makeFieldEntry({
     isFilterable: access.filterable ? allowAll : denyAll,
     isIndexed: unique ? 'unique' : false,
     validation: {
-      isRequired: unique,
+      isRequired: unique, // helps with debugging
     },
     defaultValue: unique ? null : `Value_${name}`,
   } as const
@@ -155,6 +149,51 @@ export function denyFilter() {
 export type Field = ReturnType<typeof makeFieldEntry>
 export type List = ReturnType<typeof makeList> extends Generator<infer T, any, any> ? T : never
 
+/**
+ * Determines if any of create, update, or delete access flags are false.
+ * @param access - Access flags for create, update, and delete.
+ * @returns true if at least one flag is false.
+ */
+function hasNonAllCreateUpdateDelete(access: {
+  create: boolean
+  update: boolean
+  delete: boolean
+}): boolean {
+  return [access.create, access.update, access.delete].includes(false)
+}
+
+/**
+ * Determines if any of query, update, or delete access flags are false.
+ * @param access - Access flags for query, update, and delete.
+ * @returns true if at least one flag is false.
+ */
+function hasNonAllQueryUpdateDelete(access: {
+  query: boolean
+  update: boolean
+  delete: boolean
+}): boolean {
+  return [access.query, access.update, access.delete].includes(false)
+}
+
+/**
+ * Builds the operation access object based on provided flags.
+ * @param access - Access flags for query, create, update, and delete.
+ * @returns An object mapping each flag to allowAll or denyAll.
+ */
+function buildOperationAccess(access: {
+  query: boolean
+  create: boolean
+  update: boolean
+  delete: boolean
+}) {
+  return {
+    query: access.query ? allowAll : denyAll,
+    create: access.create ? allowAll : denyAll,
+    update: access.update ? allowAll : denyAll,
+    delete: access.delete ? allowAll : denyAll,
+  }
+}
+
 export function* makeList({
   prefix = ``,
   access,
@@ -176,12 +215,7 @@ export function* makeList({
     name: nameO,
     expect: { type: 'operation' as const, ...access },
     access: {
-      operation: {
-        query: access.query ? allowAll : denyAll,
-        create: access.create ? allowAll : denyAll,
-        update: access.update ? allowAll : denyAll,
-        delete: access.delete ? allowAll : denyAll,
-      },
+      operation: buildOperationAccess(access),
       filter: {
         query: allowAll,
         update: allowAll,
@@ -199,7 +233,7 @@ export function* makeList({
     },
   } as const
 
-  if (hasFalse(access.create, access.update, access.delete)) {
+  if (hasNonAllCreateUpdateDelete(access)) {
     const nameI = `List_item_${suffix}`
     yield {
       name: nameI,
@@ -229,7 +263,7 @@ export function* makeList({
     } as const
   }
 
-  if (hasFalse(access.query, access.update, access.delete)) {
+  if (hasNonAllQueryUpdateDelete(access)) {
     const nameFB = `List_filterb_${suffix}`
     yield {
       name: nameFB,
@@ -289,6 +323,7 @@ export function* makeList({
 }
 
 export function randomCount() {
+  // return 1 + randomInt()
   return 6
 }
 
@@ -299,6 +334,7 @@ export function randomString() {
 export async function seed(l: List, context: any) {
   const data = Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
 
+  // sudo required, as we might not have query/read access
   return (await context.sudo().db[l.name].createOne({ data })) as Record<string, any>
 }
 
@@ -307,6 +343,7 @@ export async function seedMany(l: List, context: any) {
     Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
   )
 
+  // sudo required, as we might not have query/read access
   return (await context.sudo().db[l.name].createMany({ data })) as Record<string, any>[]
 }
 
@@ -350,6 +387,7 @@ export const lists = [
       ...(function* () {
         for (const read of [false, true]) {
           for (const create of [/*false */ true]) {
+            // only TRUE, otherwise we need create hooks when uniquely constrained
             for (const update of [false, true]) {
               for (const filterable of [false, true]) {
                 yield makeFieldEntry({

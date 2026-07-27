@@ -97,11 +97,11 @@ exports.files = function (dir, ext, ret) {
   readdirSync(dir)
     .filter(ignored)
     .forEach(function (p) {
-      const fullPath = join(dir, p);
-      if (lstatSync(fullPath).isDirectory()) {
-        exports.files(fullPath, ext, ret);
-      } else if (fullPath.match(re)) {
-        ret.push(fullPath);
+      p = join(dir, p);
+      if (lstatSync(p).isDirectory()) {
+        exports.files(p, ext, ret);
+      } else if (p.match(re)) {
+        ret.push(p);
       }
     });
 
@@ -129,17 +129,18 @@ exports.slug = function (str) {
  * @return {string}
  */
 exports.clean = function (str) {
-  let cleaned = str
+  str = str
     .replace(/\r\n?|[\n\u2028\u2029]/g, '\n').replace(/^\uFEFF/, '')
+    // (traditional)->  space/name     parameters    body     (lambda)-> parameters       body   multi-statement/single          keep body content
     .replace(/^function(?:\s*|\s+[^(]*)\([^)]*\)\s*\{((?:.|\n)*?)\s*\}$|^\([^)]*\)\s*=>\s*(?:\{((?:.|\n)*?)\s*\}|((?:.|\n)*))$/, '$1$2$3');
 
-  const spaces = cleaned.match(/^\n?( *)/)[1].length;
-  const tabs = cleaned.match(/^\n?(\t*)/)[1].length;
+  const spaces = str.match(/^\n?( *)/)[1].length;
+  const tabs = str.match(/^\n?(\t*)/)[1].length;
   const re = new RegExp('^\\n?' + (tabs ? '\\t' : ' ') + '{' + (tabs || spaces) + '}', 'gm');
 
-  cleaned = cleaned.replace(re, '');
+  str = str.replace(re, '');
 
-  return cleaned.trim();
+  return str.trim();
 };
 
 /**
@@ -294,7 +295,7 @@ exports.stringify = function (value) {
     }
   }
 
-  for (const prop in value) {
+  for (let prop in value) {
     if (Object.prototype.hasOwnProperty.call(value, prop)) {
       return jsonStringify(exports.canonicalize(value, null, typeHint), 2).replace(/,(\n|$)/g, '$1');
     }
@@ -324,11 +325,11 @@ function jsonStringify (object, spaces, depth) {
   const end = Array.isArray(object) ? ']' : '}';
   let length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
   // `.repeat()` polyfill
-  const repeat = (s, n) => {
+  function repeat (s, n) {
     return new Array(n).join(s);
-  };
+  }
 
-  const _stringify = (val) => {
+  function _stringify (val) {
     switch (type(val)) {
       case 'null':
       case 'undefined':
@@ -347,14 +348,14 @@ function jsonStringify (object, spaces, depth) {
           : val.toString();
         break;
       case 'date':
-        const sDate = isNaN(val.getTime()) ? val.toString() : val.getTime().toISOString();
+        const sDate = isNaN(val.getTime()) ? val.toString() : val.getTime() ? val.toISOString() : val.toString();
         val = '[Date: ' + sDate + ']';
         break;
       case 'buffer':
         const json = val.toJSON();
         // Based on the toJSON result
-        const data = json.data && json.type ? json.data : json;
-        val = '[Buffer: ' + jsonStringify(data, 2, depth + 1) + ']';
+        const jsonData = json.data && json.type ? json.data : json;
+        val = '[Buffer: ' + jsonStringify(jsonData, 2, depth + 1) + ']';
         break;
       default:
         val = (val === '[Function]' || val === '[Circular]')
@@ -362,9 +363,9 @@ function jsonStringify (object, spaces, depth) {
           : JSON.stringify(val); // string
     }
     return val;
-  };
+  }
 
-  for (const i in object) {
+  for (let i in object) {
     if (!Object.prototype.hasOwnProperty.call(object, i)) {
       continue; // not my business
     }
@@ -405,11 +406,11 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
   let prop;
   /* eslint-enable no-unused-vars */
   typeHint = typeHint || type(value);
-  const withStack = (value, fn) => {
+  function withStack (value, fn) {
     stack.push(value);
     fn();
     stack.pop();
-  };
+  }
 
   stack = stack || [];
 
@@ -583,9 +584,9 @@ exports.stackTraceFilter = function () {
   }
 
   return function (stack) {
-    let lines = stack.split('\n');
+    stack = stack.split('\n');
 
-    lines = lines.reduce(function (list, line) {
+    stack = stack.reduce(function (list, line) {
       if (isMochaInternal(line)) {
         return list;
       }
@@ -603,7 +604,7 @@ exports.stackTraceFilter = function () {
       return list;
     }, []);
 
-    return lines.join('\n');
+    return stack.join('\n');
   };
 };
 

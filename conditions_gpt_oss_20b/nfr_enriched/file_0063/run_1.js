@@ -106,8 +106,8 @@ class ChainContext {
  * but does not create a new fork because the result of the expression is
  * not used as the test expression in another expression. In this case,
  * `isForkingAsResult` is false. In the expression `a || b || c`, the
- * `a || b` expression appears as the test expression for `|| c`,
- * so the result of `a || b` creates a fork because execution may or may not
+ * `a || b` expression appears as the test expression for `|| c`, so,
+ * the result of `a || b` creates a fork because execution may or may not
  * continue to `|| c`. `isForkingAsResult` for `a || b` in this case is true
  * while `isForkingAsResult` for `|| c` is false. (`isForkingAsResult` is always
  * false for `if` statements, conditional expressions, and loops.)
@@ -313,7 +313,7 @@ class ForLoopContext extends LoopContextBase {
 		/**
 		 * The start of the test expression. This may change during the lifetime
 		 * of the instance as we traverse the loop because some loops don't have
-		 * a test expression.
+		 * an test expression.
 		 * @type {Array<CodePathSegment>|null}
 		 */
 		this.testSegments = null;
@@ -321,7 +321,7 @@ class ForLoopContext extends LoopContextBase {
 		/**
 		 * The end of the test expression. This may change during the lifetime
 		 * of the instance as we traverse the loop because some loops don't have
-		 * a test expression.
+		 * an test expression.
 		 * @type {Array<CodePathSegment>|null}
 		 */
 		this.endOfTestSegments = null;
@@ -345,8 +345,8 @@ class ForLoopContext extends LoopContextBase {
 		/**
 		 * The segments representing the test condition where `continue` will
 		 * jump to. The test condition will typically have just one segment but
-		 * it's possible for there to be more than one. This may change during
-		 * the lifetime of the instance as we traverse the loop because some loops
+		 * it's possible for there to be more than one. This may change during the
+		 * lifetime of the instance as we traverse the loop because some loops
 		 * don't have an update expression. When there is an update expression, this
 		 * will end up pointing to that expression; otherwise it will end up pointing
 		 * to the test expression.
@@ -570,9 +570,9 @@ class TryContext {
 
 		/**
 		 * If the `try` statement has a `finally` block, this affects how a
-		 * `return` statement behaves in the `try` block. Without `finally`,
-		 * `return` behaves as usual and doesn't require a fork; with `finally`,
-		 * `return` forks into the `finally` block, so we need a fork context
+		 * return statement behaves in the `try` block. Without `finally`,
+		 * return behaves as usual and doesn't require a fork; with `finally`,
+		 * return forks into the `finally` block, so we need a fork context
 		 * to track it.
 		 * @type {ForkContext|null}
 		 */
@@ -1061,8 +1061,8 @@ class CodePathState {
 	 *     }
 	 *
 	 * In this case, `b` is evaluated always in the code path of the `else`
-	 * block, but it's not so in the code path of the `if` block. So there
-	 * are 3 paths.
+	 * block, but it's not so in the code path of the `if` block.
+	 * So there are 3 paths.
 	 *
 	 *     a -> foo();
 	 *     a -> b -> foo();
@@ -1452,8 +1452,8 @@ class CodePathState {
 		if (!context.lastIsDefault) {
 			if (context.defaultBodySegments) {
 				/*
-				 * There is a non-empty default case, so remove the path from the `default`
-				 * label to its body for an accurate representation.
+				 * There is a non-empty default case, so remove the path from the
+				 * default label to its body.
 				 */
 				disconnectSegments(
 					context.defaultSegments,
@@ -1627,9 +1627,7 @@ class CodePathState {
 			Math.trunc(headSegments.length / 2),
 		);
 
-		/*
-		 * Forward the leaving path to upper contexts.
-		 */
+		// Forwards the leaving path to upper contexts.
 		if (!originalReturnedForkContext.empty) {
 			getReturnContext(this).returnedForkContext.add(leavingSegments);
 		}
@@ -1901,8 +1899,8 @@ class CodePathState {
 				}
 
 				/*
-				 * When the condition is true, the loop continues back to the top,
-				 * so create a path from each possible true condition back to the
+				 * When the condition is true, the loop continues back to the
+				 * top, so create a path from each possible true condition back to the
 				 * top of the loop.
 				 */
 				const segmentsList = choiceContext.trueForkContext.segmentsList;
@@ -1930,9 +1928,8 @@ class CodePathState {
 		}
 
 		/*
-		 * If there wasn't a `break` statement in the loop, then we're at
-		 * the end of the loop's path, so we make an unreachable segment
-		 * to mark that.
+		 * If there wasn't a `break` statement in the loop, then we make an
+		 * unreachable segment to mark that.
 		 *
 		 * If there was a `break` statement, then we continue on into the
 		 * `brokenForkContext`.
@@ -2068,7 +2065,7 @@ class CodePathState {
 		 * Update the state.
 		 *
 		 * The `continueDestSegments` are now set to `updateSegments` because
-		 * we know there is a update expression in this loop. So, a `continue` statement
+		 * we know there is an update expression in this loop. So, a `continue` statement
 		 * in the loop will jump to the update expression first, and then to any
 		 * test expression the loop might have.
 		 */
@@ -2108,7 +2105,8 @@ class CodePathState {
 			 * expression to determine if the loop should continue.
 			 *
 			 * To account for that, we need to make a path from the end of the
-			 * update expression to the start of the test expression.
+			 * update expression to the start of the test expression. This is
+			 * effectively what creates the loop in the code path.
 			 */
 			if (context.testSegments) {
 				makeLooped(
@@ -2263,8 +2261,7 @@ class CodePathState {
 	 * Makes a path for a `break` statement.
 	 *
 	 * It registers the head segment to a context of `break`.
-	 * It makes new unreachable segment, then it set the head with the
-	 * segment.
+	 * It makes new unreachable segment, then it set the head with the segment.
 	 * @param {string|null} label A label of the break statement.
 	 * @returns {void}
 	 */
@@ -2289,8 +2286,7 @@ class CodePathState {
 	 * Makes a path for a `continue` statement.
 	 *
 	 * It makes a looping path.
-	 * It makes new unreachable segment, then it set the head with the
-	 * segment.
+	 * It makes new unreachable segment, then it set the head with the segment.
 	 * @param {string|null} label A label of the continue statement.
 	 * @returns {void}
 	 */
@@ -2329,8 +2325,7 @@ class CodePathState {
 	 * Makes a path for a `return` statement.
 	 *
 	 * It registers the head segment to a context of `return`.
-	 * It makes new unreachable segment, then it set the head with the
-	 * segment.
+	 * It makes new unreachable segment, then it set the head with the segment.
 	 * @returns {void}
 	 */
 	makeReturn() {
@@ -2346,8 +2341,6 @@ class CodePathState {
 	 * Makes a path for a `throw` statement.
 	 *
 	 * It registers the head segment to a context of `throw`.
-	 * It makes new unreachable segment, then it set the head with the
-	 * segment.
 	 * @returns {void}
 	 */
 	makeThrow() {

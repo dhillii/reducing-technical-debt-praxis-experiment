@@ -84,7 +84,7 @@ describe("bin/eslint.js", () => {
 		const newProcess = childProcess.fork(
 			EXECUTABLE_PATH,
 			args,
-			{ silent: true, ...options },
+			{ silent: true, ...(options ?? {}) },
 		);
 
 		forkedProcesses.add(newProcess);
@@ -180,11 +180,13 @@ describe("bin/eslint.js", () => {
 		});
 
 		it("has exit code 2 if a syntax error is thrown when exit-on-fatal-error is true", () => {
-			const child = runESLint([
-				"--stdin",
-				"--no-config-lookup",
-				"--exit-on-fatal-error",
-			]);
+			const child = runESLint(
+				[
+					"--stdin",
+					"--no-config-lookup",
+					"--exit-on-fatal-error",
+				],
+			);
 
 			child.stdin.write("This is not valid JS syntax.\n");
 			child.stdin.end();
@@ -367,7 +369,6 @@ describe("bin/eslint.js", () => {
 
 			return Promise.all([exitCodeAssertion, outputFileAssertion]);
 		});
-
 		afterEach(() => {
 			fs.unlinkSync(tempFilePath);
 		});

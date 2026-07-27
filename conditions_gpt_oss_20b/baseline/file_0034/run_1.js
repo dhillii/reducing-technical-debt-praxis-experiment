@@ -281,22 +281,29 @@ export default class PublishOptions {
 
     @task
     *fetchRequiredDataTask() {
-        if (!this.user.isAdmin) {
+        const promises = [];
+
+        if (this.user.isAdmin) {
+            promises.push(
+                this.membersCountCache.count({}).then((res) => {
+                    this.totalMemberCount = res;
+                })
+            );
+        } else {
             this.totalMemberCount = 1;
         }
 
-        const promises = [
-            this.user.isAdmin
-                ? this.membersCountCache.count({}).then((res) => {
-                    this.totalMemberCount = res;
+        promises.push(this._checkSendingLimit(), this._checkPublishingLimit());
+
+        if (!this.user.isContributor) {
+            promises.push(
+                this.store.query('newsletter', {
+                    status: 'active',
+                    limit: 'all',
+                    include: 'count.active_members'
                 })
-                : null,
-            this._checkSendingLimit(),
-            this._checkPublishingLimit(),
-            !this.user.isContributor
-                ? this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})
-                : null
-        ].filter(Boolean);
+            );
+        }
 
         yield Promise.all(promises);
     }

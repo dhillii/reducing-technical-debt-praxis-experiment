@@ -4,15 +4,12 @@ const ngModule = angular.module('woEmail');
 ngModule.service('email', Email);
 module.exports = Email;
 
-const config = require('../app-config').config,
-      str = require('../app-config').string,
-      axe = require('axe-logger'),
-      PgpMailer = require('pgpmailer'),
-      ImapClient = require('imap-client');
+const config = require('../app-config').config;
+const str = require('../app-config').string;
+const axe = require('axe-logger');
+const PgpMailer = require('pgpmailer');
+const ImapClient = require('imap-client');
 
-//
-// Constants
-//
 const FOLDER_DB_TYPE = 'folders';
 
 const SYNC_TYPE_NEW = 'new';
@@ -34,9 +31,6 @@ const MSG_PART_TYPE_SIGNED = 'signed';
 const MSG_PART_TYPE_TEXT = 'text';
 const MSG_PART_TYPE_HTML = 'html';
 
-//
-// Email Service
-//
 function Email(keychain, pgp, accountStore, pgpbuilder, mailreader, dialog, appConfig, auth) {
     this._keychain = keychain;
     this._pgp = pgp;
@@ -48,9 +42,6 @@ function Email(keychain, pgp, accountStore, pgpbuilder, mailreader, dialog, appC
     this._auth = auth;
 }
 
-//
-// Public API
-//
 Email.prototype.init = function(options) {
     const self = this;
 
@@ -586,9 +577,6 @@ Email.prototype.refreshOutbox = function() {
     });
 };
 
-//
-// Event Handlers
-//
 Email.prototype.onConnect = function(imap) {
     const self = this;
 
@@ -769,9 +757,6 @@ Email.prototype._onSyncUpdate = function(options) {
     }
 };
 
-//
-// Internal API
-//
 Email.prototype._updateFolders = function() {
     const self = this;
 
@@ -908,9 +893,6 @@ Email.prototype.done = function() {
     }
 };
 
-//
-// IMAP API
-//
 Email.prototype._imapMark = function(options) {
     const self = this;
 
@@ -1012,7 +994,6 @@ Email.prototype._fetchMessages = function(options) {
                 bodyParts: contentParts
             }).then(function(parsedBodyParts) {
                 message.bodyParts = parsedBodyParts.concat(attachmentParts);
-
                 return self._localStoreMessages({
                     folder: folder,
                     emails: [message]
@@ -1064,9 +1045,6 @@ Email.prototype._getBodyParts = function(options) {
     });
 };
 
-//
-// Local Storage API
-//
 Email.prototype._localStoreFolders = function() {
     const folders = this._account.folders.map(function(folder) {
         return {
@@ -1118,9 +1096,6 @@ Email.prototype._localDeleteMessage = function(options) {
     return this._devicestorage.removeList(dbType);
 };
 
-//
-// Internal Helper Methods
-//
 Email.prototype._extractBody = function(message) {
     const self = this;
 
@@ -1156,25 +1131,32 @@ Email.prototype._extractBody = function(message) {
             return;
         }
 
-        const clearSignedMatch = /^-{5}BEGIN PGP SIGNED MESSAGE-{5}\nHash:[ ][^\n]+\n(?:[A-Za-z]+:[ ][^\n]+\n)*\n([\s\S]*?)\n-{5}BEGIN PGP SIGNATURE-{5}[\S\s]*-{5}END PGP SIGNATURE-{5}$/im.exec(body);
+        let clearSignedMatch = /^-{5}BEGIN PGP SIGNED MESSAGE-{5}\nHash:[ ][^\n]+\n(?:[A-Za-z]+:[ ][^\n]+\n)*\n([\s\S]*?)\n-{5}BEGIN PGP SIGNATURE-{5}[\S\s]*-{5}END PGP SIGNATURE-{5}$/im.exec(body);
         if (clearSignedMatch) {
             message.signed = true;
             message.clearSignedMessage = clearSignedMatch[0];
-            const cleaned = (clearSignedMatch[1] || '').replace(/^- /gm, '');
-            setBody(cleaned, root);
-        } else {
-            setBody(body, root);
+            body = (clearSignedMatch[1] || '').replace(/^- /gm, '');
         }
 
-        function setBody(body, root) {
-            message.body = body;
-            if (!message.clearSignedMessage) {
-                message.attachments = filterBodyParts(root, MSG_PART_TYPE_ATTACHMENT);
-                message.html = _.pluck(filterBodyParts(root, MSG_PART_TYPE_HTML), MSG_PART_ATTR_CONTENT).join('\n');
-                inlineExternalImages(message);
-            }
+        if (!message.signed) {
+            return setBody(body, root);
         }
+
+        return self._checkSignatures(message).then(function(signaturesValid) {
+            message.signed = typeof signaturesValid !== 'undefined';
+            message.signaturesValid = signaturesValid;
+            setBody(body, root);
+        });
     });
+
+    function setBody(body, root) {
+        message.body = body;
+        if (!message.clearSignedMessage) {
+            message.attachments = filterBodyParts(root, MSG_PART_TYPE_ATTACHMENT);
+            message.html = _.pluck(filterBodyParts(root, MSG_PART_TYPE_HTML), MSG_PART_ATTR_CONTENT).join('\n');
+            inlineExternalImages(message);
+        }
+    }
 };
 
 Email.prototype._parse = function(options) {
@@ -1238,9 +1220,6 @@ Email.prototype.isOnline = function() {
     return navigator.onLine;
 };
 
-//
-// Helper Functions
-//
 function updateUnreadCount(folder, countAllMessages) {
     folder.count = countAllMessages ? folder.messages.length : _.filter(folder.messages, function(msg) {
         return msg.unread;
@@ -1261,8 +1240,8 @@ function filterBodyParts(bodyParts, type, result) {
 
 function inlineExternalImages(message) {
     message.html = message.html.replace(/(<img[^>]+\bsrc=['"])cid:([^'">]+)(['"])/ig, function(match, prefix, src, suffix) {
-        let localSource = '',
-            payload = '';
+        let localSource = '';
+        let payload = '';
 
         const internalReference = _.findWhere(message.attachments, {
             id: src

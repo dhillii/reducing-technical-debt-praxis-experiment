@@ -201,19 +201,19 @@ class Strapi {
     await Promise.all(
       Object.values(this.plugins).map(plugin => {
         if (_.has(plugin, 'destroy') && typeof plugin.destroy === 'function') {
-          return Promise.resolve(plugin.destroy());
+          return plugin.destroy();
         }
       })
     );
 
     if (_.has(this, 'admin')) {
-      await Promise.resolve(this.admin.destroy());
+      await this.admin.destroy();
     }
 
     this.eventHub.removeAllListeners();
 
     if (_.has(this, 'db')) {
-      await Promise.resolve(this.db.destroy());
+      await this.db.destroy();
     }
 
     this.telemetry.destroy();
@@ -225,7 +225,7 @@ class Strapi {
     const onListen = async err => {
       if (err) return this.stopWithError(err);
 
-      const isInitialised = await Promise.resolve(utils.isInitialised(this));
+      const isInitialised = await utils.isInitialised(this);
 
       const hideStartupMessage = process.env.STRAPI_HIDE_STARTUP_MESSAGE
         ? process.env.STRAPI_HIDE_STARTUP_MESSAGE === 'true'
@@ -314,7 +314,7 @@ class Strapi {
     this.middleware = modules.middlewares;
     this.hook = modules.hook;
 
-    await bootstrap(this);
+    bootstrap(this);
 
     this.webhookRunner = createWebhookRunner({
       eventHub: this.eventHub,
@@ -403,11 +403,12 @@ class Strapi {
   }
 
   async runLifecyclesFunctions(lifecycleName) {
-    const execLifecycle = fn => {
+    const execLifecycle = async fn => {
       if (!fn) {
-        return Promise.resolve();
+        return;
       }
-      return Promise.resolve(fn());
+
+      return fn();
     };
 
     const configPath = `functions.${lifecycleName}`;
@@ -415,6 +416,7 @@ class Strapi {
     await Promise.all(
       Object.keys(this.plugins).map(plugin => {
         const pluginFunc = _.get(this.plugins[plugin], `config.${configPath}`);
+
         return execLifecycle(pluginFunc).catch(err => {
           strapi.log.error(`${lifecycleName} function in plugin "${plugin}" failed`);
           strapi.log.error(err);

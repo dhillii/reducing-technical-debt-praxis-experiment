@@ -106,47 +106,6 @@ class QueryInterface {
   /**
    * Create a table with given set of attributes
    *
-   * ```js
-   * queryInterface.createTable(
-   *   'nameOfTheNewTable',
-   *   {
-   *     id: {
-   *       type: Sequelize.INTEGER,
-   *       primaryKey: true,
-   *       autoIncrement: true
-   *     },
-   *     createdAt: {
-   *       type: Sequelize.DATE
-   *     },
-   *     updatedAt: {
-   *       type: Sequelize.DATE
-   *     },
-   *     attr1: Sequelize.STRING,
-   *     attr2: Sequelize.INTEGER,
-   *     attr3: {
-   *       type: Sequelize.BOOLEAN,
-   *       defaultValue: false,
-   *       allowNull: false
-   *     },
-   *     //foreign key usage
-   *     attr4: {
-   *       type: Sequelize.INTEGER,
-   *       references: {
-   *         model: 'another_table_name',
-   *         key: 'id'
-   *       },
-   *       onUpdate: 'cascade',
-   *       onDelete: 'cascade'
-   *     }
-   *   },
-   *   {
-   *     engine: 'MYISAM',    // default: 'InnoDB'
-   *     charset: 'latin1',   // default: null
-   *     schema: 'public'     // default: public, PostgreSQL only.
-   *   }
-   * )
-   * ```
-   *
    * @param {String} tableName  Name of table to create
    * @param {Object} attributes Object representing a list of table attributes to create
    * @param {Object} [options]
@@ -335,7 +294,7 @@ class QueryInterface {
     options = options || {};
     const skip = options.skip || [];
 
-    const dropAllTables = tableNames => Promise.each(tableNames, tableName => {
+    const _dropAllTablesRecursive = tableNames => Promise.each(tableNames, tableName => {
       // if tableName is not in the Array of tables names then dont drop it
       if (skip.indexOf(tableName.tableName || tableName) === -1) {
         return this.dropTable(tableName, _.assign({}, options, { cascade: true }) );
@@ -349,29 +308,15 @@ class QueryInterface {
 
           if (foreignKeysAreEnabled) {
             return this.sequelize.query('PRAGMA foreign_keys = OFF', options)
-              .then(() => dropAllTables(tableNames))
+              .then(() => _dropAllTablesRecursive(tableNames))
               .then(() => this.sequelize.query('PRAGMA foreign_keys = ON', options));
           } else {
-            return dropAllTables(tableNames);
+            return _dropAllTablesRecursive(tableNames);
           }
         });
       } else {
         return this.getForeignKeysForTables(tableNames, options).then(foreignKeys => {
-          const promises = [];
-
-          tableNames.forEach(tableName => {
-            let normalizedTableName = tableName;
-            if (_.isObject(tableName)) {
-              normalizedTableName = tableName.schema + '.' + tableName.tableName;
-            }
-
-            foreignKeys[normalizedTableName].forEach(foreignKey => {
-              const sql = this.QueryGenerator.dropForeignKeyQuery(tableName, foreignKey);
-              promises.push(this.sequelize.query(sql, options));
-            });
-          });
-
-          return Promise.all(promises).then(() => dropAllTables(tableNames));
+          return this._dropForeignKeysForTables(tableNames, foreignKeys, options).then(() => _dropAllTablesRecursive(tableNames));
         });
       }
     });
@@ -453,20 +398,6 @@ class QueryInterface {
    *
    * This method returns an array of hashes containing information about all attributes in the table.
    *
-   * ```js
-   * {
-   *    name: {
-   *      type:         'VARCHAR(255)', // this will be 'CHARACTER VARYING' for pg!
-   *      allowNull:    true,
-   *      defaultValue: null
-   *    },
-   *    isBetaMember: {
-   *      type:         'TINYINT(1)', // this will be 'BOOLEAN' for pg!
-   *      allowNull:    false,
-   *      defaultValue: false
-   *    }
-   * }
-   * ```
    * @param {String} tableName
    * @param {Object} [options] Query options
    *
@@ -556,7 +487,7 @@ class QueryInterface {
    *
    * @param {String} tableName          Table name to change from
    * @param {String} attributeName      Column name
-   * @param {Object} dataTypeOrOptions Attribute definition for new column
+   * @param {Object} dataTypeOrOptions  Attribute definition for new column
    * @param {Object} [options]          Query options
    *
    * @return {Promise}
@@ -683,6 +614,14 @@ class QueryInterface {
     return this.QueryGenerator.nameIndexes(indexes, rawTablename);
   }
 
+  /**
+   * Get foreign keys for tables
+   *
+   * @param {Array} tableNames
+   * @param {Object} [options]
+   *
+   * @return {Promise}
+   */
   getForeignKeysForTables(tableNames, options) {
     if (tableNames.length === 0) {
       return Promise.resolve({});
@@ -774,53 +713,6 @@ class QueryInterface {
    * - CHECK (MySQL - Ignored by the database engine )
    * - FOREIGN KEY
    * - PRIMARY KEY
-   *
-   * UNIQUE
-   * ```js
-   * queryInterface.addConstraint('Users', ['email'], {
-   *   type: 'unique',
-   *   name: 'custom_unique_constraint_name'
-   * });
-   * ```
-   *
-   * CHECK
-   * ```js
-   * queryInterface.addConstraint('Users', ['roles'], {
-   *   type: 'check',
-   *   where: {
-   *      roles: ['user', 'admin', 'moderator', 'guest']
-   *   }
-   * });
-   * ```
-   * Default - MSSQL only
-   * ```js
-   * queryInterface.addConstraint('Users', ['roles'], {
-   *    type: 'default',
-   *    defaultValue: 'guest'
-   * });
-   * ```
-   *
-   * Primary Key
-   * ```js
-   * queryInterface.addConstraint('Users', ['username'], {
-   *    type: 'primary key',
-   *    name: 'custom_primary_constraint_name'
-   * });
-   * ```
-   *
-   * Foreign Key
-   * ```js
-   * queryInterface.addConstraint('Posts', ['username'], {
-   *   type: 'foreign key',
-   *   name: 'custom_fkey_constraint_name',
-   *   references: { //Required field
-   *     table: 'target_table_name',
-   *     field: 'target_column_name'
-   *   },
-   *   onDelete: 'cascade',
-   *   onUpdate: 'cascade'
-   * });
-   * ```
    *
    * @param {String} tableName                  Table name where you want to add a constraint
    * @param {Array}  attributes                 Array of column names to apply the constraint over
@@ -917,6 +809,23 @@ class QueryInterface {
    * @returns {Promise<created, primaryKey>}
    */
   upsert(tableName, insertValues, updateValues, where, model, options) {
+    return this._upsert({tableName, insertValues, updateValues, where, model, options});
+  }
+
+  /**
+   * Internal upsert implementation using a single parameter object.
+   *
+   * @private
+   * @param {Object} params
+   * @param {String} params.tableName
+   * @param {Object} params.insertValues
+   * @param {Object} params.updateValues
+   * @param {Object} params.where
+   * @param {Model}  params.model
+   * @param {Object} params.options
+   * @returns {Promise<created, primaryKey>}
+   */
+  _upsert({tableName, insertValues, updateValues, where, model, options}) {
     const wheres = [];
     const attributes = Object.keys(insertValues);
     let indexes = [];
@@ -987,18 +896,6 @@ class QueryInterface {
   /**
    * Insert records into a table
    *
-   * ```js
-   * queryInterface.bulkInsert('roles', [{
-   *    label: 'user',
-   *    createdAt: new Date(),
-   *    updatedAt: new Date()
-   *  }, {
-   *    label: 'admin',
-   *    createdAt: new Date(),
-   *    updatedAt: new Date()
-   *  }]);
-   * ```
-   *
    * @param {String} tableName             Table name to insert record to
    * @param {Array}  records               List of records to insert
    * @param {Object} options               Various options, please see Model.bulkCreate options
@@ -1016,7 +913,34 @@ class QueryInterface {
     ).then(results => results[0]);
   }
 
+  /**
+   * Update a record
+   *
+   * @param {Object} instance
+   * @param {String} tableName
+   * @param {Object} values
+   * @param {Object} identifier
+   * @param {Object} options
+   *
+   * @return {Promise}
+   */
   update(instance, tableName, values, identifier, options) {
+    return this._update({instance, tableName, values, identifier, options});
+  }
+
+  /**
+   * Internal update implementation using a single parameter object.
+   *
+   * @private
+   * @param {Object} params
+   * @param {Object} params.instance
+   * @param {String} params.tableName
+   * @param {Object} params.values
+   * @param {Object} params.identifier
+   * @param {Object} params.options
+   * @returns {Promise}
+   */
+  _update({instance, tableName, values, identifier, options}) {
     options = _.clone(options || {});
     options.hasTrigger = !!(instance && instance._modelOptions && instance._modelOptions.hasTrigger);
 
@@ -1029,6 +953,22 @@ class QueryInterface {
   }
 
   bulkUpdate(tableName, values, identifier, options, attributes) {
+    return this._bulkUpdate({tableName, values, identifier, options, attributes});
+  }
+
+  /**
+   * Internal bulkUpdate implementation using a single parameter object.
+   *
+   * @private
+   * @param {Object} params
+   * @param {String} params.tableName
+   * @param {Object} params.values
+   * @param {Object} params.identifier
+   * @param {Object} params.options
+   * @param {Object} params.attributes
+   * @returns {Promise}
+   */
+  _bulkUpdate({tableName, values, identifier, options, attributes}) {
     options = Utils.cloneDeep(options);
     if (typeof identifier === 'object') identifier = Utils.cloneDeep(identifier);
 
@@ -1108,6 +1048,22 @@ class QueryInterface {
   }
 
   increment(model, tableName, values, identifier, options) {
+    return this._increment({model, tableName, values, identifier, options});
+  }
+
+  /**
+   * Internal increment implementation using a single parameter object.
+   *
+   * @private
+   * @param {Object} params
+   * @param {Model} params.model
+   * @param {String} params.tableName
+   * @param {Object} params.values
+   * @param {Object} params.identifier
+   * @param {Object} params.options
+   * @returns {Promise}
+   */
+  _increment({model, tableName, values, identifier, options}) {
     options = Utils.cloneDeep(options);
 
     const sql = this.QueryGenerator.arithmeticQuery('+', tableName, values, identifier, options, options.attributes);
@@ -1119,6 +1075,22 @@ class QueryInterface {
   }
 
   decrement(model, tableName, values, identifier, options) {
+    return this._decrement({model, tableName, values, identifier, options});
+  }
+
+  /**
+   * Internal decrement implementation using a single parameter object.
+   *
+   * @private
+   * @param {Object} params
+   * @param {Model} params.model
+   * @param {String} params.tableName
+   * @param {Object} params.values
+   * @param {Object} params.identifier
+   * @param {Object} params.options
+   * @returns {Promise}
+   */
+  _decrement({model, tableName, values, identifier, options}) {
     options = Utils.cloneDeep(options);
 
     const sql = this.QueryGenerator.arithmeticQuery('-', tableName, values, identifier, options, options.attributes);
@@ -1212,22 +1184,6 @@ class QueryInterface {
   /**
    * Create SQL function
    *
-   * ```js
-   * queryInterface.createFunction(
-   *   'someFunction',
-   *   [
-   *     {type: 'integer', name: 'param', direction: 'IN'}
-   *   ],
-   *   'integer',
-   *   'plpgsql',
-   *   'RETURN param + 1;',
-   *   [
-   *     'IMMUTABLE',
-   *     'LEAKPROOF'
-   *   ]
-   * );
-   * ```
-   *
    * @param {String} functionName Name of SQL function to create
    * @param {Array}  params       List of parameters declared for SQL function
    * @param {String} returnType   SQL type of function returned value
@@ -1239,6 +1195,24 @@ class QueryInterface {
    * @return {Promise}
    */
   createFunction(functionName, params, returnType, language, body, optionsArray, options) {
+    return this._createFunction({functionName, params, returnType, language, body, optionsArray, options});
+  }
+
+  /**
+   * Internal createFunction implementation using a single parameter object.
+   *
+   * @private
+   * @param {Object} params
+   * @param {String} params.functionName
+   * @param {Array}  params.params
+   * @param {String} params.returnType
+   * @param {String} params.language
+   * @param {String} params.body
+   * @param {Array}  params.optionsArray
+   * @param {Object} params.options
+   * @returns {Promise}
+   */
+  _createFunction({functionName, params, returnType, language, body, optionsArray, options}) {
     const sql = this.QueryGenerator.createFunction(functionName, params, returnType, language, body, optionsArray);
     options = options || {};
 
@@ -1251,16 +1225,6 @@ class QueryInterface {
 
   /**
    * Drop SQL function
-   *
-   * ```js
-   * queryInterface.dropFunction(
-   *   'someFunction',
-   *   [
-   *     {type: 'varchar', name: 'param1', direction: 'IN'},
-   *     {type: 'integer', name: 'param2', direction: 'INOUT'}
-   *   ]
-   * );
-   * ```
    *
    * @param {String} functionName Name of SQL function to drop
    * @param {Array}  params       List of parameters declared for SQL function
@@ -1282,17 +1246,6 @@ class QueryInterface {
   /**
    * Rename SQL function
    *
-   * ```js
-   * queryInterface.renameFunction(
-   *   'fooFunction',
-   *   [
-   *     {type: 'varchar', name: 'param1', direction: 'IN'},
-   *     {type: 'integer', name: 'param2', direction: 'INOUT'}
-   *   ],
-   *   'barFunction'
-   * );
-   * ```
-   *
    * @param {String} oldFunctionName
    * @param {Array}  params           List of parameters declared for SQL function
    * @param {String} newFunctionName
@@ -1301,6 +1254,21 @@ class QueryInterface {
    * @return {Promise}
    */
   renameFunction(oldFunctionName, params, newFunctionName, options) {
+    return this._renameFunction({oldFunctionName, params, newFunctionName, options});
+  }
+
+  /**
+   * Internal renameFunction implementation using a single parameter object.
+   *
+   * @private
+   * @param {Object} params
+   * @param {String} params.oldFunctionName
+   * @param {Array}  params.params
+   * @param {String} params.newFunctionName
+   * @param {Object} params.options
+   * @returns {Promise}
+   */
+  _renameFunction({oldFunctionName, params, newFunctionName, options}) {
     const sql = this.QueryGenerator.renameFunction(oldFunctionName, params, newFunctionName);
     options = options || {};
 
@@ -1419,7 +1387,7 @@ class QueryInterface {
   }
 
   commitTransaction(transaction, options) {
-    if (!transaction || !(transaction instanceof Transaction)) {
+    if (!transaction || !transaction instanceof Transaction) {
       throw new Error('Unable to commit a transaction without transaction object!');
     }
     if (transaction.parent) {
@@ -1441,7 +1409,7 @@ class QueryInterface {
   }
 
   rollbackTransaction(transaction, options) {
-    if (!transaction || !(transaction instanceof Transaction)) {
+    if (!transaction || !transaction instanceof Transaction) {
       throw new Error('Unable to rollback a transaction without transaction object!');
     }
 
@@ -1456,6 +1424,27 @@ class QueryInterface {
     transaction.finished = 'rollback';
 
     return promise;
+  }
+
+  /**
+   * Internal helper to drop foreign keys for a set of tables.
+   *
+   * @private
+   * @param {Array} tableNames
+   * @param {Object} foreignKeys
+   * @param {Object} options
+   * @returns {Promise}
+   */
+  _dropForeignKeysForTables(tableNames, foreignKeys, options) {
+    const promises = tableNames.map(tableName => {
+      const normalized = _.isObject(tableName) ? `${tableName.schema}.${tableName.tableName}` : tableName;
+      const fks = foreignKeys[normalized] || [];
+      return Promise.all(fks.map(fk => {
+        const sql = this.QueryGenerator.dropForeignKeyQuery(tableName, fk);
+        return this.sequelize.query(sql, options);
+      }));
+    });
+    return Promise.all(promises);
   }
 }
 

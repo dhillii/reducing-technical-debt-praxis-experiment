@@ -19,13 +19,16 @@ const {
 } = require('strapi-utils');
 
 const { MEDIA_UPDATE, MEDIA_CREATE, MEDIA_DELETE } = webhookUtils.webhookEvents;
+
 const { bytesToKbytes } = require('../utils/file');
+
 const { UPDATED_BY_ATTRIBUTE, CREATED_BY_ATTRIBUTE } = contentTypesUtils.constants;
 
 const randomSuffix = () => crypto.randomBytes(5).toString('hex');
 
 const generateFileName = name => {
   const baseName = nameToSlug(name, { separator: '_', lowercase: false });
+
   return `${baseName}_${randomSuffix()}`;
 };
 
@@ -33,101 +36,29 @@ const sendMediaMetrics = data => {
   if (_.has(data, 'caption') && !_.isEmpty(data.caption)) {
     strapi.telemetry.send('didSaveMediaWithCaption');
   }
+
   if (_.has(data, 'alternativeText') && !_.isEmpty(data.alternativeText)) {
     strapi.telemetry.send('didSaveMediaWithAlternativeText');
   }
 };
 
+/**
+ * Convert mime_ncontains array into an AND condition to avoid OR semantics.
+ * @param {Object} params - The query parameters to modify.
+ */
 const combineFilters = params => {
   // FIXME: until we support boolean operators for querying we need to make mime_ncontains use AND instead of OR
   if (_.has(params, 'mime_ncontains') && Array.isArray(params.mime_ncontains)) {
-    params._where = params.mime_ncontains.map(val => ({ mime_ncontains: val }));
+    params._where = { $and: params.mime_ncontains.map(val => ({ mime_ncontains: val })) };
     delete params.mime_ncontains;
   }
-};
-
-/**
- * Delete all files related to a media item from the provider.
- * @param {Object} media - Media item.
- * @param {String} provider - Provider name.
- */
-const deleteProviderFiles = async (media, provider) => {
-  if (media.provider !== provider) return;
-  await strapi.plugins.upload.provider.delete(media);
-  if (media.formats) {
-    await Promise.all(
-      Object.keys(media.formats).map(key => strapi.plugins.upload.provider.delete(media.formats[key]))
-    );
-  }
-};
-
-/**
- * Upload a file and its generated formats to the provider.
- * @param {Object} fileData - File data object.
- */
-const uploadFileAndPersistFormats = async fileData => {
-  const provider = strapi.plugins.upload.provider;
-  await provider.upload(fileData);
-
-  const { generateThumbnail, generateResponsiveFormats } = strapi.plugins.upload.services['image-manipulation'];
-
-  const thumbnailFile = await generateThumbnail(fileData);
-  if (thumbnailFile) {
-    await provider.upload(thumbnailFile);
-    delete thumbnailFile.buffer;
-    _.set(fileData, 'formats.thumbnail', thumbnailFile);
-  }
-
-  const formats = await generateResponsiveFormats(fileData);
-  if (Array.isArray(formats) && formats.length > 0) {
-    for (const format of formats) {
-      if (!format) continue;
-      const { key, file } = format;
-      await provider.upload(file);
-      delete file.buffer;
-      _.set(fileData, ['formats', key], file);
-    }
-  }
-};
-
-/**
- * Get image dimensions and assign to file data.
- * @param {Object} fileData - File data object.
- */
-const assignDimensions = async fileData => {
-  const { getDimensions } = strapi.plugins.upload.services['image-manipulation'];
-  const { width, height } = await getDimensions(fileData.buffer);
-  delete fileData.buffer;
-  _.assign(fileData, { width, height });
-};
-
-/**
- * Persist a new media item to the database.
- * @param {Object} fileData - File data object.
- * @param {Object} options - Options containing user.
- */
-const persistNewMedia = async (fileData, { user } = {}) => {
-  const config = strapi.plugins.upload.config;
-  _.assign(fileData, { provider: config.provider });
-  return this.add(fileData, { user });
-};
-
-/**
- * Update an existing media item in the database.
- * @param {Number} id - Media ID.
- * @param {Object} fileData - File data object.
- * @param {Object} options - Options containing user.
- */
-const persistUpdatedMedia = async (id, fileData, { user } = {}) => {
-  const config = strapi.plugins.upload.config;
-  _.assign(fileData, { provider: config.provider });
-  return this.update({ id }, fileData, { user });
 };
 
 module.exports = {
   formatFileInfo({ filename, type, size }, fileInfo = {}, metas = {}) {
     const ext = path.extname(filename);
     const basename = path.basename(fileInfo.name || filename, ext);
+
     const usedName = fileInfo.name || filename;
 
     const entity = {
@@ -141,8 +72,16 @@ module.exports = {
     };
 
     const { refId, ref, source, field } = metas;
+
     if (refId && ref && field) {
-      entity.related = [{ refId, ref, source, field }];
+      entity.related = [
+        {
+          refId,
+          ref,
+          source,
+          field,
+        },
+      ];
     }
 
     if (metas.path) {
@@ -172,24 +111,33 @@ module.exports = {
     }
 
     const { optimize } = strapi.plugins.upload.services['image-manipulation'];
+
     const { buffer, info } = await optimize(readBuffer);
 
     const formattedFile = this.formatFileInfo(
-      { filename: file.name, type: file.type, size: file.size },
+      {
+        filename: file.name,
+        type: file.type,
+        size: file.size,
+      },
       fileInfo,
       metas
     );
 
-    return _.assign(formattedFile, info, { buffer });
+    return _.assign(formattedFile, info, {
+      buffer,
+    });
   },
 
   async upload({ data, files }, { user } = {}) {
     const { fileInfo, ...metas } = data;
+
     const fileArray = Array.isArray(files) ? files : [files];
     const fileInfoArray = Array.isArray(fileInfo) ? fileInfo : [fileInfo];
 
     const doUpload = async (file, fileInfo) => {
       const fileData = await this.enhanceFile(file, fileInfo, metas);
+
       return this.uploadFileAndPersist(fileData, { user });
     };
 
@@ -199,13 +147,53 @@ module.exports = {
   },
 
   async uploadFileAndPersist(fileData, { user } = {}) {
-    await uploadFileAndPersistFormats.call(this, fileData);
-    await assignDimensions.call(this, fileData);
-    return persistNewMedia.call(this, fileData, { user });
+    const config = strapi.plugins.upload.config;
+
+    const {
+      getDimensions,
+      generateThumbnail,
+      generateResponsiveFormats,
+    } = strapi.plugins.upload.services['image-manipulation'];
+
+    await strapi.plugins.upload.provider.upload(fileData);
+
+    const thumbnailFile = await generateThumbnail(fileData);
+    if (thumbnailFile) {
+      await strapi.plugins.upload.provider.upload(thumbnailFile);
+      delete thumbnailFile.buffer;
+      _.set(fileData, 'formats.thumbnail', thumbnailFile);
+    }
+
+    const formats = await generateResponsiveFormats(fileData);
+    if (Array.isArray(formats) && formats.length > 0) {
+      for (const format of formats) {
+        if (!format) continue;
+
+        const { key, file } = format;
+
+        await strapi.plugins.upload.provider.upload(file);
+        delete file.buffer;
+
+        _.set(fileData, ['formats', key], file);
+      }
+    }
+
+    const { width, height } = await getDimensions(fileData.buffer);
+
+    delete fileData.buffer;
+
+    _.assign(fileData, {
+      provider: config.provider,
+      width,
+      height,
+    });
+
+    return this.add(fileData, { user });
   },
 
   async updateFileInfo(id, { name, alternativeText, caption }, { user } = {}) {
     const dbFile = await this.fetch({ id });
+
     if (!dbFile) {
       throw strapi.errors.notFound('file not found');
     }
@@ -221,7 +209,15 @@ module.exports = {
 
   async replace(id, { data, file }, { user } = {}) {
     const config = strapi.plugins.upload.config;
+
+    const {
+      getDimensions,
+      generateThumbnail,
+      generateResponsiveFormats,
+    } = strapi.plugins.upload.services['image-manipulation'];
+
     const dbFile = await this.fetch({ id });
+
     if (!dbFile) {
       throw strapi.errors.notFound('file not found');
     }
@@ -230,14 +226,60 @@ module.exports = {
     const fileData = await this.enhanceFile(file, fileInfo);
 
     // keep a constant hash
-    _.assign(fileData, { hash: dbFile.hash, ext: dbFile.ext });
+    _.assign(fileData, {
+      hash: dbFile.hash,
+      ext: dbFile.ext,
+    });
 
-    await deleteProviderFiles.call(this, dbFile, config.provider);
+    // execute delete function of the provider
+    if (dbFile.provider === config.provider) {
+      await strapi.plugins.upload.provider.delete(dbFile);
 
-    await uploadFileAndPersistFormats.call(this, fileData);
-    await assignDimensions.call(this, fileData);
+      if (dbFile.formats) {
+        await Promise.all(
+          Object.keys(dbFile.formats).map(key => {
+            return strapi.plugins.upload.provider.delete(dbFile.formats[key]);
+          })
+        );
+      }
+    }
 
-    return persistUpdatedMedia.call(this, id, fileData, { user });
+    await strapi.plugins.upload.provider.upload(fileData);
+
+    // clear old formats
+    _.set(fileData, 'formats', {});
+
+    const thumbnailFile = await generateThumbnail(fileData);
+    if (thumbnailFile) {
+      await strapi.plugins.upload.provider.upload(thumbnailFile);
+      delete thumbnailFile.buffer;
+      _.set(fileData, 'formats.thumbnail', thumbnailFile);
+    }
+
+    const formats = await generateResponsiveFormats(fileData);
+    if (Array.isArray(formats) && formats.length > 0) {
+      for (const format of formats) {
+        if (!format) continue;
+
+        const { key, file } = format;
+
+        await strapi.plugins.upload.provider.upload(file);
+        delete file.buffer;
+
+        _.set(fileData, ['formats', key], file);
+      }
+    }
+
+    const { width, height } = await getDimensions(fileData.buffer);
+    delete fileData.buffer;
+
+    _.assign(fileData, {
+      provider: config.provider,
+      width,
+      height,
+    });
+
+    return this.update({ id }, fileData, { user });
   },
 
   async update(params, values, { user } = {}) {
@@ -291,9 +333,24 @@ module.exports = {
 
   async remove(file) {
     const config = strapi.plugins.upload.config;
-    await deleteProviderFiles.call(this, file, config.provider);
 
-    const media = await strapi.query('file', 'upload').findOne({ id: file.id });
+    // execute delete function of the provider
+    if (file.provider === config.provider) {
+      await strapi.plugins.upload.provider.delete(file);
+
+      if (file.formats) {
+        await Promise.all(
+          Object.keys(file.formats).map(key => {
+            return strapi.plugins.upload.provider.delete(file.formats[key]);
+          })
+        );
+      }
+    }
+
+    const media = await strapi.query('file', 'upload').findOne({
+      id: file.id,
+    });
+
     const modelDef = strapi.getModel('file', 'upload');
     strapi.eventHub.emit(MEDIA_DELETE, { media: sanitizeEntity(media, { model: modelDef }) });
 
@@ -302,18 +359,33 @@ module.exports = {
 
   async uploadToEntity(params, files, source) {
     const { id, model, field } = params;
+
     const arr = Array.isArray(files) ? files : [files];
     const enhancedFiles = await Promise.all(
-      arr.map(file =>
-        this.enhanceFile(file, {}, { refId: id, ref: model, source, field })
-      )
+      arr.map(file => {
+        return this.enhanceFile(
+          file,
+          {},
+          {
+            refId: id,
+            ref: model,
+            source,
+            field,
+          }
+        );
+      })
     );
+
     await Promise.all(enhancedFiles.map(file => this.uploadFileAndPersist(file)));
   },
 
   getSettings() {
     return strapi
-      .store({ type: 'plugin', name: 'upload', key: 'settings' })
+      .store({
+        type: 'plugin',
+        name: 'upload',
+        key: 'settings',
+      })
       .get();
   },
 
@@ -325,7 +397,11 @@ module.exports = {
     }
 
     return strapi
-      .store({ type: 'plugin', name: 'upload', key: 'settings' })
+      .store({
+        type: 'plugin',
+        name: 'upload',
+        key: 'settings',
+      })
       .set({ value });
   },
 };

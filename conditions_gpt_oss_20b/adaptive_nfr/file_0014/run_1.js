@@ -12,24 +12,6 @@ import {Transition} from '@headlessui/react';
 import {buildCommentPermalink, findCommentById, formatExplicitTime, getCommentInReplyToSnippet, getMemberNameFromComment} from '../../utils/helpers';
 import {useRelativeTime} from '../../utils/hooks';
 
-/** Helper predicates */
-const hasReplies = (comment: Comment) => !!comment.replies?.length;
-const isDeleted = (comment: Comment) => comment.status === 'deleted';
-const isHidden = (comment: Comment) => comment.status === 'hidden';
-const isPublished = (comment: Comment) => comment.status === 'published';
-const isOwnComment = (member: any, comment: Comment) => member?.uuid === comment.member?.uuid;
-const shouldShowMoreButton = (isAdmin: boolean, isMember: boolean, published: boolean) => isAdmin || (isMember && published);
-const shouldHideMoreButton = (disabled: boolean, own: boolean) => disabled && own;
-
-/** Visibility logic for a comment */
-const useCommentVisibility = (comment: Comment, admin: boolean) => {
-    return {
-        showDeletedMessage: isDeleted(comment) && hasReplies(comment),
-        showHiddenMessage: hasReplies(comment) && isHidden(comment) && !admin,
-        showCommentContent: !isDeleted(comment) && (admin || isPublished(comment))
-    };
-};
-
 type AnimatedCommentProps = {
     comment: Comment;
     parent?: Comment;
@@ -74,30 +56,53 @@ export const CommentComponent: React.FC<CommentProps> = ({comment, parent}) => {
 
     if (showDeletedMessage || showHiddenMessage) {
         return <UnpublishedComment comment={comment} openEditMode={openEditMode} />;
-    }
-    if (showCommentContent && !showHiddenMessage) {
+    } else if (showCommentContent && !showHiddenMessage) {
         return <PublishedComment comment={comment} openEditMode={openEditMode} parent={parent} />;
     }
+
     return null;
 };
 
 type CommentProps = AnimatedCommentProps;
+const useCommentVisibility = (comment: Comment, admin: boolean) => {
+    const hasReplies = comment.replies && comment.replies.length > 0;
+    const isDeleted = comment.status === 'deleted';
+    const isHidden = comment.status === 'hidden';
 
+    return {
+        // Show deleted message only when comment has replies (regardless of admin status)
+        showDeletedMessage: isDeleted && hasReplies,
+        // Show hidden message for non-admins when comment has replies
+        showHiddenMessage: hasReplies && isHidden && !admin,
+        // Show comment content if not deleted AND (is published OR admin viewing hidden)
+        showCommentContent: !isDeleted && (admin || comment.status === 'published')
+    };
+};
+
+type PublishedCommentProps = CommentProps & {
+    openEditMode: () => void;
+}
 const PublishedComment: React.FC<PublishedCommentProps> = ({comment, parent, openEditMode}) => {
     const {dispatchAction, openCommentForms, isAdmin, commentIdToHighlight} = useAppContext();
 
-    const isHidden = isAdmin && isHidden(comment);
+    // Determine if the comment should be displayed with reduced opacity
+    const isHidden = isAdmin && comment.status === 'hidden';
     const hiddenClass = isHidden ? 'opacity-30' : '';
 
+    // Check if this comment is being edited
     const editForm = openCommentForms.find(openForm => openForm.id === comment.id && openForm.type === 'edit');
     const isInEditMode = !!editForm;
 
+    // currently a reply-to-reply form is displayed inside the top-level PublishedComment component
+    // so we need to check for a match of either the comment id or the parent id
     const openForm = openCommentForms.find(f => (f.id === comment.id || f.parent_id === comment.id) && f.type === 'reply');
-    const displayReplyForm = openForm?.parent_id === undefined || openForm?.parent_id === comment.id;
-    const highlightReplyButton = !!(openForm?.id === comment.id);
+    // avoid displaying the reply form inside RepliesContainer
+    const displayReplyForm = openForm && (!openForm.parent_id || openForm.parent_id === comment.id);
+    // only highlight the reply button for the comment that is being replied to
+    const highlightReplyButton = !!(openForm && openForm.id === comment.id);
 
     const openReplyForm = useCallback(async () => {
-        if (openForm?.id === comment.id) {
+        if (openForm && openForm.id === comment.id) {
             dispatchAction('closeCommentForm', openForm.id);
         } else {
             const inReplyToDetails: Partial<OpenCommentForm> = {};
@@ -119,11 +124,11 @@ const PublishedComment: React.FC<PublishedCommentProps> = ({comment, parent, ope
         }
     }, [comment, parent, openForm, dispatchAction]);
 
-    const hasRepliesFlag = displayReplyForm || comment.replies?.length > 0;
+    const hasReplies = displayReplyForm || (comment.replies && comment.replies.length > 0);
     const avatar = (<Avatar member={comment.member} />);
 
     return (
-        <CommentLayout avatar={avatar} className={hiddenClass} hasReplies={hasRepliesFlag} memberUuid={comment.member?.uuid}>
+        <CommentLayout avatar={avatar} className={hiddenClass} hasReplies={hasReplies} memberUuid={comment.member?.uuid}>
             <div>
                 {isInEditMode ? (
                     <>
@@ -150,31 +155,35 @@ const PublishedComment: React.FC<PublishedCommentProps> = ({comment, parent, ope
     );
 };
 
-type PublishedCommentProps = CommentProps & {
+type UnpublishedCommentProps = {
+    comment: Comment;
     openEditMode: () => void;
-};
-
+}
 const UnpublishedComment: React.FC<UnpublishedCommentProps> = ({comment, openEditMode}) => {
     const {isAdmin, openCommentForms, t} = useAppContext();
 
-    const avatar = (isAdmin && !isDeleted(comment))
+    const avatar = (isAdmin && comment.status !== 'deleted')
         ? <Avatar member={comment.member} />
         : <BlankAvatar />;
-    const hasRepliesFlag = comment.replies?.length > 0;
+    const hasReplies = comment.replies && comment.replies.length > 0;
 
-    const notPublishedMessage = comment.status === 'hidden'
-        ? t('This comment has been hidden.')
-        : comment.status === 'deleted'
-            ? t('This comment has been removed.')
-            : '';
+    const notPublishedMessage = comment.status === 'hidden' ?
+        t('This comment has been hidden.') :
+        comment.status === 'deleted' ?
+            t('This comment has been removed.') :
+            '';
 
+    // currently a reply-to-reply form is displayed inside the top-level PublishedComment component
+    // so we need to check for a match of either the comment id or the parent id
     const openForm = openCommentForms.find(f => (f.id === comment.id || f.parent_id === comment.id) && f.type === 'reply');
-    const displayReplyForm = openForm?.parent_id === undefined || openForm?.parent_id === comment.id;
+    // avoid displaying the reply form inside RepliesContainer
+    const displayReplyForm = openForm && (!openForm.parent_id || openForm.parent_id === comment.id);
 
+    // Only show MoreButton for hidden (not deleted) comments when admin
     const showMoreButton = isAdmin && comment.status === 'hidden';
 
     return (
-        <CommentLayout avatar={avatar} hasReplies={hasRepliesFlag}>
+        <CommentLayout avatar={avatar} hasReplies={hasReplies}>
             <div className="mt-[-3px] flex items-start">
                 <div className="flex h-10 flex-row items-center gap-4 pb-[8px] pr-4">
                     <p className="text-md mt-[4px] font-sans leading-normal text-neutral-900/40 sm:text-lg dark:text-white/60">
@@ -193,14 +202,11 @@ const UnpublishedComment: React.FC<UnpublishedCommentProps> = ({comment, openEdi
     );
 };
 
-type UnpublishedCommentProps = {
-    comment: Comment;
-    openEditMode: () => void;
-};
+// Helper components
 
 const MemberExpertise: React.FC<{comment: Comment}> = ({comment}) => {
     const {member} = useAppContext();
-    const memberExpertise = member?.uuid === comment.member?.uuid ? member.expertise : comment?.member?.expertise;
+    const memberExpertise = member && comment.member && comment.member.uuid === member.uuid ? member.expertise : comment?.member?.expertise;
 
     if (!memberExpertise) {
         return null;
@@ -222,9 +228,10 @@ const EditedInfo: React.FC<{comment: Comment}> = ({comment}) => {
         </span>
     );
 };
-
 const RepliesContainer: React.FC<RepliesProps & {className?: string}> = ({comment, className = ''}) => {
-    if (!comment.replies?.length) {
+    const hasReplies = comment.replies && comment.replies.length > 0;
+
+    if (!hasReplies) {
         return null;
     }
 
@@ -239,7 +246,6 @@ type ReplyFormBoxProps = {
     comment: Comment;
     openForm: OpenCommentForm;
 };
-
 const ReplyFormBox: React.FC<ReplyFormBoxProps> = ({comment, openForm}) => {
     return (
         <div className="my-8 sm:my-10">
@@ -247,6 +253,10 @@ const ReplyFormBox: React.FC<ReplyFormBoxProps> = ({comment, openForm}) => {
         </div>
     );
 };
+
+//
+// -- Published comment components --
+//
 
 const AuthorName: React.FC<{comment: Comment}> = ({comment}) => {
     const {t} = useAppContext();
@@ -262,12 +272,11 @@ export const RepliedToSnippet: React.FC<{comment: Comment}> = ({comment}) => {
     const {comments, t, pageUrl} = useAppContext();
     const inReplyToComment = findCommentById(comments, comment.in_reply_to_id);
 
-    let inReplyToSnippet = comment.in_reply_to_snippet;
-    if (!inReplyToComment?.status === 'published') {
-        inReplyToSnippet = `[${t('removed')}]`;
-    }
+    const inReplyToSnippet = inReplyToComment?.status === 'published'
+        ? comment.in_reply_to_snippet
+        : `[${t('removed')}]`;
 
-    const linkToReply = inReplyToComment?.status === 'published';
+    const linkToReply = inReplyToComment && inReplyToComment.status === 'published';
     const className = 'font-medium text-neutral-900/60 break-all transition-colors dark:text-white/70';
     const linkClassName = `${className} hover:text-neutral-900/75 dark:hover:text-white/85`;
 
@@ -283,12 +292,12 @@ export const RepliedToSnippet: React.FC<{comment: Comment}> = ({comment}) => {
 type CommentHeaderProps = {
     comment: Comment;
     className?: string;
-};
+}
 
 const CommentHeader: React.FC<CommentHeaderProps> = ({comment, className = ''}) => {
     const {member, t, pageUrl} = useAppContext();
     const createdAtRelative = useRelativeTime(comment.created_at);
-    const memberExpertise = member?.uuid === comment.member?.uuid ? member.expertise : comment?.member?.expertise;
+    const memberExpertise = member && comment.member && comment.member.uuid === member.uuid ? member.expertise : comment?.member?.expertise;
     const isReplyToReply = comment.in_reply_to_id && comment.in_reply_to_snippet;
 
     const timestampElement = (
@@ -314,7 +323,7 @@ const CommentHeader: React.FC<CommentHeaderProps> = ({comment, className = ''}) 
                     </span>
                 </div>
             </div>
-            {isReplyToReply && (
+            {(isReplyToReply &&
                 <div className="mb-2 line-clamp-1 font-sans text-base leading-snug text-neutral-900/50 sm:text-sm dark:text-white/60">
                     <span>{t('Replied to')}</span>:&nbsp;<RepliedToSnippet comment={comment} />
                 </div>
@@ -327,7 +336,7 @@ type CommentBodyProps = {
     html: string;
     className?: string;
     isHighlighted?: boolean;
-};
+}
 
 const CommentBody: React.FC<CommentBodyProps> = ({html, className = '', isHighlighted}) => {
     let commentHtml = html;
@@ -349,6 +358,7 @@ const CommentBody: React.FC<CommentBodyProps> = ({html, className = '', isHighli
             p.appendChild(mark);
         });
 
+        // Serialize the modified html back to a string
         commentHtml = doc.body.innerHTML;
     }
 
@@ -368,16 +378,18 @@ type CommentMenuProps = {
     openEditMode: () => void;
     className?: string;
 };
-
 const CommentMenu: React.FC<CommentMenuProps> = ({comment, openReplyForm, highlightReplyButton, openEditMode, className = ''}) => {
     const {member, t, isMember, isAdmin, isCommentingDisabled} = useAppContext();
 
-    const isPublishedFlag = isPublished(comment);
-    const isOwn = isOwnComment(member, comment);
+    const isPublished = comment.status === 'published';
+    const isOwnComment = member && comment.member?.uuid === member?.uuid;
 
+    // Visibility decisions
     const showLikeButton = !isCommentingDisabled;
     const showReplyButton = !isCommentingDisabled;
-    const showMoreButton = shouldShowMoreButton(isAdmin, isMember, isPublishedFlag) && !shouldHideMoreButton(isCommentingDisabled, isOwn);
+    const shouldShowMoreButton = isAdmin || (isMember && isPublished);
+    const shouldHideMoreButton = isCommentingDisabled && isOwnComment;
+    const showMoreButton = shouldShowMoreButton && !shouldHideMoreButton;
 
     if (isAdmin && comment.status === 'hidden') {
         return (
@@ -400,6 +412,10 @@ const CommentMenu: React.FC<CommentMenuProps> = ({comment, openReplyForm, highli
     );
 };
 
+//
+// -- Layout --
+//
+
 const RepliesLine: React.FC<{hasReplies: boolean}> = ({hasReplies}) => {
     if (!hasReplies) {
         return null;
@@ -414,8 +430,7 @@ type CommentLayoutProps = {
     hasReplies: boolean;
     className?: string;
     memberUuid?: string;
-};
-
+}
 const CommentLayout: React.FC<CommentLayoutProps> = ({children, avatar, hasReplies, className = '', memberUuid = ''}) => {
     return (
         <div className={`flex w-full flex-row ${hasReplies === true ? 'mb-0' : 'mb-7'}`} data-member-uuid={memberUuid} data-testid="comment-component">
@@ -431,5 +446,9 @@ const CommentLayout: React.FC<CommentLayoutProps> = ({children, avatar, hasRepli
         </div>
     );
 };
+
+//
+// -- Default --
+//
 
 export default AnimatedComment;

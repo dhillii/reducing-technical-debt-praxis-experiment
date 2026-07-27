@@ -3,7 +3,7 @@
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ * file, you can obtain one at http://mozilla.org/MPL/2.0/.
  */
 /* global define */
 define([
@@ -43,49 +43,43 @@ define([
         /**
          * Overwrite `fetch` method.
          */
-        fetch: function(options = {}) {
+        fetch: function(options) {
+            options = options || {};
             options.options = options.options || {};
 
-            this._setPageSize(options);
+            if (!_.isUndefined(options.pageSize)) {
+                this.state.pageSize = Number(options.pageSize);
+            }
 
+            // Do not use pagination
             if (this.state.pageSize === 0) {
                 return Backbone.Collection.prototype.fetch.call(this, options);
             }
 
-            const originalSuccess = options.success;
-            options.success = (resp) => this._handleFetchSuccess(resp, originalSuccess, options);
+            const success = options.success;
+            const self = this;
+
+            options.success = function(resp) {
+                // Keep full collection in memory
+                self.fullCollection = self.clone();
+
+                // Sort the collection
+                self.fullCollection.sortItOut();
+
+                // Pagination
+                self._updateTotalPages();
+                self.getPage(options.page || self.state.firstPage);
+
+                if (success) {
+                    success(self, resp);
+                }
+            };
 
             return Backbone.Collection.prototype.fetch.call(this, options)
-                .then((resp) => {
+                .then(function(resp) {
                     options.success(resp);
                     return resp;
                 });
-        },
-
-        /**
-         * Set pageSize from options if provided.
-         * @private
-         */
-        _setPageSize: function(options) {
-            if (!_.isUndefined(options.pageSize)) {
-                this.state.pageSize = Number(options.pageSize);
-            }
-        },
-
-        /**
-         * Handle fetch success: keep full collection, sort, paginate and
-         * invoke original success callback.
-         * @private
-         */
-        _handleFetchSuccess: function(resp, originalSuccess, options) {
-            this.fullCollection = this.clone();
-            this.fullCollection.sortItOut();
-            this._updateTotalPages();
-            this.getPage(options.page || this.state.firstPage);
-
-            if (originalSuccess) {
-                originalSuccess(this, resp);
-            }
         },
 
         /**
@@ -191,7 +185,7 @@ define([
          * Useful when sorting models in a collection by multiple keys.
          */
         sortItOut: function() {
-            const comparator = this.comparator;
+            const originalComparator = this.comparator;
             const self = this;
 
             _.each(this.state.comparator, function(value, key) {
@@ -201,7 +195,7 @@ define([
                 self.sort();
             });
 
-            self.comparator = comparator;
+            this.comparator = originalComparator;
             return this.models;
         },
 
@@ -260,16 +254,16 @@ define([
             coll.remove(model);
             this.sortFullCollection();
 
-            let newIndex = index;
-            if (!this.at(newIndex)) {
-                newIndex--;
+            let nextIndex = index;
+            if (!this.at(nextIndex)) {
+                nextIndex--;
             }
 
-            if (!this.at(newIndex)) {
+            if (!this.at(nextIndex)) {
                 return this.hasPreviousPage() ? this.trigger('page:previous') : null;
             }
 
-            Radio.trigger(this.storeName, 'model:navigate', this.at(newIndex));
+            Radio.trigger(this.storeName, 'model:navigate', this.at(nextIndex));
         },
 
         /**
@@ -289,7 +283,6 @@ define([
          * Update pagination when a model is added
          */
         _onAddItem: function(model) {
-
             // Don't add models from other profiles
             if (this.profileId !== model.profileId) {
                 return;

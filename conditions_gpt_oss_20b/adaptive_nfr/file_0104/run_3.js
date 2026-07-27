@@ -55,32 +55,83 @@
     };
 
     /**
+     * Returns an array of existing element IDs in the document.
+     * @return {Array<string>} Array of IDs.
+     */
+    function _getExistingIds() {
+      const elsWithIds = document.querySelectorAll('[id]');
+      return [].map.call(elsWithIds, function(el) {
+        return el.id;
+      });
+    }
+
+    /**
+     * Generates a unique ID for an element, ensuring no duplicates.
+     * @param {HTMLElement} el - The element to assign an ID to.
+     * @param {Array<string>} existingIds - Array of IDs already in use.
+     * @param {Function} urlifyFn - Function to generate a base ID from text.
+     * @return {string} The unique ID assigned to the element.
+     */
+    function _generateUniqueId(el, existingIds, urlifyFn) {
+      if (el.hasAttribute('id')) {
+        return el.getAttribute('id');
+      }
+      let tidy = urlifyFn(el.textContent);
+      let newTidy = tidy;
+      let count = 0;
+      while (existingIds.indexOf(newTidy) !== -1) {
+        newTidy = tidy + '-' + count;
+        count += 1;
+      }
+      existingIds.push(newTidy);
+      el.setAttribute('id', newTidy);
+      return newTidy;
+    }
+
+    /**
+     * Creates an anchor element with appropriate attributes and styles.
+     * @param {string} elementID - The ID of the target element.
+     * @param {string} readableID - Human-readable ID for aria-label.
+     * @param {Object} options - AnchorJS options.
+     * @param {string} visibleOption - Computed visibility option.
+     * @return {HTMLElement} The configured anchor element.
+     */
+    function _createAnchor(elementID, readableID, options, visibleOption) {
+      const anchor = document.createElement('a');
+      anchor.className = 'anchorjs-link ' + options.class;
+      anchor.href = '#' + elementID;
+      anchor.setAttribute('aria-label', 'Anchor link for: ' + readableID);
+      anchor.setAttribute('data-anchorjs-icon', options.icon);
+
+      if (visibleOption === 'always') {
+        anchor.style.opacity = '1';
+      }
+
+      if (options.icon === '\ue9cb') {
+        anchor.style.font = '1em/1 anchorjs-icons';
+      }
+      if (options.icon === '\ue9cb' && options.placement === 'left') {
+        anchor.style.lineHeight = 'inherit';
+      }
+
+      return anchor;
+    }
+
+    /**
      * Add anchor links to page elements.
      * @param  {String|Array|Nodelist} selector - A CSS selector for targeting the elements you wish to add anchor links
      *                                            to. Also accepts an array or nodeList containing the relavant elements.
      * @return {this}                           - The AnchorJS object
      */
     this.add = function(selector) {
-      var elements,
-          elsWithIds,
-          idList,
-          visibleOptionToUse,
-          i;
-
-      // Reapply options in case they were overwritten.
       _applyRemainingDefaultOptions(this.options);
 
-      visibleOptionToUse = this.options.visible;
-      if (visibleOptionToUse === 'touch') {
-        visibleOptionToUse = this.isTouchDevice() ? 'always' : 'hover';
-      }
+      const visibleOption = (this.options.visible === 'touch')
+        ? (this.isTouchDevice() ? 'always' : 'hover')
+        : this.options.visible;
 
-      // Provide a sensible default selector, if none is given.
-      if (!selector) {
-        selector = 'h1, h2, h3, h4, h5, h6';
-      }
-
-      elements = _getElements(selector);
+      const sel = selector || 'h1, h2, h3, h4, h5, h6';
+      const elements = _getElements(sel);
 
       if (elements.length === 0) {
         return false;
@@ -88,67 +139,20 @@
 
       _addBaselineStyles();
 
-      // Existing IDs to avoid duplicates.
-      elsWithIds = document.querySelectorAll('[id]');
-      idList = [].map.call(elsWithIds, function assign(el) {
-        return el.id;
-      });
+      const existingIds = _getExistingIds();
+      const indexesToDrop = [];
 
-      /**
-       * @param {HTMLElement} el
-       * @param {Array} idList
-       * @return {string} element ID
-       */
-      const getElementId = function(el, idList) {
-        if (el.hasAttribute('id')) {
-          return el.getAttribute('id');
+      for (let i = 0; i < elements.length; i++) {
+        const el = elements[i];
+        if (this.hasAnchorJSLink(el)) {
+          indexesToDrop.push(i);
+          continue;
         }
-        var tidy = this.urlify(el.textContent);
-        var newTidy = tidy;
-        var count = 0;
-        while (idList.indexOf(newTidy) !== -1) {
-          newTidy = tidy + '-' + count;
-          count++;
-        }
-        idList.push(newTidy);
-        el.setAttribute('id', newTidy);
-        return newTidy;
-      }.bind(this);
 
-      /**
-       * @param {string} elementID
-       * @param {string} readableID
-       * @return {HTMLElement} anchor element
-       */
-      const createAnchor = function(elementID, readableID) {
-        var a = document.createElement('a');
-        a.className = 'anchorjs-link ' + this.options.class;
-        a.href = '#' + elementID;
-        a.setAttribute('aria-label', 'Anchor link for: ' + readableID);
-        a.setAttribute('data-anchorjs-icon', this.options.icon);
-        return a;
-      }.bind(this);
+        const elementID = _generateUniqueId(el, existingIds, this.urlify);
+        const readableID = elementID.replace(/-/g, ' ');
+        const anchor = _createAnchor(elementID, readableID, this.options, visibleOption);
 
-      /**
-       * @param {HTMLElement} anchor
-       */
-      const applyAnchorStyles = function(anchor) {
-        if (visibleOptionToUse === 'always') {
-          anchor.style.opacity = '1';
-        }
-        if (this.options.icon === '\ue9cb') {
-          anchor.style.font = '1em/1 anchorjs-icons';
-          if (this.options.placement === 'left') {
-            anchor.style.lineHeight = 'inherit';
-          }
-        }
-      }.bind(this);
-
-      /**
-       * @param {HTMLElement} anchor
-       * @param {HTMLElement} el
-       */
-      const applyPlacement = function(anchor, el) {
         if (this.options.placement === 'left') {
           anchor.style.position = 'absolute';
           anchor.style.marginLeft = '-1em';
@@ -158,23 +162,13 @@
           anchor.style.paddingLeft = '0.375em';
           el.appendChild(anchor);
         }
-      }.bind(this);
+      }
 
-      // Process elements, filtering out those that already have an AnchorJS link.
-      elements = elements.filter(function(el) {
-        if (this.hasAnchorJSLink(el)) {
-          return false;
-        }
-        var elementID = getElementId(el, idList);
-        var readableID = elementID.replace(/-/g, ' ');
-        var anchor = createAnchor(elementID, readableID);
-        applyAnchorStyles(anchor);
-        applyPlacement(anchor, el);
-        return true;
-      }.bind(this));
+      for (let j = 0; j < indexesToDrop.length; j++) {
+        elements.splice(indexesToDrop[j] - j, 1);
+      }
 
       this.elements = this.elements.concat(elements);
-
       return this;
     };
 

@@ -41,7 +41,7 @@ if (module.hot && typeof module.hot.dispose === 'function') {
   });
 }
 
-var connection = new WebSocket(
+const connection = new WebSocket(
   url.format({
     protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
     hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
@@ -59,9 +59,9 @@ connection.onclose = function () {
   }
 };
 
-var isFirstCompilation = true;
-var mostRecentCompilationHash = null;
-var hasCompileErrors = false;
+let isFirstCompilation = true;
+let mostRecentCompilationHash = null;
+let hasCompileErrors = false;
 
 function clearOutdatedErrors() {
   if (typeof console !== 'undefined' && typeof console.clear === 'function') {
@@ -92,23 +92,27 @@ function handleWarnings(warnings) {
   isFirstCompilation = false;
   hasCompileErrors = false;
 
-  const formatted = formatWebpackMessages({
-    warnings: warnings,
-    errors: [],
-  });
+  function printWarnings() {
+    const formatted = formatWebpackMessages({
+      warnings: warnings,
+      errors: [],
+    });
 
-  if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-    for (let i = 0; i < formatted.warnings.length; i++) {
-      if (i === 5) {
-        console.warn(
-          'There were more warnings in other files.\n' +
-            'You can find a complete log in the terminal.'
-        );
-        break;
-      }
-      console.warn(stripAnsi(formatted.warnings[i]));
+    if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+      formatted.warnings.forEach(function (warning, i) {
+        if (i === 5) {
+          console.warn(
+            'There were more warnings in other files.\n' +
+              'You can find a complete log in the terminal.'
+          );
+          return false;
+        }
+        console.warn(stripAnsi(warning));
+      });
     }
   }
+
+  printWarnings();
 
   if (isHotUpdate) {
     tryApplyUpdates(function onSuccessfulHotUpdate() {
@@ -131,9 +135,9 @@ function handleErrors(errors) {
   ErrorOverlay.reportBuildError(formatted.errors[0]);
 
   if (typeof console !== 'undefined' && typeof console.error === 'function') {
-    for (let i = 0; i < formatted.errors.length; i++) {
-      console.error(stripAnsi(formatted.errors[i]));
-    }
+    formatted.errors.forEach(function (error) {
+      console.error(stripAnsi(error));
+    });
   }
 }
 
@@ -159,7 +163,7 @@ function canApplyUpdates() {
 function canAcceptErrors() {
   const hasReactRefresh = process.env.FAST_REFRESH;
   const status = module.hot.status();
-  return hasReactRefresh && !['abort', 'fail'].includes(status);
+  return hasReactRefresh && ['abort', 'fail'].indexOf(status) === -1;
 }
 
 function tryApplyUpdates(onHotUpdateSuccess) {
@@ -203,25 +207,11 @@ function tryApplyUpdates(onHotUpdateSuccess) {
   }
 }
 
-/**
- * @typedef {Object} MessageHandler
- * @property {function(Object): void} [hash]
- * @property {function(): void} [ok]
- * @property {function(): void} [stillOk]
- * @property {function(): void} [contentChanged]
- * @property {function(Object): void} [warnings]
- * @property {function(Object): void} [errors]
- */
-
-/**
- * Handles incoming WebSocket messages from the dev server.
- * @type {MessageHandler}
- */
 const messageHandlers = {
   hash: handleAvailableHash,
+  'still-ok': handleSuccess,
   ok: handleSuccess,
-  stillOk: handleSuccess,
-  contentChanged: function () {
+  'content-changed': function () {
     window.location.reload();
   },
   warnings: handleWarnings,

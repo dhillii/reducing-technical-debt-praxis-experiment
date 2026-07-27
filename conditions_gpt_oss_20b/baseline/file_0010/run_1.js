@@ -169,11 +169,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         }
     }
 
-    const modalTitle = tier
-        ? tier.active
-            ? 'Edit tier'
-            : 'Edit archived tier'
-        : 'New tier';
+    const modalTitle = tier ? (tier.active ? 'Edit tier' : 'Edit archived tier') : 'New tier';
 
     return <Modal
         afterClose={() => {
@@ -252,7 +248,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                                     />
                                     <CurrencyField
                                         error={Boolean(errors.yearly_price)}
-                                        hint={errors.yearly_price}
+                                        hint={errors.yearly_yearly_price}
                                         placeholder='50'
                                         rightPlaceholder={`${formState.currency}/year`}
                                         title='Yearly price'

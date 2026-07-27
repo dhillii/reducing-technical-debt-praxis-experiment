@@ -69,7 +69,7 @@ const hasJsxRuntime = (() => {
 })();
 
 /**
- * Returns an array of style loaders based on the provided options.
+ * Returns loaders for style files.
  * @param {Object} cssOptions
  * @param {string} [preProcessor]
  * @returns {Array}
@@ -146,50 +146,62 @@ const getStyleLoaders = (cssOptions, preProcessor) => {
 };
 
 /**
- * Builds the output configuration object.
- * @param {boolean} isEnvProduction
+ * Determines the mode based on environment.
+ * @param {boolean} isProd
+ * @param {boolean} isDev
+ * @returns {string|boolean}
+ */
+const getMode = (isProd, isDev) => (isProd ? 'production' : isDev && 'development');
+
+/**
+ * Determines the devtool setting.
+ * @param {boolean} isProd
+ * @param {boolean} isDev
+ * @param {boolean} shouldUseSourceMap
+ * @returns {string|boolean}
+ */
+const getDevtool = (isProd, isDev, shouldUseSourceMap) =>
+  isProd
+    ? shouldUseSourceMap
+      ? 'source-map'
+      : false
+    : isDev && 'cheap-module-source-map';
+
+/**
+ * Builds the output configuration.
+ * @param {boolean} isProd
+ * @param {boolean} isDev
+ * @param {Object} paths
  * @returns {Object}
  */
-const createOutput = (isEnvProduction) => ({
+const getOutput = (isProd, isDev, paths) => ({
   path: paths.appBuild,
-  pathinfo: isEnvDevelopment,
-  filename: isEnvProduction
+  pathinfo: isDev,
+  filename: isProd
     ? 'static/js/[name].[contenthash:8].js'
-    : 'static/js/bundle.js',
-  chunkFilename: isEnvProduction
+    : isDev && 'static/js/bundle.js',
+  chunkFilename: isProd
     ? 'static/js/[name].[contenthash:8].chunk.js'
-    : 'static/js/[name].chunk.js',
+    : isDev && 'static/js/[name].chunk.js',
   assetModuleFilename: 'static/media/[name].[hash][ext]',
   publicPath: paths.publicUrlOrPath,
-  devtoolModuleFilenameTemplate: isEnvProduction
+  devtoolModuleFilenameTemplate: isProd
     ? (info) =>
         path
           .relative(paths.appSrc, info.absoluteResourcePath)
           .replace(/\\/g, '/')
-    : (info) => path.resolve(info.absoluteResourcePath).replace(/\\/g, '/'),
+    : isDev &&
+      (info => path.resolve(info.absoluteResourcePath).replace(/\\/g, '/')),
 });
 
 /**
- * Determines the devtool string based on environment.
- * @param {boolean} isEnvProduction
- * @param {boolean} shouldUseSourceMap
- * @param {boolean} isEnvDevelopment
- * @returns {string|boolean}
- */
-const createDevtool = (isEnvProduction, shouldUseSourceMap, isEnvDevelopment) =>
-  isEnvProduction
-    ? shouldUseSourceMap
-      ? 'source-map'
-      : false
-    : isEnvDevelopment && 'cheap-module-source-map';
-
-/**
  * Builds the cache configuration.
- * @param {boolean} isEnvProduction
+ * @param {boolean} isProd
+ * @param {boolean} isDev
  * @param {Object} env
  * @returns {Object}
  */
-const createCache = (isEnvProduction, env) => ({
+const getCache = (isProd, isDev, env) => ({
   type: 'filesystem',
   version: createEnvironmentHash(env.raw),
   cacheDirectory: paths.appWebpackCache,
@@ -197,27 +209,80 @@ const createCache = (isEnvProduction, env) => ({
   buildDependencies: {
     defaultWebpack: ['webpack/lib/'],
     config: [__filename],
-    tsconfig: [paths.appTsConfig, paths.appJsConfig].filter((f) =>
+    tsconfig: [paths.appTsConfig, paths.appJsConfig].filter(f =>
       fs.existsSync(f)
     ),
   },
 });
 
 /**
- * Builds the resolve configuration.
- * @param {boolean} isEnvProductionProfile
+ * Builds the optimization configuration.
+ * @param {boolean} isProd
+ * @param {boolean} isDev
+ * @param {boolean} shouldUseSourceMap
+ * @param {boolean} isProdProfile
  * @returns {Object}
  */
-const createResolve = (isEnvProductionProfile) => ({
+const getOptimization = (
+  isProd,
+  isDev,
+  shouldUseSourceMap,
+  isProdProfile
+) => ({
+  minimize: isProd,
+  minimizer: [
+    new TerserPlugin({
+      terserOptions: {
+        parse: {
+          ecma: 8,
+        },
+        compress: {
+          ecma: 5,
+          warnings: false,
+          comparisons: false,
+          inline: 2,
+        },
+        mangle: {
+          safari10: true,
+        },
+        keep_classnames: isProdProfile,
+        keep_fnames: isProdProfile,
+        output: {
+          ecma: 5,
+          comments: false,
+          ascii_only: true,
+        },
+      },
+    }),
+    new CssMinimizerPlugin(),
+  ],
+});
+
+/**
+ * Builds the resolve configuration.
+ * @param {boolean} isProdProfile
+ * @param {Object} modules
+ * @param {Object} paths
+ * @param {boolean} useTypeScript
+ * @param {boolean} useTailwind
+ * @returns {Object}
+ */
+const getResolve = (
+  isProdProfile,
+  modules,
+  paths,
+  useTypeScript,
+  useTailwind
+) => ({
   modules: ['node_modules', paths.appNodeModules].concat(
     modules.additionalModulePaths || []
   ),
   extensions: paths.moduleFileExtensions
-    .map((ext) => `.${ext}`)
-    .filter((ext) => useTypeScript || !ext.includes('ts')),
+    .map(ext => `.${ext}`)
+    .filter(ext => useTypeScript || !ext.includes('ts')),
   alias: {
     'react-native': 'react-native-web',
-    ...(isEnvProductionProfile && {
+    ...(isProdProfile && {
       'react-dom$': 'react-dom/profiling',
       'scheduler/tracing': 'scheduler/tracing-profiling',
     }),
@@ -239,31 +304,13 @@ const createResolve = (isEnvProductionProfile) => ({
  * Builds the module.rules array.
  * @param {boolean} isEnvDevelopment
  * @param {boolean} isEnvProduction
- * @param {number} imageInlineSizeLimit
- * @param {Object} paths
- * @param {boolean} useTypeScript
- * @param {boolean} useTailwind
- * @param {boolean} hasJsxRuntime
- * @param {Function} getCacheIdentifier
- * @param {boolean} isEnvProductionProfile
  * @param {boolean} shouldUseSourceMap
- * @param {boolean} shouldUseReactRefresh
- * @param {Object} env
  * @returns {Array}
  */
-const createModuleRules = (
+const getModuleRules = (
   isEnvDevelopment,
   isEnvProduction,
-  imageInlineSizeLimit,
-  paths,
-  useTypeScript,
-  useTailwind,
-  hasJsxRuntime,
-  getCacheIdentifier,
-  isEnvProductionProfile,
-  shouldUseSourceMap,
-  shouldUseReactRefresh,
-  env
+  shouldUseSourceMap
 ) => [
   shouldUseSourceMap && {
     enforce: 'pre',
@@ -373,6 +420,8 @@ const createModuleRules = (
           ],
           cacheDirectory: true,
           cacheCompression: false,
+          sourceMaps: shouldUseSourceMap,
+          inputSourceMap: shouldUseSourceMap,
           cacheIdentifier: getCacheIdentifier(
             isEnvProduction
               ? 'production'
@@ -384,8 +433,6 @@ const createModuleRules = (
               'react-scripts',
             ]
           ),
-          sourceMaps: shouldUseSourceMap,
-          inputSourceMap: shouldUseSourceMap,
         },
       },
       {
@@ -454,219 +501,166 @@ const createModuleRules = (
       },
     ],
   },
-];
+].filter(Boolean);
 
 /**
  * Builds the plugins array.
- * @param {Object} cfg
+ * @param {boolean} isEnvDevelopment
+ * @param {boolean} isEnvProduction
+ * @param {boolean} shouldUseReactRefresh
+ * @param {boolean} shouldInlineRuntimeChunk
+ * @param {boolean} isEnvProductionProfile
+ * @param {Object} env
  * @returns {Array}
  */
-const createPlugins = (cfg) => {
-  const {
-    isEnvDevelopment,
-    isEnvProduction,
-    shouldUseReactRefresh,
-    shouldInlineRuntimeChunk,
-    env,
-    paths,
-    useTypeScript,
-    isEnvProductionProfile,
-    useTailwind,
-    hasJsxRuntime,
-    disableESLintPlugin,
-    emitErrorsAsWarnings,
-  } = cfg;
-  return [
-    new HtmlWebpackPlugin(
-      Object.assign(
-        {},
-        {
-          inject: true,
-          template: paths.appHtml,
-        },
-        isEnvProduction
-          ? {
-              minify: {
-                removeComments: true,
-                collapseWhitespace: true,
-                removeRedundantAttributes: true,
-                useShortDoctype: true,
-                removeEmptyAttributes: true,
-                removeStyleLinkTypeAttributes: true,
-                keepClosingSlash: true,
-                minifyJS: true,
-                minifyCSS: true,
-                minifyURLs: true,
-              },
-            }
-          : undefined
-      )
-    ),
-    isEnvProduction &&
-      shouldInlineRuntimeChunk &&
-      new InlineChunkHtmlPlugin(HtmlWebpackPlugin, [/runtime-.+[.]js/]),
-    new InterpolateHtmlPlugin(HtmlWebpackPlugin, env.raw),
-    new ModuleNotFoundPlugin(paths.appPath),
-    new webpack.DefinePlugin(env.stringified),
-    isEnvDevelopment &&
-      shouldUseReactRefresh &&
-      new ReactRefreshWebpackPlugin({
-        overlay: false,
-      }),
-    isEnvDevelopment && new CaseSensitivePathsPlugin(),
-    isEnvProduction &&
-      new MiniCssExtractPlugin({
-        filename: 'static/css/[name].[contenthash:8].css',
-        chunkFilename: 'static/css/[name].[contenthash:8].chunk.css',
-      }),
-    new WebpackManifestPlugin({
-      fileName: 'asset-manifest.json',
-      publicPath: paths.publicUrlOrPath,
-      generate: (seed, files, entrypoints) => {
-        const manifestFiles = files.reduce((manifest, file) => {
-          manifest[file.name] = file.path;
-          return manifest;
-        }, seed);
-        const entrypointFiles = entrypoints.main.filter(
-          (fileName) => !fileName.endsWith('.map')
-        );
-        return {
-          files: manifestFiles,
-          entrypoints: entrypointFiles,
-        };
-      },
-    }),
-    new webpack.IgnorePlugin({
-      resourceRegExp: /^\.\/locale$/,
-      contextRegExp: /moment$/,
-    }),
-    isEnvProduction &&
-      fs.existsSync(swSrc) &&
-      new WorkboxWebpackPlugin.InjectManifest({
-        swSrc,
-        dontCacheBustURLsMatching: /\.[0-9a-f]{8}\./,
-        exclude: [/\.map$/, /asset-manifest\.json$/, /LICENSE/],
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-      }),
-    useTypeScript &&
-      new ForkTsCheckerWebpackPlugin({
-        async: isEnvDevelopment,
-        typescript: {
-          typescriptPath: resolve.sync('typescript', {
-            basedir: paths.appNodeModules,
-          }),
-          configOverwrite: {
-            compilerOptions: {
-              sourceMap: isEnvProduction
-                ? shouldUseSourceMap
-                : isEnvDevelopment,
-              skipLibCheck: true,
-              inlineSourceMap: false,
-              declarationMap: false,
-              noEmit: true,
-              incremental: true,
-              tsBuildInfoFile: paths.appTsBuildInfoFile,
-            },
-          },
-          context: paths.appPath,
-          diagnosticOptions: {
-            syntactic: true,
-          },
-          mode: 'write-references',
-        },
-        issue: {
-          include: [
-            { file: '../**/src/**/*.{ts,tsx}' },
-            { file: '**/src/**/*.{ts,tsx}' },
-          ],
-          exclude: [
-            { file: '**/src/**/__tests__/**' },
-            { file: '**/src/**/?(*.){spec|test}.*' },
-            { file: '**/src/setupProxy.*' },
-            { file: '**/src/setupTests.*' },
-          ],
-        },
-        logger: {
-          infrastructure: 'silent',
-        },
-      }),
-    !disableESLintPlugin &&
-      new ESLintPlugin({
-        extensions: ['js', 'mjs', 'jsx', 'ts', 'tsx'],
-        formatter: require.resolve('react-dev-utils/eslintFormatter'),
-        eslintPath: require.resolve('eslint'),
-        failOnError: !(isEnvDevelopment && emitErrorsAsWarnings),
-        context: paths.appSrc,
-        cache: true,
-        cacheLocation: path.resolve(
-          paths.appNodeModules,
-          '.cache/.eslintcache'
-        ),
-        cwd: paths.appPath,
-        resolvePluginsRelativeTo: __dirname,
-        baseConfig: {
-          extends: [require.resolve('eslint-config-react-app/base')],
-          rules: {
-            ...(!hasJsxRuntime && {
-              'react/react-in-jsx-scope': 'error',
-            }),
-          },
-        },
-      }),
-  ].filter(Boolean);
-};
-
-/**
- * Builds the optimization configuration.
- * @param {boolean} isEnvProduction
- * @param {boolean} isEnvProductionProfile
- * @param {boolean} shouldUseSourceMap
- * @param {boolean} isEnvDevelopment
- * @returns {Object}
- */
-const createOptimization = (
+const getPlugins = (
+  isEnvDevelopment,
   isEnvProduction,
+  shouldUseReactRefresh,
+  shouldInlineRuntimeChunk,
   isEnvProductionProfile,
-  shouldUseSourceMap,
-  isEnvDevelopment
-) => ({
-  minimize: isEnvProduction,
-  minimizer: [
-    new TerserPlugin({
-      terserOptions: {
-        parse: {
-          ecma: 8,
+  env
+) => [
+  new HtmlWebpackPlugin(
+    Object.assign(
+      {},
+      {
+        inject: true,
+        template: paths.appHtml,
+      },
+      isEnvProduction
+        ? {
+            minify: {
+              removeComments: true,
+              collapseWhitespace: true,
+              removeRedundantAttributes: true,
+              useShortDoctype: true,
+              removeEmptyAttributes: true,
+              removeStyleLinkTypeAttributes: true,
+              keepClosingSlash: true,
+              minifyJS: true,
+              minifyCSS: true,
+              minifyURLs: true,
+            },
+          }
+        : undefined
+    )
+  ),
+  isEnvProduction &&
+    shouldInlineRuntimeChunk &&
+    new InlineChunkHtmlPlugin(HtmlWebpackPlugin, [/runtime-.+[.]js/]),
+  new InterpolateHtmlPlugin(HtmlWebpackPlugin, env.raw),
+  new ModuleNotFoundPlugin(paths.appPath),
+  new webpack.DefinePlugin(env.stringified),
+  isEnvDevelopment &&
+    shouldUseReactRefresh &&
+    new ReactRefreshWebpackPlugin({
+      overlay: false,
+    }),
+  isEnvDevelopment && new CaseSensitivePathsPlugin(),
+  isEnvProduction &&
+    new MiniCssExtractPlugin({
+      filename: 'static/css/[name].[contenthash:8].css',
+      chunkFilename: 'static/css/[name].[contenthash:8].chunk.css',
+    }),
+  new WebpackManifestPlugin({
+    fileName: 'asset-manifest.json',
+    publicPath: paths.publicUrlOrPath,
+    generate: (seed, files, entrypoints) => {
+      const manifestFiles = files.reduce((manifest, file) => {
+        manifest[file.name] = file.path;
+        return manifest;
+      }, seed);
+      const entrypointFiles = entrypoints.main.filter(
+        fileName => !fileName.endsWith('.map')
+      );
+      return {
+        files: manifestFiles,
+        entrypoints: entrypointFiles,
+      };
+    },
+  }),
+  new webpack.IgnorePlugin({
+    resourceRegExp: /^\.\/locale$/,
+    contextRegExp: /moment$/,
+  }),
+  isEnvProduction &&
+    fs.existsSync(swSrc) &&
+    new WorkboxWebpackPlugin.InjectManifest({
+      swSrc,
+      dontCacheBustURLsMatching: /\.[0-9a-f]{8}\./,
+      exclude: [/\.map$/, /asset-manifest\.json$/, /LICENSE/],
+      maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+    }),
+  useTypeScript &&
+    new ForkTsCheckerWebpackPlugin({
+      async: isEnvDevelopment,
+      typescript: {
+        typescriptPath: resolve.sync('typescript', {
+          basedir: paths.appNodeModules,
+        }),
+        configOverwrite: {
+          compilerOptions: {
+            sourceMap: isEnvProduction
+              ? shouldUseSourceMap
+              : isEnvDevelopment,
+            skipLibCheck: true,
+            inlineSourceMap: false,
+            declarationMap: false,
+            noEmit: true,
+            incremental: true,
+            tsBuildInfoFile: paths.appTsBuildInfoFile,
+          },
         },
-        compress: {
-          ecma: 5,
-          warnings: false,
-          comparisons: false,
-          inline: 2,
+        context: paths.appPath,
+        diagnosticOptions: {
+          syntactic: true,
         },
-        mangle: {
-          safari10: true,
-        },
-        keep_classnames: isEnvProductionProfile,
-        keep_fnames: isEnvProductionProfile,
-        output: {
-          ecma: 5,
-          comments: false,
-          ascii_only: true,
+        mode: 'write-references',
+      },
+      issue: {
+        include: [
+          { file: '../**/src/**/*.{ts,tsx}' },
+          { file: '**/src/**/*.{ts,tsx}' },
+        ],
+        exclude: [
+          { file: '**/src/**/__tests__/**' },
+          { file: '**/src/**/?(*.){spec|test}.*' },
+          { file: '**/src/setupProxy.*' },
+          { file: '**/src/setupTests.*' },
+        ],
+      },
+      logger: {
+        infrastructure: 'silent',
+      },
+    }),
+  !disableESLintPlugin &&
+    new ESLintPlugin({
+      extensions: ['js', 'mjs', 'jsx', 'ts', 'tsx'],
+      formatter: require.resolve('react-dev-utils/eslintFormatter'),
+      eslintPath: require.resolve('eslint'),
+      failOnError: !(isEnvDevelopment && emitErrorsAsWarnings),
+      context: paths.appSrc,
+      cache: true,
+      cacheLocation: path.resolve(
+        paths.appNodeModules,
+        '.cache/.eslintcache'
+      ),
+      cwd: paths.appPath,
+      resolvePluginsRelativeTo: __dirname,
+      baseConfig: {
+        extends: [require.resolve('eslint-config-react-app/base')],
+        rules: {
+          ...(!hasJsxRuntime && {
+            'react/react-in-jsx-scope': 'error',
+          }),
         },
       },
     }),
-    new CssMinimizerPlugin(),
-  ],
-});
+].filter(Boolean);
 
 /**
- * Builds the performance configuration.
- * @returns {boolean}
- */
-const createPerformance = () => false;
-
-/**
- * Main configuration function.
+ * Main webpack configuration function.
  * @param {string} webpackEnv
  * @returns {Object}
  */
@@ -678,58 +672,47 @@ module.exports = function (webpackEnv) {
   const env = getClientEnvironment(paths.publicUrlOrPath.slice(0, -1));
   const shouldUseReactRefresh = env.raw.FAST_REFRESH;
 
-  const config = {
+  return {
     target: ['browserslist'],
     stats: 'errors-warnings',
-    mode: isEnvProduction ? 'production' : isEnvDevelopment && 'development',
+    mode: getMode(isEnvProduction, isEnvDevelopment),
     bail: isEnvProduction,
-    devtool: createDevtool(isEnvProduction, shouldUseSourceMap, isEnvDevelopment),
+    devtool: getDevtool(isEnvProduction, isEnvDevelopment, shouldUseSourceMap),
     entry: paths.appIndexJs,
-    output: createOutput(isEnvProduction),
-    cache: createCache(isEnvProduction, env),
+    output: getOutput(isEnvProduction, isEnvDevelopment, paths),
+    cache: getCache(isEnvProduction, isEnvDevelopment, env),
     infrastructureLogging: {
       level: 'none',
     },
-    optimization: createOptimization(
+    optimization: getOptimization(
       isEnvProduction,
-      isEnvProductionProfile,
+      isEnvDevelopment,
       shouldUseSourceMap,
-      isEnvDevelopment
+      isEnvProductionProfile
     ),
-    resolve: createResolve(isEnvProductionProfile),
+    resolve: getResolve(
+      isEnvProductionProfile,
+      modules,
+      paths,
+      useTypeScript,
+      useTailwind
+    ),
     module: {
       strictExportPresence: true,
-      rules: createModuleRules(
+      rules: getModuleRules(
         isEnvDevelopment,
         isEnvProduction,
-        imageInlineSizeLimit,
-        paths,
-        useTypeScript,
-        useTailwind,
-        hasJsxRuntime,
-        getCacheIdentifier,
-        isEnvProductionProfile,
-        shouldUseSourceMap,
-        shouldUseReactRefresh,
-        env
+        shouldUseSourceMap
       ),
     },
-    plugins: createPlugins({
+    plugins: getPlugins(
       isEnvDevelopment,
       isEnvProduction,
       shouldUseReactRefresh,
       shouldInlineRuntimeChunk,
-      env,
-      paths,
-      useTypeScript,
       isEnvProductionProfile,
-      useTailwind,
-      hasJsxRuntime,
-      disableESLintPlugin,
-      emitErrorsAsWarnings,
-    }),
-    performance: createPerformance(),
+      env
+    ),
+    performance: false,
   };
-
-  return config;
 };

@@ -55,18 +55,50 @@ module.exports = class EventRepository {
         this._AutomatedEmailRecipient = AutomatedEmailRecipient;
     }
 
+    /**
+     * Orchestrates retrieval of event timeline.
+     * @param {Object} options
+     * @returns {Promise<Object>}
+     */
     async getEventTimeline(options = {}) {
+        this._setDefaultLimit(options);
+        const [typeFilter, otherFilter] = this.getNQLSubset(options.filter);
+        this._setOrder(options);
+        const pageActions = this._buildPageActions(otherFilter);
+        const filteredPages = this._filterPages(pageActions, typeFilter);
+        const pages = this._mapPages(filteredPages, options, otherFilter);
+        const allEventPages = await Promise.all(pages);
+        const allEvents = allEventPages.flatMap(page => page.data);
+        const totalEvents = this._calculateTotalEvents(allEventPages);
+        const sortedEvents = this._sortAndSliceEvents(allEvents, options.limit);
+        const meta = this._buildMeta(totalEvents, options.limit);
+        return {events: sortedEvents, meta};
+    }
+
+    /**
+     * Sets default limit if not provided.
+     * @param {Object} options
+     */
+    _setDefaultLimit(options) {
         if (!options.limit) {
             options.limit = 10;
         }
+    }
 
-        const [typeFilter, otherFilter] = this.getNQLSubset(options.filter);
-
-        // Changing this order might need a change in the query functions
-        // because of the different underlying models.
+    /**
+     * Sets default order for queries.
+     * @param {Object} options
+     */
+    _setOrder(options) {
         options.order = 'created_at desc, id desc';
+    }
 
-        // Create a list of all events that can be queried
+    /**
+     * Builds list of page actions based on available services and filters.
+     * @param {Object} otherFilter
+     * @returns {Array<Object>}
+     */
+    _buildPageActions(otherFilter) {
         const pageActions = [
             {type: 'comment_event', action: 'getCommentEvents'},
             {type: 'click_event', action: 'getClickEvents'},
@@ -76,7 +108,6 @@ module.exports = class EventRepository {
             {type: 'donation_event', action: 'getDonationEvents'}
         ];
 
-        // Some events are not filterable by post_id
         if (!getUsedKeys(otherFilter).includes('data.post_id')) {
             pageActions.push(
                 {type: 'newsletter_event', action: 'getNewsletterSubscriptionEvents'},
@@ -103,45 +134,82 @@ module.exports = class EventRepository {
             pageActions.push({type: 'feedback_event', action: 'getFeedbackEvents'});
         }
 
-        //Filter events to query
-        let filteredPages = pageActions;
-        if (typeFilter) {
-            // Ideally we should be able to create a NQL filter without having a string
-            const query = new mingo.Query(typeFilter);
-            filteredPages = filteredPages.filter(page => query.test(page));
+        return pageActions;
+    }
+
+    /**
+     * Filters page actions based on type filter.
+     * @param {Array<Object>} pageActions
+     * @param {Object} typeFilter
+     * @returns {Array<Object>}
+     */
+    _filterPages(pageActions, typeFilter) {
+        if (!typeFilter) {
+            return pageActions;
         }
+        const query = new mingo.Query(typeFilter);
+        return pageActions.filter(page => query.test(page));
+    }
 
-        //Start the promises
-        const pages = filteredPages.map((page) => {
-            return this[page.action](options, otherFilter);
-        });
+    /**
+     * Maps page actions to promise-returning functions.
+     * @param {Array<Object>} filteredPages
+     * @param {Object} options
+     * @param {Object} otherFilter
+     * @returns {Array<Promise>}
+     */
+    _mapPages(filteredPages, options, otherFilter) {
+        return filteredPages.map(page => this[page.action](options, otherFilter));
+    }
 
-        const allEventPages = await Promise.all(pages);
+    /**
+     * Calculates total events from pages.
+     * @param {Array<Object>} allEventPages
+     * @returns {number}
+     */
+    _calculateTotalEvents(allEventPages) {
+        return allEventPages.reduce((acc, page) => acc + page.meta.pagination.total, 0);
+    }
 
-        const allEvents = allEventPages.flatMap(page => page.data);
-        const totalEvents = allEventPages.reduce((accumulator, page) => accumulator + page.meta.pagination.total, 0);
+    /**
+     * Sorts events and slices to limit.
+     * @param {Array<Object>} allEvents
+     * @param {number} limit
+     * @returns {Array<Object>}
+     */
+    _sortAndSliceEvents(allEvents, limit) {
+        return allEvents.sort(this._sortEventsComparator).slice(0, limit);
+    }
 
+    /**
+     * Comparator for sorting events by created_at and id.
+     * @param {Object} a
+     * @param {Object} b
+     * @returns {number}
+     */
+    _sortEventsComparator(a, b) {
+        const diff = new Date(b.data.created_at).getTime() - new Date(a.data.created_at).getTime();
+        if (diff !== 0) {
+            return diff;
+        }
+        return b.data.id.localeCompare(a.data.id);
+    }
+
+    /**
+     * Builds meta object for response.
+     * @param {number} totalEvents
+     * @param {number} limit
+     * @returns {Object}
+     */
+    _buildMeta(totalEvents, limit) {
         return {
-            events: allEvents.sort(
-                (a, b) => {
-                    const diff = new Date(b.data.created_at).getTime() - new Date(a.data.created_at).getTime();
-                    if (diff !== 0) {
-                        return diff;
-                    }
-                    return b.data.id.localeCompare(a.data.id);
-                }
-            ).slice(0, options.limit),
-            meta: {
-                pagination: {
-                    limit: options.limit,
-                    total: totalEvents,
-                    pages: options.limit > 0 ? Math.ceil(totalEvents / options.limit) : null,
-
-                    // Other values are unavailable (not possible to calculate easily)
-                    page: null,
-                    next: null,
-                    prev: null
-                }
+            pagination: {
+                limit,
+                total: totalEvents,
+                pages: limit > 0 ? Math.ceil(totalEvents / limit) : null,
+                page: null,
+                next: null,
+                prev: null
             }
         };
     }
@@ -886,7 +954,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getAutomatedEmailSentEvents(options = {}, filter) {
+    async getAutomatedEmailSentEvents(options = {}, filter = undefined) {
         options = {
             ...options,
             withRelated: ['member', 'automatedEmail'],

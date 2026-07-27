@@ -12,50 +12,46 @@ import {useTopContent} from '@tryghost/admin-x-framework/api/stats';
 
 countries.registerLocale(enLocale);
 
+/**
+ * Map device identifiers to human‑readable labels.
+ * @param {string} device - The raw device value from the API.
+ * @returns {string} The display label for the device.
+ */
+const getDeviceLabel = (device: string): string => {
+    switch (device) {
+        case 'mobile-ios':
+            return 'iOS';
+        case 'mobile-android':
+            return 'Android';
+        case 'desktop':
+            return 'Desktop';
+        case 'bot':
+            return 'Bot';
+        case 'unknown':
+            return 'Unknown';
+        default:
+            return device;
+    }
+};
+
 interface StatsFilterProps extends Omit<React.ComponentProps<typeof Filters>, 'fields' | 'onChange'> {
     filters: Filter[];
     onChange?: (filters: Filter[]) => void;
 }
 
-/**
- * Helper to get country name from code
- */
+// Helper to get country name from code
 const getCountryName = (code: string): string => {
     return STATS_LABEL_MAPPINGS[code as keyof typeof STATS_LABEL_MAPPINGS] || countries.getName(code, 'en') || code;
 };
 
-/**
- * Helper component for visit count badge - used by all filter options
- */
+// Helper component for visit count badge - used by all filter options
 const VisitCountBadge = ({visits}: {visits: number}) => (
     <span className="order-2 font-mono text-xs text-muted-foreground">
         {visits.toLocaleString()}
     </span>
 );
 
-/**
- * Mapping of device values to display labels.
- */
-const DEVICE_LABEL_MAP: Record<string, string> = {
-    'mobile-ios': 'iOS',
-    'mobile-android': 'Android',
-    'desktop': 'Desktop',
-    'bot': 'Bot',
-    'unknown': 'Unknown'
-};
-
-/**
- * Returns the display label for a device value.
- * @param value - raw device value
- * @returns display label
- */
-const getDeviceLabel = (value: string): string => {
-    return DEVICE_LABEL_MAP[value] ?? value;
-};
-
-/**
- * Configuration for each filter field type
- */
+// Configuration for each filter field type
 interface FilterFieldDefinition {
     endpoint: string;
     valueKey: string;
@@ -118,9 +114,7 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     }
 };
 
-/**
- * Build filter params for Tinybird API, excluding the specified field to avoid circular filtering
- */
+// Build filter params for Tinybird API, excluding the specified field to avoid circular filtering
 const buildFilterParams = (
     currentFilters: Filter[],
     excludeField: string,
@@ -157,10 +151,8 @@ interface UseTinybirdFilterOptionsConfig {
     enabled?: boolean;
 }
 
-/**
- * Generic hook to fetch filter options from Tinybird
- * Handles the common pattern: fetch data, transform to options, ensure selected value is included
- */
+// Generic hook to fetch filter options from Tinybird
+// Handles the common pattern: fetch data, transform to options, ensure selected value is included
 const useTinybirdFilterOptions = (
     fieldKey: string,
     currentFilters: Filter[] = [],
@@ -231,10 +223,8 @@ interface UsePostOptionsConfig {
     enabled?: boolean;
 }
 
-/**
- * Hook to fetch posts/pages options from Ghost API (which queries Tinybird and enriches with titles)
- * This uses a different API pattern so it can't use the generic hook
- */
+// Hook to fetch posts/pages options from Ghost API (which queries Tinybird and enriches with titles)
+// This uses a different API pattern so it can't use the generic hook
 const usePostOptions = (currentFilters: Filter[] = [], config: UsePostOptionsConfig = {}) => {
     const {enabled = true} = config;
     const {range} = useGlobalData();

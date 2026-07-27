@@ -16,9 +16,6 @@ var fclone      = require('fclone');
 
 var IMMUTABLE_MSG = chalk.bold.blue('Use --update-env to update environment variables');
 
-/* Explicit declaration of conf to satisfy static analysis */
-var conf = global.conf;
-
 /**
  * Main Function to be imported
  * can be aliased to PM2

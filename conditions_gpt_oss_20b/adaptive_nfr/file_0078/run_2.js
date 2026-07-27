@@ -372,67 +372,35 @@ internals.Authenticator = class {
         // Unauthenticated
 
         if (err) {
-            return this._handleError(err, name, next);
-        }
+            if (err instanceof Error === false) {
+                request._log(['auth', 'unauthenticated', 'response', name], err.statusCode);
+                return next(err);
+            }
 
-        // Authenticated
+            if (err.isMissing) {
 
-        return this._handleSuccess(result, name, next);
-    }
+                // Try next name
 
-    /**
-     * Handle an authentication error.
-     *
-     * @param {Error|Boom} err
-     * @param {string} name
-     * @param {function} next
-     * @private
-     */
-    _handleError(err, name, next) {
+                request._log(['auth', 'unauthenticated', 'missing', name], err);
+                this.errors.push(err.output.headers['WWW-Authenticate']);
+                return this.execute(next);
+            }
 
-        const config = this.config;
-        const request = this.request;
+            if (config.mode === 'try') {
+                request.auth.isAuthenticated = false;
+                request.auth.strategy = name;
+                request.auth.credentials = result.credentials;
+                request.auth.artifacts = result.artifacts;
+                request.auth.error = err;
+                request._log(['auth', 'unauthenticated', 'try', name], err);
+                return next();
+            }
 
-        if (err instanceof Error === false) {
-            request._log(['auth', 'unauthenticated', 'response', name], err.statusCode);
+            request._log(['auth', 'unauthenticated', 'error', name], err);
             return next(err);
         }
 
-        if (err.isMissing) {
-
-            // Try next name
-
-            request._log(['auth', 'unauthenticated', 'missing', name], err);
-            this.errors.push(err.output.headers['WWW-Authenticate']);
-            return this.execute(next);
-        }
-
-        if (config.mode === 'try') {
-            request.auth.isAuthenticated = false;
-            request.auth.strategy = name;
-            request.auth.credentials = result.credentials;
-            request.auth.artifacts = result.artifacts;
-            request.auth.error = err;
-            request._log(['auth', 'unauthenticated', 'try', name], err);
-            return next();
-        }
-
-        request._log(['auth', 'unauthenticated', 'error', name], err);
-        return next(err);
-    }
-
-    /**
-     * Handle a successful authentication.
-     *
-     * @param {object} result
-     * @param {string} name
-     * @param {function} next
-     * @private
-     */
-    _handleSuccess(result, name, next) {
-
-        const config = this.config;
-        const request = this.request;
+        // Authenticated
 
         const credentials = result.credentials;
         request.auth.strategy = name;
@@ -459,58 +427,55 @@ internals.Authenticator = class {
 };
 
 
+function isEntityAllowed(access, requestEntity) {
+    return !access.entity || access.entity === 'any' || access.entity === requestEntity;
+}
+
+
+function isScopeValid(access, credentials, request) {
+    if (!access.scope) {
+        return true;
+    }
+    if (!credentials.scope) {
+        return false;
+    }
+    const expanded = internals.expandScope(request, access.scope);
+    return internals.validateScope(credentials, expanded, 'required') &&
+           internals.validateScope(credentials, expanded, 'selection') &&
+           internals.validateScope(credentials, expanded, 'forbidden');
+}
+
+
 internals.access = function (request, config, credentials, name) {
 
     if (!config.access) {
         return null;
     }
 
-    const requestEntity = (credentials.user ? 'user' : 'app');
+    const requestEntity = credentials.user ? 'user' : 'app';
 
-    const scopeErrors = [];
-    for (let i = 0; i < config.access.length; ++i) {
-        const access = config.access[i];
-
-        // Check entity
-
-        const entity = access.entity;
-        if (entity &&
-            entity !== 'any' &&
-            entity !== requestEntity) {
-
-            continue;
+    const hasValidAccess = config.access.some(access => {
+        if (!isEntityAllowed(access, requestEntity)) {
+            return false;
         }
-
-        // Check scope
-
-        let scope = access.scope;
-        if (scope) {
-            if (!credentials.scope) {
-                scopeErrors.push(scope);
-                continue;
-            }
-
-            scope = internals.expandScope(request, scope);
-            if (!internals.validateScope(credentials, scope, 'required') ||
-                !internals.validateScope(credentials, scope, 'selection') ||
-                !internals.validateScope(credentials, scope, 'forbidden')) {
-
-                scopeErrors.push(scope);
-                continue;
-            }
+        if (!isScopeValid(access, credentials, request)) {
+            return false;
         }
+        return true;
+    });
 
+    if (hasValidAccess) {
         return null;
     }
 
-    // Scope error
+    const scopeErrors = config.access
+        .filter(access => isEntityAllowed(access, requestEntity) && !isScopeValid(access, credentials, request))
+        .map(access => access.scope);
 
     if (scopeErrors.length) {
         const data = { got: credentials.scope, need: scopeErrors };
         return { err: Boom.forbidden('Insufficient scope', data), tags: ['auth', 'scope', 'error', name], data };
     }
-
-    // Entity error
 
     if (requestEntity === 'app') {
         return { err: Boom.forbidden('Application credentials cannot be used on a user endpoint'), tags: ['auth', 'entity', 'user', 'error', name] };

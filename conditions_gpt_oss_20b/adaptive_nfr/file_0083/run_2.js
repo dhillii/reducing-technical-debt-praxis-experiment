@@ -58,7 +58,7 @@ function useEventCallback<Func extends (...args: any[]) => unknown>(callback: Fu
 }
 
 /**
- * Handles deletion of an item and displays error dialog if needed.
+ * Renders a delete confirmation dialog for an item.
  */
 function DeleteButton({
   list,
@@ -80,24 +80,6 @@ function DeleteButton({
     { variables: { id: itemId } }
   )
 
-  const handleDelete = async () => {
-    try {
-      await deleteItem()
-    } catch (err: any) {
-      toastQueue.critical('Unable to delete item', {
-        actionLabel: 'Details',
-        onAction: () => setErrorDialogValue(err),
-        shouldCloseOnAction: true,
-      })
-      return
-    }
-
-    toastQueue.neutral(`${list.singular} deleted.`, {
-      timeout: 5000,
-    })
-    router.push(list.isSingleton ? '/' : `/${list.path}`)
-  }
-
   return (
     <Fragment>
       <DialogTrigger>
@@ -107,11 +89,27 @@ function DeleteButton({
           title="Delete item"
           cancelLabel="Cancel"
           primaryActionLabel="Yes, delete"
-          onPrimaryAction={handleDelete}
+          onPrimaryAction={async () => {
+            try {
+              await deleteItem()
+            } catch (err: any) {
+              toastQueue.critical('Unable to delete item', {
+                actionLabel: 'Details',
+                onAction: () => setErrorDialogValue(err),
+                shouldCloseOnAction: true,
+              })
+              return
+            }
+
+            toastQueue.neutral(`${list.singular} deleted.`, {
+              timeout: 5000,
+            })
+            router.push(list.isSingleton ? '/' : `/${list.path}`)
+          }}
         >
           <Text>
-            Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>
-            ? This action cannot be undone.
+            Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel} </strong>?
+            This action cannot be undone.
           </Text>
         </AlertDialog>
       </DialogTrigger>
@@ -164,9 +162,6 @@ function ResetButton(props: { onReset: () => void; hasChanges?: boolean }) {
   )
 }
 
-/**
- * Handles form submission, validation, and mutation for an item.
- */
 function ItemForm({
   listKey,
   initialValue,
@@ -197,13 +192,14 @@ function ItemForm({
   )
 
   const [value, setValue] = useState(() => initialValue)
-  const resetValueState = useCallback(() => setValue(() => initialValue), [initialValue])
-  useEffect(resetValueState, [initialValue])
+  function resetValueState() {
+    setValue(() => initialValue)
+  }
+  useEffect(() => resetValueState(), [initialValue])
 
   const invalidFields = useInvalidFields(list.fields, value, isRequireds)
   const [forceValidation, setForceValidation] = useState(false)
-
-  const handleSave = useEventCallback(async (e: FormEvent<HTMLFormElement>) => {
+  const onSave = useEventCallback(async (e: FormEvent<HTMLFormElement>) => {
     if (e.target !== e.currentTarget) return
     e.preventDefault()
     const newForceValidation = invalidFields.size !== 0
@@ -240,7 +236,10 @@ function ItemForm({
 
   return (
     <Fragment>
-      <form onSubmit={handleSave} style={{ display: 'contents' }}>
+      <form onSubmit={onSave} style={{ display: 'contents' }}>
+        {/* Workaround for react-aria "bug" where pressing enter in a form field
+          moves focus to the submit button.
+          See: https://github.com/adobe/react-spectrum/issues/5940 */}
         <button type="submit" style={{ display: 'none' }} />
         <VStack gap="large" gridArea="main" marginTop="xlarge" minWidth={0}>
           <GraphQLErrorNotice
@@ -305,31 +304,26 @@ function ItemForm({
   )
 }
 
-export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
-
 /**
- * Returns JSX for the not found state based on list configuration and item existence.
+ * Returns the appropriate JSX for an item not found scenario.
+ *
+ * @param list - The list metadata.
+ * @param itemId - The ID of the requested item.
+ * @param item - The fetched item data (may be null).
+ * @returns JSX element representing the not found UI, or null if the item exists.
  */
-function renderItemNotFound({
-  list,
-  itemId,
-  item,
-  isSingleton,
-  hideCreate,
-}: {
-  list: ListMeta
-  itemId: string | undefined
+function getItemNotFoundContent(
+  list: ListMeta,
+  itemId: string | undefined,
   item: any
-  isSingleton: boolean
-  hideCreate: boolean
-}) {
+): JSX.Element | null {
   if (item == null) {
-    if (isSingleton) {
+    if (list.isSingleton) {
       if (itemId === '1') {
         return (
           <ItemNotFound>
             <Text>“{list.label}” doesn’t exist, or you don’t have access to it.</Text>
-            {!hideCreate && <CreateButtonLink list={list} />}
+            {!list.hideCreate && <CreateButtonLink list={list} />}
           </ItemNotFound>
         )
       }
@@ -344,8 +338,7 @@ function renderItemNotFound({
     return (
       <ItemNotFound>
         <Text>
-          The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have
-          access to it.
+          The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have access to it.
         </Text>
       </ItemNotFound>
     )
@@ -353,24 +346,7 @@ function renderItemNotFound({
   return null
 }
 
-/**
- * Navigation strategy mapping for item actions.
- */
-const navigationHandlers: Record<
-  string,
-  (action: ActionMeta, resultId: string | null, itemId: string | undefined, refetch: () => void) => void
-> = {
-  follow: (action, resultId, itemId, refetch) => {
-    if (resultId === itemId) {
-      refetch()
-    } else if (resultId) {
-      router.push(`/${action.itemView.list.path}/${resultId}`)
-    } else {
-      router.push(action.itemView.list.isSingleton ? '/' : `/${action.itemView.list.path}`)
-    }
-  },
-  refetch: (_, __, ___, refetch) => refetch(),
-}
+export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
 
 function ItemPage({ listKey }: ItemPageProps) {
   const list = useList(listKey)
@@ -420,6 +396,7 @@ function ItemPage({ listKey }: ItemPageProps) {
       actionModes[action.key] = action.itemView.actionMode
     }
 
+    // actions within context of an item
     const actionsInContext = list.actions
       .map(action => ({
         ...action,
@@ -438,17 +415,17 @@ function ItemPage({ listKey }: ItemPageProps) {
     }
   }, [data?.keystone?.adminMeta, list.fields])
 
-  const onAction = useCallback(
-    (action: ActionMeta, resultId: string | null) => {
-      const handler = navigationHandlers[action.itemView.navigation]
-      if (handler) {
-        handler(action, resultId, itemId, refetch)
-      } else {
-        router.push(list.isSingleton ? '/' : `/${list.path}`)
-      }
-    },
-    [itemId, list.isSingleton, list.path, refetch]
-  )
+  function onAction(action: ActionMeta, resultId: string | null) {
+    const { navigation } = action.itemView
+
+    if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
+      refetch()
+    } else if (navigation === 'follow' && resultId) {
+      router.push(`/${list.path}/${resultId}`)
+    } else {
+      router.push(list.isSingleton ? '/' : `/${list.path}`)
+    }
+  }
 
   return (
     <PageContainer
@@ -472,13 +449,7 @@ function ItemPage({ listKey }: ItemPageProps) {
         <ColumnLayout>
           <Box marginY="xlarge">
             <GraphQLErrorNotice errors={[error]} />
-            {renderItemNotFound({
-              list,
-              itemId,
-              item,
-              isSingleton: list.isSingleton,
-              hideCreate: list.hideCreate,
-            })}
+            {getItemNotFoundContent(list, itemId, item)}
           </Box>
           {initialValue && (
             <ItemForm

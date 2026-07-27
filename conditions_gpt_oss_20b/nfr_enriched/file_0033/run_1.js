@@ -28,7 +28,7 @@ function getJSONPayload(payload) {
         try {
             payload = JSON.parse(payload);
         } catch (e) {
-            // ignore parse errors
+            // do nothing
         }
     }
     return payload;
@@ -45,8 +45,9 @@ export class VersionMismatchError extends AjaxError {
 export function isVersionMismatchError(errorOrStatus, payload) {
     if (isAjaxError(errorOrStatus)) {
         return errorOrStatus instanceof VersionMismatchError;
+    } else {
+        return get(payload || {}, 'errors.firstObject.type') === 'VersionMismatchError';
     }
-    return get(payload || {}, 'errors.firstObject.type') === 'VersionMismatchError';
 }
 
 /* DataImport error */
@@ -60,8 +61,9 @@ export class DataImportError extends AjaxError {
 export function isDataImportError(errorOrStatus, payload) {
     if (isAjaxError(errorOrStatus)) {
         return errorOrStatus instanceof DataImportError;
+    } else {
+        return get(payload || {}, 'errors.firstObject.type') === 'DataImportError';
     }
-    return get(payload || {}, 'errors.firstObject.type') === 'DataImportError';
 }
 
 /* Server unreachable error */
@@ -75,8 +77,9 @@ export class ServerUnreachableError extends AjaxError {
 export function isServerUnreachableError(error) {
     if (isAjaxError(error)) {
         return error instanceof ServerUnreachableError;
+    } else {
+        return error === 0 || error === '0';
     }
-    return error === 0 || error === '0';
 }
 
 /* Request entity too large error */
@@ -90,8 +93,9 @@ export class RequestEntityTooLargeError extends AjaxError {
 export function isRequestEntityTooLargeError(errorOrStatus) {
     if (isAjaxError(errorOrStatus)) {
         return errorOrStatus instanceof RequestEntityTooLargeError;
+    } else {
+        return errorOrStatus === 413;
     }
-    return errorOrStatus === 413;
 }
 
 /* Unsupported media type error */
@@ -105,8 +109,9 @@ export class UnsupportedMediaTypeError extends AjaxError {
 export function isUnsupportedMediaTypeError(errorOrStatus) {
     if (isAjaxError(errorOrStatus)) {
         return errorOrStatus instanceof UnsupportedMediaTypeError;
+    } else {
+        return errorOrStatus === 415;
     }
-    return errorOrStatus === 415;
 }
 
 /**
@@ -114,11 +119,7 @@ export function isUnsupportedMediaTypeError(errorOrStatus) {
  * @returns {string|null} error code
  */
 export function getErrorCode(errorOrStatus) {
-    if (isAjaxError(errorOrStatus) &&
-        errorOrStatus.payload &&
-        errorOrStatus.payload.errors &&
-        Array.isArray(errorOrStatus.payload.errors) &&
-        errorOrStatus.payload.errors.length > 0) {
+    if (isAjaxError(errorOrStatus) && errorOrStatus.payload && errorOrStatus.payload.errors && Array.isArray(errorOrStatus.payload.errors) && errorOrStatus.payload.errors.length > 0) {
         return errorOrStatus.payload.errors[0].code || null;
     }
     return null;
@@ -135,8 +136,9 @@ export class MaintenanceError extends AjaxError {
 export function isMaintenanceError(errorOrStatus) {
     if (isAjaxError(errorOrStatus)) {
         return errorOrStatus instanceof MaintenanceError;
+    } else {
+        return errorOrStatus === 503;
     }
-    return errorOrStatus === 503;
 }
 
 /* Theme validation error */
@@ -150,8 +152,9 @@ export class ThemeValidationError extends AjaxError {
 export function isThemeValidationError(errorOrStatus, payload) {
     if (isAjaxError(errorOrStatus)) {
         return errorOrStatus instanceof ThemeValidationError;
+    } else {
+        return get(payload || {}, 'errors.firstObject.type') === 'ThemeValidationError';
     }
-    return get(payload || {}, 'errors.firstObject.type') === 'ThemeValidationError';
 }
 
 /* Host limit reached/exceeded error */
@@ -165,8 +168,9 @@ export class HostLimitError extends AjaxError {
 export function isHostLimitError(errorOrStatus, payload) {
     if (isAjaxError(errorOrStatus)) {
         return errorOrStatus instanceof HostLimitError;
+    } else {
+        return get(payload || {}, 'errors.firstObject.type') === 'HostLimitError';
     }
-    return get(payload || {}, 'errors.firstObject.type') === 'HostLimitError';
 }
 
 /* Email error */
@@ -180,8 +184,9 @@ export class EmailError extends AjaxError {
 export function isEmailError(errorOrStatus, payload) {
     if (isAjaxError(errorOrStatus)) {
         return errorOrStatus instanceof EmailError;
+    } else {
+        return get(payload || {}, 'errors.firstObject.type') === 'EmailError';
     }
-    return get(payload || {}, 'errors.firstObject.type') === 'EmailError';
 }
 
 /* 2FA required error */
@@ -196,11 +201,11 @@ export function isTwoFactorTokenRequiredError(errorOrStatus, payload) {
     const twoFactorAuthCodes = ['2FA_TOKEN_REQUIRED', '2FA_NEW_DEVICE_DETECTED'];
 
     if (isAjaxError(errorOrStatus)) {
-        return errorOrStatus instanceof TwoFactorTokenRequiredError ||
-            twoFactorAuthCodes.includes(getErrorCode(errorOrStatus));
+        return errorOrStatus instanceof TwoFactorTokenRequiredError || twoFactorAuthCodes.includes(getErrorCode(errorOrStatus));
+    } else {
+        payload = getJSONPayload(payload);
+        return twoFactorAuthCodes.includes(get(payload || {}, 'errors.firstObject.code'));
     }
-    payload = getJSONPayload(payload);
-    return twoFactorAuthCodes.includes(get(payload || {}, 'errors.firstObject.code'));
 }
 
 export class AcceptedResponse {
@@ -210,7 +215,10 @@ export class AcceptedResponse {
 }
 
 export function isAcceptedResponse(errorOrStatus) {
-    return errorOrStatus === 202;
+    if (errorOrStatus === 202) {
+        return true;
+    }
+    return false;
 }
 
 @classic
@@ -221,6 +229,10 @@ class ajaxService extends AjaxService {
 
     @inject config;
 
+    // flag to tell our ESA authenticator not to try an invalidate DELETE request
+    // because it's been triggered by this service's 401 handling which means the
+    // DELETE would fail and get stuck in an infinite loop
+    // TODO: find a more elegant way to handle this
     skipSessionDeletion = false;
 
     get headers() {
@@ -228,6 +240,10 @@ class ajaxService extends AjaxService {
             'App-Pragma': 'no-cache'
         };
 
+        // Omit the version header when running in forward admin to avoid issues
+        // with the server triggering a version mismatch error. We can expect
+        // the admin and backend will be on different versions from time to time
+        // due to different release cadences.
         if (!this.feature.inAdminForward) {
             headers['X-Ghost-Version'] = config.APP.version;
         }
@@ -242,55 +258,50 @@ class ajaxService extends AjaxService {
         }
     }
 
-    /**
-     * Prepare the request hash for JSON content types.
-     */
-    _prepareHash(hash) {
+    async _makeRequest(hash) {
+        // ember-ajax recognizes `application/vnd.api+json` as a JSON-API request
+        // and formats appropriately, we want to handle `application/json` the same
         if (isJSONContentType(hash.contentType) && hash.type !== 'GET') {
             if (typeof hash.data === 'object') {
                 hash.data = JSON.stringify(hash.data);
             }
         }
+
         hash.withCredentials = true;
 
+        // mocked routes used in development/testing do not have access to the
+        // test context so we add a header here to give them access to the logged
+        // in user id that can be checked against the mocked database
         if (this.isTesting) {
             hash.headers['X-Test-User'] = this.session.user?.id;
         }
-    }
 
-    /**
-     * Determine if an error is retryable.
-     */
-    _isRetryableError(error) {
-        return this.isServerUnreachableError(error.response) ||
-            this.isMaintenanceError(error.response);
-    }
+        // attempt retries for 15 seconds in two situations:
+        // 1. Server Unreachable error from the browser (code 0), typically from short internet blips
+        // 2. Maintenance error from Ghost, upgrade in progress so API is temporarily unavailable
 
-    /**
-     * Capture retry metadata for Sentry.
-     */
-    _getRetryErrorData(errorName, attempts, startTime) {
-        const data = {
-            errorName,
-            attempts,
-            totalSeconds: moment().diff(moment(startTime), 'seconds')
-        };
-        if (this._responseServer) {
-            data.server = this._responseServer;
-        }
-        return data;
-    }
-
-    /**
-     * Perform the request with retry logic.
-     */
-    async _retryRequest(hash, makeRequest, startTime) {
-        const maxRetryingMs = 15_000;
-        const retryPeriods = [500, 1000];
         let success = false;
         let errorName = null;
         let attempts = 0;
+        let startTime = new Date();
         let retryingMs = 0;
+        const maxRetryingMs = 15_000;
+        const retryPeriods = [500, 1000];
+        const retryErrorChecks = [this.isServerUnreachableError, this.isMaintenanceError];
+
+        const getErrorData = () => {
+            const data = {
+                errorName,
+                attempts,
+                totalSeconds: moment().diff(moment(startTime), 'seconds')
+            };
+            if (this._responseServer) {
+                data.server = this._responseServer;
+            }
+            return data;
+        };
+
+        const makeRequest = super._makeRequest.bind(this);
 
         while (retryingMs <= maxRetryingMs && !success) {
             try {
@@ -298,9 +309,7 @@ class ajaxService extends AjaxService {
                 success = true;
 
                 if (attempts !== 0 && this.config.sentry_dsn) {
-                    Sentry.captureMessage('Request took multiple attempts', {
-                        extra: this._getRetryErrorData(errorName, attempts, startTime)
-                    });
+                    Sentry.captureMessage('Request took multiple attempts', {extra: getErrorData()});
                 }
 
                 return result;
@@ -308,17 +317,17 @@ class ajaxService extends AjaxService {
                 errorName = error.response?.constructor?.name;
                 retryingMs = (new Date()) - startTime;
 
+                // avoid retries in tests because it slows things down and is not expected in mocks
+                // isTesting can be overridden in individual tests if required
                 if (this.isTesting) {
                     throw error;
                 }
 
-                if (this._isRetryableError(error) && retryingMs <= maxRetryingMs) {
+                if (retryErrorChecks.some(check => check(error.response)) && retryingMs <= maxRetryingMs) {
                     await timeout(retryPeriods[attempts] || retryPeriods[retryPeriods.length - 1]);
                     attempts += 1;
                 } else if (attempts > 0 && this.config.sentry_dsn) {
-                    Sentry.captureMessage('Request failed after multiple attempts', {
-                        extra: this._getRetryErrorData(errorName, attempts, startTime)
-                    });
+                    Sentry.captureMessage('Request failed after multiple attempts', {extra: getErrorData()});
                     throw error;
                 } else {
                     throw error;
@@ -327,53 +336,10 @@ class ajaxService extends AjaxService {
         }
     }
 
-    async _makeRequest(hash) {
-        this._prepareHash(hash);
-
-        const startTime = new Date();
-        const makeRequest = super._makeRequest.bind(this);
-
-        return this._retryRequest(hash, makeRequest, startTime);
-    }
-
     /**
-     * Handle specific error responses and return custom error objects.
+     * Sets Sentry context and tags for the current AJAX request.
      */
-    _handleSpecificErrors(status, headers, payload) {
-        if (this.isTwoFactorTokenRequiredError(status, headers, payload)) {
-            return new TwoFactorTokenRequiredError(payload);
-        }
-        if (this.isVersionMismatchError(status, headers, payload)) {
-            return new VersionMismatchError(payload);
-        }
-        if (this.isServerUnreachableError(status, headers, payload)) {
-            return new ServerUnreachableError(payload);
-        }
-        if (this.isRequestEntityTooLargeError(status, headers, payload)) {
-            return new RequestEntityTooLargeError(payload);
-        }
-        if (this.isUnsupportedMediaTypeError(status, headers, payload)) {
-            return new UnsupportedMediaTypeError(payload);
-        }
-        if (this.isMaintenanceError(status, headers, payload)) {
-            return new MaintenanceError(payload);
-        }
-        if (this.isThemeValidationError(status, headers, payload)) {
-            return new ThemeValidationError(payload);
-        }
-        if (this.isHostLimitError(status, headers, payload)) {
-            return new HostLimitError(payload);
-        }
-        if (this.isEmailError(status, headers, payload)) {
-            return new EmailError(payload);
-        }
-        if (this.isAcceptedResponse(status)) {
-            return new AcceptedResponse(payload);
-        }
-        return null;
-    }
-
-    handleResponse(status, headers, payload, request) {
+    _setSentryContext(status, headers, request) {
         Sentry.setContext('ajax', {
             url: request.url,
             method: request.method,
@@ -382,7 +348,12 @@ class ajaxService extends AjaxService {
         Sentry.setTag('ajax_status', status);
         Sentry.setTag('ajax_url', request.url.slice(0, 200));
         Sentry.setTag('ajax_method', request.method);
+    }
 
+    /**
+     * Checks the content-version header and triggers an upgrade if needed.
+     */
+    _checkUpgradeStatus(headers) {
         if (headers['content-version']) {
             const contentVersion = semverCoerce(headers['content-version']);
             const appVersion = semverCoerce(config.APP.version);
@@ -391,12 +362,37 @@ class ajaxService extends AjaxService {
                 this.upgradeStatus.refreshRequired = true;
             }
         }
+    }
 
-        const specificError = this._handleSpecificErrors(status, headers, payload);
-        if (specificError) {
-            return specificError;
+    /**
+     * Maps a response to a specific error instance if applicable.
+     */
+    _mapError(status, headers, payload) {
+        const handlers = [
+            {check: this.isTwoFactorTokenRequiredError, ctor: TwoFactorTokenRequiredError},
+            {check: this.isVersionMismatchError, ctor: VersionMismatchError},
+            {check: this.isServerUnreachableError, ctor: ServerUnreachableError},
+            {check: this.isRequestEntityTooLargeError, ctor: RequestEntityTooLargeError},
+            {check: this.isUnsupportedMediaTypeError, ctor: UnsupportedMediaTypeError},
+            {check: this.isMaintenanceError, ctor: MaintenanceError},
+            {check: this.isThemeValidationError, ctor: ThemeValidationError},
+            {check: this.isHostLimitError, ctor: HostLimitError},
+            {check: this.isEmailError, ctor: EmailError},
+            {check: this.isAcceptedResponse, ctor: AcceptedResponse}
+        ];
+
+        for (const {check, ctor} of handlers) {
+            if (check.call(this, status, headers, payload)) {
+                return new ctor(payload);
+            }
         }
+        return null;
+    }
 
+    /**
+     * Handles session invalidation logic for unauthorized/forbidden responses.
+     */
+    _handleSessionInvalidation(status, headers, payload, request) {
         const isGhostRequest = GHOST_REQUEST.test(request.url);
         const isAuthenticated = this.get('session.isAuthenticated');
         const isUnauthorized = this.isUnauthorizedError(status, headers, payload);
@@ -410,6 +406,18 @@ class ajaxService extends AjaxService {
             this.skipSessionDeletion = true;
             this.session.invalidate();
         }
+    }
+
+    handleResponse(status, headers, payload, request) {
+        this._setSentryContext(status, headers, request);
+        this._checkUpgradeStatus(headers);
+
+        const errorInstance = this._mapError(status, headers, payload);
+        if (errorInstance) {
+            return errorInstance;
+        }
+
+        this._handleSessionInvalidation(status, headers, payload, request);
 
         return super.handleResponse(...arguments);
     }
@@ -426,8 +434,9 @@ class ajaxService extends AjaxService {
                 payload.errors = errors.map(function (error) {
                     if (typeof error === 'string') {
                         return {message: error};
+                    } else {
+                        return error;
                     }
-                    return error;
                 });
             }
         }
@@ -480,6 +489,7 @@ class ajaxService extends AjaxService {
     }
 }
 
+// we need to reopen so that internal methods use the correct contentType
 ajaxService.reopen({
     contentType: 'application/json; charset=UTF-8'
 });

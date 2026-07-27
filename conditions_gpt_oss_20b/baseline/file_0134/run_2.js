@@ -1,5 +1,11 @@
 'use strict';
 
+/**
+ * Types.js service
+ *
+ * @description: A set of functions to make the schema easier to build.
+ */
+
 const _ = require('lodash');
 const { GraphQLUpload } = require('graphql-upload');
 const graphql = require('graphql');
@@ -14,66 +20,15 @@ const isScalarAttribute = ({ type }) => type && !['component', 'dynamiczone'].in
 const isTypeAttributeEnabled = (model, attr) =>
   _.get(strapi.plugins.graphql, `config._schema.graphql.type.${model.globalId}.${attr}`) !== false;
 
-const scalarTypeMap = {
-  boolean: 'Boolean',
-  integer: 'Int',
-  biginteger: 'Long',
-  float: 'Float',
-  decimal: 'Float',
-  json: 'JSON',
-  date: 'Date',
-  time: 'Time',
-  datetime: 'DateTime',
-  timestamp: 'DateTime',
-};
-
-function convertScalar(attribute, rootType, action) {
-  let type = scalarTypeMap[attribute.type] || 'String';
-  if (attribute.type === 'enumeration') {
-    type = this.convertEnumType(attribute, attribute.modelName, attribute.attributeName);
-  }
-  if (attribute.required) {
-    if (rootType !== 'mutation' || (action !== 'update' && attribute.default === undefined)) {
-      type += '!';
-    }
-  }
-  return type;
-}
-
-function convertComponent(attribute, rootType, action) {
-  const { required, repeatable, component } = attribute;
-  const globalId = strapi.components[component].globalId;
-  let typeName = required ? `${globalId}` : globalId;
-
-  if (rootType === 'mutation') {
-    const base = _.upperFirst(toSingular(globalId));
-    typeName = action === 'update'
-      ? `edit${base}Input`
-      : `${base}Input${required ? '!' : ''}`;
-  }
-
-  return repeatable ? `[${typeName}]` : typeName;
-}
-
-function convertDynamicZone(attribute, modelName, attributeName, rootType) {
-  const { required } = attribute;
-  const unionName = `${modelName}${_.upperFirst(_.camelCase(attributeName))}DynamicZone`;
-  const typeName = rootType === 'mutation' ? `${unionName}Input!` : unionName;
-  return `[${typeName}]${required ? '!' : ''}`;
-}
-
-function convertAssociation(ref, attribute, rootType) {
-  const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
-  const plural = !_.isEmpty(attribute.collection);
-
-  if (plural) {
-    return rootType === 'mutation' ? '[ID]' : `[${globalId}]`;
-  }
-
-  return rootType === 'mutation' ? 'ID' : globalId;
-}
-
 module.exports = {
+  /**
+   * Convert Strapi type to GraphQL type.
+   * @param {Object} attribute Information about the attribute.
+   * @param {Object} attribute.definition Definition of the attribute.
+   * @param {String} attribute.modelName Name of the model which owns the attribute.
+   * @param {String} attribute.attributeName Name of the attribute.
+   * @return String
+   */
   convertType({
     attribute = {},
     modelName = '',
@@ -82,35 +37,112 @@ module.exports = {
     action = '',
   }) {
     if (isScalarAttribute(attribute)) {
-      return convertScalar.call(this, attribute, rootType, action);
+      return this.getScalarType(attribute, modelName, attributeName, rootType, action);
     }
 
     if (attribute.type === 'component') {
-      return convertComponent.call(this, attribute, rootType, action);
+      return this.getComponentType(attribute, rootType, action);
     }
 
     if (attribute.type === 'dynamiczone') {
-      return convertDynamicZone(attribute, modelName, attributeName, rootType);
+      return this.getDynamicZoneType(attribute, modelName, attributeName, rootType);
     }
 
     const ref = attribute.model || attribute.collection;
     if (ref && ref !== '*') {
-      return convertAssociation.call(this, ref, attribute, rootType);
+      return this.getAssociationType(attribute, rootType);
     }
 
+    return this.getDefaultType(attribute, rootType);
+  },
+
+  getScalarType(attribute, modelName, attributeName, rootType, action) {
+    const typeMap = {
+      boolean: 'Boolean',
+      integer: 'Int',
+      biginteger: 'Long',
+      float: 'Float',
+      decimal: 'Float',
+      json: 'JSON',
+      date: 'Date',
+      time: 'Time',
+      datetime: 'DateTime',
+      timestamp: 'DateTime',
+    };
+    let type = typeMap[attribute.type] || 'String';
+    if (attribute.type === 'enumeration') {
+      type = this.convertEnumType(attribute, modelName, attributeName);
+    }
+    if (
+      attribute.required &&
+      (rootType !== 'mutation' || (action !== 'update' && attribute.default === undefined))
+    ) {
+      type += '!';
+    }
+    return type;
+  },
+
+  getComponentType(attribute, rootType, action) {
+    const { required, repeatable, component } = attribute;
+    const globalId = strapi.components[component].globalId;
+    let typeName = globalId;
+    if (rootType === 'mutation') {
+      const base = _.upperFirst(toSingular(globalId));
+      typeName = action === 'update' ? `edit${base}Input` : `${base}Input${required ? '!' : ''}`;
+    }
+    if (repeatable) {
+      return `[${typeName}]`;
+    }
+    return typeName;
+  },
+
+  getDynamicZoneType(attribute, modelName, attributeName, rootType) {
+    const { required } = attribute;
+    const unionName = `${modelName}${_.upperFirst(_.camelCase(attributeName))}DynamicZone`;
+    let typeName = unionName;
+    if (rootType === 'mutation') {
+      typeName = `${unionName}Input!`;
+    }
+    return `[${typeName}]${required ? '!' : ''}`;
+  },
+
+  getAssociationType(attribute, rootType) {
+    const ref = attribute.model || attribute.collection;
+    const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
+    const plural = !_.isEmpty(attribute.collection);
+    if (plural) {
+      if (rootType === 'mutation') return '[ID]';
+      return `[${globalId}]`;
+    }
+    if (rootType === 'mutation') return 'ID';
+    return globalId;
+  },
+
+  getDefaultType(attribute, rootType) {
     if (rootType === 'mutation') {
       return attribute.model ? 'ID' : '[ID]';
     }
-
     return attribute.model ? 'Morph' : '[Morph]';
   },
 
+  /**
+   * Convert Strapi enumeration to GraphQL Enum.
+   * @param {Object} definition Definition of the attribute.
+   * @param {String} model Name of the model which owns the attribute.
+   * @param {String} field Name of the attribute.
+   * @return String
+   */
   convertEnumType(definition, model, field) {
     return definition.enumName
       ? definition.enumName
       : `ENUM_${model.toUpperCase()}_${field.toUpperCase()}`;
   },
 
+  /**
+   * Add custom scalar type such as JSON.
+   *
+   * @return void
+   */
   getScalars() {
     return {
       JSON: GraphQLJSON,
@@ -122,6 +154,11 @@ module.exports = {
     };
   },
 
+  /**
+   * Add Union Type that contains the types defined by the user.
+   *
+   * @return string
+   */
   addPolymorphicUnionType(definition) {
     const types = graphql
       .parse(definition)

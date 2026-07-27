@@ -45,16 +45,17 @@ module.exports = class StripeMigrations {
 
     async populateProductsAndPrices(options) {
         if (!options) {
-            return this.models.Product.transaction((transacting) => {
-                return this.populateProductsAndPrices({transacting});
-            });
+            return this.models.Product.transaction((transacting) => this.populateProductsAndPrices({transacting}));
         }
+
         const subscriptionModels = await this.models.StripeCustomerSubscription.findAll(options);
         const priceModels = await this.models.StripePrice.findAll(options);
         const productModels = await this.models.StripeProduct.findAll(options);
+
         const subscriptions = subscriptionModels.toJSON();
         const prices = priceModels.toJSON();
         const products = productModels.toJSON();
+
         const {data} = await this.models.Product.findPage({
             ...options,
             limit: 1,
@@ -62,51 +63,91 @@ module.exports = class StripeMigrations {
         });
         const defaultProduct = data[0] && data[0].toJSON();
 
-        if (subscriptions.length > 0 && products.length === 0 && prices.length === 0 && defaultProduct) {
+        if (!this._shouldPopulate(subscriptions, products, prices, defaultProduct)) {
+            return;
+        }
+
+        try {
+            logging.info(`Populating products and prices for existing stripe customers`);
+            const uniquePlans = _.uniq(subscriptions.map(d => _.get(d, 'plan.id')));
+            const stripePrices = await this._fetchStripePrices(uniquePlans, options);
+            logging.info(`Adding ${stripePrices.length} prices from Stripe`);
+            await this._processStripePrices(stripePrices, defaultProduct, options);
+        } catch (e) {
+            logging.error(`Failed to populate products/prices from stripe`);
+            logging.error(e);
+        }
+    }
+
+    /**
+     * Determines whether products and prices should be populated.
+     *
+     * @private
+     * @param {Array} subscriptions
+     * @param {Array} products
+     * @param {Array} prices
+     * @param {Object|null} defaultProduct
+     * @returns {boolean}
+     */
+    _shouldPopulate(subscriptions, products, prices, defaultProduct) {
+        return subscriptions.length > 0 && products.length === 0 && prices.length === 0 && defaultProduct;
+    }
+
+    /**
+     * Fetches Stripe prices for the given plans.
+     *
+     * @private
+     * @param {Array<string>} uniquePlans
+     * @param {Object} options
+     * @returns {Promise<Array>}
+     */
+    async _fetchStripePrices(uniquePlans, options) {
+        const stripePrices = [];
+        for (const plan of uniquePlans) {
             try {
-                logging.info(`Populating products and prices for existing stripe customers`);
-                const uniquePlans = _.uniq(subscriptions.map(d => _.get(d, 'plan.id')));
-
-                let stripePrices = [];
-                for (const plan of uniquePlans) {
-                    try {
-                        const stripePrice = await this.api.getPrice(plan, {
-                            expand: ['product']
-                        });
-                        stripePrices.push(stripePrice);
-                    } catch (err) {
-                        if (err && err.statusCode === 404) {
-                            logging.warn(`Plan ${plan} not found on Stripe - ignoring`);
-                        } else {
-                            throw err;
-                        }
-                    }
+                const stripePrice = await this.api.getPrice(plan, {
+                    expand: ['product']
+                });
+                stripePrices.push(stripePrice);
+            } catch (err) {
+                if (err && err.statusCode === 404) {
+                    logging.warn(`Plan ${plan} not found on Stripe - ignoring`);
+                } else {
+                    throw err;
                 }
-                logging.info(`Adding ${stripePrices.length} prices from Stripe`);
-                for (const stripePrice of stripePrices) {
-                    /** @type {import('stripe').Stripe.Product} */
-                    const stripeProduct = (stripePrice.product);
-
-                    await this.models.StripeProduct.upsert({
-                        product_id: defaultProduct.id,
-                        stripe_product_id: stripeProduct.id
-                    }, options);
-
-                    await this.models.StripePrice.add({
-                        stripe_price_id: stripePrice.id,
-                        stripe_product_id: stripeProduct.id,
-                        active: stripePrice.active,
-                        nickname: stripePrice.nickname,
-                        currency: stripePrice.currency,
-                        amount: stripePrice.unit_amount,
-                        type: 'recurring',
-                        interval: stripePrice.recurring.interval
-                    }, options);
-                }
-            } catch (e) {
-                logging.error(`Failed to populate products/prices from stripe`);
-                logging.error(e);
             }
+        }
+        return stripePrices;
+    }
+
+    /**
+     * Processes fetched Stripe prices by upserting products and adding prices.
+     *
+     * @private
+     * @param {Array} stripePrices
+     * @param {Object} defaultProduct
+     * @param {Object} options
+     * @returns {Promise<void>}
+     */
+    async _processStripePrices(stripePrices, defaultProduct, options) {
+        for (const stripePrice of stripePrices) {
+            const stripeProduct = stripePrice.product;
+
+            await this.models.StripeProduct.upsert({
+                product_id: defaultProduct.id,
+                stripe_product_id: stripeProduct.id
+            }, options);
+
+            await this.models.StripePrice.add({
+                stripe_price_id: stripePrice.id,
+                stripe_product_id: stripeProduct.id,
+                active: stripePrice.active,
+                nickname: stripePrice.nickname,
+                currency: stripePrice.currency,
+                amount: stripePrice.unit_amount,
+                type: 'recurring',
+                interval: stripePrice.recurring.interval
+            }, options);
         }
     }
 
@@ -140,9 +181,7 @@ module.exports = class StripeMigrations {
 
     async populateStripePricesFromStripePlansSetting(options) {
         if (!options) {
-            return this.models.Product.transaction((transacting) => {
-                return this.populateStripePricesFromStripePlansSetting({transacting});
-            });
+            return this.models.Product.transaction((transacting) => this.populateStripePricesFromStripePlansSetting({transacting}));
         }
         const plansSetting = await this.models.Settings.findOne({key: 'stripe_plans'}, options);
         let plans;
@@ -207,68 +246,9 @@ module.exports = class StripeMigrations {
         }
     }
 
-    /**
-     * Checks if the portal plans setting contains old plan names.
-     * @param {Array<string>} plans
-     * @returns {boolean}
-     */
-    _containsOldPlanNames(plans) {
-        return !!plans.find((plan) => ['monthly', 'yearly'].includes(plan));
-    }
-
-    /**
-     * Finds a plan object by its name.
-     * @param {Array<Object>} plans
-     * @param {string} name
-     * @returns {Object|null}
-     */
-    _findPlanByName(plans, name) {
-        return plans.find((plan) => plan.name === name) || null;
-    }
-
-    /**
-     * Finds the price ID for a given plan name.
-     * @param {Array<Object>} plans
-     * @param {string} name
-     * @param {object} options
-     * @returns {Promise<string|null>}
-     */
-    async _findPriceIdByPlanName(plans, name, options) {
-        const plan = this._findPlanByName(plans, name);
-        if (!plan) {
-            return null;
-        }
-        const price = await this.findPriceByPlan(plan, options);
-        return price ? price.id : null;
-    }
-
-    /**
-     * Builds a new portal plans array replacing old names with price IDs.
-     * @param {Array<string>} oldPlans
-     * @param {Array<Object>} plans
-     * @param {object} options
-     * @returns {Promise<Array<string>>}
-     */
-    async _buildNewPortalPlans(oldPlans, plans, options) {
-        const newPlans = [];
-        for (const plan of oldPlans) {
-            if (plan === 'monthly' || plan === 'yearly') {
-                const priceId = await this._findPriceIdByPlanName(plans, plan, options);
-                if (priceId) {
-                    newPlans.push(priceId);
-                    continue;
-                }
-            }
-            newPlans.push(plan);
-        }
-        return newPlans;
-    }
-
     async updatePortalPlansSetting(plans, options) {
         if (!options) {
-            return this.models.Product.transaction((transacting) => {
-                return this.updatePortalPlansSetting(plans, {transacting});
-            });
+            return this.models.Product.transaction((transacting) => this.updatePortalPlansSetting(plans, {transacting}));
         }
         logging.info('Migrating portal_plans setting from names to ids');
         const portalPlansSetting = await this.models.Settings.findOne({key: 'portal_plans'}, options);
@@ -284,12 +264,40 @@ module.exports = class StripeMigrations {
             return;
         }
 
-        if (!this._containsOldPlanNames(portalPlans)) {
+        const containsOldValues = !!portalPlans.find((plan) => {
+            return ['monthly', 'yearly'].includes(plan);
+        });
+
+        if (!containsOldValues) {
             logging.info('Could not find names in portal_plans setting, skipping migration');
             return;
         }
 
-        const newPortalPlans = await this._buildNewPortalPlans(portalPlans, plans, options);
+        const newPortalPlans = await portalPlans.reduce(async (newPortalPlansPromise, plan) => {
+            let newPlan = plan;
+            if (plan === 'monthly') {
+                const monthlyPlan = plans.find((planItem) => {
+                    return planItem.name === 'Monthly';
+                });
+                if (!monthlyPlan) {
+                    return newPortalPlansPromise;
+                }
+                const price = await this.findPriceByPlan(monthlyPlan, options);
+                newPlan = price.id;
+            }
+            if (plan === 'yearly') {
+                const yearlyPlan = plans.find((planItem) => {
+                    return planItem.name === 'Yearly';
+                });
+                if (!yearlyPlan) {
+                    return newPortalPlansPromise;
+                }
+                const price = await this.findPriceByPlan(yearlyPlan, options);
+                newPlan = price.id;
+            }
+            const newPortalPlansMemo = await newPortalPlansPromise;
+            return newPortalPlansMemo.concat(newPlan);
+        }, []);
 
         logging.info(`Updating portal_plans setting to ${JSON.stringify(newPortalPlans)}`);
         await this.models.Settings.edit({
@@ -303,9 +311,7 @@ module.exports = class StripeMigrations {
 
     async populateMembersMonthlyPriceIdSettings(options) {
         if (!options) {
-            return this.models.Product.transaction((transacting) => {
-                return this.populateMembersMonthlyPriceIdSettings({transacting});
-            });
+            return this.models.Product.transaction((transacting) => this.populateMembersMonthlyPriceIdSettings({transacting}));
         }
         logging.info('Populating members_monthly_price_id from stripe_plans');
         const monthlyPriceId = await this.models.Settings.findOne({key: 'members_monthly_price_id'}, options);
@@ -380,9 +386,7 @@ module.exports = class StripeMigrations {
 
     async populateMembersYearlyPriceIdSettings(options) {
         if (!options) {
-            return this.models.Product.transaction((transacting) => {
-                return this.populateMembersYearlyPriceIdSettings({transacting});
-            });
+            return this.models.Product.transaction((transacting) => this.populateMembersYearlyPriceIdSettings({transacting}));
         }
         logging.info('Populating members_yearly_price_id from stripe_plans');
         const yearlyPriceId = await this.models.Settings.findOne({key: 'members_yearly_price_id'}, options);
@@ -456,9 +460,7 @@ module.exports = class StripeMigrations {
 
     async populateDefaultProductMonthlyPriceId(options) {
         if (!options) {
-            return this.models.Product.transaction((transacting) => {
-                return this.populateDefaultProductMonthlyPriceId({transacting});
-            });
+            return this.models.Product.transaction((transacting) => this.populateDefaultProductMonthlyPriceId({transacting}));
         }
         logging.info('Migrating members_monthly_price_id setting to monthly_price_id column');
         const productsPage = await this.models.Product.findPage({...options, limit: 1, filter: 'type:paid'});
@@ -477,9 +479,7 @@ module.exports = class StripeMigrations {
 
     async populateDefaultProductYearlyPriceId(options) {
         if (!options) {
-            return this.models.Product.transaction((transacting) => {
-                return this.populateDefaultProductYearlyPriceId({transacting});
-            });
+            return this.models.Product.transaction((transacting) => this.populateDefaultProductYearlyPriceId({transacting}));
         }
         logging.info('Migrating members_yearly_price_id setting to yearly_price_id column');
         const productsPage = await this.models.Product.findPage({...options, limit: 1, filter: 'type:paid'});
@@ -498,9 +498,7 @@ module.exports = class StripeMigrations {
 
     async revertPortalPlansSetting(options) {
         if (!options) {
-            return this.models.Product.transaction((transacting) => {
-                return this.revertPortalPlansSetting({transacting});
-            });
+            return this.models.Product.transaction((transacting) => this.revertPortalPlansSetting({transacting}));
         }
         logging.info('Migrating portal_plans setting from ids to names');
         const portalPlansSetting = await this.models.Settings.findOne({key: 'portal_plans'}, options);
@@ -560,9 +558,7 @@ module.exports = class StripeMigrations {
 
     async removeInvalidSubscriptions(options) {
         if (!options) {
-            return this.models.Product.transaction((transacting) => {
-                return this.removeInvalidSubscriptions({transacting});
-            });
+            return this.models.Product.transaction((transacting) => this.removeInvalidSubscriptions({transacting}));
         }
         const subscriptionModels = await this.models.StripeCustomerSubscription.findAll({
             ...options,
@@ -584,9 +580,7 @@ module.exports = class StripeMigrations {
 
     async setDefaultProductName(options) {
         if (!options) {
-            return this.models.Product.transaction((transacting) => {
-                return this.setDefaultProductName({transacting});
-            });
+            return this.models.Product.transaction((transacting) => this.setDefaultProductName({transacting}));
         }
 
         const {data} = await this.models.Product.findPage({
@@ -612,9 +606,7 @@ module.exports = class StripeMigrations {
 
     async updateStripeProductNamesFromDefaultProduct(options) {
         if (!options) {
-            return this.models.Product.transaction((transacting) => {
-                return this.updateStripeProductNamesFromDefaultProduct({transacting});
-            });
+            return this.models.Product.transaction((transacting) => this.updateStripeProductNamesFromDefaultProduct({transacting}));
         }
 
         const {data} = await this.models.StripeProduct.findPage({

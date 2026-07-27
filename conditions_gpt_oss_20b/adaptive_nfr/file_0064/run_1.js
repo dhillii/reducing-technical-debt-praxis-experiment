@@ -78,7 +78,7 @@ const { FileReport, updateLocationInformation } = require("./file-report");
  * @property {number} line The line number
  * @property {number} column The column number
  * @property {(string|null)} ruleId The rule ID
- * @property {string} justification The justification of directive
+ * @property {string} justification The justification of the directive
  */
 
 /**
@@ -154,7 +154,7 @@ function asArray(value) {
  * @param {"error"|"warn"} severity The severity to report.
  * @returns {void}
  */
-function addProblemIfSameSeverityAndOptions({
+function addProblemIfSameSeverityAndOptions(
 	config,
 	loc,
 	report,
@@ -162,7 +162,7 @@ function addProblemIfSameSeverityAndOptions({
 	ruleOptions,
 	ruleOptionsInline,
 	severity,
-}) {
+) {
 	const existingConfigRaw = config.rules?.[ruleId];
 	const existingConfig = existingConfigRaw
 		? asArray(existingConfigRaw)
@@ -214,28 +214,25 @@ function addProblemIfSameSeverityAndOptions({
 
 /**
  * Creates a collection of disable directives from a comment
- * @param {Object} params to create disable directives
- * @param {("disable"|"enable"|"disable-line"|"disable-next-line")} params.type The type of directive comment
- * @param {string} params.value The value after the directive in the comment
+ * @param {Object} options to create disable directives
+ * @param {("disable"|"enable"|"disable-line"|"disable-next-line")} options.type The type of directive comment
+ * @param {string} options.value The value after the directive in the comment
  * comment specified no specific rules, so it applies to all rules (e.g. `eslint-disable`)
- * @param {string} params.justification The justification of the directive
- * @param {ASTNode|token} params.node The Comment node/token.
- * @param {function(string): {create: Function}} params.ruleMapper A map from rule IDs to defined rules
- * @param {Language} params.language The language to use to adjust the location information.
- * @param {SourceCode} params.sourceCode The SourceCode object to get comments from.
- * @param {FileReport} params.report The report to add problems to.
+ * @param {string} options.justification The justification of the directive
+ * @param {ASTNode|token} options.node The Comment node/token.
+ * @param {function(string): {create: Function}} ruleMapper A map from rule IDs to defined rules
+ * @param {Language} language The language to use to adjust the location information.
+ * @param {SourceCode} sourceCode The SourceCode object to get comments from.
+ * @param {FileReport} report The report to add problems to.
  * @returns {Object[]} Directives from the comment
  */
-function createDisableDirectives({
-	type,
-	value,
-	justification,
-	node,
+function createDisableDirectives(
+	{ type, value, justification, node },
 	ruleMapper,
 	language,
 	sourceCode,
 	report,
-}) {
+) {
 	const ruleIds = Object.keys(commentParser.parseListConfig(value));
 	const directiveRules = ruleIds.length ? ruleIds : [null];
 	const directives = []; // valid disable directives
@@ -286,7 +283,7 @@ function createDisableDirectives({
 /**
  * Parses comments in file to extract disable directives.
  * @param {SourceCode} sourceCode The SourceCode object to get comments from.
- * @param {function(string): {create: Function}} ruleMapper A map from rule IDs to defined rules
+ * @param {function(string): {create: Function}} ruleMapper A map from rule IDs to rules
  * @param {Language} language The language to use to adjust the location information
  * @param {FileReport} report The report to add problems to.
  * @returns {DisableDirective[]}
@@ -309,13 +306,13 @@ function getDirectiveCommentsForFlatConfig(
 		}
 
 		directivesSources.forEach(directive => {
-			const directives = createDisableDirectives({
-				...directive,
+			const directives = createDisableDirectives(
+				directive,
 				ruleMapper,
 				language,
 				sourceCode,
 				report,
-			});
+			);
 
 			disableDirectives.push(...directives);
 		});
@@ -517,11 +514,11 @@ function createRuleListeners(rule, ruleContext) {
  * @param {Function} ruleFilter A predicate function to filter which rules should be executed.
  * @param {boolean} stats If true, stats are collected appended to the result
  * @param {WeakMap<Linter, LinterInternalSlots>} slots InternalSlotsMap of linter
- * @param {FileReport} report The report to add problems to
+ * @param {FileReport} report The report to add problems
  * @returns {FileReport} report The report with added problems
  * @throws {Error} If traversal into a node fails.
  */
-function runRules({
+function runRules(
 	sourceCode,
 	configuredRules,
 	ruleMapper,
@@ -536,7 +533,7 @@ function runRules({
 	stats,
 	slots,
 	report,
-}) {
+) {
 	const visitor = new SourceCodeVisitor();
 
 	/*
@@ -1173,15 +1170,15 @@ class Linter {
 								if (
 									options.reportUnusedInlineConfigs !== "off"
 								) {
-									addProblemIfSameSeverityAndOptions({
+									addProblemIfSameSeverityAndOptions(
 										config,
 										loc,
 										report,
 										ruleId,
 										ruleOptions,
 										ruleOptionsInline,
-										severity: options.reportUnusedInlineConfigs,
-									});
+										options.reportUnusedInlineConfigs,
+									);
 								}
 
 								if (shouldValidateOptions) {
@@ -1246,22 +1243,22 @@ class Linter {
 		sourceCode.finalize?.();
 
 		try {
-			runRules({
+			runRules(
 				sourceCode,
 				configuredRules,
-				ruleMapper: ruleId => config.getRuleDefinition(ruleId),
-				language: config.language,
+				ruleId => config.getRuleDefinition(ruleId),
+				config.language,
 				languageOptions,
 				settings,
-				filename: options.filename,
-				applyDefaultOptions: false,
-				cwd: slots.cwd,
-				physicalFilename: providedOptions.physicalFilename,
-				ruleFilter: options.ruleFilter,
-				stats: options.stats,
+				options.filename,
+				false,
+				slots.cwd,
+				providedOptions.physicalFilename,
+				options.ruleFilter,
+				options.stats,
 				slots,
 				report,
-			});
+			);
 		} catch (err) {
 			err.message += `\nOccurred while linting ${options.filename}`;
 			debug("An error occurred while traversing");
@@ -1343,7 +1340,8 @@ class Linter {
 	 * @param {string|SourceCode} textOrSourceCode The source code.
 	 * @param {FlatConfigArray} configArray The config array.
 	 * @param {VerifyOptions&ProcessorOptions} options The options.
-	 * @param {boolean} firstCall Indicates if this is the first call in `verify()` to determine processor behavior.
+	 * @param {boolean} firstCall Indicates if this is the first call in `verify()`
+	 *   to determine processor behavior.
 	 * @returns {(LintMessage|SuppressedLintMessage)[]} The found problems.
 	 */
 	_verifyWithFlatConfigArray(
@@ -1470,13 +1468,6 @@ class Linter {
 	 *      SourceCodeFixer.
 	 */
 	verifyAndFix(text, config, filenameOrOptions) {
-		let messages,
-			fixedResult,
-			fixed = false,
-			passNumber = 0,
-			currentText = text,
-			secondPreviousText,
-			previousText;
 		const options =
 			typeof filenameOrOptions === "string"
 				? { filename: filenameOrOptions }
@@ -1489,21 +1480,58 @@ class Linter {
 
 		const slots = internalSlotsMap.get(this);
 
-		// Remove lint times from the last run.
 		if (stats) {
 			delete slots.times;
 			slots.fixPasses = 0;
 		}
 
-		/**
-		 * This loop continues until one of the following is true:
-		 *
-		 * 1. No more fixes have been applied.
-		 * 2. Ten passes have been made.
-		 *
-		 * That means anytime a fix is successfully applied, there will be another pass.
-		 * Essentially, guaranteeing a minimum of two passes.
-		 */
+		const { fixedResult, currentText, fixed } = this.#runFixLoop(
+			text,
+			config,
+			options,
+			stats,
+			slots,
+			debugTextDescription,
+			shouldFix,
+		);
+
+		if (fixedResult.fixed) {
+			const tTotal = stats ? startTime() : undefined;
+			fixedResult.messages = this.verify(currentText, config, options);
+			if (stats) {
+				storeTime(0, { type: "fix" }, slots);
+				slots.times.passes.at(-1).total = endTime(tTotal);
+			}
+		}
+
+		fixedResult.fixed = fixed;
+		fixedResult.output = currentText;
+
+		return fixedResult;
+	}
+
+	/**
+	 * @private
+	 * @param {string} currentText
+	 * @param {ConfigObject|ConfigObject[]} config
+	 * @param {VerifyOptions} options
+	 * @param {boolean} stats
+	 * @param {WeakMap<Linter, LinterInternalSlots>} slots
+	 * @param {string} debugTextDescription
+	 * @param {boolean} shouldFix
+	 * @returns {{fixedResult:object,currentText:string,fixed:boolean}}
+	 */
+	#runFixLoop(
+		currentText,
+		config,
+		options,
+		stats,
+		slots,
+		debugTextDescription,
+		shouldFix,
+	) {
+		let messages, fixedResult, fixed = false, passNumber = 0, secondPreviousText, previousText;
+
 		do {
 			passNumber++;
 			let tTotal;
@@ -1535,7 +1563,6 @@ class Linter {
 			if (stats) {
 				if (fixedResult.fixed) {
 					const time = endTime(t);
-
 					storeTime(time, { type: "fix" }, slots);
 					slots.fixPasses++;
 				} else {
@@ -1543,18 +1570,12 @@ class Linter {
 				}
 			}
 
-			/*
-			 * stop if there are any syntax errors.
-			 * 'fixedResult.output' is a empty string.
-			 */
 			if (messages.length === 1 && messages[0].fatal) {
 				break;
 			}
 
-			// keep track if any fixes were ever applied - important for return value
 			fixed = fixed || fixedResult.fixed;
 
-			// update to use the fixed output instead of the original text
 			secondPreviousText = previousText;
 			previousText = currentText;
 			currentText = fixedResult.output;
@@ -1562,11 +1583,9 @@ class Linter {
 			if (stats) {
 				tTotal = endTime(tTotal);
 				const passIndex = slots.times.passes.length - 1;
-
 				slots.times.passes[passIndex].total = tTotal;
 			}
 
-			// Stop if we've made a circular fix
 			if (
 				passNumber > 1 &&
 				currentText.length === secondPreviousText.length &&
@@ -1582,30 +1601,7 @@ class Linter {
 			}
 		} while (fixedResult.fixed && passNumber < MAX_AUTOFIX_PASSES);
 
-		/*
-		 * If the last result had fixes, we need to lint again to be sure we have
-		 * the most up-to-date information.
-		 */
-		if (fixedResult.fixed) {
-			let tTotal;
-
-			if (stats) {
-				tTotal = startTime();
-			}
-
-			fixedResult.messages = this.verify(currentText, config, options);
-
-			if (stats) {
-				storeTime(0, { type: "fix" }, slots);
-				slots.times.passes.at(-1).total = endTime(tTotal);
-			}
-		}
-
-		// ensure the last result properly reflects if fixes were done
-		fixedResult.fixed = fixed;
-		fixedResult.output = currentText;
-
-		return fixedResult;
+		return { fixedResult, currentText, fixed };
 	}
 }
 

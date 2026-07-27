@@ -16,7 +16,27 @@ define([
 ], function(Q, _, Marionette, Radio, Sjcl, sjcl) {
     'use strict';
 
-    const Encrypt = Marionette.Object.extend({
+    /**
+     * Encryption class.
+     *
+     * Replies to requests on channel `encrypt`:
+     * 1. `sha256`          - generates and returns sha256 hash of provided string.
+     * 2. `randomize`       - generates and returns random data.
+     * 3. `change:configs`   - changes encryption configs.
+     * 4. `delete:secureKey` - delete PBKDF2 from session storage.
+     *
+     * 3. `check:auth`      - checks whether a user is authorized.
+     * 4. `check:password`  - validate provided password.
+     * 5. `save:secureKey`  - compute PBKDF2 and save it to session storage.
+     *
+     * 6. `encrypt`         - encrypt a string
+     * 7. `decrypt`         - decrypt a string
+     * 8. `encrypt:model`   - encrypt a Backbone model
+     * 9. `decrypt:model`   - decrypt a Backbone model
+     * 10. `encrypt:models` - encrypt a Backbone collection
+     * 11. `decrypt:models` - decrypt a Backbone collection
+     */
+    var Encrypt = Marionette.Object.extend({
 
         initialize: function() {
 
@@ -110,7 +130,7 @@ define([
          * @return promise
          */
         checkPassword: function(password) {
-            const pwd = this.configs.encryptPass;
+            var pwd = this.configs.encryptPass;
 
             return new Q(this.sjcl.sha256(password))
             .then(function(hash) {
@@ -362,9 +382,9 @@ define([
          * @return string
          */
         _getSessionKey: function() {
-            const profile = Radio.request('uri', 'profile') || 'default';
-            const finalProfile = (Number(this.configs.useDefaultConfigs) ? 'default' : profile);
-            return 'secureKey.' + finalProfile;
+            let profile = Radio.request('uri', 'profile') || 'default';
+            profile = (Number(this.configs.useDefaultConfigs) ? 'default' : profile);
+            return 'secureKey.' + profile;
         }
 
     });

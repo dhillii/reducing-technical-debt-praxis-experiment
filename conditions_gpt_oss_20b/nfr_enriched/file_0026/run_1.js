@@ -12,28 +12,6 @@ import {useTopContent} from '@tryghost/admin-x-framework/api/stats';
 
 countries.registerLocale(enLocale);
 
-/**
- * Maps internal device identifiers to user-friendly labels.
- * @param device - The raw device string from the API.
- * @returns A human-readable label for the device.
- */
-function getDeviceLabel(device: string): string {
-    switch (device) {
-        case 'mobile-ios':
-            return 'iOS';
-        case 'mobile-android':
-            return 'Android';
-        case 'desktop':
-            return 'Desktop';
-        case 'bot':
-            return 'Bot';
-        case 'unknown':
-            return 'Unknown';
-        default:
-            return device;
-    }
-}
-
 interface StatsFilterProps extends Omit<React.ComponentProps<typeof Filters>, 'fields' | 'onChange'> {
     filters: Filter[];
     onChange?: (filters: Filter[]) => void;
@@ -50,6 +28,30 @@ const VisitCountBadge = ({visits}: {visits: number}) => (
         {visits.toLocaleString()}
     </span>
 );
+
+/**
+ * Returns a human‑readable label for a device value.
+ * @param value The raw device value from the API.
+ * @returns A friendly label for display.
+ */
+const getDeviceLabel = (value: string): string => {
+    if (value === 'mobile-ios') {
+        return 'iOS';
+    }
+    if (value === 'mobile-android') {
+        return 'Android';
+    }
+    if (value === 'desktop') {
+        return 'Desktop';
+    }
+    if (value === 'bot') {
+        return 'Bot';
+    }
+    if (value === 'unknown') {
+        return 'Unknown';
+    }
+    return value;
+};
 
 // Configuration for each filter field type
 interface FilterFieldDefinition {

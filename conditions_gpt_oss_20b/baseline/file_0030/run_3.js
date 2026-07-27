@@ -77,18 +77,23 @@ export default class MembersController extends Controller {
 
     get listHeader() {
         const {searchParam, selectedLabel, members} = this;
+
         if (members.loading) {
             return 'Loading...';
         }
+
         if (searchParam) {
             return 'Search result';
         }
+
         const count = ghPluralize(members.length, 'member');
-        if (selectedLabel && selectedLabel.slug) {
+
+        if (selectedLabel?.slug) {
             return members.length > 1
                 ? `${count} match current filter`
                 : `${count} matches current filter`;
         }
+
         return count;
     }
 
@@ -197,14 +202,16 @@ export default class MembersController extends Controller {
 
     getApiQueryObject({params, extraFilters = []} = {}) {
         const {label, paidParam, searchParam, filterParam} = params ?? this;
-        let fParam = filterParam;
-        if (fParam) {
+
+        let resolvedFilterParam = filterParam;
+        if (resolvedFilterParam) {
             const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
             const MULTIPLE_GROUPS_RE = /\).*\(/;
-            if (BRACKETS_SURROUNDED_RE.test(fParam) && !MULTIPLE_GROUPS_RE.test(fParam)) {
-                fParam = fParam.slice(1, -1);
+            if (BRACKETS_SURROUNDED_RE.test(resolvedFilterParam) && !MULTIPLE_GROUPS_RE.test(resolvedFilterParam)) {
+                resolvedFilterParam = resolvedFilterParam.slice(1, -1);
             }
         }
+
         const filters = [...extraFilters];
         if (label) {
             filters.push(`label:'${label}'`);
@@ -212,10 +219,12 @@ export default class MembersController extends Controller {
         if (paidParam !== null) {
             filters.push(paidParam === 'true' ? 'status:-free' : 'status:free');
         }
-        if (fParam) {
-            filters.push(fParam);
+        if (resolvedFilterParam) {
+            filters.push(resolvedFilterParam);
         }
+
         const searchQuery = searchParam ? {search: searchParam} : {};
+
         return {filter: filters.join('+'), ...searchQuery};
     }
 
@@ -290,7 +299,9 @@ export default class MembersController extends Controller {
         const downloadParams = new URLSearchParams(this.getApiQueryObject());
         downloadParams.set('limit', 'all');
         const url = `${exportUrl}?${downloadParams.toString()}`;
+
         this.isExporting = true;
+
         fetch(url, {method: 'GET'})
             .then(res => res.blob())
             .then(blob => {
@@ -304,7 +315,9 @@ export default class MembersController extends Controller {
                 a.remove();
                 URL.revokeObjectURL(blobUrl);
             })
-            .catch(() => {})
+            .catch(() => {
+                // Handle errors silently
+            })
             .finally(() => {
                 this.isExporting = false;
             });
@@ -371,9 +384,7 @@ export default class MembersController extends Controller {
             query: this.getApiQueryObject(),
             onComplete: () => {
                 this.store.unloadAll('member');
-                this.router.transitionTo('members.index', {
-                    queryParams: {...resetQueryParams('members.index')}
-                });
+                this.router.transitionTo('members.index', {queryParams: resetQueryParams('members.index')});
                 this.membersStats.invalidate();
                 this.membersStats.fetchCounts();
             }
@@ -400,6 +411,7 @@ export default class MembersController extends Controller {
     *fetchMembersTask(params) {
         const {label, paidParam, searchParam, orderParam, filterParam} = params ?? this;
         const startDate = new Date();
+
         const forceReload =
             !params ||
             label !== this._lastLabel ||
@@ -407,22 +419,29 @@ export default class MembersController extends Controller {
             searchParam !== this._lastSearchParam ||
             orderParam !== this._lastOrderParam ||
             filterParam !== this._lastFilterParam;
+
         this._lastLabel = label;
         this._lastPaidParam = paidParam;
         this._lastSearchParam = searchParam;
         this._lastOrderParam = orderParam;
         this._lastFilterParam = filterParam;
-        if (!forceReload && this._startDate && !(this._startDate - startDate > 1 * 60 * 1000)) {
+
+        if (!forceReload && this._startDate && !(this._startDate - startDate > 60000)) {
             return this.members;
         }
+
         this._startDate = startDate;
+
         this.members = yield this.ellaSparse.array((range = {}, query = {}) => {
             const searchQuery = this.getApiQueryObject({
                 params,
-                extraFilters: [`created_at:<='${moment.utc(this._startDate).format('YYYY-MM-DD HH:mm:ss')}'`]
+                extraFilters: [
+                    `created_at:<='${moment.utc(this._startDate).format('YYYY-MM-DD HH:mm:ss')}'`
+                ]
             });
-            const order = orderParam ? `${orderParam} desc` : `created_at desc`;
+            const order = orderParam ? `${orderParam} desc` : 'created_at desc';
             const includes = ['labels', 'tiers'];
+
             query = {
                 include: includes.join(','),
                 order,
@@ -431,6 +450,7 @@ export default class MembersController extends Controller {
                 ...searchQuery,
                 ...query
             };
+
             return this.store.query('member', query).then(result => ({
                 data: result,
                 total: result.meta.pagination.total

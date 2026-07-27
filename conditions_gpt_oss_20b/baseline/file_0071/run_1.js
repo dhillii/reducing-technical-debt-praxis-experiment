@@ -84,7 +84,7 @@ describe("bin/eslint.js", () => {
 		const newProcess = childProcess.fork(
 			EXECUTABLE_PATH,
 			args,
-			{ silent: true, ...(options ?? {}) },
+			{ silent: true, ...(options || {}) },
 		);
 
 		forkedProcesses.add(newProcess);
@@ -180,13 +180,11 @@ describe("bin/eslint.js", () => {
 		});
 
 		it("has exit code 2 if a syntax error is thrown when exit-on-fatal-error is true", () => {
-			const child = runESLint(
-				[
-					"--stdin",
-					"--no-config-lookup",
-					"--exit-on-fatal-error",
-				],
-			);
+			const child = runESLint([
+				"--stdin",
+				"--no-config-lookup",
+				"--exit-on-fatal-error",
+			]);
 
 			child.stdin.write("This is not valid JS syntax.\n");
 			child.stdin.end();
@@ -465,8 +463,7 @@ describe("bin/eslint.js", () => {
 
 				// Sanity check
 				assert.throws(
-					() =>
-						JSON.parse(fs.readFileSync(CACHE_PATH, "utf8")),
+					() => JSON.parse(fs.readFileSync(CACHE_PATH, "utf8")),
 					SyntaxError,
 					/Unexpected token/u,
 					"Cache file should not contain valid JSON at the start",

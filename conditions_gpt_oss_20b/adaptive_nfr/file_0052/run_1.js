@@ -1,28 +1,28 @@
 'use strict';
 
-var grunt = require('../grunt');
+const grunt = require('../grunt');
 
 // Nodejs libs.
-var fs = require('fs');
-var path = require('path');
+const fs = require('fs');
+const path = require('path');
 
 // The module to be exported.
-var file = module.exports = {};
+const file = module.exports = {};
 
 // External libs.
 file.glob = require('glob');
 file.minimatch = require('minimatch');
 file.findup = require('findup-sync');
-var YAML = require('js-yaml');
-var rimraf = require('rimraf');
-var iconv = require('iconv-lite');
-var mkdirp = require('mkdirp').sync;
+const YAML = require('js-yaml');
+const rimraf = require('rimraf');
+const iconv = require('iconv-lite');
+const mkdirp = require('mkdirp').sync;
 
 // Windows?
-var win32 = process.platform === 'win32';
+const win32 = process.platform === 'win32';
 
 // Normalize \\ paths to / paths.
-var unixifyPath = function(filepath) {
+const unixifyPath = function(filepath) {
   if (win32) {
     return filepath.replace(/\\/g, '/');
   } else {
@@ -32,13 +32,13 @@ var unixifyPath = function(filepath) {
 
 // Change the current base path (ie, CWD) to the specified path.
 file.setBase = function() {
-  var dirpath = path.join.apply(path, arguments);
+  const dirpath = path.join.apply(path, arguments);
   process.chdir(dirpath);
 };
 
 // Process specified wildcard glob patterns or filenames against a
 // callback, excluding and uniquing files in the result set.
-var processPatterns = function(patterns, fn) {
+const processPatterns = function(patterns, fn) {
   // Filepaths to return.
   const result = [];
   // Iterate over flattened patterns array.
@@ -99,7 +99,7 @@ file.expand = function() {
   // Return empty set if there are no patterns or filepaths.
   if (patterns.length === 0) { return []; }
   // Return all matching filepaths.
-  let matches = processPatterns(patterns, function(pattern) {
+  const matches = processPatterns(patterns, function(pattern) {
     // Find all matching files for this pattern.
     return file.glob.sync(pattern, options);
   });
@@ -123,11 +123,11 @@ file.expand = function() {
   return matches;
 };
 
-var pathSeparatorRe = /[\/\\]/g;
+const pathSeparatorRe = /[\/\\]/g;
 
 // The "ext" option refers to either everything after the first dot (default)
 // or everything after the last dot.
-var extDotRe = {
+const extDotRe = {
   first: /(\.[^\/]*)?$/,
   last: /(\.[^\/\.]*)?$/,
 };
@@ -421,9 +421,9 @@ file.isPathAbsolute = function() {
 
 // Do all the specified paths refer to the same path?
 file.arePathsEquivalent = function(first) {
-  first = path.resolve(first);
+  const firstResolved = path.resolve(first);
   for (let i = 1; i < arguments.length; i++) {
-    if (first !== path.resolve(arguments[i])) { return false; }
+    if (firstResolved !== path.resolve(arguments[i])) { return false; }
   }
   return true;
 };
@@ -431,10 +431,10 @@ file.arePathsEquivalent = function(first) {
 // Are descendant path(s) contained within ancestor path? Note: does not test
 // if paths actually exist.
 file.doesPathContain = function(ancestor) {
-  ancestor = path.resolve(ancestor);
+  const ancestorResolved = path.resolve(ancestor);
   let relative;
   for (let i = 1; i < arguments.length; i++) {
-    relative = path.relative(path.resolve(arguments[i]), ancestor);
+    relative = path.relative(path.resolve(arguments[i]), ancestorResolved);
     if (relative === '' || /\w+/.test(relative)) { return false; }
   }
   return true;

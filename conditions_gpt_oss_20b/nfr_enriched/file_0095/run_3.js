@@ -48,6 +48,7 @@ define([
             if (noHex) {
                 return sjcl.random.randomWords(number, paranoia);
             }
+
             return sjcl.codec.hex.fromBits(
                 sjcl.random.randomWords(number, paranoia)
             );
@@ -63,14 +64,17 @@ define([
                 Radio.trigger('encrypt', 'changed');
                 return {isChanged: true};
             }
+
             if (!Number(this.configs.encrypt) || this.configs.encryptPass === '') {
                 return true;
             }
+
             return !_.isEmpty(this.keys) || this._getSession() !== null;
         },
 
         checkPassword: function(password) {
             const pwd = this.configs.encryptPass;
+
             return new Q(this.sjcl.sha256(password))
                 .then(hash => hash.toString() === pwd.toString());
         },
@@ -89,6 +93,7 @@ define([
 
         deleteSecureKey: function() {
             this.keys = {};
+
             if (window.sessionStorage) {
                 window.sessionStorage.removeItem(this._getSessionKey());
             }
@@ -113,6 +118,7 @@ define([
 
         encryptModel: function(model) {
             const data = _.pick(model.attributes, model.encryptKeys);
+
             return this.encrypt(data)
                 .then(encrypted => {
                     model.set('encryptedData', encrypted);
@@ -124,11 +130,13 @@ define([
             if (model.attributes.encryptedData) {
                 return this._decryptModel(model);
             }
+
             return this._decryptModelKeys(model);
         },
 
         encryptModels: function(collection) {
-            if (!collection.length || !Number(this.configs.encrypt) || !this.keys.key) {
+            if (!collection.length || !Number(this.configs.encrypt) ||
+                !this.keys.key) {
                 return new Q();
             }
 
@@ -136,10 +144,10 @@ define([
             Radio.trigger('encrypt', 'encrypting:models', collection);
 
             collection.each(model => {
-                promises.push(this.encryptModel(model));
+                promises.push(() => new Q(this.encryptModel(model)));
             });
 
-            return Q.all(promises)
+            return _.reduce(promises, Q.when, new Q())
                 .fail(e => console.error('EncryptModels Error:', e));
         },
 
@@ -147,6 +155,7 @@ define([
             if (!collection.length || !Number(this.configs.encrypt)) {
                 return new Q();
             }
+
             if (!this.keys.key) {
                 Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
                 return new Q();
@@ -156,10 +165,10 @@ define([
             Radio.trigger('encrypt', 'decrypting:models', collection);
 
             collection.each(model => {
-                promises.push(this.decryptModel(model));
+                promises.push(() => new Q(this.decryptModel(model)));
             });
 
-            return Q.all(promises)
+            return _.reduce(promises, Q.when, new Q())
                 .fail(e => console.error('DecryptModels Error:', e));
         },
 
@@ -173,6 +182,7 @@ define([
                 _.each(JSON.parse(data), (val, key) => {
                     model.set(key, val);
                 });
+
                 Radio.trigger('encrypt', 'decrypted:model', model);
                 return model;
             });
@@ -180,6 +190,7 @@ define([
 
         _decryptModelKeys: function(model) {
             const promises = [];
+
             _.each(model.encryptKeys, key => {
                 promises.push(
                     new Q(this.sjcl.decryptLegacy({
@@ -187,9 +198,7 @@ define([
                         string  : model.get(key),
                         keys    : this.keys
                     }))
-                    .then(data => {
-                        model.set(key, data);
-                    })
+                    .then(data => model.set(key, data))
                 );
             });
 
@@ -204,6 +213,7 @@ define([
             if (!window.sessionStorage || !this.keys) {
                 return;
             }
+
             window.sessionStorage.setItem(
                 this._getSessionKey(),
                 JSON.stringify(this.keys)
@@ -214,11 +224,12 @@ define([
             if (!window.sessionStorage) {
                 return null;
             }
-            const stored = window.sessionStorage.getItem(this._getSessionKey());
+
+            const keys = window.sessionStorage.getItem(this._getSessionKey());
             try {
-                const keys = JSON.parse(stored);
-                this.keys = keys || this.keys;
-                return keys;
+                const parsed = JSON.parse(keys);
+                this.keys = parsed || this.keys;
+                return parsed;
             } catch (e) {
                 return null;
             }

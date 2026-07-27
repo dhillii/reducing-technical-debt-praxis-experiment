@@ -44,12 +44,12 @@ function resolveHome(filepath) {
 
 Common.determineSilentCLI = function() {
   const variadicArgsDashesPos = process.argv.indexOf('--');
-  const s1opt = process.argv.indexOf('--silent')
-  const s2opt = process.argv.indexOf('-s')
+  const s1opt = process.argv.indexOf('--silent');
+  const s2opt = process.argv.indexOf('-s');
 
   if (process.env.PM2_SILENT || (variadicArgsDashesPos > -1 &&
        (s1opt != -1 && s1opt < variadicArgsDashesPos) &&
-       (s2opt != -1 != s2opt < variadicArgsDashesPos)) ||
+       (s2opt != -1 && s2opt < variadicArgsDashesPos)) ||
       (variadicArgsDashesPos == -1 && (s1opt > -1 || s2opt > -1))) {
     for (const key in console){
       const code = key.charCodeAt(0);
@@ -74,7 +74,7 @@ Common.lockReload = function() {
   try {
     const t1 = fs.readFileSync(cst.PM2_RELOAD_LOCKFILE).toString();
 
-    if (t1 && t1 != '') {
+    if (t1 && t1 !== '') {
       const diff = dayjs().diff(parseInt(t1));
       if (diff < cst.RELOAD_LOCK_TIMEOUT)
         return diff;
@@ -97,6 +97,14 @@ Common.unlockReload = function() {
   }
 };
 
+/**
+ * Resolve app paths and replace missing values with defaults.
+ * @method prepareAppConf
+ * @param app {Object}
+ * @param {} cwd
+ * @param {} outputter
+ * @return app
+ */
 Common.prepareAppConf = function(opts, app) {
   if (!app.script)
     return new Error('No script path - aborting');
@@ -217,6 +225,9 @@ Common.prepareAppConf = function(opts, app) {
   return app;
 };
 
+/**
+ * Definition of known config file extensions with their type
+ */
 Common.knonwConfigFileExtensions = {
   '.json': 'json',
   '.yml': 'yaml',
@@ -226,11 +237,16 @@ Common.knonwConfigFileExtensions = {
   '.config.mjs': 'mjs'
 }
 
+/**
+ * Check if filename is a configuration file
+ * @param {string} filename
+ * @return {mixed} null if not conf file, json or yaml if conf
+ */
 Common.isConfigFile = function (filename) {
   if (typeof (filename) !== 'string')
     return null;
 
-  for (const extension in Common.knonwConfigFileExtensions) {
+  for (let extension in Common.knonwConfigFileExtensions) {
     if (filename.indexOf(extension) !== -1) {
       return Common.knonwConfigFileExtensions[extension];
     }
@@ -243,6 +259,12 @@ Common.getConfigFileCandidates = function (name) {
   return Object.keys(Common.knonwConfigFileExtensions).map((extension) => name + extension);
 }
 
+/**
+ * Parses a config file like ecosystem.config.js. Supported formats: JS, JSON, JSON5, YAML.
+ * @param {string} confString  contents of the config file
+ * @param {string} filename    path to the config file
+ * @return {Object} config object
+ */
 Common.parseConfig = function(confObj, filename) {
   const yamljs = require('js-yaml');
   const vm     = require('vm');
@@ -300,6 +322,9 @@ Common.sink.determineCron = function(app) {
   }
 };
 
+/**
+ * Handle alias (fork <=> fork_mode, cluster <=> cluster_mode)
+ */
 Common.sink.determineExecMode = function(app) {
   if (app.exec_mode)
     app.exec_mode = app.exec_mode.replace(/^(fork|cluster)$/, '$1_mode');
@@ -332,7 +357,7 @@ const resolveNodeInterpreter = function(app) {
   }
   else {
     const node_version  = app.exec_interpreter.split('@')[1];
-    const path_to_node  = cst.IS_WINDOWS
+    let path_to_node  = cst.IS_WINDOWS
       ? '/v' + node_version + '/node.exe'
       : semver.satisfies(node_version, '>= 0.12.0')
           ? '/versions/node/v' + node_version + '/bin/node'
@@ -367,6 +392,9 @@ const resolveNodeInterpreter = function(app) {
   }
 };
 
+/**
+ * Resolve interpreter
+ */
 Common.sink.resolveInterpreter = function(app) {
   const noInterpreter = !app.exec_interpreter;
   const extName = path.extname(app.pm_exec_path);
@@ -469,6 +497,9 @@ Common.printOut = function() {
   return console.log.apply(console, arguments);
 };
 
+/**
+ * Raw extend
+ */
 Common.extend = function(destination, source) {
   if (typeof destination !== 'object') {
     destination = {};
@@ -485,6 +516,9 @@ Common.extend = function(destination, source) {
   return destination;
 };
 
+/**
+ * This is useful when starting script programmatically
+ */
 Common.safeExtend = function(origin, add){
   if (!add || typeof add != 'object') return origin;
 
@@ -493,12 +527,25 @@ Common.safeExtend = function(origin, add){
   const keys = Object.keys(add);
   let i = keys.length;
   while (i--) {
-    if(keysToIgnore.indexOf(keys[i]) == -1 && add[keys[i]] != '[object Object]')
+  	if(keysToIgnore.indexOf(keys[i]) == -1 && add[keys[i]] != '[object Object]')
       origin[keys[i]] = add[keys[i]];
   }
   return origin;
 };
 
+
+/**
+ * Extend the app.env object of with the properties taken from the
+ * app.env_[envName] and deploy configuration.
+ * Also update current json attributes
+ *
+ * Used only for Configuration file processing
+ *
+ * @param {Object} app The app object.
+ * @param {string} envName The given environment name.
+ * @param {Object} deployConf Deployment configuration object (from JSON file or whatever).
+ * @returns {Object} The app.env variables object.
+ */
 Common.mergeEnvironmentVariables = function(app_env, env_name, deploy_conf) {
   const app = fclone(app_env);
 
@@ -547,6 +594,16 @@ Common.mergeEnvironmentVariables = function(app_env, env_name, deploy_conf) {
   return res
 }
 
+/**
+ * This function will resolve paths, option and environment
+ * CALLED before 'prepare' God call (=> PROCESS INITIALIZATION)
+ * @method resolveAppAttributes
+ * @param {Object} opts
+ * @param {Object} opts.cwd
+ * @param {Object} opts.pm2_home
+ * @param {Object} appConf application configuration
+ * @return app
+ */
 Common.resolveAppAttributes = function(opts, conf) {
   const conf_copy = fclone(conf);
 
@@ -557,10 +614,18 @@ Common.resolveAppAttributes = function(opts, conf) {
   return app;
 }
 
+/**
+ * Verify configurations
+ * Called on EVERY Operation (start/restart/reload/stop...)
+ * @param {Array} appConfs
+ * @returns {Array}
+ */
 Common.verifyConfs = function(appConfs) {
   if (!appConfs || appConfs.length == 0) {
     return [];
   }
+
+  appConfs = [].concat(appConfs);
 
   const verifiedConf = [];
 
@@ -712,6 +777,12 @@ Common.verifyConfs = function(appConfs) {
   return verifiedConf;
 }
 
+/**
+ * Get current username
+ * Called on EVERY starting app
+ *
+ * @returns {String}
+ */
 Common.getCurrentUsername = function(){
   let current_user = '';
 
@@ -729,6 +800,10 @@ Common.getCurrentUsername = function(){
   return current_user;
 }
 
+/**
+ * Render an app name if not existing.
+ * @param {Object} conf
+ */
 Common.renderApplicationName = function(conf){
   if (!conf.name && conf.script){
     conf.name = conf.script !== undefined ? path.basename(conf.script) : 'undefined';
@@ -739,6 +814,10 @@ Common.renderApplicationName = function(conf){
   }
 }
 
+/**
+ * Show warnings
+ * @param {String} warning
+ */
 function warn(warning){
   Common.printOut(cst.PREFIX_MSG_WARNING + warning);
 }

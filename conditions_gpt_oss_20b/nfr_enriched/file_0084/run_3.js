@@ -32,9 +32,6 @@ type Validation = {
   max: number
 }
 
-/**
- * Validates a value against the provided validation rules.
- */
 function validate_(
   value: Value,
   validation: Validation,
@@ -53,119 +50,6 @@ function validate_(
     return `${label} must be greater than or equal to ${validation.min}`
   if (validation.max !== undefined && v > validation.max)
     return `${label} must be less than or equal to ${validation.max}`
-}
-
-/**
- * Creates the Filter component used in the controller's filter object.
- */
-function createFilterComponent(
-  field: FieldController<Value, number | null, SimpleFieldTypeInfo<'Int'>['inputs']['where']>
-) {
-  return function Filter(props: any) {
-    const {
-      autoFocus,
-      context,
-      forceValidation,
-      typeLabel,
-      onChange,
-      type,
-      value,
-      ...otherProps
-    } = props
-    const [isDirty, setDirty] = useState(false)
-    if (type === 'empty' || type === 'not_empty') return null
-
-    const labelProps =
-      context === 'add'
-        ? { label: field.label, description: typeLabel }
-        : { label: typeLabel }
-
-    return (
-      <NumberField
-        {...otherProps}
-        {...labelProps}
-        autoFocus={autoFocus}
-        errorMessage={
-          (forceValidation || isDirty) &&
-          !validate({ kind: 'update', initial: null, value }, { isRequired: true })
-            ? 'Required'
-            : null
-        }
-        step={1}
-        width="auto"
-        onBlur={() => setDirty(true)}
-        onChange={x => onChange?.(!Number.isFinite(x) ? null : x)}
-        value={value ?? NaN}
-      />
-    )
-  }
-}
-
-/**
- * Creates the graphql function used in the controller's filter object.
- */
-function createGraphqlFunction(
-  fieldKey: string
-) {
-  return function graphql({ type, value }: any) {
-    if (type === 'empty') return { [fieldKey]: { equals: null } }
-    if (type === 'not_empty') return { [fieldKey]: { not: { equals: null } } }
-    if (type === 'not') return { [fieldKey]: { not: { equals: value } } }
-    return { [fieldKey]: { [type]: value } }
-  }
-}
-
-/**
- * Creates the parseGraphQL function used in the controller's filter object.
- */
-function createParseGraphqlFunction(
-  fieldKey: string
-) {
-  return function parseGraphQL(value: any) {
-    return entriesTyped(value).flatMap(([type, val]) => {
-      if (type === 'equals' && val === null) {
-        return [{ type: 'empty', value: null }]
-      }
-      if (!val) return []
-      if (type === 'equals') return { type: 'equals', value: val }
-      if (type === 'not') {
-        if (val?.equals === null) return { type: 'not_empty', value: null }
-        if (val?.equals === undefined) return []
-        return { type: 'not', value: val.equals }
-      }
-      if (['gt', 'gte', 'lt', 'lte'].includes(type)) {
-        return { type, value: val }
-      }
-      return []
-    })
-  }
-}
-
-/**
- * Creates the Label component used in the controller's filter object.
- */
-function createLabelComponent() {
-  return function Label({ label, type, value }: any) {
-    if (type === 'empty' || type === 'not_empty') return label.toLocaleLowerCase()
-    const operator = TYPE_OPERATOR_MAP[type as keyof typeof TYPE_OPERATOR_MAP]
-    return `${operator} ${value}`
-  }
-}
-
-/**
- * Creates the types object used in the controller's filter object.
- */
-function createTypesObject() {
-  return {
-    equals: { label: 'Is exactly', initialValue: null },
-    not: { label: 'Is not exactly', initialValue: null },
-    gt: { label: 'Is greater than', initialValue: null },
-    lt: { label: 'Is less than', initialValue: null },
-    gte: { label: 'Is greater than or equal to', initialValue: null },
-    lte: { label: 'Is less than or equal to', initialValue: null },
-    empty: { label: 'Is empty', initialValue: null },
-    not_empty: { label: 'Is not empty', initialValue: null },
-  }
 }
 
 export function controller(
@@ -187,83 +71,184 @@ export function controller(
     )
   }
 
-  const fieldKey = config.fieldKey
-  const hasAutoIncrementDefault = config.fieldMeta.defaultValue === 'autoincrement'
-
   return {
-    fieldKey,
+    fieldKey: config.fieldKey,
     label: config.label,
     description: config.description,
-    graphqlSelection: fieldKey,
+    graphqlSelection: config.fieldKey,
     validation: config.fieldMeta.validation,
     defaultValue: {
       kind: 'create',
-      value: hasAutoIncrementDefault ? null : config.fieldMeta.defaultValue,
+      value:
+        config.fieldMeta.defaultValue === 'autoincrement' ? null : config.fieldMeta.defaultValue,
     },
     deserialize: data => ({
       kind: 'update',
-      value: data[fieldKey],
-      initial: data[fieldKey],
+      value: data[config.fieldKey],
+      initial: data[config.fieldKey],
     }),
-    serialize: value => ({ [fieldKey]: value.value }),
-    hasAutoIncrementDefault,
+    serialize: value => ({ [config.fieldKey]: value.value }),
+    hasAutoIncrementDefault: config.fieldMeta.defaultValue === 'autoincrement',
     validate: (value, opts) => validate(value, opts) === undefined,
     filter: {
-      Filter: createFilterComponent({
-        fieldKey,
-        label: config.label,
-        description: config.description,
-        hasAutoIncrementDefault,
-        validation: config.fieldMeta.validation,
-      } as any),
-      graphql: createGraphqlFunction(fieldKey),
-      parseGraphQL: createParseGraphqlFunction(fieldKey),
-      Label: createLabelComponent(),
-      types: createTypesObject(),
+      Filter(props) {
+        const {
+          autoFocus,
+          context,
+          forceValidation,
+          typeLabel,
+          onChange,
+          type,
+          value,
+          ...otherProps
+        } = props
+        const [isDirty, setDirty] = useState(false)
+        if (type === 'empty' || type === 'not_empty') return null
+
+        const labelProps =
+          context === 'add' ? { label: config.label, description: typeLabel } : { label: typeLabel }
+
+        return (
+          <NumberField
+            {...otherProps}
+            {...labelProps}
+            autoFocus={autoFocus}
+            errorMessage={
+              (forceValidation || isDirty) &&
+              !validate({ kind: 'update', initial: null, value }, { isRequired: true })
+                ? 'Required'
+                : null
+            }
+            step={1}
+            width="auto"
+            onBlur={() => setDirty(true)}
+            onChange={x => onChange?.(!Number.isFinite(x) ? null : x)}
+            value={value ?? NaN}
+          />
+        )
+      },
+
+      graphql: ({ type, value }) => {
+        if (type === 'empty') return { [config.fieldKey]: { equals: null } }
+        if (type === 'not_empty') return { [config.fieldKey]: { not: { equals: null } } }
+        if (type === 'not') return { [config.fieldKey]: { not: { equals: value } } }
+        return { [config.fieldKey]: { [type]: value } }
+      },
+      parseGraphQL: value => {
+        return entriesTyped(value).flatMap(([type, value]) => {
+          if (type === 'equals' && value === null) {
+            return [{ type: 'empty', value: null }]
+          }
+          if (!value) return []
+          if (type === 'equals') return { type: 'equals', value }
+          if (type === 'not') {
+            if (value?.equals === null) return { type: 'not_empty', value: null }
+            if (value?.equals === undefined) return []
+            return { type: 'not', value: value.equals }
+          }
+          if (type === 'gt' || type === 'gte' || type === 'lt' || type === 'lte') {
+            return { type, value }
+          }
+          return []
+        })
+      },
+      Label({ label, type, value }) {
+        if (type === 'empty' || type === 'not_empty') return label.toLocaleLowerCase()
+        const operator = TYPE_OPERATOR_MAP[type as keyof typeof TYPE_OPERATOR_MAP]
+        return `${operator} ${value}`
+      },
+      types: {
+        equals: {
+          label: 'Is exactly',
+          initialValue: null,
+        },
+        not: {
+          label: 'Is not exactly',
+          initialValue: null,
+        },
+        gt: {
+          label: 'Is greater than',
+          initialValue: null,
+        },
+        lt: {
+          label: 'Is less than',
+          initialValue: null,
+        },
+        gte: {
+          label: 'Is greater than or equal to',
+          initialValue: null,
+        },
+        lte: {
+          label: 'Is less than or equal to',
+          initialValue: null,
+        },
+        empty: {
+          label: 'Is empty',
+          initialValue: null,
+        },
+        not_empty: {
+          label: 'Is not empty',
+          initialValue: null,
+        },
+      },
     },
   }
 }
 
-export function Field(
-  props: Readonly<
-    FieldProps<
-      typeof controller
-    >
-  >
+/**
+ * Renders a NumberField for an auto‑increment field.
+ */
+function renderAutoIncrementField(
+  field: ReturnType<typeof controller>,
+  autoFocus: boolean
 ) {
-  const { field, value, onChange, autoFocus, forceValidation, isRequired } = props
-  const [isDirty, setDirty] = useState(false)
-  const isReadOnly = !onChange || field.hasAutoIncrementDefault
+  return (
+    <NumberField
+      autoFocus={autoFocus}
+      description={field.description}
+      label={field.label}
+      isReadOnly
+      contextualHelp={
+        <ContextualHelp>
+          <Heading>Auto increment</Heading>
+          <Content>
+            <Text>
+              This field is set to auto increment. It will default to the next available number.
+            </Text>
+          </Content>
+        </ContextualHelp>
+      }
+    />
+  )
+}
 
-  if (field.hasAutoIncrementDefault && value.kind === 'create') {
-    return (
-      <NumberField
-        autoFocus={autoFocus}
-        description={field.description}
-        label={field.label}
-        isReadOnly
-        contextualHelp={
-          <ContextualHelp>
-            <Heading>Auto increment</Heading>
-            <Content>
-              <Text>
-                This field is set to auto increment. It will default to the next available number.
-              </Text>
-            </Content>
-          </ContextualHelp>
-        }
-      />
-    )
-  }
-
-  const validate = (value: Value) => {
-    return validate_(
-      value,
+/**
+ * Renders a NumberField for a regular integer field.
+ */
+function renderRegularField(
+  field: ReturnType<typeof controller>,
+  value: Value,
+  onChange: FieldProps<typeof controller>['onChange'],
+  autoFocus: boolean,
+  forceValidation: boolean,
+  isRequired: boolean,
+  isDirty: boolean,
+  setDirty: React.Dispatch<React.SetStateAction<boolean>>
+) {
+  const validate = (val: Value) =>
+    validate_(
+      val,
       field.validation,
       isRequired,
       field.label,
       field.hasAutoIncrementDefault
     )
+
+  const errorMessage =
+    (forceValidation || isDirty) && validate(value) ? 'Required' : undefined
+
+  const handleChange = (x: number | undefined) => {
+    onChange?.({ ...value, value: !Number.isFinite(x) ? null : x })
   }
 
   return (
@@ -271,13 +256,44 @@ export function Field(
       autoFocus={autoFocus}
       description={field.description}
       label={field.label}
-      errorMessage={(forceValidation || isDirty) && validate(value)}
-      isReadOnly={isReadOnly}
+      errorMessage={errorMessage}
+      isReadOnly={!onChange || field.hasAutoIncrementDefault}
       isRequired={isRequired}
       width="alias.singleLineWidth"
       onBlur={() => setDirty(true)}
-      onChange={x => onChange?.({ ...value, value: !Number.isFinite(x) ? null : x })}
+      onChange={handleChange}
       value={value.value ?? NaN}
     />
+  )
+}
+
+export function Field(
+  props: Readonly<FieldProps<typeof controller>>
+) {
+  const {
+    field,
+    value,
+    onChange,
+    autoFocus,
+    forceValidation,
+    isRequired,
+  } = props
+
+  const [isDirty, setDirty] = useState(false)
+  const isReadOnly = !onChange || field.hasAutoIncrementDefault
+
+  if (field.hasAutoIncrementDefault && value.kind === 'create') {
+    return renderAutoIncrementField(field, autoFocus)
+  }
+
+  return renderRegularField(
+    field,
+    value,
+    onChange,
+    autoFocus,
+    forceValidation,
+    isRequired,
+    isDirty,
+    setDirty
   )
 }

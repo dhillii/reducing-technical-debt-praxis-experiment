@@ -7,17 +7,28 @@ const _ = require('lodash');
 const debug = require('@tryghost/debug')('ghost_head');
 const templateStyles = require('./tpl/styles');
 const {getFrontendAppConfig, getDataAttributes} = require('../utils/frontend-apps');
-const {get: getMetaData, getAssetUrl} = metaData;
 
 /**
  * @typedef {import('@tryghost/custom-fonts').FontSelection} FontSelection
  */
 
+const {get: getMetaData, getAssetUrl} = metaData;
+
+/**
+ * @param {string} property
+ * @param {string} content
+ * @param {string} [type]
+ * @returns {string}
+ */
 function writeMetaTag(property, content, type) {
     type = type || property.substring(0, 7) === 'twitter' ? 'name' : 'property';
     return '<meta ' + type + '="' + property + '" content="' + content + '">';
 }
 
+/**
+ * @param {object} meta
+ * @returns {string[]}
+ */
 function finaliseStructuredData(meta) {
     const head = [];
     _.each(meta.structuredData, function (content, property) {
@@ -25,19 +36,23 @@ function finaliseStructuredData(meta) {
             _.each(meta.keywords, function (keyword) {
                 if (keyword !== '') {
                     keyword = escapeExpression(keyword);
-                    head.push(writeMetaTag(property,
-                        escapeExpression(keyword)));
+                    head.push(writeMetaTag(property, escapeExpression(keyword)));
                 }
             });
             head.push('');
         } else if (content !== null && content !== undefined) {
-            head.push(writeMetaTag(property,
-                escapeExpression(content)));
+            head.push(writeMetaTag(property, escapeExpression(content)));
         }
     });
     return head;
 }
 
+/**
+ * @param {object} data
+ * @param {string} frontendKey
+ * @param {Set<string>} excludeList
+ * @returns {string}
+ */
 function getMembersHelper(data, frontendKey, excludeList) {
     if (!settingsCache.get('members_enabled') && !settingsCache.get('donations_enabled') && !settingsCache.get('recommendations_enabled')) {
         return '';
@@ -69,6 +84,10 @@ function getMembersHelper(data, frontendKey, excludeList) {
     return membersHelper;
 }
 
+/**
+ * @param {string} frontendKey
+ * @returns {string}
+ */
 function getSearchHelper(frontendKey) {
     const adminUrl = urlUtils.getAdminUrl() || urlUtils.getSiteUrl();
     const {scriptUrl, stylesUrl} = getFrontendAppConfig('sodoSearch');
@@ -82,10 +101,13 @@ function getSearchHelper(frontendKey) {
         locale: settingsCache.get('locale') || 'en'
     };
     const dataAttrs = getDataAttributes(attrs);
-    let helper = `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
-    return helper;
+    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
 }
 
+/**
+ * @param {object} data
+ * @returns {string}
+ */
 function getAnnouncementBarHelper(data) {
     const preview = data?.site?._preview;
     const isFilled = settingsCache.get('announcement_content') && settingsCache.get('announcement_visibility').length;
@@ -105,17 +127,19 @@ function getAnnouncementBarHelper(data) {
         const announcementBackground = searchParam.has('announcement_bg') ? searchParam.get('announcement_bg') : '';
         const announcementVisibility = searchParam.has('announcement_vis');
         if (!announcement || !announcementVisibility) {
-            return '';
+            return;
         }
         attrs.announcement = escapeExpression(announcement);
         attrs['announcement-background'] = escapeExpression(announcementBackground);
         attrs.preview = true;
     }
     const dataAttrs = getDataAttributes(attrs);
-    let helper = `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
-    return helper;
+    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
 }
 
+/**
+ * @returns {string}
+ */
 function getWebmentionDiscoveryLink() {
     try {
         const siteUrl = urlUtils.getSiteUrl();
@@ -127,6 +151,10 @@ function getWebmentionDiscoveryLink() {
     }
 }
 
+/**
+ * @param {object} dataRoot
+ * @returns {string}
+ */
 function getTinybirdTrackerScript(dataRoot) {
     const preview = dataRoot?.context?.includes('preview');
     if (preview) {
@@ -150,28 +178,20 @@ function getTinybirdTrackerScript(dataRoot) {
     return `<script defer src="${src}" data-stringify-payload="false" ${datasource ? `data-datasource="${datasource}"` : ''} data-storage="localStorage" data-host="${endpoint}" ${token && env !== 'production' ? `data-token="${token}"` : ''} ${tbParams}></script>`;
 }
 
-/* Predicate helpers */
-function isServerError(options) {
-    return options.data.root.statusCode >= 500;
-}
-function getContext(dataRoot) {
-    return dataRoot._locals.context ? dataRoot._locals.context : null;
-}
-function getPostCodeInjection(dataRoot) {
-    return dataRoot && dataRoot.post ? dataRoot.post.codeinjection_head : null;
-}
-function getTagCodeInjection(dataRoot) {
-    return dataRoot && dataRoot.tag ? dataRoot.tag.codeinjection_head : null;
-}
-function isExcluded(excludeList, key) {
-    return excludeList.has(key);
-}
-function isPagedContext(context) {
-    return _.includes(context, 'paged');
-}
-
-/* Builder helpers */
-function buildMetadata(head, meta, context, referrerPolicy, favicon, iconType) {
+/**
+ * @param {object} meta
+ * @param {string[]} context
+ * @param {Set<string>} excludeList
+ * @param {string[]} head
+ * @param {string} referrerPolicy
+ * @param {string} favicon
+ * @param {string} iconType
+ * @param {boolean} useStructuredData
+ */
+function processContextMeta(meta, context, excludeList, head, referrerPolicy, favicon, iconType, useStructuredData) {
+    if (excludeList.has('metadata')) {
+        return;
+    }
     if (meta.metaDescription && meta.metaDescription.length > 0) {
         head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
     }
@@ -185,156 +205,116 @@ function buildMetadata(head, meta, context, referrerPolicy, favicon, iconType) {
     } else {
         head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
     }
-}
-function buildLink(rel, url) {
-    return '<link rel="' + rel + '" href="' + escapeExpression(url) + '">';
-}
-function buildSchemaScript(schema) {
-    return '<script type="application/ld+json">\n' + JSON.stringify(schema, null, '    ') + '\n    </script>\n';
-}
-function buildGeneratorTag(safeVersion) {
-    return '<meta name="generator" content="Ghost ' + escapeExpression(safeVersion) + '">';
-}
-function buildRSSLink(meta) {
-    return '<link rel="alternate" type="application/rss+xml" title="' + escapeExpression(meta.site.title) + '" href="' + escapeExpression(meta.rssUrl) + '">';
-}
-function addCardAssets(head) {
-    if (cardAssets.hasFile('js')) {
-        head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+    if (meta.previousUrl) {
+        head.push('<link rel="prev" href="' + escapeExpression(meta.previousUrl) + '">');
     }
-    if (cardAssets.hasFile('css')) {
-        head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+    if (meta.nextUrl) {
+        head.push('<link rel="next" href="' + escapeExpression(meta.nextUrl) + '">');
     }
-}
-function buildCommentCountsScript() {
-    return `<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`;
-}
-function buildMemberAttributionScript() {
-    return `<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`;
-}
-function addAccentColorStyle(head, data) {
-    if (data.site.accent_color) {
-        const accentColor = escapeExpression(data.site.accent_color);
-        const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
-        const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
-        if (existingScriptIndex !== -1) {
-            head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
-        } else {
-            head.push(styleTag);
+    if (!_.includes(context, 'paged') && useStructuredData) {
+        if (!excludeList.has('social_data')) {
+            head.push('');
+            head.push.apply(head, finaliseStructuredData(meta));
+            head.push('');
+        }
+        if (!excludeList.has('schema') && meta.schema) {
+            head.push('<script type="application/ld+json">\n' + JSON.stringify(meta.schema, null, '    ') + '\n    </script>\n');
         }
     }
 }
-function addGlobalCodeInjection(head, globalCodeinjection) {
-    if (!_.isEmpty(globalCodeinjection)) {
-        head.push(globalCodeinjection);
-    }
-}
-function addPostCodeInjection(head, postCodeInjection) {
-    if (!_.isEmpty(postCodeInjection)) {
-        head.push(postCodeInjection);
-    }
-}
-function addTagCodeInjection(head, tagCodeInjection) {
-    if (!_.isEmpty(tagCodeInjection)) {
-        head.push(tagCodeInjection);
-    }
-}
-function addCustomFontStyle(head, data) {
-    const isSitePreview = data?.site?._preview ?? false;
-    const headingFont = isSitePreview ? data?.site?.heading_font : settingsCache.get('heading_font');
-    const bodyFont = isSitePreview ? data?.site?.body_font : settingsCache.get('body_font');
+
+/**
+ * @param {object} options
+ * @param {object} dataRoot
+ * @param {string[]} head
+ */
+function processFonts(options, dataRoot, head) {
+    const isSitePreview = options.data?.site?._preview ?? false;
+    const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
+    const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
     if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
         (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
-        /** @type FontSelection */
         const fontSelection = {};
-        if (headingFont) {
-            fontSelection.heading = headingFont;
-        }
-        if (bodyFont) {
-            fontSelection.body = bodyFont;
-        }
+        if (headingFont) fontSelection.heading = headingFont;
+        if (bodyFont) fontSelection.body = bodyFont;
         const customCSS = generateCustomFontCss(fontSelection);
         head.push(new SafeString(customCSS));
     }
 }
 
-/* Main helper */
 module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
     debug('begin');
-    if (isServerError(options)) {
+    if (options.data.root.statusCode >= 500) {
         return;
     }
     const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
     const head = [];
     const dataRoot = options.data.root;
-    const context = getContext(dataRoot);
-    const safeVersion = dataRoot._locals.safeVersion;
-    const postCodeInjection = getPostCodeInjection(dataRoot);
-    const tagCodeInjection = getTagCodeInjection(dataRoot);
+    const context = dataRoot._locals?.context ?? null;
+    const safeVersion = dataRoot._locals?.safeVersion;
+    const postCodeInjection = dataRoot?.post?.codeinjection_head ?? null;
+    const tagCodeInjection = dataRoot?.tag?.codeinjection_head ?? null;
     const globalCodeinjection = settingsCache.get('codeinjection_head');
     const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
     const referrerPolicy = config.get('referrerPolicy') || 'no-referrer-when-downgrade';
     const favicon = blogIcon.getIconUrl();
     const iconType = blogIcon.getIconType(favicon);
+
     try {
         const meta = await getMetaData(dataRoot, dataRoot);
         const frontendKey = await getFrontendKey();
-        debug('end fetch');
+
         if (context) {
-            if (!isExcluded(excludeList, 'metadata')) {
-                buildMetadata(head, meta, context, referrerPolicy, favicon, iconType);
-            }
-            if (meta.previousUrl) {
-                head.push(buildLink('prev', meta.previousUrl));
-            }
-            if (meta.nextUrl) {
-                head.push(buildLink('next', meta.nextUrl));
-            }
-            if (!isPagedContext(context) && useStructuredData) {
-                if (!isExcluded(excludeList, 'social_data')) {
-                    head.push('');
-                    head.push.apply(head, finaliseStructuredData(meta));
-                    head.push('');
-                }
-                if (!isExcluded(excludeList, 'schema') && meta.schema) {
-                    head.push(buildSchemaScript(meta.schema));
-                }
-            }
+            processContextMeta(meta, context, excludeList, head, referrerPolicy, favicon, iconType, useStructuredData);
         }
-        head.push(buildGeneratorTag(safeVersion));
-        head.push(buildRSSLink(meta));
+
+        head.push(`<meta name="generator" content="Ghost ${escapeExpression(safeVersion)}">`);
+        head.push(`<link rel="alternate" type="application/rss+xml" title="${escapeExpression(meta.site.title)}" href="${escapeExpression(meta.rssUrl)}">`);
+
         head.push(getMembersHelper(options.data, frontendKey, excludeList));
-        if (!isExcluded(excludeList, 'search')) {
-            head.push(getSearchHelper(frontendKey));
-        }
-        if (!isExcluded(excludeList, 'announcement')) {
-            head.push(getAnnouncementBarHelper(options.data));
-        }
+        if (!excludeList.has('search')) head.push(getSearchHelper(frontendKey));
+        if (!excludeList.has('announcement')) head.push(getAnnouncementBarHelper(options.data));
         try {
             head.push(getWebmentionDiscoveryLink());
         } catch (err) {
             logging.warn(err);
         }
-        if (!isExcluded(excludeList, 'card_assets')) {
-            addCardAssets(head);
+
+        if (!excludeList.has('card_assets')) {
+            if (cardAssets.hasFile('js')) head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+            if (cardAssets.hasFile('css')) head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
         }
-        if (!isExcluded(excludeList, 'comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
-            head.push(buildCommentCountsScript());
+
+        if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+            head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
         }
+
         if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
-            head.push(buildMemberAttributionScript());
+            head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
         }
+
         if (settingsHelpers.isWebAnalyticsEnabled()) {
             head.push(getTinybirdTrackerScript(dataRoot));
-            if (dataRoot._locals) {
-                dataRoot._locals.ghostAnalytics = true;
+            if (dataRoot._locals) dataRoot._locals.ghostAnalytics = true;
+        }
+
+        if (options.data.site?.accent_color) {
+            const accentColor = escapeExpression(options.data.site.accent_color);
+            const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+            const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+            if (existingScriptIndex !== -1) {
+                head[existingScriptIndex] += styleTag;
+            } else {
+                head.push(styleTag);
             }
         }
-        addAccentColorStyle(head, options.data);
-        addGlobalCodeInjection(head, globalCodeinjection);
-        addPostCodeInjection(head, postCodeInjection);
-        addTagCodeInjection(head, tagCodeInjection);
-        addCustomFontStyle(head, options.data);
+
+        if (!_.isEmpty(globalCodeinjection)) head.push(globalCodeinjection);
+        if (!_.isEmpty(postCodeInjection)) head.push(postCodeInjection);
+        if (!_.isEmpty(tagCodeInjection)) head.push(tagCodeInjection);
+
+        processFonts(options, dataRoot, head);
+
         debug('end');
         return new SafeString(head.join('\n    ').trim());
     } catch (error) {

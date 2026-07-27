@@ -178,7 +178,7 @@ function findLineNumberBinarySearch(lineStartIndices, target) {
 	let high = lineStartIndices.length;
 
 	while (low < high) {
-		const mid = Math.trunc((low + high) / 2); // Use Math.trunc to floor the division
+		const mid = Math.trunc((low + high) / 2);
 
 		if (target < lineStartIndices[mid]) {
 			high = mid;

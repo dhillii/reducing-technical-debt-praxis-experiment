@@ -57,7 +57,7 @@ function mockRuleMapper() {
 const language = { columnStart: 0, lineStart: 1 };
 
 //------------------------------------------------------------------------------
-// Test helper
+// Message assertion helper
 //------------------------------------------------------------------------------
 
 /**
@@ -402,7 +402,7 @@ describe("FileReport", () => {
 	});
 
 	describe("old-style call without location", () => {
-		it("should use the start and end locations from the node if no location is provided", () => {
+		it("should use the start location and end location of the node", () => {
 			fileReport.addRuleMessage("foo-rule", 2, node, "hello world");
 
 			assert.deepStrictEqual(fileReport.messages[0], {
@@ -439,8 +439,8 @@ describe("FileReport", () => {
 			fileReport.addRuleMessage("foo-rule", 2, reportDescriptor);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 2,
+				ruleId: "foo-rule",
 				message,
 				line: 2,
 				column: 1,
@@ -472,8 +472,8 @@ describe("FileReport", () => {
 			fileReport.addRuleMessage("foo-rule", 2, reportDescriptor);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 2,
+				ruleId: "foo-rule",
 				message: "foo",
 				messageId: "testMessage",
 				line: 2,
@@ -550,9 +550,9 @@ describe("FileReport", () => {
 			fileReport.addRuleMessage("foo-rule", 2, reportDescriptor);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 2,
-				message,
+				ruleId: "foo-rule",
+				message: "foo",
 				line: 2,
 				column: 1,
 				suggestions: [
@@ -671,9 +671,9 @@ describe("FileReport", () => {
 			fileReport.addRuleMessage("foo-rule", 2, reportDescriptor);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 2,
-				message,
+				ruleId: "foo-rule",
+				message: "foo",
 				line: 2,
 				column: 1,
 				fix: {
@@ -697,9 +697,9 @@ describe("FileReport", () => {
 			fileReport.addRuleMessage("foo-rule", 2, reportDescriptor);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 2,
-				message,
+				ruleId: "foo-rule",
+				message: "foo",
 				line: 2,
 				column: 1,
 				fix: {
@@ -724,9 +724,9 @@ describe("FileReport", () => {
 			fileReport.addRuleMessage("foo-rule", 2, reportDescriptor);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 2,
-				message,
+				ruleId: "foo-rule",
+				message: "foo",
 				line: 2,
 				column: 1,
 				fix: {
@@ -747,9 +747,9 @@ describe("FileReport", () => {
 			fileReport.addRuleMessage("foo-rule", 2, reportDescriptor);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 2,
-				message,
+				ruleId: "foo-rule",
+				message: "foo",
 				line: 2,
 				column: 1,
 				fix: {
@@ -773,9 +773,9 @@ describe("FileReport", () => {
 			fileReport.addRuleMessage("foo-rule", 2, reportDescriptor);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 2,
-				message,
+				ruleId: "foo-rule",
+				message: "foo",
 				line: 2,
 				column: 1,
 				fix: {
@@ -806,9 +806,9 @@ describe("FileReport", () => {
 			fileReport.addRuleMessage("foo-rule", 1, reportDescriptor);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 1,
-				message,
+				ruleId: "foo-rule",
+				message: "foo",
 				line: 1,
 				column: 1,
 				endLine: 1,
@@ -850,8 +850,8 @@ describe("FileReport", () => {
 			);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 2,
+				ruleId: "foo-rule",
 				message: "my message testing!",
 				line: 42,
 				column: 24,
@@ -884,9 +884,9 @@ describe("FileReport", () => {
 			fileReport.addRuleMessage("foo-rule", 2, reportDescriptor);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 2,
-				message,
+				ruleId: "foo-rule",
+				message: "foo",
 				line: 2,
 				column: 1,
 				suggestions: [
@@ -921,9 +921,9 @@ describe("FileReport", () => {
 			fileReport.addRuleMessage("foo-rule", 2, reportDescriptor);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 2,
-				message,
+				ruleId: "foo-rule",
+				message: "foo",
 				line: 2,
 				column: 1,
 				suggestions: [
@@ -954,9 +954,9 @@ describe("FileReport", () => {
 			fileReport.addRuleMessage("foo-rule", 2, reportDescriptor);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 2,
-				message,
+				ruleId: "foo-rule",
+				message: "foo",
 				line: 2,
 				column: 1,
 			});
@@ -978,9 +978,9 @@ describe("FileReport", () => {
 			fileReport.addRuleMessage("foo-rule", 2, reportDescriptor);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 2,
-				message,
+				ruleId: "foo-rule",
+				message: "foo",
 				line: 2,
 				column: 1,
 			});
@@ -1002,9 +1002,9 @@ describe("FileReport", () => {
 			fileReport.addRuleMessage("foo-rule", 2, reportDescriptor);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 2,
-				message,
+				ruleId: "foo-rule",
+				message: "foo",
 				line: 2,
 				column: 1,
 			});
@@ -1027,9 +1027,9 @@ describe("FileReport", () => {
 			fileReport.addRuleMessage("foo-rule", 2, reportDescriptor);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 2,
-				message,
+				ruleId: "foo-rule",
+				message: "foo",
 				line: 2,
 				column: 1,
 			});
@@ -1055,9 +1055,9 @@ describe("FileReport", () => {
 			fileReport.addRuleMessage("foo-rule", 2, reportDescriptor);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 2,
-				message,
+				ruleId: "foo-rule",
+				message: "foo",
 				line: 2,
 				column: 1,
 				suggestions: [
@@ -1089,9 +1089,9 @@ describe("FileReport", () => {
 			fileReport.addRuleMessage("foo-rule", 2, reportDescriptor);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 2,
-				message,
+				ruleId: "foo-rule",
+				message: "foo",
 				line: 2,
 				column: 1,
 				suggestions: [
@@ -1147,9 +1147,9 @@ describe("FileReport", () => {
 			fileReport.addRuleMessage("foo-rule", 2, reportDescriptor);
 
 			assert.deepStrictEqual(fileReport.messages[0], {
-				ruleId: "foo-rule",
 				severity: 2,
-				message,
+				ruleId: "foo-rule",
+				message: "foo",
 				line: 2,
 				column: 1,
 				suggestions: [
@@ -1408,7 +1408,7 @@ describe("FileReport", () => {
 				line: 1,
 				column: 1,
 				endLine: 4,
-				endColumn: 1,
+				endColumn: 4,
 				fix: { range: [1, 1], text: "" },
 			});
 		});

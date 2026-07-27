@@ -294,34 +294,22 @@ internals.Request.prototype.getLog = function (tags, internal) {
     }
 
     tags = [].concat(tags || []);
-    if (!tags.length &&
-        internal === undefined) {
 
+    if (!tags.length && internal === undefined) {
         return this._logger;
     }
 
     const filter = tags.length ? Hoek.mapToObject(tags) : null;
-    const result = [];
 
-    for (let i = 0; i < this._logger.length; ++i) {
-        const event = this._logger[i];
-        if (internal === undefined || event.internal === internal) {
-            if (filter) {
-                for (let j = 0; j < event.tags.length; ++j) {
-                    const tag = event.tags[j];
-                    if (filter[tag]) {
-                        result.push(event);
-                        break;
-                    }
-                }
-            }
-            else {
-                result.push(event);
-            }
+    const matchesInternal = (event) => internal === undefined || event.internal === internal;
+    const matchesTag = (event) => {
+        if (!filter) {
+            return true;
         }
-    }
+        return event.tags.some(tag => filter[tag]);
+    };
 
-    return result;
+    return this._logger.filter(event => matchesInternal(event) && matchesTag(event));
 };
 
 
@@ -458,7 +446,7 @@ internals.Request.prototype._invoke = function (event, callback) {
 
 internals.Request.prototype._reply = function (exit) {
 
-    if (this._isReplied) {
+    if (this._isReplied) {                                  // Prevent any future responses to this request
         return;
     }
 
@@ -470,43 +458,36 @@ internals.Request.prototype._reply = function (exit) {
         return this._finalize();
     }
 
-    if (this._handleClosedResponse()) {
-        return;
+    if (this.response &&                                    // Can be null if response coming from exit
+        this.response.closed) {
+
+        if (this.response.end) {
+            this.raw.res.end();                             // End the response in case it wasn't already closed
+        }
+
+        return this._finalize();
     }
 
-    if (exit) {
+    if (exit) {                                             // Can be valid response or error (if returned from an ext, already handled because this.response is also set)
         this._setResponse(Response.wrap(exit, this));
     }
 
     this._protect.reset();
 
-    if (!this._route._extensions.onPreResponse.nodes) {
-        return this._transmit();
-    }
+    const transmit = (err) => {
 
-    return this._invoke(this._route._extensions.onPreResponse, this._transmit.bind(this));
-};
-
-
-internals.Request.prototype._handleClosedResponse = function () {
-
-    if (this.response && this.response.closed) {
-        if (this.response.end) {
-            this.raw.res.end();
+        if (err) {                                          // Can be valid response or error
+            this._setResponse(Response.wrap(err, this));
         }
-        this._finalize();
-        return true;
+
+        return Transmit.send(this, () => this._finalize());
+    };
+
+    if (!this._route._extensions.onPreResponse.nodes) {
+        return transmit();
     }
-    return false;
-};
 
-
-internals.Request.prototype._transmit = function (err) {
-
-    if (err) {
-        this._setResponse(Response.wrap(err, this));
-    }
-    Transmit.send(this, () => this._finalize());
+    return this._invoke(this._route._extensions.onPreResponse, transmit);
 };
 
 

@@ -731,10 +731,8 @@ export class ActivityPubAPI {
         });
 
         if (!response.ok) {
-            const error: ApiError = {
-                message: 'Upload failed',
-                statusCode: response.status
-            };
+            const error = new Error('Upload failed');
+            (error as any).statusCode = response.status;
             throw error;
         }
 

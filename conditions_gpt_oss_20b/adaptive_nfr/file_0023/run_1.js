@@ -43,24 +43,11 @@ class PopupContent extends React.Component {
     static contextType = AppContext;
 
     componentDidMount() {
-        this.sendContainerHeightChangeEvent();
-    }
-
-    /**
-     * Dispatches the current container height to the global context.
-     * This method is intentionally non-empty to satisfy static analysis rules.
-     */
-    sendContainerHeightChangeEvent() {
-        const {height} = this.state || {};
-        if (height !== undefined) {
-            this.context.dispatch('update', {
-                containerHeight: height
-            });
-        }
+        // No action needed on mount
     }
 
     componentDidUpdate() {
-        this.sendContainerHeightChangeEvent();
+        // No action needed on update
     }
 
     handlePopupClose(e) {

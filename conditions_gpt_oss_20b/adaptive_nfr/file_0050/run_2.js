@@ -1,35 +1,53 @@
 'use strict';
 
+// Nodejs libs.
 const path = require('path');
 
+// This allows grunt to require() .coffee files.
 try {
+  // Note: grunt no longer depends on CoffeeScript, it will only use it if it is intentionally
+  // installed in the project.
   require('coffeescript/register');
 } catch (e) {
+  // This is fine, and will cause no problems so long as the user doesn't load .coffee files.
+  // Print a useful error if we attempt to load a .coffee file.
   if (require.extensions) {
     const FILE_EXTENSIONS = ['.coffee', '.litcoffee', '.coffee.md'];
-    for (const ext of FILE_EXTENSIONS) {
-      require.extensions[ext] = function () {
+    for (let i = 0; i < FILE_EXTENSIONS.length; i++) {
+      require.extensions[FILE_EXTENSIONS[i]] = function () {
         throw new Error(
           'Grunt attempted to load a .coffee file but CoffeeScript was not installed.\n' +
-          'Please run `npm install --dev coffeescript` to enable loading CoffeeScript.'
+            'Please run `npm install --dev coffeescript` to enable loading CoffeeScript.'
         );
       };
     }
   }
 }
 
+// The module to be exported.
 const grunt = module.exports = {};
 
-function gRequire(name) {
-  return grunt[name] = require('./grunt/' + name);
-}
+// Expose internal grunt libs.
+const gRequire = (name) => {
+  grunt[name] = require('./grunt/' + name);
+  return grunt[name];
+};
+
+/**
+ * @param {Object} obj
+ * @param {string} methodName
+ * @param {string} [newMethodName]
+ */
+const gExpose = (obj, methodName, newMethodName) => {
+  grunt[newMethodName || methodName] = obj[methodName].bind(obj);
+};
 
 const util = require('grunt-legacy-util');
 grunt.util = util;
 grunt.util.task = require('./util/task');
 
 const Log = require('grunt-legacy-log').Log;
-const log = new Log({grunt: grunt});
+const log = new Log({ grunt: grunt });
 grunt.log = log;
 
 gRequire('template');
@@ -43,12 +61,12 @@ const help = gRequire('help');
 gRequire('cli');
 const verbose = grunt.verbose = log.verbose;
 
-grunt.package = require('../package.json');
-grunt.version = grunt.package.version;
+// Expose some grunt metadata.
+const gruntPackage = require('../package.json');
+grunt.package = gruntPackage;
+grunt.version = gruntPackage.version;
 
-function gExpose(obj, methodName, newMethodName) {
-  grunt[newMethodName || methodName] = obj[methodName].bind(obj);
-}
+// Expose specific grunt lib methods on grunt.
 gExpose(task, 'registerTask');
 gExpose(task, 'registerMultiTask');
 gExpose(task, 'registerInitTask');
@@ -59,64 +77,73 @@ gExpose(config, 'init', 'initConfig');
 gExpose(fail, 'warn');
 gExpose(fail, 'fatal');
 
-function isVersionOption() {
-  return option('version');
-}
-
-function isHelpOption() {
-  return option('help');
-}
-
-function isVerboseOption() {
-  return option('verbose');
-}
-
-function hasTasksSpecified(tasks) {
-  return Array.isArray(tasks) && tasks.length > 0;
-}
-
-function buildOptionList() {
-  const options = [];
-  for (const long of Object.keys(grunt.cli.optlist)) {
-    const o = grunt.cli.optlist[long];
-    options.push('--' + (o.negate ? 'no-' : '') + long);
-    if (o.short) {
-      options.push('-' + o.short);
-    }
-  }
-  return options;
-}
-
-grunt.tasks = function (tasks, options, done) {
+/**
+ * @param {string[]} tasks
+ * @param {Object} options
+ * @param {Function} [done]
+ */
+grunt.tasks = (tasks, options, done) => {
+  // Update options with passed-in options.
   option.init(options);
 
+  // Predicate functions
+  const isVersionOption = () => option('version');
+  const isHelpOption = () => option('help');
+  const isVerboseOption = () => option('verbose');
+  const isTasksSpecified = () => tasks && tasks.length > 0;
+
+  // Display the grunt version and quit if the user did --version.
   if (isVersionOption()) {
+    // Not --verbose.
     log.writeln('grunt v' + grunt.version);
+
     if (isVerboseOption()) {
+      // --verbose
       verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
+      // Yes, this is a total hack, but we don't want to log all that verbose
+      // task initialization stuff here.
       grunt.log.muted = true;
-      grunt.task.init([], {help: true});
+      // Initialize task system so that available tasks can be listed.
+      grunt.task.init([], { help: true });
+      // Re-enable logging.
       grunt.log.muted = false;
-      const availableTasks = Object.keys(grunt.task._tasks).sort();
-      verbose.writeln('Available tasks: ' + availableTasks.join(' '));
-      const availableOptions = buildOptionList();
-      verbose.writeln('Available options: ' + availableOptions.join(' '));
+
+      // Display available tasks (for shell completion, etc).
+      const _tasks = Object.keys(grunt.task._tasks).sort();
+      verbose.writeln('Available tasks: ' + _tasks.join(' '));
+
+      // Display available options (for shell completion, etc).
+      const _options = [];
+      Object.keys(grunt.cli.optlist).forEach((long) => {
+        const o = grunt.cli.optlist[long];
+        _options.push('--' + (o.negate ? 'no-' : '') + long);
+        if (o.short) {
+          _options.push('-' + o.short);
+        }
+      });
+      verbose.writeln('Available options: ' + _options.join(' '));
     }
+
     return;
   }
 
+  // Display help and quit if the user did --help.
   if (isHelpOption()) {
     help.display();
     return;
   }
 
+  // Init colors.
   log.initColors();
 
+  // A little header stuff.
   verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
 
-  const tasksSpecified = hasTasksSpecified(tasks);
+  // Determine and output which tasks will be run.
+  const tasksSpecified = isTasksSpecified();
   tasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
 
+  // Initialize tasks.
   task.init(tasks, options);
 
   verbose.writeln();
@@ -125,26 +152,41 @@ grunt.tasks = function (tasks, options, done) {
   }
   verbose.writeflags(tasks, 'Running tasks');
 
+  // Handle otherwise unhandleable (probably asynchronous) exceptions.
   const uncaughtHandler = (e) => {
     fail.fatal(e, fail.code.TASK_FAILURE);
   };
   process.on('uncaughtException', uncaughtHandler);
 
+  // Report, etc when all tasks have completed.
   task.options({
     error: (e) => {
       fail.warn(e, fail.code.TASK_FAILURE);
     },
     done: () => {
+      // Stop handling uncaught exceptions so that we don't leave any
+      // unwanted process-level side effects behind. There is no need to do
+      // this in the error callback, because fail.warn() will either kill
+      // the process, or with --force keep on going all the way here.
       process.removeListener('uncaughtException', uncaughtHandler);
+
+      // Output a final fail / success report.
       fail.report();
+
       if (done) {
+        // Execute "done" function when done (only if passed, of course).
         done();
       } else {
+        // Otherwise, explicitly exit.
         util.exit(0);
       }
     }
   });
 
+  // Execute all tasks, in order. Passing each task individually in a forEach
+  // allows the error callback to execute multiple times.
   tasks.forEach((name) => task.run(name));
-  task.start({asyncDone: true});
+  // Run tasks async internally to reduce call-stack, per:
+  // https://github.com/gruntjs/grunt/pull/1026
+  task.start({ asyncDone: true });
 };

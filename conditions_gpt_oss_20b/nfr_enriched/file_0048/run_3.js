@@ -230,23 +230,56 @@ module.exports = class Tier {
      * @returns {Promise<Tier>}
      */
     static async create(data) {
-        const {id, isNew} = resolveId(data.id);
+        const {id, isNew} = parseId(data.id);
+
+        const name = validateName(data.name);
+        const slug = validateSlug(data.slug);
+        const description = validateDescription(data.description);
+        const welcomePageURL = validateWelcomePageURL(data.welcomePageURL);
+        const status = validateStatus(data.status ?? 'active');
+        const visibility = validateVisibility(data.visibility ?? 'public');
         const type = validateType(data.type ?? 'paid');
-        const tierData = validateAndPrepareTierData(data, id, type);
-        const tier = new Tier(tierData);
+        const currency = validateCurrency(data.currency ?? null, type);
+        const trialDays = validateTrialDays(data.trialDays ?? 0, type);
+        const monthlyPrice = validateMonthlyPrice(data.monthlyPrice ?? null, type);
+        const yearlyPrice = validateYearlyPrice(data.yearlyPrice ?? null, type);
+        const createdAt = validateCreatedAt(data.createdAt);
+        const updatedAt = validateUpdatedAt(data.updatedAt);
+        const benefits = validateBenefits(data.benefits);
+
+        const tier = new Tier({
+            id,
+            slug,
+            name,
+            description,
+            welcome_page_url: welcomePageURL,
+            status,
+            visibility,
+            type,
+            trial_days: trialDays,
+            currency,
+            monthly_price: monthlyPrice,
+            yearly_price: yearlyPrice,
+            created_at: createdAt,
+            updated_at: updatedAt,
+            benefits
+        });
+
         if (isNew) {
             tier.events.push(TierCreatedEvent.create({tier}));
         }
+
         return tier;
     }
 };
 
 /**
- * Resolve the tier ID from various input forms.
+ * Parses and validates the provided ID.
  * @param {string|ObjectID|undefined} id
  * @returns {{id: ObjectID, isNew: boolean}}
+ * @throws {ValidationError} If the ID is invalid.
  */
-function resolveId(id) {
+function parseId(id) {
     if (!id) {
         return {id: new ObjectID(), isNew: true};
     }
@@ -259,47 +292,6 @@ function resolveId(id) {
     throw new ValidationError({
         message: 'Invalid ID provided for Tier'
     });
-}
-
-/**
- * Validate and prepare all tier fields for creation.
- * @param {any} data
- * @param {ObjectID} id
- * @param {'paid'|'free'} type
- * @returns {object}
- */
-function validateAndPrepareTierData(data, id, type) {
-    const name = validateName(data.name);
-    const slug = validateSlug(data.slug);
-    const description = validateDescription(data.description);
-    const welcomePageURL = validateWelcomePageURL(data.welcomePageURL);
-    const status = validateStatus(data.status ?? 'active');
-    const visibility = validateVisibility(data.visibility ?? 'public');
-    const currency = validateCurrency(data.currency ?? null, type);
-    const trialDays = validateTrialDays(data.trialDays ?? 0, type);
-    const monthlyPrice = validateMonthlyPrice(data.monthlyPrice ?? null, type);
-    const yearlyPrice = validateYearlyPrice(data.yearlyPrice ?? null, type);
-    const createdAt = validateCreatedAt(data.createdAt);
-    const updatedAt = validateUpdatedAt(data.updatedAt);
-    const benefits = validateBenefits(data.benefits);
-
-    return {
-        id,
-        slug,
-        name,
-        description,
-        welcome_page_url: welcomePageURL,
-        status,
-        visibility,
-        type,
-        trial_days: trialDays,
-        currency,
-        monthly_price: monthlyPrice,
-        yearly_price: yearlyPrice,
-        created_at: createdAt,
-        updated_at: updatedAt,
-        benefits
-    };
 }
 
 function validateSlug(value) {

@@ -5,17 +5,17 @@
 /*global $hash$ installedModules $require$ hotDownloadManifest hotDownloadUpdateChunk hotDisposeChunk modules */
 module.exports = function() {
 
-	const hotApplyOnUpdate = true;
-	const hotCurrentHash = $hash$; // eslint-disable-line no-unused-vars
-	const hotCurrentModuleData = {};
+	let hotApplyOnUpdate = true;
+	let hotCurrentHash = $hash$; // eslint-disable-line no-unused-vars
+	let hotCurrentModuleData = {};
 	let hotCurrentChildModule; // eslint-disable-line no-unused-vars
 	let hotCurrentParents = []; // eslint-disable-line no-unused-vars
-	const hotCurrentParentsTemp = []; // eslint-disable-line no-unused-vars
+	let hotCurrentParentsTemp = []; // eslint-disable-line no-unused-vars
 
 	function hotCreateRequire(moduleId) { // eslint-disable-line no-unused-vars
-		const me = installedModules[moduleId];
+		let me = installedModules[moduleId];
 		if(!me) return $require$;
-		const fn = function(request) {
+		let fn = function(request) {
 			if(me.hot.active) {
 				if(installedModules[request]) {
 					if(installedModules[request].parents.indexOf(moduleId) < 0)
@@ -32,7 +32,7 @@ module.exports = function() {
 			}
 			return $require$(request);
 		};
-		const ObjectFactory = function ObjectFactory(name) {
+		let ObjectFactory = function ObjectFactory(name) {
 			return {
 				configurable: true,
 				enumerable: true,
@@ -44,7 +44,7 @@ module.exports = function() {
 				}
 			};
 		};
-		for(const name in $require$) {
+		for(let name in $require$) {
 			if(Object.prototype.hasOwnProperty.call($require$, name) && name !== "e") {
 				Object.defineProperty(fn, name, ObjectFactory(name));
 			}
@@ -74,7 +74,7 @@ module.exports = function() {
 	}
 
 	function hotCreateModule(moduleId) { // eslint-disable-line no-unused-vars
-		const hot = {
+		let hot = {
 			// private stuff
 			_acceptedDependencies: {},
 			_declinedDependencies: {},
@@ -112,7 +112,7 @@ module.exports = function() {
 				hot._disposeHandlers.push(callback);
 			},
 			removeDisposeHandler: function(callback) {
-				const idx = hot._disposeHandlers.indexOf(callback);
+				let idx = hot._disposeHandlers.indexOf(callback);
 				if(idx >= 0) hot._disposeHandlers.splice(idx, 1);
 			},
 
@@ -127,7 +127,7 @@ module.exports = function() {
 				hotStatusHandlers.push(l);
 			},
 			removeStatusHandler: function(l) {
-				const idx = hotStatusHandlers.indexOf(l);
+				let idx = hotStatusHandlers.indexOf(l);
 				if(idx >= 0) hotStatusHandlers.splice(idx, 1);
 			},
 
@@ -138,7 +138,7 @@ module.exports = function() {
 		return hot;
 	}
 
-	const hotStatusHandlers = [];
+	let hotStatusHandlers = [];
 	let hotStatus = "idle";
 
 	function hotSetStatus(newStatus) {
@@ -150,16 +150,16 @@ module.exports = function() {
 	// while downloading
 	let hotWaitingFiles = 0;
 	let hotChunksLoading = 0;
-	const hotWaitingFilesMap = {};
-	const hotRequestedFilesMap = {};
-	const hotAvailableFilesMap = {};
+	let hotWaitingFilesMap = {};
+	let hotRequestedFilesMap = {};
+	let hotAvailableFilesMap = {};
 	let hotDeferred;
 
 	// The update info
 	let hotUpdate, hotUpdateNewHash;
 
 	function toModuleId(id) {
-		const isNumber = (+id) + "" === id;
+		let isNumber = (+id) + "" === id;
 		return isNumber ? +id : id;
 	}
 
@@ -178,7 +178,7 @@ module.exports = function() {
 			hotUpdateNewHash = update.h;
 
 			hotSetStatus("prepare");
-			const promise = new Promise(function(resolve, reject) {
+			let promise = new Promise(function(resolve, reject) {
 				hotDeferred = {
 					resolve: resolve,
 					reject: reject
@@ -201,7 +201,7 @@ module.exports = function() {
 		if(!hotAvailableFilesMap[chunkId] || !hotRequestedFilesMap[chunkId])
 			return;
 		hotRequestedFilesMap[chunkId] = false;
-		for(const moduleId in moreModules) {
+		for(let moduleId in moreModules) {
 			if(Object.prototype.hasOwnProperty.call(moreModules, moduleId)) {
 				hotUpdate[moduleId] = moreModules[moduleId];
 			}
@@ -223,7 +223,7 @@ module.exports = function() {
 
 	function hotUpdateDownloaded() {
 		hotSetStatus("ready");
-		const deferred = hotDeferred;
+		let deferred = hotDeferred;
 		hotDeferred = null;
 		if(!deferred) return;
 		if(hotApplyOnUpdate) {
@@ -233,8 +233,8 @@ module.exports = function() {
 				deferred.reject(err);
 			});
 		} else {
-			const outdatedModules = [];
-			for(const id in hotUpdate) {
+			let outdatedModules = [];
+			for(let id in hotUpdate) {
 				if(Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
 					outdatedModules.push(toModuleId(id));
 				}
@@ -254,19 +254,19 @@ module.exports = function() {
 		let moduleId;
 
 		function getAffectedStuff(updateModuleId) {
-			const outdatedModules = [updateModuleId];
-			const outdatedDependencies = {};
+			let outdatedModules = [updateModuleId];
+			let outdatedDependencies = {};
 
-			const queue = outdatedModules.slice().map(function(id) {
+			let queue = outdatedModules.slice().map(function(id) {
 				return {
 					chain: [id],
 					id: id
 				};
 			});
 			while(queue.length > 0) {
-				const queueItem = queue.pop();
-				const moduleId = queueItem.id;
-				const chain = queueItem.chain;
+				let queueItem = queue.pop();
+				let moduleId = queueItem.id;
+				let chain = queueItem.chain;
 				module = installedModules[moduleId];
 				if(!module || module.hot._selfAccepted)
 					continue;
@@ -284,9 +284,9 @@ module.exports = function() {
 						moduleId: moduleId
 					};
 				}
-				for(i = 0; i < module.parents.length; i++) {
-					const parentId = module.parents[i];
-					const parent = installedModules[parentId];
+				for(let i = 0; i < module.parents.length; i++) {
+					let parentId = module.parents[i];
+					let parent = installedModules[parentId];
 					if(!parent) continue;
 					if(parent.hot._declinedDependencies[moduleId]) {
 						return {
@@ -321,8 +321,8 @@ module.exports = function() {
 		}
 
 		function addAllToSet(a, b) {
-			for(i = 0; i < b.length; i++) {
-				const item = b[i];
+			for(let i = 0; i < b.length; i++) {
+				let item = b[i];
 				if(a.indexOf(item) < 0)
 					a.push(item);
 			}
@@ -330,15 +330,15 @@ module.exports = function() {
 
 		// at begin all updates modules are outdated
 		// the "outdated" status can propagate to parents if they don't accept the children
-		const outdatedDependencies = {};
-		const outdatedModules = [];
-		const appliedUpdate = {};
+		let outdatedDependencies = {};
+		let outdatedModules = [];
+		let appliedUpdate = {};
 
-		const warnUnexpectedRequire = function warnUnexpectedRequire() {
+		let warnUnexpectedRequire = function warnUnexpectedRequire() {
 			console.warn("[HMR] unexpected require(" + result.moduleId + ") to disposed module");
 		};
 
-		for(const id in hotUpdate) {
+		for(let id in hotUpdate) {
 			if(Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
 				moduleId = toModuleId(id);
 				let result;
@@ -412,7 +412,7 @@ module.exports = function() {
 		}
 
 		// Store self accepted outdated modules to require them later by the module system
-		const outdatedSelfAcceptedModules = [];
+		let outdatedSelfAcceptedModules = [];
 		for(i = 0; i < outdatedModules.length; i++) {
 			moduleId = outdatedModules[i];
 			if(installedModules[moduleId] && installedModules[moduleId].hot._selfAccepted)
@@ -431,16 +431,16 @@ module.exports = function() {
 		});
 
 		let idx;
-		const queue = outdatedModules.slice();
+		let queue = outdatedModules.slice();
 		while(queue.length > 0) {
 			moduleId = queue.pop();
 			module = installedModules[moduleId];
 			if(!module) continue;
 
-			const data = {};
+			let data = {};
 
 			// Call dispose handlers
-			const disposeHandlers = module.hot._disposeHandlers;
+			let disposeHandlers = module.hot._disposeHandlers;
 			for(j = 0; j < disposeHandlers.length; j++) {
 				cb = disposeHandlers[j];
 				cb(data);
@@ -455,7 +455,7 @@ module.exports = function() {
 
 			// remove "parents" references from all children
 			for(j = 0; j < module.children.length; j++) {
-				const child = installedModules[module.children[j]];
+				let child = installedModules[module.children[j]];
 				if(!child) continue;
 				idx = child.parents.indexOf(moduleId);
 				if(idx >= 0) {
@@ -499,7 +499,7 @@ module.exports = function() {
 			if(Object.prototype.hasOwnProperty.call(outdatedDependencies, moduleId)) {
 				module = installedModules[moduleId];
 				moduleOutdatedDependencies = outdatedDependencies[moduleId];
-				const callbacks = [];
+				let callbacks = [];
 				for(i = 0; i < moduleOutdatedDependencies.length; i++) {
 					dependency = moduleOutdatedDependencies[i];
 					cb = module.hot._acceptedDependencies[dependency];
@@ -530,7 +530,7 @@ module.exports = function() {
 
 		// Load self accepted modules
 		for(i = 0; i < outdatedSelfAcceptedModules.length; i++) {
-			const item = outdatedSelfAcceptedModules[i];
+			let item = outdatedSelfAcceptedModules[i];
 			moduleId = item.module;
 			hotCurrentParents = [moduleId];
 			try {

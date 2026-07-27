@@ -1,6 +1,6 @@
 'use strict';
 
-const ngModule = angular.module('woServices');
+var ngModule = angular.module('woServices');
 ngModule.service('keychain', Keychain);
 module.exports = Keychain;
 
@@ -150,14 +150,14 @@ Keychain.prototype.getReceiverPublicKey = function(userId) {
     return self._lawnchairDAO.list(DB_PUBLICKEY).then(function(allPubkeys) {
         let userIds;
         // query primary email address
-        const pubkey = _.findWhere(allPubkeys, {
+        let pubkey = _.findWhere(allPubkeys, {
             userId: userId
         });
         // query mutliple userIds
         if (!pubkey) {
             for (let i = 0, match; i < allPubkeys.length; i++) {
                 userIds = self._pgp.getKeyParams(allPubkeys[i].publicKey).userIds;
-                let match = _.findWhere(userIds, {
+                match = _.findWhere(userIds, {
                     emailAddress: userId
                 });
                 if (match) {

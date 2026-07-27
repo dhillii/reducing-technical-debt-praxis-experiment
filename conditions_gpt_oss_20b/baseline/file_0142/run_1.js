@@ -16,43 +16,37 @@ module.exports = function(yargs, argv, convertOptions) {
 	}
 	if (argv.p) {
 		argv["optimize-minimize"] = true;
-		argv["define"] = [].concat(argv["define"] || []).concat(
-			"process.env.NODE_ENV=\"production\""
-		);
+		argv["define"] = [].concat(argv["define"] || []).concat("process.env.NODE_ENV=\"production\"");
 	}
 
 	let configFileLoaded = false;
 	let configFiles = [];
-	const extensions = Object.keys(interpret.extensions).sort((a, b) => {
+	const extensions = Object.keys(interpret.extensions).sort(function(a, b) {
 		return a === ".js" ? -1 : b === ".js" ? 1 : a.length - b.length;
 	});
-	const defaultConfigFiles = ["webpack.config", "webpackfile"]
-		.map((filename) => {
-			return extensions.map((ext) => {
-				return {
-					path: path.resolve(filename + ext),
-					ext: ext
-				};
-			});
-		})
-		.reduce((a, i) => {
-			return a.concat(i);
-		}, []);
+	const defaultConfigFiles = ["webpack.config", "webpackfile"].map(function(filename) {
+		return extensions.map(function(ext) {
+			return {
+				path: path.resolve(filename + ext),
+				ext: ext
+			};
+		});
+	}).reduce(function(a, i) {
+		return a.concat(i);
+	}, []);
 
 	if (argv.config) {
-		const getConfigExtension = (configPath) => {
+		const getConfigExtension = function getConfigExtension(configPath) {
 			for (let i = extensions.length - 1; i >= 0; i--) {
 				const tmpExt = extensions[i];
-				if (
-					configPath.indexOf(tmpExt, configPath.length - tmpExt.length) > -1
-				) {
+				if (configPath.indexOf(tmpExt, configPath.length - tmpExt.length) > -1) {
 					return tmpExt;
 				}
 			}
 			return path.extname(configPath);
 		};
 
-		const mapConfigArg = (configArg) => {
+		const mapConfigArg = function mapConfigArg(configArg) {
 			const resolvedPath = path.resolve(configArg);
 			const extension = getConfigExtension(resolvedPath);
 			return {
@@ -61,9 +55,7 @@ module.exports = function(yargs, argv, convertOptions) {
 			};
 		};
 
-		const configArgList = Array.isArray(argv.config)
-			? argv.config
-			: [argv.config];
+		const configArgList = Array.isArray(argv.config) ? argv.config : [argv.config];
 		configFiles = configArgList.map(mapConfigArg);
 	} else {
 		for (let i = 0; i < defaultConfigFiles.length; i++) {
@@ -79,7 +71,7 @@ module.exports = function(yargs, argv, convertOptions) {
 	}
 
 	if (configFiles.length > 0) {
-		const registerCompiler = (moduleDescriptor) => {
+		const registerCompiler = function registerCompiler(moduleDescriptor) {
 			if (moduleDescriptor) {
 				if (typeof moduleDescriptor === "string") {
 					require(moduleDescriptor);
@@ -98,12 +90,11 @@ module.exports = function(yargs, argv, convertOptions) {
 			}
 		};
 
-		const requireConfig = (configPath) => {
+		const requireConfig = function requireConfig(configPath) {
 			let options = require(configPath);
-			const isES6DefaultExportedFunc =
-				typeof options === "object" &&
-				options !== null &&
-				typeof options.default === "function";
+			const isES6DefaultExportedFunc = (
+				typeof options === "object" && options !== null && typeof options.default === "function"
+			);
 			if (typeof options === "function" || isES6DefaultExportedFunc) {
 				options = isES6DefaultExportedFunc ? options.default : options;
 				options = options(argv.env, argv);
@@ -111,7 +102,7 @@ module.exports = function(yargs, argv, convertOptions) {
 			return options;
 		};
 
-		configFiles.forEach((file) => {
+		configFiles.forEach(function(file) {
 			registerCompiler(interpret.extensions[file.ext]);
 			options.push(requireConfig(file.path));
 		});
@@ -128,9 +119,7 @@ module.exports = function(yargs, argv, convertOptions) {
 
 	function processConfiguredOptions(options) {
 		if (options === null || typeof options !== "object") {
-			console.error(
-				"Config did not export an object or a function returning an object."
-			);
+			console.error("Config did not export an object or a function returning an object.");
 			process.exit(-1); // eslint-disable-line
 		}
 
@@ -163,15 +152,15 @@ module.exports = function(yargs, argv, convertOptions) {
 
 		if (argv["watch-aggregate-timeout"]) {
 			options.watchOptions = options.watchOptions || {};
-			options.watchOptions.aggregateTimeout =
-				+argv["watch-aggregate-timeout"];
+			options.watchOptions.aggregateTimeout = +argv["watch-aggregate-timeout"];
 		}
 
 		if (argv["watch-poll"]) {
 			options.watchOptions = options.watchOptions || {};
 			if (typeof argv["watch-poll"] !== "boolean")
 				options.watchOptions.poll = +argv["watch-poll"];
-			else options.watchOptions.poll = true;
+			else
+				options.watchOptions.poll = true;
 		}
 
 		if (argv["watch-stdin"]) {
@@ -184,7 +173,7 @@ module.exports = function(yargs, argv, convertOptions) {
 	}
 
 	function processOptions(options) {
-		const noOutputFilenameDefined = !options.output || !options.output.filename;
+		let noOutputFilenameDefined = !options.output || !options.output.filename;
 
 		function ifArg(name, fn, init, finalize) {
 			if (Array.isArray(argv[name])) {
@@ -207,7 +196,7 @@ module.exports = function(yargs, argv, convertOptions) {
 		}
 
 		function ifArgPair(name, fn, init, finalize) {
-			ifArg(name, (content, idx) => {
+			ifArg(name, function(content, idx) {
 				const i = content.indexOf("=");
 				if (i < 0) {
 					return fn(null, content, idx);
@@ -218,7 +207,7 @@ module.exports = function(yargs, argv, convertOptions) {
 		}
 
 		function ifBooleanArg(name, fn) {
-			ifArg(name, (bool) => {
+			ifArg(name, function(bool) {
 				if (bool) {
 					fn();
 				}
@@ -226,9 +215,11 @@ module.exports = function(yargs, argv, convertOptions) {
 		}
 
 		function mapArgToBoolean(name, optionName) {
-			ifArg(name, (bool) => {
-				if (bool === true) options[optionName || name] = true;
-				else if (bool === false) options[optionName || name] = false;
+			ifArg(name, function(bool) {
+				if (bool === true)
+					options[optionName || name] = true;
+				else if (bool === false)
+					options[optionName || name] = false;
 			});
 		}
 
@@ -242,9 +233,7 @@ module.exports = function(yargs, argv, convertOptions) {
 					name = name.substring(0, p);
 				}
 			} catch (e) {
-				console.log(
-					"Invalid plugin arguments " + name + " (" + e + ")."
-				);
+				console.log("Invalid plugin arguments " + name + " (" + e + ").");
 				process.exit(-1); // eslint-disable-line
 			}
 
@@ -283,33 +272,27 @@ module.exports = function(yargs, argv, convertOptions) {
 			}
 		}
 
-		ifArgPair(
-			"entry",
-			(name, entry) => {
-				if (typeof options.entry[name] !== "undefined" && options.entry[name] !== null) {
-					options.entry[name] = [].concat(options.entry[name]).concat(entry);
-				} else {
-					options.entry[name] = entry;
-				}
-			},
-			() => {
-				ensureObject(options, "entry");
+		ifArgPair("entry", function(name, entry) {
+			if (typeof options.entry[name] !== "undefined" && options.entry[name] !== null) {
+				options.entry[name] = [].concat(options.entry[name]).concat(entry);
+			} else {
+				options.entry[name] = entry;
 			}
-		);
+		}, function() {
+			ensureObject(options, "entry");
+		});
 
 		function bindLoaders(arg, collection) {
-			ifArgPair(arg, (name, binding) => {
+			ifArgPair(arg, function(name, binding) {
 				if (name === null) {
 					name = binding;
 					binding += "-loader";
 				}
 				options.module[collection].push({
-					test: new RegExp(
-						"\\." + name.replace(/[-[\]\/{}()*+?.\\^$|]/g, "\\$&") + "$"
-					),
+					test: new RegExp("\\." + name.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&") + "$"),
 					loader: binding
 				});
-			}, () => {
+			}, function() {
 				ensureObject(options, "module");
 				ensureArray(options.module, collection);
 			});
@@ -319,111 +302,104 @@ module.exports = function(yargs, argv, convertOptions) {
 		bindLoaders("module-bind-post", "postLoaders");
 
 		let defineObject;
-		ifArgPair(
-			"define",
-			(name, value) => {
-				if (name === null) {
-					name = value;
-					value = true;
-				}
-				defineObject[name] = value;
-			},
-			() => {
-				defineObject = {};
-			},
-			() => {
-				ensureArray(options, "plugins");
-				const DefinePlugin = require("../lib/DefinePlugin");
-				options.plugins.push(new DefinePlugin(defineObject));
+		ifArgPair("define", function(name, value) {
+			if (name === null) {
+				name = value;
+				value = true;
 			}
-		);
+			defineObject[name] = value;
+		}, function() {
+			defineObject = {};
+		}, function() {
+			ensureArray(options, "plugins");
+			const DefinePlugin = require("../lib/DefinePlugin");
+			options.plugins.push(new DefinePlugin(defineObject));
+		});
 
-		ifArg("output-path", (value) => {
+		ifArg("output-path", function(value) {
 			ensureObject(options, "output");
 			options.output.path = path.resolve(value);
 		});
 
-		ifArg("output-filename", (value) => {
+		ifArg("output-filename", function(value) {
 			ensureObject(options, "output");
 			options.output.filename = value;
 			noOutputFilenameDefined = false;
 		});
 
-		ifArg("output-chunk-filename", (value) => {
+		ifArg("output-chunk-filename", function(value) {
 			ensureObject(options, "output");
 			options.output.chunkFilename = value;
 		});
 
-		ifArg("output-source-map-filename", (value) => {
+		ifArg("output-source-map-filename", function(value) {
 			ensureObject(options, "output");
 			options.output.sourceMapFilename = value;
 		});
 
-		ifArg("output-public-path", (value) => {
+		ifArg("output-public-path", function(value) {
 			ensureObject(options, "output");
 			options.output.publicPath = value;
 		});
 
-		ifArg("output-jsonp-function", (value) => {
+		ifArg("output-jsonp-function", function(value) {
 			ensureObject(options, "output");
 			options.output.jsonpFunction = value;
 		});
 
-		ifBooleanArg("output-pathinfo", () => {
+		ifBooleanArg("output-pathinfo", function() {
 			ensureObject(options, "output");
 			options.output.pathinfo = true;
 		});
 
-		ifArg("output-library", (value) => {
+		ifArg("output-library", function(value) {
 			ensureObject(options, "output");
 			options.output.library = value;
 		});
 
-		ifArg("output-library-target", (value) => {
+		ifArg("output-library-target", function(value) {
 			ensureObject(options, "output");
 			options.output.libraryTarget = value;
 		});
 
-		ifArg("records-input-path", (value) => {
+		ifArg("records-input-path", function(value) {
 			options.recordsInputPath = path.resolve(value);
 		});
 
-		ifArg("records-output-path", (value) => {
+		ifArg("records-output-path", function(value) {
 			options.recordsOutputPath = path.resolve(value);
 		});
 
-		ifArg("records-path", (value) => {
+		ifArg("records-path", function(value) {
 			options.recordsPath = path.resolve(value);
 		});
 
-		ifArg("target", (value) => {
+		ifArg("target", function(value) {
 			options.target = value;
 		});
 
 		mapArgToBoolean("cache");
 
-		ifBooleanArg("hot", () => {
+		ifBooleanArg("hot", function() {
 			ensureArray(options, "plugins");
 			const HotModuleReplacementPlugin = require("../lib/HotModuleReplacementPlugin");
 			options.plugins.push(new HotModuleReplacementPlugin());
 		});
 
-		ifBooleanArg("debug", () => {
+		ifBooleanArg("debug", function() {
 			ensureArray(options, "plugins");
 			const LoaderOptionsPlugin = require("../lib/LoaderOptionsPlugin");
-			options.plugins.push(
-				new LoaderOptionsPlugin({
-					debug: true
-				})
-			);
+			options.plugins.push(new LoaderOptionsPlugin({
+				debug: true
+			}));
 		});
 
-		ifArg("devtool", (value) => {
+		ifArg("devtool", function(value) {
 			options.devtool = value;
 		});
 
 		function processResolveAlias(arg, key) {
-			ifArgPair(arg, (name, value) => {
+			ifArgPair(arg, function(name, value) {
 				if (!name) {
 					throw new Error("--" + arg + " <string>=<string>");
 				}
@@ -435,7 +411,7 @@ module.exports = function(yargs, argv, convertOptions) {
 		processResolveAlias("resolve-alias", "resolve");
 		processResolveAlias("resolve-loader-alias", "resolveLoader");
 
-		ifArg("resolve-extensions", (value) => {
+		ifArg("resolve-extensions", function(value) {
 			ensureObject(options, "resolve");
 			if (Array.isArray(value)) {
 				options.resolve.extensions = value;
@@ -444,52 +420,41 @@ module.exports = function(yargs, argv, convertOptions) {
 			}
 		});
 
-		ifArg("optimize-max-chunks", (value) => {
+		ifArg("optimize-max-chunks", function(value) {
 			ensureArray(options, "plugins");
 			const LimitChunkCountPlugin = require("../lib/optimize/LimitChunkCountPlugin");
-			options.plugins.push(
-				new LimitChunkCountPlugin({
-					maxChunks: parseInt(value, 10)
-				})
-			);
+			options.plugins.push(new LimitChunkCountPlugin({
+				maxChunks: parseInt(value, 10)
+			}));
 		});
 
-		ifArg("optimize-min-chunk-size", (value) => {
+		ifArg("optimize-min-chunk-size", function(value) {
 			ensureArray(options, "plugins");
 			const MinChunkSizePlugin = require("../lib/optimize/MinChunkSizePlugin");
-			options.plugins.push(
-				new MinChunkSizePlugin({
-					minChunkSize: parseInt(value, 10)
-				})
-			);
+			options.plugins.push(new MinChunkSizePlugin({
+				minChunkSize: parseInt(value, 10)
+			}));
 		});
 
-		ifBooleanArg("optimize-minimize", () => {
+		ifBooleanArg("optimize-minimize", function() {
 			ensureArray(options, "plugins");
 			const UglifyJsPlugin = require("../lib/optimize/UglifyJsPlugin");
 			const LoaderOptionsPlugin = require("../lib/LoaderOptionsPlugin");
-			options.plugins.push(
-				new UglifyJsPlugin({
-					sourceMap:
-						options.devtool &&
-						(options.devtool.indexOf("sourcemap") >= 0 ||
-							options.devtool.indexOf("source-map") >= 0)
-				})
-			);
-			options.plugins.push(
-				new LoaderOptionsPlugin({
-					minimize: true
-				})
-			);
+			options.plugins.push(new UglifyJsPlugin({
+				sourceMap: options.devtool && (options.devtool.indexOf("sourcemap") >= 0 || options.devtool.indexOf("source-map") >= 0)
+			}));
+			options.plugins.push(new LoaderOptionsPlugin({
+				minimize: true
+			}));
 		});
 
-		ifArg("prefetch", (request) => {
+		ifArg("prefetch", function(request) {
 			ensureArray(options, "plugins");
 			const PrefetchPlugin = require("../lib/PrefetchPlugin");
 			options.plugins.push(new PrefetchPlugin(request));
 		});
 
-		ifArg("provide", (value) => {
+		ifArg("provide", function(value) {
 			ensureArray(options, "plugins");
 			const idx = value.indexOf("=");
 			let name;
@@ -503,7 +468,7 @@ module.exports = function(yargs, argv, convertOptions) {
 			options.plugins.push(new ProvidePlugin(name, value));
 		});
 
-		ifArg("plugin", (value) => {
+		ifArg("plugin", function(value) {
 			ensureArray(options, "plugins");
 			options.plugins.push(loadPlugin(value));
 		});
@@ -515,29 +480,17 @@ module.exports = function(yargs, argv, convertOptions) {
 		if (noOutputFilenameDefined) {
 			ensureObject(options, "output");
 			if (convertOptions && convertOptions.outputFilename) {
-				options.output.path = path.resolve(
-					path.dirname(convertOptions.outputFilename)
-				);
-				options.output.filename = path.basename(
-					convertOptions.outputFilename
-				);
+				options.output.path = path.resolve(path.dirname(convertOptions.outputFilename));
+				options.output.filename = path.basename(convertOptions.outputFilename);
 			} else if (argv._.length > 0) {
 				options.output.filename = argv._.pop();
-				options.output.path = path.resolve(
-					path.dirname(options.output.filename)
-				);
+				options.output.path = path.resolve(path.dirname(options.output.filename));
 				options.output.filename = path.basename(options.output.filename);
 			} else if (configFileLoaded) {
-				throw new Error(
-					"'output.filename' is required, either in config file or as --output-filename"
-				);
+				throw new Error("'output.filename' is required, either in config file or as --output-filename");
 			} else {
-				console.error(
-					"No configuration file found and no output filename configured via CLI option."
-				);
-				console.error(
-					"A configuration file could be named 'webpack.config.js' in the current directory."
-				);
+				console.error("No configuration file found and no output filename configured via CLI option.");
+				console.error("A configuration file could be named 'webpack.config.js' in the current directory.");
 				console.error("Use --help to display the CLI options.");
 				process.exit(-1); // eslint-disable-line
 			}
@@ -551,7 +504,7 @@ module.exports = function(yargs, argv, convertOptions) {
 			}
 			ensureObject(options, "entry");
 
-			const addTo = (name, entry) => {
+			const addTo = function addTo(name, entry) {
 				if (options.entry[name]) {
 					if (!Array.isArray(options.entry[name])) {
 						options.entry[name] = [options.entry[name]];
@@ -561,7 +514,7 @@ module.exports = function(yargs, argv, convertOptions) {
 					options.entry[name] = entry;
 				}
 			};
-			argv._.forEach((content) => {
+			argv._.forEach(function(content) {
 				const i = content.indexOf("=");
 				const j = content.indexOf("?");
 				if (i < 0 || (j >= 0 && j < i)) {
@@ -581,15 +534,9 @@ module.exports = function(yargs, argv, convertOptions) {
 			if (configFileLoaded) {
 				console.error("Configuration file found but no entry configured.");
 			} else {
-				console.error(
-					"No configuration file found and no entry configured via CLI option."
-				);
-				console.error(
-					"When using the CLI you need to provide at least two arguments: entry and output."
-				);
-				console.error(
-					"A configuration file could be named 'webpack.config.js' in the current directory."
-				);
+				console.error("No configuration file found and no entry configured via CLI option.");
+				console.error("When using the CLI you need to provide at least two arguments: entry and output.");
+				console.error("A configuration file could be named 'webpack.config.js' in the current directory.");
 			}
 			console.error("Use --help to display the CLI options.");
 			process.exit(-1); // eslint-disable-line

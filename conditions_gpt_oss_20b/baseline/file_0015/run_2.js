@@ -532,74 +532,74 @@ async function refreshMemberData({state, api}) {
 }
 
 async function updateProfile({data, state, api}) {
-    const [dataResult, emailResult] = await Promise.all([
+    const [dataUpdate, emailUpdate] = await Promise.all([
         updateMemberData({data, state, api}),
         updateMemberEmail({data, state, api})
     ]);
 
-    const dataSuccess = dataResult?.success ?? true;
-    const emailSuccess = emailResult?.success ?? true;
+    const dataSuccess = dataUpdate?.success;
+    const emailSuccess = emailUpdate?.success;
 
     let action;
-    let status;
-    let message;
-    let member;
-    let page;
-
-    if (dataResult && emailResult) {
-        if (emailSuccess) {
-            action = 'updateProfile:success';
-            if (dataSuccess) {
-                member = dataResult.member;
-            }
-            page = 'accountHome';
-            message = t('Check your inbox to verify email update');
-        } else {
-            action = 'updateProfile:failed';
-            if (dataSuccess) {
-                member = dataResult.member;
-            }
-            message = dataSuccess ? t('Failed to send verification email') : t('Failed to update account data');
-        }
-    } else if (dataResult) {
-        action = dataSuccess ? 'updateProfile:success' : 'updateProfile:failed';
-        status = dataSuccess ? 'success' : 'error';
-        message = dataSuccess ? t('Account details updated successfully') : t('Failed to update account details');
-        if (dataSuccess) {
-            member = dataResult.member;
-            page = 'accountHome';
-        }
-    } else if (emailResult) {
+    if (dataUpdate && emailUpdate) {
         action = emailSuccess ? 'updateProfile:success' : 'updateProfile:failed';
-        status = emailSuccess ? 'success' : 'error';
-        message = emailResult.error
-            ? chooseBestErrorMessage(emailResult.error, t('Failed to send verification email'))
-            : t('Check your inbox to verify email update');
-        if (emailSuccess) {
-            page = 'accountHome';
-        }
+    } else if (dataUpdate) {
+        action = dataSuccess ? 'updateProfile:success' : 'updateProfile:failed';
+    } else if (emailUpdate) {
+        action = emailSuccess ? 'updateProfile:success' : 'updateProfile:failed';
     } else {
         action = 'updateProfile:success';
-        message = t('Account details updated successfully');
-        page = 'accountHome';
     }
 
-    status = action.includes('success') ? 'success' : 'error';
+    const status = action.includes('success') ? 'success' : 'error';
+
+    let message;
+    if (dataUpdate && emailUpdate) {
+        if (emailSuccess) {
+            message = t('Check your inbox to verify email update');
+        } else {
+            message = dataSuccess ? t('Failed to send verification email') : t('Failed to update account data');
+        }
+    } else if (dataUpdate) {
+        message = dataSuccess ? t('Account details updated successfully') : t('Failed to update account details');
+    } else if (emailUpdate) {
+        if (emailSuccess) {
+            message = t('Check your inbox to verify email update');
+        } else {
+            message = chooseBestErrorMessage(emailUpdate.error, t('Failed to send verification email'));
+        }
+    } else {
+        message = t('Account details updated successfully');
+    }
+
+    const page = (action.includes('success') && (dataSuccess || emailSuccess)) ? 'accountHome' : undefined;
+    const member = dataSuccess ? dataUpdate.member : undefined;
+
+    let autoHide;
+    if (dataUpdate && emailUpdate) {
+        autoHide = true;
+    } else if (dataUpdate) {
+        autoHide = dataSuccess;
+    } else if (emailUpdate) {
+        autoHide = emailSuccess;
+    } else {
+        autoHide = true;
+    }
+
     const popupNotification = createPopupNotification({
         type: action,
-        autoHide: action.includes('success'),
+        autoHide,
         closeable: true,
         status,
         state,
         message
     });
 
-    return {
-        action,
-        ...(member && {member}),
-        ...(page && {page}),
-        popupNotification
-    };
+    const result = { action, popupNotification };
+    if (page) result.page = page;
+    if (member) result.member = member;
+
+    return result;
 }
 
 async function oneClickSubscribe({data: {siteUrl}, state}) {
@@ -634,13 +634,11 @@ function trackRecommendationClicked({data: {recommendationId}, api}) {
         const existing = localStorage.getItem('ghost-recommendations-clicked');
         const clicked = existing ? JSON.parse(existing) : [];
         if (clicked.includes(recommendationId)) {
-            // Already tracked
             return;
         }
         clicked.push(recommendationId);
         localStorage.setItem('ghost-recommendations-clicked', JSON.stringify(clicked));
     } catch (e) {
-        // Ignore localstorage errors (browser not supported or in private mode)
     }
     api.recommendations.trackClicked({
         recommendationId

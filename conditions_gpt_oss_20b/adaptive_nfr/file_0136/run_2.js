@@ -12,6 +12,14 @@ import stepper from './stepper';
 import init from './init';
 import reducer, { initialState } from './reducer';
 
+/**
+ * Logs an error with a consistent message.
+ * @param {Error} err - The error to log.
+ */
+const logError = (err) => {
+  console.error('Error during file download', err);
+};
+
 const ModalStepper = ({
   initialFileToEdit,
   initialStep,
@@ -117,7 +125,7 @@ const ModalStepper = ({
         })
       );
     } catch (err) {
-      // Silent
+      logError(err);
     }
   };
 

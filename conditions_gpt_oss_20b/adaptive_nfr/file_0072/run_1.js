@@ -201,7 +201,7 @@ describe("cli", () => {
 			// only works on Windows
 			if (os.platform() === "win32") {
 				it(`should load the local config file with Windows slashes glob pattern`, async () => {
-					await cli.execute("cli\\pass*.js --no-ignore");
+					await cli.execute(String.raw`cli\pass*.js --no-ignore`);
 				});
 			}
 		});
@@ -928,7 +928,6 @@ describe("cli", () => {
 						const filePath = getFixturePath("passing.js");
 						const exit = await cli.execute(
 							`${options} --no-warn-ignored ${filePath}`,
-							"foo",
 						);
 
 						assert.isFalse(log.info.called);
@@ -1071,7 +1070,7 @@ describe("cli", () => {
 
 				assert.include(
 					fs.readFileSync("tests/output/eslint-output.txt", "utf8"),
-					filePath,
+					(filePath),
 				);
 				assert.isTrue(log.info.notCalled);
 			});
@@ -1796,7 +1795,7 @@ describe("cli", () => {
 				assert.deepStrictEqual(
 					log.error.firstCall.args,
 					[
-						"Option report-unused-disable-directives-severity: 'foo' not one of off, warn, error, 0, 1, or 2.",
+						"Option report-unused-disable-directives: 'foo' not one of off, warn, error, 0, 1, or 2.",
 					],
 					"has the right text to log.error",
 				);

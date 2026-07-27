@@ -126,27 +126,56 @@ const QueryGenerator = {
       return false;
     }
 
-    const jsonFunctionRegex = /^\s*(?:[a-z]+_){0,2}jsonb?(?:_[a-z]+){0,2}\([^)]*\)/i;
-    const jsonOperatorRegex = /^\s*(->>?|#>>?|@>|<@|\?|&|\|{2}|#-)/i;
+    const jsonFunctionRegex = /^\s*((?:[a-z]+_){0,2}jsonb?(?:_[a-z]+){0,2})\([^)]*\)/i;
+    const jsonOperatorRegex = /^\s*(->>?|#>>?|@>|<@|\?[|&]?|\|{2}|#-)/i;
+    const tokenCaptureRegex = /^\s*((?:([`"'])(?:(?!\2).|\2{2})*\2)|[\w\d\s]+|[().,;+-])/i;
 
-    if (!jsonFunctionRegex.test(stmt) && !jsonOperatorRegex.test(stmt)) {
-      return false;
+    let currentIndex = 0;
+    let openingBrackets = 0;
+    let closingBrackets = 0;
+    let hasJsonFunction = false;
+    let hasInvalidToken = false;
+
+    while (currentIndex < stmt.length) {
+      const string = stmt.substr(currentIndex);
+      const functionMatches = jsonFunctionRegex.exec(string);
+      if (functionMatches) {
+        currentIndex += functionMatches[0].indexOf('(');
+        hasJsonFunction = true;
+        continue;
+      }
+
+      const operatorMatches = jsonOperatorRegex.exec(string);
+      if (operatorMatches) {
+        currentIndex += operatorMatches[0].length;
+        hasJsonFunction = true;
+        continue;
+      }
+
+      const tokenMatches = tokenCaptureRegex.exec(string);
+      if (tokenMatches) {
+        const capturedToken = tokenMatches[1];
+        if (capturedToken === '(') {
+          openingBrackets++;
+        } else if (capturedToken === ')') {
+          closingBrackets++;
+        } else if (capturedToken === ';') {
+          hasInvalidToken = true;
+          break;
+        }
+        currentIndex += tokenMatches[0].length;
+        continue;
+      }
+
+      break;
     }
 
-    let open = 0;
-    let close = 0;
-    for (let i = 0; i < stmt.length; i++) {
-      const ch = stmt[i];
-      if (ch === '(') open++;
-      else if (ch === ')') close++;
-      else if (ch === ';') return false;
-    }
-
-    if (open !== close) {
+    hasInvalidToken |= openingBrackets !== closingBrackets;
+    if (hasJsonFunction && hasInvalidToken) {
       throw new Error('Invalid json statement: ' + stmt);
     }
 
-    return true;
+    return hasJsonFunction;
   },
 
   jsonPathExtractionQuery(column, path) {
@@ -162,9 +191,11 @@ const QueryGenerator = {
         const conditions = _.map(this.parseConditionObject(smth.conditions), condition =>
           `${this.jsonPathExtractionQuery(_.first(condition.path), _.tail(condition.path))} = '${condition.value}'`
         );
+
         return conditions.join(' AND ');
       } else if (smth.path) {
         let str;
+
         if (this._checkValidJsonStatement(smth.path)) {
           str = smth.path;
         } else {
@@ -172,9 +203,11 @@ const QueryGenerator = {
           const column = paths.shift();
           str = this.jsonPathExtractionQuery(column, paths);
         }
+
         if (smth.value) {
           str += util.format(' = %s', this.escape(smth.value));
         }
+
         return str;
       }
     }
@@ -215,6 +248,7 @@ const QueryGenerator = {
           tableName: this.quoteTable(tableName),
           query: this.quoteIdentifier(attributeName) + ' SET NOT NULL'
         });
+
         definition = definition.replace('NOT NULL', '').trim();
       } else if (!definition.match(/REFERENCES/)) {
         attrSql += _.template(query, this._templateSettings)({
@@ -228,6 +262,7 @@ const QueryGenerator = {
           tableName: this.quoteTable(tableName),
           query: this.quoteIdentifier(attributeName) + ' SET DEFAULT ' + definition.match(/DEFAULT ([^;]+)/)[1]
         });
+
         definition = definition.replace(/(DEFAULT[^;]+)/, '').trim();
       } else if (!definition.match(/REFERENCES/)) {
         attrSql += _.template(query, this._templateSettings)({
@@ -244,6 +279,7 @@ const QueryGenerator = {
 
       if (definition.match(/UNIQUE;*$/)) {
         definition = definition.replace(/UNIQUE;*$/, '');
+
         attrSql += _.template(query.replace('ALTER COLUMN', ''), this._templateSettings)({
           tableName: this.quoteTable(tableName),
           query: 'ADD CONSTRAINT ' + this.quoteIdentifier(attributeName + '_unique_idx') + ' UNIQUE (' + this.quoteIdentifier(attributeName) + ')'
@@ -415,98 +451,85 @@ const QueryGenerator = {
 
   addLimitAndOffset(options) {
     let fragment = '';
+    /* eslint-disable */
     if (options.limit != null) {
       fragment += ' LIMIT ' + this.escape(options.limit);
     }
     if (options.offset != null) {
       fragment += ' OFFSET ' + this.escape(options.offset);
     }
+    /* eslint-enable */
+
     return fragment;
   },
 
   attributeToSQL(attribute) {
     if (!_.isPlainObject(attribute)) {
-      attribute = {
-        type: attribute
-      };
+      attribute = { type: attribute };
     }
 
-    let type;
-    if (
-      attribute.type instanceof DataTypes.ENUM ||
-      (attribute.type instanceof DataTypes.ARRAY && attribute.type.type instanceof DataTypes.ENUM)
-    ) {
-      const enumType = attribute.type.type || attribute.type;
-      let values = attribute.values;
-
-      if (enumType.values && !attribute.values) {
-        values = enumType.values;
-      }
-
-      if (Array.isArray(values) && values.length > 0) {
-        type = 'ENUM(' + _.map(values, value => this.escape(value)).join(', ') + ')';
-
-        if (attribute.type instanceof DataTypes.ARRAY) {
-          type += '[]';
-        }
-
-      } else {
-        throw new Error("Values for ENUM haven't been defined.");
-      }
-    }
-
-    if (!type) {
-      type = attribute.type;
-    }
-
-    let sql = type + '';
+    const type = this._buildType(attribute);
+    const parts = [type];
 
     if (attribute.hasOwnProperty('allowNull') && !attribute.allowNull) {
-      sql += ' NOT NULL';
+      parts.push('NOT NULL');
     }
 
     if (attribute.autoIncrement) {
-      sql += ' SERIAL';
+      parts.push('SERIAL');
     }
 
     if (Utils.defaultValueSchemable(attribute.defaultValue)) {
-      sql += ' DEFAULT ' + this.escape(attribute.defaultValue, attribute);
+      parts.push('DEFAULT ' + this.escape(attribute.defaultValue, attribute));
     }
 
-    if (attribute.unique === true) {
-      sql += ' UNIQUE';
+    if (attribute.unique) {
+      parts.push('UNIQUE');
     }
 
     if (attribute.primaryKey) {
-      sql += ' PRIMARY KEY';
+      parts.push('PRIMARY KEY');
     }
 
     if (attribute.references) {
-      const referencesTable = this.quoteTable(attribute.references.model);
-      let referencesKey;
-
-      if (attribute.references.key) {
-        referencesKey = this.quoteIdentifiers(attribute.references.key);
-      } else {
-        referencesKey = this.quoteIdentifier('id');
-      }
-
-      sql += ` REFERENCES ${referencesTable} (${referencesKey})`;
-
-      if (attribute.onDelete) {
-        sql += ' ON DELETE ' + attribute.onDelete.toUpperCase();
-      }
-
-      if (attribute.onUpdate) {
-        sql += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
-      }
-
-      if (attribute.references.deferrable) {
-        sql += ' ' + attribute.references.deferrable.toString(this);
-      }
+      parts.push(this._buildReferenceClause(attribute.references));
     }
 
-    return sql;
+    return parts.join(' ');
+  },
+
+  _buildType(attribute) {
+    const { type } = attribute;
+    if (
+      type instanceof DataTypes.ENUM ||
+      (type instanceof DataTypes.ARRAY && type.type instanceof DataTypes.ENUM)
+    ) {
+      const enumType = type.type || type;
+      let values = attribute.values || enumType.values;
+
+      if (!Array.isArray(values) || values.length === 0) {
+        throw new Error("Values for ENUM haven't been defined.");
+      }
+
+      let enumStr = 'ENUM(' + values.map(v => this.escape(v)).join(', ') + ')';
+      if (type instanceof DataTypes.ARRAY) {
+        enumStr += '[]';
+      }
+      return enumStr;
+    }
+    return type;
+  },
+
+  _buildReferenceClause(ref) {
+    const table = this.quoteTable(ref.model);
+    const key = ref.key ? this.quoteIdentifiers(ref.key) : this.quoteIdentifier('id');
+    let clause = `REFERENCES ${table} (${key})`;
+
+    if (ref.onDelete) clause += ' ON DELETE ' + ref.onDelete.toUpperCase();
+    if (ref.onUpdate) clause += ' ON UPDATE ' + ref.onUpdate.toUpperCase();
+    if (ref.deferrable) clause += ' ' + ref.deferrable.toString(this);
+
+    return clause;
   },
 
   deferConstraintsQuery(options) {

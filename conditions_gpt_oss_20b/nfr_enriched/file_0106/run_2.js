@@ -3,6 +3,7 @@
 /**
  * Module dependencies.
  */
+
 const EventEmitter = require('events').EventEmitter;
 const Pending = require('./pending');
 const debug = require('debug')('mocha:runnable');
@@ -12,20 +13,25 @@ const utils = require('./utils');
 /**
  * Save timer references to avoid Sinon interfering (see GH-237).
  */
+
+/* eslint-disable no-unused-vars, no-native-reassign */
 const Date = global.Date;
 const setTimeout = global.setTimeout;
 const setInterval = global.setInterval;
 const clearTimeout = global.clearTimeout;
 const clearInterval = global.clearInterval;
+/* eslint-enable no-unused-vars, no-native-reassign */
 
 /**
  * Object#toString().
  */
+
 const toString = Object.prototype.toString;
 
 /**
  * Expose `Runnable`.
  */
+
 module.exports = Runnable;
 
 /**
@@ -34,6 +40,8 @@ module.exports = Runnable;
  * @param {String} title
  * @param {Function} fn
  * @api private
+ * @param {string} title
+ * @param {Function} fn
  */
 function Runnable (title, fn) {
   this.title = title;
@@ -67,6 +75,7 @@ Runnable.prototype.timeout = function (ms) {
   if (!arguments.length) {
     return this._timeout;
   }
+  // see #1652 for reasoning
   if (ms === 0 || ms > Math.pow(2, 31)) {
     this._enableTimeouts = false;
   }
@@ -216,6 +225,7 @@ Runnable.prototype.inspect = function () {
  */
 Runnable.prototype.resetTimeout = function () {
   const ms = this.timeout() || 1e9;
+
   if (!this._enableTimeouts) {
     return;
   }
@@ -256,19 +266,22 @@ Runnable.prototype.run = function (fn) {
   let finished = false;
   let emitted = false;
 
+  // Sometimes the ctx exists, but it is not runnable
   if (ctx && ctx.runnable) {
     ctx.runnable(this);
   }
 
-  const multiple = function (err) {
+  // called multiple times
+  function multiple (err) {
     if (emitted) {
       return;
     }
     emitted = true;
     self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
-  };
+  }
 
-  const done = function (err) {
+  // finished
+  function done (err) {
     const ms = self.timeout();
     if (self.timedOut) {
       return;
@@ -285,15 +298,21 @@ Runnable.prototype.run = function (fn) {
         'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.');
     }
     fn(err);
-  };
+  }
 
+  // for .resetTimeout()
   this.callback = done;
 
+  // explicit async with `done` argument
   if (this.async) {
     this.resetTimeout();
 
+    // allows skip() to be used in an explicit async context
     this.skip = function asyncSkip () {
       done(new Pending('async skip call'));
+      // halt execution.  the Runnable will be marked pending
+      // by the previous call, and the uncaught handler will ignore
+      // the failure.
       throw new Pending('async skip; aborting execution');
     };
 
@@ -318,6 +337,7 @@ Runnable.prototype.run = function (fn) {
     return;
   }
 
+  // sync or promise-returning
   try {
     if (this.isPending()) {
       done();
@@ -334,16 +354,19 @@ Runnable.prototype.run = function (fn) {
     if (result && typeof result.then === 'function') {
       self.resetTimeout();
       result
-        .then(function () {
+        .then(() => {
           done();
+          // Return null so libraries like bluebird do not warn about
+          // subsequently constructed Promises.
           return null;
-        }, function (reason) {
+        }, (reason) => {
           done(reason || new Error('Promise rejected with no or falsy reason'));
         });
     } else {
       if (self.asyncOnly) {
         return done(new Error('--async-only option in use without declaring `done()` or returning a promise'));
       }
+
       done();
     }
   }
@@ -363,6 +386,7 @@ Runnable.prototype.run = function (fn) {
       if (result && utils.isPromise(result)) {
         return done(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
       }
+
       done();
     });
   }

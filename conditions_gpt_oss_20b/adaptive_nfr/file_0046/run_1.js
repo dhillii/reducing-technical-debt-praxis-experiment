@@ -47,14 +47,17 @@ const STRIPE_API_VERSION = '2020-08-27';
 
 module.exports = class StripeAPI {
     constructor(deps) {
-        /** @type {Stripe} */
         this._stripe = null;
         this._configured = false;
         this.labs = deps.labs;
     }
 
     get PAYMENT_METHOD_TYPES() {
-        return this.labs.isSet('additionalPaymentMethods') ? undefined : ['card'];
+        if (this.labs.isSet('additionalPaymentMethods')) {
+            return undefined;
+        } else {
+            return ['card'];
+        }
     }
 
     get configured() {
@@ -94,22 +97,25 @@ module.exports = class StripeAPI {
 
     async createCoupon(options) {
         await this._rateLimitBucket.throttle();
-        return await this._stripe.coupons.create(options);
+        const coupon = await this._stripe.coupons.create(options);
+        return coupon;
     }
 
     async getProduct(id) {
         await this._rateLimitBucket.throttle();
-        return await this._stripe.products.retrieve(id);
+        const product = await this._stripe.products.retrieve(id);
+        return product;
     }
 
     async createProduct(options) {
         await this._rateLimitBucket.throttle();
-        return await this._stripe.products.create(options);
+        const product = await this._stripe.products.create(options);
+        return product;
     }
 
     async createPrice(options) {
         await this._rateLimitBucket.throttle();
-        return await this._stripe.prices.create({
+        const price = await this._stripe.prices.create({
             currency: options.currency,
             product: options.product,
             unit_amount: options.amount,
@@ -120,21 +126,24 @@ module.exports = class StripeAPI {
                 interval: options.interval
             } : undefined
         });
+        return price;
     }
 
     async updatePrice(id, options) {
         await this._rateLimitBucket.throttle();
-        return await this._stripe.prices.update(id, {
+        const price = await this._stripe.prices.update(id, {
             active: options.active,
             nickname: options.nickname
         });
+        return price;
     }
 
     async updateProduct(id, options) {
         await this._rateLimitBucket.throttle();
-        return await this._stripe.products.update(id, {
+        const product = await this._stripe.products.update(id, {
             name: options.name
         });
+        return product;
     }
 
     async getCustomer(id, options = {}) {
@@ -170,14 +179,19 @@ module.exports = class StripeAPI {
         }
 
         debug(`Creating customer for member ${member.get('email')}`);
-        return await this.createCustomer({
+        const customer = await this.createCustomer({
             email: member.get('email')
         });
+
+        return customer;
     }
 
     /**
+     * Finds a Stripe Customer ID based on the provided email address. Returns null if no customer is found.
      * @param {string} email
-     * @returns {Promise<string|null>}
+     * @see https://stripe.com/docs/api/customers/search
+     *
+     * @returns {Promise<string|null>} Stripe Customer ID, if found
      */
     async getCustomerIdByEmail(email) {
         await this._searchRateLimitBucket.throttle();
@@ -197,44 +211,55 @@ module.exports = class StripeAPI {
                 return customers[0].id;
             }
 
-            const customersWithSubs = customers.filter(hasSubscriptions);
-            if (customersWithSubs.length === 0) {
-                return customers[0].id;
-            }
-
-            const latest = customersWithSubs.reduce((latest, customer) => {
-                const latestSubEnd = getLatestSubscriptionEnd(customer);
-                if (latestSubEnd > latest.latestTime) {
-                    return {id: customer.id, latestTime: latestSubEnd};
-                }
-                return latest;
-            }, {id: null, latestTime: 0});
-
-            return latest.id;
+            const latestCustomer = this._getCustomerWithLatestSubscription(customers);
+            return latestCustomer?.id;
         } catch (err) {
             debug(`getCustomerByEmail(${email}) -> ${err.type}:${err.message}`);
         }
     }
 
     /**
-     * @param {ICustomer} customer
-     * @returns {boolean}
+     * @private
+     * @param {Array<ICustomer>} customers
+     * @returns {ICustomer|null}
      */
-    function hasSubscriptions(customer) {
-        return customer.subscriptions?.data?.length > 0;
+    _getCustomerWithLatestSubscription(customers) {
+        const customersWithSubs = customers.filter(this._hasSubscriptions);
+        if (!customersWithSubs.length) {
+            return null;
+        }
+
+        return customersWithSubs.reduce((latest, customer) => {
+            const customerLatest = this._getLatestSubscriptionTime(customer);
+            const latestTime = this._getLatestSubscriptionTime(latest);
+            return customerLatest > latestTime ? customer : latest;
+        });
     }
 
     /**
+     * @private
+     * @param {ICustomer} customer
+     * @returns {boolean}
+     */
+    _hasSubscriptions(customer) {
+        return customer.subscriptions &&
+            customer.subscriptions.data &&
+            customer.subscriptions.data.length > 0;
+    }
+
+    /**
+     * @private
      * @param {ICustomer} customer
      * @returns {number}
      */
-    function getLatestSubscriptionEnd(customer) {
-        return customer.subscriptions.data.reduce((max, sub) => {
-            if (sub.current_period_end && sub.current_period_end > max) {
-                return sub.current_period_end;
+    _getLatestSubscriptionTime(customer) {
+        let latest = 0;
+        for (const subscription of customer.subscriptions.data) {
+            if (subscription.current_period_end && subscription.current_period_end > latest) {
+                latest = subscription.current_period_end;
             }
-            return max;
-        }, 0);
+        }
+        return latest;
     }
 
     async createCustomer(options = {}) {
@@ -337,7 +362,9 @@ module.exports = class StripeAPI {
 
         const subscriptionData = {
             trial_from_plan: true,
-            items: [{plan: priceId}],
+            items: [{
+                plan: priceId
+            }],
             metadata: {
                 attribution_id: metadata?.attribution_id,
                 attribution_url: metadata?.attribution_url,
@@ -363,7 +390,9 @@ module.exports = class StripeAPI {
             success_url: options.successUrl || this._config.checkoutSessionSuccessUrl,
             cancel_url: options.cancelUrl || this._config.checkoutSessionCancelUrl,
             allow_promotion_codes: discounts ? undefined : this._config.enablePromoCodes,
-            automatic_tax: {enabled: this._config.enableAutomaticTax},
+            automatic_tax: {
+                enabled: this._config.enableAutomaticTax
+            },
             metadata,
             discounts,
             subscription_data: subscriptionData
@@ -395,7 +424,9 @@ module.exports = class StripeAPI {
             mode: 'payment',
             success_url: successUrl || this._config.checkoutSessionSuccessUrl,
             cancel_url: cancelUrl || this._config.checkoutSessionCancelUrl,
-            automatic_tax: {enabled: this._config.enableAutomaticTax},
+            automatic_tax: {
+                enabled: this._config.enableAutomaticTax
+            },
             metadata,
             customer: customer ? customer.id : undefined,
             customer_email: !customer && customerEmail ? customerEmail : undefined,
@@ -409,11 +440,17 @@ module.exports = class StripeAPI {
                     }
                 }
             },
-            line_items: [{price: priceId, quantity: 1}],
+            line_items: [{
+                price: priceId,
+                quantity: 1
+            }],
             custom_fields: [
                 {
                     key: 'donation_message',
-                    label: {type: 'custom', custom: personalNote || 'Add a personal note'},
+                    label: {
+                        type: 'custom',
+                        custom: personalNote || 'Add a personal note'
+                    },
                     type: 'text',
                     optional: true
                 }
@@ -436,9 +473,14 @@ module.exports = class StripeAPI {
             success_url: options.successUrl || this._config.checkoutSetupSessionSuccessUrl,
             cancel_url: options.cancelUrl || this._config.checkoutSetupSessionCancelUrl,
             customer_email: customer.email,
-            setup_intent_data: {metadata: {customer_id: customer.id}},
+            setup_intent_data: {
+                metadata: {
+                    customer_id: customer.id
+                }
+            },
             currency: this.labs.isSet('additionalPaymentMethods') ? options.currency : undefined
         });
+
         return session;
     }
 
@@ -495,51 +537,74 @@ module.exports = class StripeAPI {
 
     async cancelSubscriptionAtPeriodEnd(id, reason = '') {
         await this._rateLimitBucket.throttle();
-        return await this._stripe.subscriptions.update(id, {
+        const subscription = await this._stripe.subscriptions.update(id, {
             cancel_at_period_end: true,
-            metadata: {cancellation_reason: reason}
+            metadata: {
+                cancellation_reason: reason
+            }
         });
+        return subscription;
     }
 
     async continueSubscriptionAtPeriodEnd(id) {
         await this._rateLimitBucket.throttle();
-        return await this._stripe.subscriptions.update(id, {
+        const subscription = await this._stripe.subscriptions.update(id, {
             cancel_at_period_end: false,
-            metadata: {cancellation_reason: null}
+            metadata: {
+                cancellation_reason: null
+            }
         });
+        return subscription;
     }
 
     async removeCouponFromSubscription(id) {
         await this._rateLimitBucket.throttle();
-        return await this._stripe.subscriptions.update(id, {coupon: ''});
+        const subscription = await this._stripe.subscriptions.update(id, {
+            coupon: ''
+        });
+        return subscription;
     }
 
     async addCouponToSubscription(id, couponId) {
         await this._rateLimitBucket.throttle();
-        return await this._stripe.subscriptions.update(id, {coupon: couponId});
+        const subscription = await this._stripe.subscriptions.update(id, {
+            coupon: couponId
+        });
+        return subscription;
     }
 
     async updateSubscriptionTrialEnd(id, trialEnd, options = {}) {
         await this._rateLimitBucket.throttle();
-        return await this._stripe.subscriptions.update(id, {
+        const subscription = await this._stripe.subscriptions.update(id, {
             trial_end: trialEnd,
             proration_behavior: options.prorationBehavior || 'none'
         });
+        return subscription;
     }
 
     async updateSubscriptionItemPrice(subscriptionId, id, price, options = {}) {
         await this._rateLimitBucket.throttle();
-        return await this._stripe.subscriptions.update(subscriptionId, {
+        const subscription = await this._stripe.subscriptions.update(subscriptionId, {
             proration_behavior: options.prorationBehavior || 'always_invoice',
-            items: [{id, price}],
+            items: [{
+                id,
+                price
+            }],
             cancel_at_period_end: false,
-            metadata: {cancellation_reason: options.cancellationReason ?? null}
+            metadata: {
+                cancellation_reason: options.cancellationReason ?? null
+            }
         });
+        return subscription;
     }
 
     async createSubscription(customer, price) {
         await this._rateLimitBucket.throttle();
-        return await this._stripe.subscriptions.create({customer, items: [{price}]});
+        const subscription = await this._stripe.subscriptions.create({
+            customer,
+            items: [{price}]
+        });
+        return subscription;
     }
 
     async getSetupIntent(id, options = {}) {
@@ -564,12 +629,16 @@ module.exports = class StripeAPI {
 
     async updateSubscriptionDefaultPaymentMethod(subscription, paymentMethod) {
         await this._rateLimitBucket.throttle();
-        return await this._stripe.subscriptions.update(subscription, {default_payment_method: paymentMethod});
+        return await this._stripe.subscriptions.update(subscription, {
+            default_payment_method: paymentMethod
+        });
     }
 
     async cancelSubscriptionTrial(id) {
         await this._rateLimitBucket.throttle();
-        return await this._stripe.subscriptions.update(id, {trial_end: 'now'});
+        return this._stripe.subscriptions.update(id, {
+            trial_end: 'now'
+        });
     }
 
     async createBillingPortalConfiguration(options) {

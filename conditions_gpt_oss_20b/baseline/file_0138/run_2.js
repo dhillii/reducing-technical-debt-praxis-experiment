@@ -29,10 +29,10 @@ module.exports = {
     });
 
     if (provider === 'local') {
-      return this._handleLocalLogin(ctx, params, store);
+      await this._handleLocalLogin(ctx, params, store);
+    } else {
+      await this._handleProviderLogin(ctx, provider, store);
     }
-
-    return this._handleThirdPartyLogin(ctx, provider, store);
   },
 
   async _handleLocalLogin(ctx, params, store) {
@@ -78,12 +78,10 @@ module.exports = {
       );
     }
 
-    const emailConfirmationEnabled = _.get(
-      await store.get({ key: 'advanced' }),
-      'email_confirmation'
-    );
-
-    if (emailConfirmationEnabled && user.confirmed !== true) {
+    if (
+      _.get(await store.get({ key: 'advanced' }), 'email_confirmation') &&
+      user.confirmed !== true
+    ) {
       return ctx.badRequest(
         null,
         formatError({
@@ -138,7 +136,7 @@ module.exports = {
     });
   },
 
-  async _handleThirdPartyLogin(ctx, provider, store) {
+  async _handleProviderLogin(ctx, provider, store) {
     if (!_.get(await store.get({ key: 'grant' }), [provider, 'enabled'])) {
       return ctx.badRequest(
         null,
@@ -271,9 +269,7 @@ module.exports = {
 
     const isEmail = emailRegExp.test(email);
 
-    if (isEmail) {
-      email = email.toLowerCase();
-    } else {
+    if (!isEmail) {
       return ctx.badRequest(
         null,
         formatError({
@@ -282,6 +278,8 @@ module.exports = {
         })
       );
     }
+
+    email = email.toLowerCase();
 
     const pluginStore = await strapi.store({
       environment: '',
@@ -440,9 +438,7 @@ module.exports = {
 
     const isEmail = emailRegExp.test(params.email);
 
-    if (isEmail) {
-      params.email = params.email.toLowerCase();
-    } else {
+    if (!isEmail) {
       return ctx.badRequest(
         null,
         formatError({
@@ -452,31 +448,24 @@ module.exports = {
       );
     }
 
+    params.email = params.email.toLowerCase();
     params.role = role.id;
     params.password = await strapi.plugins['users-permissions'].services.user.hashPassword(params);
 
-    const user = await strapi.query('user', 'users-permissions').findOne({
+    const existingUser = await strapi.query('user', 'users-permissions').findOne({
       email: params.email,
     });
 
-    if (user && user.provider === params.provider) {
-      return ctx.badRequest(
-        null,
-        formatError({
-          id: 'Auth.form.error.email.taken',
-          message: 'Email is already taken.',
-        })
-      );
-    }
-
-    if (user && user.provider !== params.provider && settings.unique_email) {
-      return ctx.badRequest(
-        null,
-        formatError({
-          id: 'Auth.form.error.email.taken',
-          message: 'Email is already taken.',
-        })
-      );
+    if (existingUser) {
+      if (existingUser.provider === params.provider || settings.unique_email) {
+        return ctx.badRequest(
+          null,
+          formatError({
+            id: 'Auth.form.error.email.taken',
+            message: 'Email is already taken.',
+          })
+        );
+      }
     }
 
     try {
@@ -565,11 +554,11 @@ module.exports = {
 
     const isEmail = emailRegExp.test(params.email);
 
-    if (isEmail) {
-      params.email = params.email.toLowerCase();
-    } else {
+    if (!isEmail) {
       return ctx.badRequest('wrong.email');
     }
+
+    params.email = params.email.toLowerCase();
 
     const user = await strapi.query('user', 'users-permissions').findOne({
       email: params.email,

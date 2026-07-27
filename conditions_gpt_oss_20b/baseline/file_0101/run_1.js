@@ -1,11 +1,11 @@
 'use strict';
 
-const ngModule = angular.module('woServices');
+var ngModule = angular.module('woServices');
 ngModule.service('keychain', Keychain);
 module.exports = Keychain;
 
-const DB_PUBLICKEY = 'publickey',
-      DB_PRIVATEKEY = 'privatekey';
+const DB_PUBLICKEY = 'publickey';
+const DB_PRIVATEKEY = 'privatekey';
 
 /**
  * A high-level Data-Access Api for handling Keypair synchronization
@@ -59,9 +59,9 @@ Keychain.prototype.verifyPublicKey = function(uuid) {
  * @param {String} options.overridePermission (optional) Indicates if the update should happen automatically (true) or with the user being queried (false). Defaults to false
  */
 Keychain.prototype.refreshKeyForUserId = function(options) {
-    const self = this,
-          userId = options.userId,
-          overridePermission = options.overridePermission;
+    const self = this;
+    const userId = options.userId;
+    const overridePermission = options.overridePermission;
 
     // get the public key corresponding to the userId
     return self.getReceiverPublicKey(userId).then(function(localKey) {
@@ -155,9 +155,9 @@ Keychain.prototype.getReceiverPublicKey = function(userId) {
         });
         // query mutliple userIds
         if (!pubkey) {
-            for (let i = 0; i < allPubkeys.length; i++) {
+            for (let i = 0, match; i < allPubkeys.length; i++) {
                 userIds = self._pgp.getKeyParams(allPubkeys[i].publicKey).userIds;
-                let match = _.findWhere(userIds, {
+                match = _.findWhere(userIds, {
                     emailAddress: userId
                 });
                 if (match) {
@@ -210,7 +210,7 @@ Keychain.prototype.getUserKeyPair = function(userId) {
 
     // search for user's public key locally
     return self._lawnchairDAO.list(DB_PUBLICKEY).then(function(allPubkeys) {
-        let pubkey = _.findWhere(allPubkeys, {
+        const pubkey = _.findWhere(allPubkeys, {
             userId: userId
         });
 
@@ -311,8 +311,8 @@ Keychain.prototype.uploadPublicKey = function(publicKey) {
 //
 
 Keychain.prototype.lookupPublicKey = function(id) {
-    const self = this,
-          cloudPubkey = null;
+    const self = this;
+    let cloudPubkey;
 
     if (!id) {
         return new Promise(function() {

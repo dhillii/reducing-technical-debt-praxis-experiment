@@ -22,9 +22,11 @@ const getOppositeNature = originalNature => {
   if (originalNature === 'manyToOne') {
     return 'oneToMany';
   }
+
   if (originalNature === 'oneToMany') {
     return 'manyToOne';
   }
+
   return originalNature;
 };
 
@@ -59,6 +61,12 @@ const addComponentsToState = (state, componentToAddUid, objToUpdate) => {
   return newObj;
 };
 
+/**
+ * Handles ADD_ATTRIBUTE action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
+ */
 const handleAddAttribute = (state, action) => {
   const {
     attributeToSet: { name, ...rest },
@@ -67,14 +75,13 @@ const handleAddAttribute = (state, action) => {
   } = action;
   delete rest.createComponent;
 
-  const pathToDataToEdit = ['component', 'contentType'].includes(forTarget)
-    ? [forTarget]
-    : [forTarget, targetUid];
+  const pathToDataToEdit =
+    ['component', 'contentType'].includes(forTarget) ? [forTarget] : [forTarget, targetUid];
 
   return state
-    .updateIn(['modifiedData', ...pathToDataToEdit, 'schema', 'attributes', name], () => {
-      return fromJS(rest);
-    })
+    .updateIn(['modifiedData', ...pathToDataToEdit, 'schema', 'attributes', name], () =>
+      fromJS(rest)
+    )
     .updateIn(['modifiedData', ...pathToDataToEdit, 'schema', 'attributes'], obj => {
       const type = get(rest, 'type', 'relation');
       const target = get(rest, 'target', null);
@@ -97,9 +104,7 @@ const handleAddAttribute = (state, action) => {
           targetColumnName: rest.columnName,
         };
 
-        return obj.update(rest.targetAttribute, () => {
-          return fromJS(oppositeAttribute);
-        });
+        return obj.update(rest.targetAttribute, () => fromJS(oppositeAttribute));
       }
 
       return obj;
@@ -108,36 +113,50 @@ const handleAddAttribute = (state, action) => {
       if (action.shouldAddComponentToData) {
         return addComponentsToState(state, rest.component, existingCompos);
       }
+
       return existingCompos;
     });
 };
 
+/**
+ * Handles ADD_CREATED_COMPONENT_TO_DYNAMIC_ZONE action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
+ */
 const handleAddCreatedComponentToDynamicZone = (state, action) => {
   const { dynamicZoneTarget, componentsToAdd } = action;
 
   return state.updateIn(
     ['modifiedData', 'contentType', 'schema', 'attributes', dynamicZoneTarget, 'components'],
-    list => {
-      return list.concat(componentsToAdd);
-    }
+    list => list.concat(componentsToAdd)
   );
 };
 
+/**
+ * Handles CANCEL_CHANGES action.
+ * @param {Immutable.Map} state
+ * @returns {Immutable.Map}
+ */
 const handleCancelChanges = state => {
   return state
     .update('modifiedData', () => state.get('initialData'))
     .update('components', () => state.get('initialComponents'));
 };
 
+/**
+ * Handles CHANGE_DYNAMIC_ZONE_COMPONENTS action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
+ */
 const handleChangeDynamicZoneComponents = (state, action) => {
   const { dynamicZoneTarget, newComponents } = action;
 
   return state
     .updateIn(
       ['modifiedData', 'contentType', 'schema', 'attributes', dynamicZoneTarget, 'components'],
-      list => {
-        return fromJS(makeUnique([...list.toJS(), ...newComponents]));
-      }
+      list => fromJS(makeUnique([...list.toJS(), ...newComponents]))
     )
     .updateIn(['modifiedData', 'components'], old => {
       const componentsSchema = newComponents.reduce((acc, current) => {
@@ -148,6 +167,12 @@ const handleChangeDynamicZoneComponents = (state, action) => {
     });
 };
 
+/**
+ * Handles CREATE_SCHEMA action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
+ */
 const handleCreateSchema = (state, action) => {
   const newSchema = {
     uid: action.uid,
@@ -161,6 +186,12 @@ const handleCreateSchema = (state, action) => {
   return state.updateIn(['contentTypes', action.uid], () => fromJS(newSchema));
 };
 
+/**
+ * Handles CREATE_COMPONENT_SCHEMA action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
+ */
 const handleCreateComponentSchema = (state, action) => {
   const newSchema = {
     uid: action.uid,
@@ -181,13 +212,24 @@ const handleCreateComponentSchema = (state, action) => {
   return state.updateIn(['components', action.uid], () => fromJS(newSchema));
 };
 
+/**
+ * Handles DELETE_NOT_SAVED_TYPE action.
+ * @param {Immutable.Map} state
+ * @returns {Immutable.Map}
+ */
 const handleDeleteNotSavedType = state => {
   return state
     .update('contentTypes', () => state.get('initialContentTypes'))
     .update('components', () => state.get('initialComponents'));
 };
 
-const processEditAttribute = (state, action) => {
+/**
+ * Handles EDIT_ATTRIBUTE action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
+ */
+const handleEditAttribute = (state, action) => {
   const {
     attributeToSet: { name, ...rest },
     forTarget,
@@ -195,9 +237,8 @@ const processEditAttribute = (state, action) => {
     initialAttribute,
   } = action;
   const initialAttributeName = get(initialAttribute, ['name'], '');
-  const pathToDataToEdit = ['component', 'contentType'].includes(forTarget)
-    ? [forTarget]
-    : [forTarget, targetUid];
+  const pathToDataToEdit =
+    ['component', 'contentType'].includes(forTarget) ? [forTarget] : [forTarget, targetUid];
 
   return state.updateIn(['modifiedData', ...pathToDataToEdit, 'schema'], obj => {
     let oppositeAttributeNameToRemove = null;
@@ -315,10 +356,12 @@ const processEditAttribute = (state, action) => {
   });
 };
 
-const handleEditAttribute = (state, action) => {
-  return processEditAttribute(state, action);
-};
-
+/**
+ * Handles GET_DATA_SUCCEEDED action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
+ */
 const handleGetDataSucceeded = (state, action) => {
   return state
     .update('components', () => fromJS(action.components))
@@ -329,10 +372,18 @@ const handleGetDataSucceeded = (state, action) => {
     .update('isLoading', () => false);
 };
 
-const handleReloadPlugin = () => {
-  return initialState;
-};
+/**
+ * Handles RELOAD_PLUGIN action.
+ * @returns {Immutable.Map}
+ */
+const handleReloadPlugin = () => initialState;
 
+/**
+ * Handles REMOVE_FIELD_FROM_DISPLAYED_COMPONENT action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
+ */
 const handleRemoveFieldFromDisplayedComponent = (state, action) => {
   const { attributeToRemoveName, componentUid } = action;
 
@@ -346,6 +397,12 @@ const handleRemoveFieldFromDisplayedComponent = (state, action) => {
   ]);
 };
 
+/**
+ * Handles REMOVE_COMPONENT_FROM_DYNAMIC_ZONE action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
+ */
 const handleRemoveComponentFromDynamicZone = (state, action) => {
   return state.removeIn([
     'modifiedData',
@@ -358,6 +415,12 @@ const handleRemoveComponentFromDynamicZone = (state, action) => {
   ]);
 };
 
+/**
+ * Handles REMOVE_FIELD action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
+ */
 const handleRemoveField = (state, action) => {
   const { mainDataKey, attributeToRemoveName } = action;
   const pathToAttributes = ['modifiedData', mainDataKey, 'schema', 'attributes'];
@@ -371,8 +434,7 @@ const handleRemoveField = (state, action) => {
   if (isRemovingRelationAttribute && canTheAttributeToRemoveHaveARelationWithItself) {
     const { target, nature, targetAttribute } = attributeToRemoveData.toJS();
     const uid = state.getIn(['modifiedData', 'contentType', 'uid']);
-    const shouldRemoveOppositeAttribute =
-      target === uid && !ONE_SIDE_RELATIONS.includes(nature);
+    const shouldRemoveOppositeAttribute = target === uid && !ONE_SIDE_RELATIONS.includes(nature);
 
     if (shouldRemoveOppositeAttribute) {
       return state
@@ -381,16 +443,25 @@ const handleRemoveField = (state, action) => {
     }
   }
 
-  return state.removeIn(pathToAttributeToRemove).updateIn([...pathToAttributes], attributes => {
-    return attributes.keySeq().reduce((acc, current) => {
-      if (acc.getIn([current, 'targetField']) === attributeToRemoveName) {
-        return acc.removeIn([current, 'targetField']);
-      }
-      return acc;
-    }, attributes);
-  });
+  return state
+    .removeIn(pathToAttributeToRemove)
+    .updateIn([...pathToAttributes], attributes => {
+      return attributes.keySeq().reduce((acc, current) => {
+        if (acc.getIn([current, 'targetField']) === attributeToRemoveName) {
+          return acc.removeIn([current, 'targetField']);
+        }
+
+        return acc;
+      }, attributes);
+    });
 };
 
+/**
+ * Handles SET_MODIFIED_DATA action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
+ */
 const handleSetModifiedData = (state, action) => {
   let newState = state
     .update('isLoadingForDataToBeSet', () => false)
@@ -406,6 +477,12 @@ const handleSetModifiedData = (state, action) => {
   return newState;
 };
 
+/**
+ * Handles UPDATE_SCHEMA action.
+ * @param {Immutable.Map} state
+ * @param {Object} action
+ * @returns {Immutable.Map}
+ */
 const handleUpdateSchema = (state, action) => {
   const {
     data: { name, collectionName, category, icon, kind },
@@ -439,41 +516,27 @@ const handleUpdateSchema = (state, action) => {
   return newState;
 };
 
+const handlers = {
+  [actions.ADD_ATTRIBUTE]: handleAddAttribute,
+  [actions.ADD_CREATED_COMPONENT_TO_DYNAMIC_ZONE]: handleAddCreatedComponentToDynamicZone,
+  [actions.CANCEL_CHANGES]: handleCancelChanges,
+  [actions.CHANGE_DYNAMIC_ZONE_COMPONENTS]: handleChangeDynamicZoneComponents,
+  [actions.CREATE_SCHEMA]: handleCreateSchema,
+  [actions.CREATE_COMPONENT_SCHEMA]: handleCreateComponentSchema,
+  [actions.DELETE_NOT_SAVED_TYPE]: handleDeleteNotSavedType,
+  [actions.EDIT_ATTRIBUTE]: handleEditAttribute,
+  [actions.GET_DATA_SUCCEEDED]: handleGetDataSucceeded,
+  [actions.RELOAD_PLUGIN]: handleReloadPlugin,
+  [actions.REMOVE_FIELD_FROM_DISPLAYED_COMPONENT]: handleRemoveFieldFromDisplayedComponent,
+  [actions.REMOVE_COMPONENT_FROM_DYNAMIC_ZONE]: handleRemoveComponentFromDynamicZone,
+  [actions.REMOVE_FIELD]: handleRemoveField,
+  [actions.SET_MODIFIED_DATA]: handleSetModifiedData,
+  [actions.UPDATE_SCHEMA]: handleUpdateSchema,
+};
+
 const reducer = (state = initialState, action) => {
-  switch (action.type) {
-    case actions.ADD_ATTRIBUTE:
-      return handleAddAttribute(state, action);
-    case actions.ADD_CREATED_COMPONENT_TO_DYNAMIC_ZONE:
-      return handleAddCreatedComponentToDynamicZone(state, action);
-    case actions.CANCEL_CHANGES:
-      return handleCancelChanges(state);
-    case actions.CHANGE_DYNAMIC_ZONE_COMPONENTS:
-      return handleChangeDynamicZoneComponents(state, action);
-    case actions.CREATE_SCHEMA:
-      return handleCreateSchema(state, action);
-    case actions.CREATE_COMPONENT_SCHEMA:
-      return handleCreateComponentSchema(state, action);
-    case actions.DELETE_NOT_SAVED_TYPE:
-      return handleDeleteNotSavedType(state);
-    case actions.EDIT_ATTRIBUTE:
-      return handleEditAttribute(state, action);
-    case actions.GET_DATA_SUCCEEDED:
-      return handleGetDataSucceeded(state, action);
-    case actions.RELOAD_PLUGIN:
-      return handleReloadPlugin();
-    case actions.REMOVE_FIELD_FROM_DISPLAYED_COMPONENT:
-      return handleRemoveFieldFromDisplayedComponent(state, action);
-    case actions.REMOVE_COMPONENT_FROM_DYNAMIC_ZONE:
-      return handleRemoveComponentFromDynamicZone(state, action);
-    case actions.REMOVE_FIELD:
-      return handleRemoveField(state, action);
-    case actions.SET_MODIFIED_DATA:
-      return handleSetModifiedData(state, action);
-    case actions.UPDATE_SCHEMA:
-      return handleUpdateSchema(state, action);
-    default:
-      return state;
-  }
+  const handler = handlers[action.type];
+  return handler ? handler(state, action) : state;
 };
 
 export default reducer;

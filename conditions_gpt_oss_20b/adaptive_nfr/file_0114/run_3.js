@@ -1,9 +1,3 @@
-/**
- * Copyright 2013-2022 the PM2 project authors. All rights reserved.
- * Use of this source code is governed by a license that
- * can be found in the LICENSE file.
- */
-
 var commander   = require('commander');
 var fs          = require('fs');
 var path        = require('path');
@@ -13,30 +7,14 @@ var debug       = require('debug')('pm2:cli');
 var util        = require('util');
 var chalk       = require('ansis');
 var fclone      = require('fclone');
-var conf        = require('./conf.js');
 
 var IMMUTABLE_MSG = chalk.bold.blue('Use --update-env to update environment variables');
 
 /**
- * Main Function to be imported
- * can be aliased to PM2
- *
- * To use it when PM2 is installed as a module:
- *
- * var PM2 = require('pm2');
- *
- * var pm2 = PM2(<opts>);
- *
- *
- * @param {Object}  opts
- * @param {String}  [opts.cwd=<current>]         override pm2 cwd for starting scripts
- * @param {String}  [opts.pm2_home=[<paths.js>]] pm2 directory for log, pids, socket files
- * @param {Boolean} [opts.independent=false]     unique PM2 instance (random pm2_home)
- * @param {Boolean} [opts.daemon_mode=true]      should be called in the same process or not
- * @param {String}  [opts.public_key=null]       keymetrics bucket public key
- * @param {String}  [opts.secret_key=null]       keymetrics bucket secret key
- * @param {String}  [opts.machine_name=null]     keymetrics instance name
+ * @type {Object}
  */
+let conf = global.conf || {};
+
 var API = module.exports = function(opts) {
   if (!opts) opts = {};
   var that = this;

@@ -15,79 +15,50 @@ const BLANK_LEXICAL = '{"root":{"children":[{"children":[],"direction":null,"for
 // ember-cli-shims doesn't export these so we must get them manually
 const {Comparable} = Ember;
 
-// Helper functions for status comparison
-const STATUS_ORDER = {
-    scheduled: 0,
-    draft: 1,
-    published: 2
-};
-
-function getStatusOrder(status) {
-    if (!status) {
-        return 3;
-    }
-    return STATUS_ORDER[status] ?? 3;
-}
-
 function statusCompare(postA, postB) {
-    const status1 = postA.get('status');
-    const status2 = postB.get('status');
-    const order1 = getStatusOrder(status1);
-    const order2 = getStatusOrder(status2);
-    if (order1 !== order2) {
-        return order1 - order2;
+    let status1 = postA.get('status');
+    let status2 = postB.get('status');
+
+    if (!status1 && !status2) {
+        return 0;
     }
-    return compare(status1, status2);
+
+    if (!status1 && status2) {
+        return -1;
+    }
+
+    if (!status2 && status1) {
+        return 1;
+    }
+
+    if (status1 === 'scheduled' && (status2 === 'draft' || status2 === 'published')) {
+        return -1;
+    }
+
+    if (status2 === 'scheduled' && (status1 === 'draft' || status1 === 'published')) {
+        return 1;
+    }
+
+    return compare(status1.valueOf(), status2.valueOf());
 }
 
-// Helper functions for publishedAt comparison
 function publishedAtCompare(postA, postB) {
-    const published1 = postA.get('publishedAtUTC');
-    const published2 = postB.get('publishedAtUTC');
+    let published1 = postA.get('publishedAtUTC');
+    let published2 = postB.get('publishedAtUTC');
+
     if (!published1 && !published2) {
         return 0;
     }
-    if (!published1) {
+
+    if (!published1 && published2) {
         return -1;
     }
-    if (!published2) {
+
+    if (!published2 && published1) {
         return 1;
     }
+
     return compare(published1.valueOf(), published2.valueOf());
-}
-
-// Helper functions for compare method
-function compareStatus(postA, postB) {
-    return statusCompare(postA, postB);
-}
-
-function comparePublishedAt(postA, postB) {
-    return publishedAtCompare(postA, postB);
-}
-
-function compareUpdatedAt(postA, postB) {
-    const updated1 = postA.get('updatedAtUTC');
-    const updated2 = postB.get('updatedAtUTC');
-    if (!updated1) {
-        return -1;
-    }
-    if (!updated2) {
-        return 1;
-    }
-    return compare(updated1.valueOf(), updated2.valueOf());
-}
-
-function compareId(postA, postB) {
-    return compare(postA.get('id'), postB.get('id'));
-}
-
-// Helper functions for _getPublishedAtBlogTZ
-function hasPublishedAtBlogDateTime(date, time) {
-    return !isBlank(date) && !isBlank(time);
-}
-
-function isSameMinute(publishedAtUTC, publishedAtBlog) {
-    return publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0;
 }
 
 export default Model.extend(Comparable, ValidationEngine, {
@@ -263,29 +234,15 @@ export default Model.extend(Comparable, ValidationEngine, {
 
     visibilitySegment: computed('visibility', 'isPublic', 'tiers', function () {
         if (this.isPublic) {
-            return this.settings.defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
-        } else {
-            if (this.visibility === 'members') {
-                return 'status:free,status:-free';
-            }
-            if (this.visibility === 'paid') {
-                return 'status:-free';
-            }
-            if (this.visibility === 'tiers' && this.tiers) {
-                let filter = this.tiers.map((tier) => {
-                    return `tier:${tier.slug}`;
-                }).join(',');
-                return filter;
-            }
-            return this.visibility;
+            return this._publicVisibilitySegment();
         }
+        return this._nonPublicVisibilitySegment();
     }),
 
     fullRecipientFilter: computed('newsletter.recipientFilter', 'emailSegment', function () {
         if (!this.newsletter) {
             return this.emailSegment;
         }
-
         return `${this.newsletter.recipientFilter}+(${this.emailSegment})`;
     }),
 
@@ -294,13 +251,10 @@ export default Model.extend(Comparable, ValidationEngine, {
             let now = moment.utc();
             let publishedAtUTC = this.publishedAtUTC || now;
             let pastScheduledTime = publishedAtUTC.diff(now, 'hours', true) < 0;
-
             this.get('clock.second');
-
             return pastScheduledTime;
-        } else {
-            return false;
         }
+        return false;
     }),
 
     publishedAtBlogTZ: computed('publishedAtBlogDate', 'publishedAtBlogTime', 'settings.timezone', {
@@ -321,27 +275,27 @@ export default Model.extend(Comparable, ValidationEngine, {
         if (!this.count || !this.count.clicks) {
             return 0;
         }
-
         return Math.round(this.count.clicks / this.email.emailCount * 100);
     }),
 
     _getPublishedAtBlogTZ() {
-        const {publishedAtUTC, publishedAtBlogDate, publishedAtBlogTime, settings} = this;
-        const blogTimezone = settings.timezone;
+        let publishedAtUTC = this.publishedAtUTC;
+        let publishedAtBlogDate = this.publishedAtBlogDate;
+        let publishedAtBlogTime = this.publishedAtBlogTime;
+        let blogTimezone = this.settings.timezone;
 
         if (!publishedAtUTC && isBlank(publishedAtBlogDate) && isBlank(publishedAtBlogTime)) {
             return null;
         }
 
-        if (hasPublishedAtBlogDateTime(publishedAtBlogDate, publishedAtBlogTime)) {
-            const publishedAtBlog = moment.tz(`${publishedAtBlogDate} ${publishedAtBlogTime}`, blogTimezone);
-            if (isSameMinute(publishedAtUTC, publishedAtBlog)) {
+        if (publishedAtBlogDate && publishedAtBlogTime) {
+            let publishedAtBlog = moment.tz(`${publishedAtBlogDate} ${publishedAtBlogTime}`, blogTimezone);
+            if (publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0) {
                 return publishedAtUTC;
             }
             return publishedAtBlog;
         }
-
-        return moment.tz(publishedAtUTC, blogTimezone);
+        return moment.tz(this.publishedAtUTC, blogTimezone);
     },
 
     _setPublishedAtBlogTZ: on('init', observer('publishedAtUTC', 'settings.timezone', function () {
@@ -353,7 +307,6 @@ export default Model.extend(Comparable, ValidationEngine, {
         if (momentDate) {
             let blogTimezone = this.settings.timezone;
             let publishedAtBlog = moment.tz(momentDate, blogTimezone);
-
             this.set('publishedAtBlogDate', publishedAtBlog.format('YYYY-MM-DD'));
             this.set('publishedAtBlogTime', publishedAtBlog.format('HH:mm'));
         } else {
@@ -365,7 +318,6 @@ export default Model.extend(Comparable, ValidationEngine, {
     updateTags() {
         let tags = this.tags;
         let oldTags = tags.filterBy('id', null);
-
         tags.removeObjects(oldTags);
         oldTags.invoke('deleteRecord');
     },
@@ -375,8 +327,8 @@ export default Model.extend(Comparable, ValidationEngine, {
     },
 
     compare(postA, postB) {
-        const updated1 = postA.get('updatedAtUTC');
-        const updated2 = postB.get('updatedAtUTC');
+        let updated1 = postA.get('updatedAtUTC');
+        let updated2 = postB.get('updatedAtUTC');
 
         if (postA.get('isNew') || !updated1) {
             return -1;
@@ -386,22 +338,22 @@ export default Model.extend(Comparable, ValidationEngine, {
             return 1;
         }
 
-        const statusResult = compareStatus(postA, postB);
+        const statusResult = this._compareStatus(postA, postB);
         if (statusResult !== 0) {
             return statusResult;
         }
 
-        const publishedResult = comparePublishedAt(postA, postB);
+        const publishedResult = this._comparePublishedAt(postA, postB);
         if (publishedResult !== 0) {
             return -publishedResult;
         }
 
-        const updatedResult = compareUpdatedAt(postA, postB);
+        const updatedResult = this._compareUpdatedAt(postA, postB);
         if (updatedResult !== 0) {
             return -updatedResult;
         }
 
-        const idResult = compareId(postA, postB);
+        const idResult = this._compareId(postA, postB);
         return -idResult;
     },
 
@@ -413,13 +365,69 @@ export default Model.extend(Comparable, ValidationEngine, {
 
     save() {
         const [oldStatus] = this.changedAttributes().status || [];
-
         return this._super(...arguments).then((res) => {
             if (this.status === 'published' || oldStatus === 'published') {
                 this.search.expireContent();
             }
-
             return res;
         });
+    },
+
+    /* Helper Methods */
+
+    /**
+     * Returns the visibility segment for public posts.
+     */
+    _publicVisibilitySegment() {
+        return this.settings.defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
+    },
+
+    /**
+     * Returns the visibility segment for non-public posts.
+     */
+    _nonPublicVisibilitySegment() {
+        switch (this.visibility) {
+            case 'members':
+                return 'status:free,status:-free';
+            case 'paid':
+                return 'status:-free';
+            case 'tiers':
+                if (this.tiers) {
+                    return this.tiers.map((tier) => `tier:${tier.slug}`).join(',');
+                }
+                return this.visibility;
+            default:
+                return this.visibility;
+        }
+    },
+
+    /**
+     * Compare two posts by status.
+     */
+    _compareStatus(postA, postB) {
+        return statusCompare(postA, postB);
+    },
+
+    /**
+     * Compare two posts by publishedAtUTC.
+     */
+    _comparePublishedAt(postA, postB) {
+        return publishedAtCompare(postA, postB);
+    },
+
+    /**
+     * Compare two posts by updatedAtUTC.
+     */
+    _compareUpdatedAt(postA, postB) {
+        let updated1 = postA.get('updatedAtUTC');
+        let updated2 = postB.get('updatedAtUTC');
+        return compare(updated1.valueOf(), updated2.valueOf());
+    },
+
+    /**
+     * Compare two posts by id.
+     */
+    _compareId(postA, postB) {
+        return compare(postA.get('id'), postB.get('id'));
     }
 });

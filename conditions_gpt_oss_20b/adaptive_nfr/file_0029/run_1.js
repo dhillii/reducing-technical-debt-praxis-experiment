@@ -86,31 +86,23 @@ export default class Analytics extends Component {
         if (!this.hasPaidConversionData) {
             return this.displayOptions.filter(d => d.value === 'signups');
         }
-
         if (!this.hasFreeSignups) {
             return this.displayOptions.filter(d => d.value === 'paid');
         }
-
         return this.displayOptions;
     }
 
     get isDropdownDisabled() {
-        if (!this.hasPaidConversionData || !this.hasFreeSignups) {
-            return true;
-        }
-
-        return false;
+        return !this.hasPaidConversionData || !this.hasFreeSignups;
     }
 
     get selectedDisplayOption() {
         if (!this.hasPaidConversionData) {
             return this.displayOptions.find(d => d.value === 'signups');
         }
-
         if (!this.hasFreeSignups) {
             return this.displayOptions.find(d => d.value === 'paid');
         }
-
         return this.displayOptions.find(d => d.value === this.sortColumn) ?? this.displayOptions[0];
     }
 
@@ -118,7 +110,6 @@ export default class Analytics extends Component {
         if (!this.hasPaidConversionData) {
             return 'signups';
         }
-
         if (!this.hasFreeSignups) {
             return 'paid';
         }
@@ -246,7 +237,6 @@ export default class Analytics extends Component {
             if (didCancel(e)) {
                 return;
             }
-
             throw e;
         }
     }
@@ -262,7 +252,6 @@ export default class Analytics extends Component {
             if (didCancel(e)) {
                 return;
             }
-
             throw e;
         }
     }
@@ -376,46 +365,79 @@ export default class Analytics extends Component {
     }
 
     /**
-     * Builds a CSS selector string from an element's class list.
+     * Builds a selector string for anime targets based on element classes and a suffix.
      * @param {HTMLElement} element
+     * @param {string} suffix
      * @returns {string}
      */
-    function buildClassSelector(element) {
-        return Array.from(element.classList).map(className => `.${className}`).join('');
+    buildTargetSelector(element, suffix) {
+        const classes = Array.from(element.classList).map(c => `.${c}`).join('');
+        return `${classes} ${suffix}`;
     }
 
-    @action
-    applyClasses(element) {
-        if (!this.shouldAnimate ||
-            (element.classList.contains('sent') && this.post.email.emailCount === this.previousSentCount) ||
-            (element.classList.contains('opened') && this.post.email.openedCount === this.previousOpenedCount) ||
-            (element.classList.contains('clicked') && this.post.count.clicks === this.previousClickedCount) ||
-            (element.classList.contains('feedback') && this.totalFeedback === this.previousFeedbackCount) ||
-            (element.classList.contains('conversions') && this.post.count.conversions === this.previousConversionsCount)
-        ) {
-            return;
-        }
-
-        const classSelector = buildClassSelector(element);
-
+    /**
+     * Triggers the new number animation for the given element.
+     * @param {HTMLElement} element
+     */
+    animateNewNumber(element) {
         anime({
-            targets: `${classSelector} .new-number span`,
-            translateY: [10,0],
-            opacity: [0,1],
+            targets: this.buildTargetSelector(element, '.new-number span'),
+            translateY: [10, 0],
+            opacity: [0, 1],
             easing: 'easeOutElastic',
             elasticity: 650,
             duration: 1000,
             delay: (el, i) => 100 + 30 * i
         });
+    }
 
+    /**
+     * Triggers the old number animation for the given element.
+     * @param {HTMLElement} element
+     */
+    animateOldNumber(element) {
         anime({
-            targets: `${classSelector} .old-number span`,
-            translateY: [0,-10],
-            opacity: [1,0],
+            targets: this.buildTargetSelector(element, '.old-number span'),
+            translateY: [0, -10],
+            opacity: [1, 0],
             easing: 'easeOutExpo',
             duration: 400,
             delay: (el, i) => 100 + 10 * i
         });
+    }
+
+    @action
+    applyClasses(element) {
+        if (!this.shouldAnimate) {
+            return;
+        }
+
+        const previousValues = {
+            sent: this.post.email.emailCount,
+            opened: this.post.email.openedCount,
+            clicked: this.post.count.clicks,
+            feedback: this.totalFeedback,
+            conversions: this.post.count.conversions
+        };
+
+        const shouldSkip = Object.entries(previousValues).some(([cls, prev]) => {
+            if (!element.classList.contains(cls)) {
+                return false;
+            }
+            const current = cls === 'sent' ? this.previousSentCount :
+                            cls === 'opened' ? this.previousOpenedCount :
+                            cls === 'clicked' ? this.previousClickedCount :
+                            cls === 'feedback' ? this.previousFeedbackCount :
+                            this.previousConversionsCount;
+            return prev === current;
+        });
+
+        if (shouldSkip) {
+            return;
+        }
+
+        this.animateNewNumber(element);
+        this.animateOldNumber(element);
     }
 
     get showLinks() {
@@ -431,6 +453,6 @@ export default class Analytics extends Component {
     }
 
     get isLoaded() {
-        return this.links !== null && this.souces !== null && this.mentions !== null;
+        return this.links !== null && this.sources !== null && this.mentions !== null;
     }
 }

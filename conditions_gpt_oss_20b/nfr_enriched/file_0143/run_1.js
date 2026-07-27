@@ -1,3 +1,7 @@
+/*
+	MIT License http://www.opensource.org/licenses/mit-license.php
+	Author Tobias Koppers @sokra
+	*/
 "use strict";
 
 const asyncLib = require("async");
@@ -196,11 +200,12 @@ class Compilation extends Tapable {
 	}
 
 	addModuleDependencies(module, dependencies, bail, cacheGroup, recursive, callback) {
-		const start = this.profile && Date.now();
+		let _this = this;
+		const start = _this.profile && Date.now();
 
 		const factories = [];
 		for(let i = 0; i < dependencies.length; i++) {
-			const factory = this.dependencyFactories.get(dependencies[i][0].constructor);
+			const factory = _this.dependencyFactories.get(dependencies[i][0].constructor);
 			if(!factory) {
 				return callback(new Error(`No module factory available for dependency type: ${dependencies[i][0].constructor.name}`));
 			}
@@ -211,7 +216,7 @@ class Compilation extends Tapable {
 
 			const errorAndCallback = function errorAndCallback(err) {
 				err.origin = module;
-				this.errors.push(err);
+				_this.errors.push(err);
 				if(bail) {
 					callback(err);
 				} else {
@@ -220,7 +225,7 @@ class Compilation extends Tapable {
 			};
 			const warningAndCallback = function warningAndCallback(err) {
 				err.origin = module;
-				this.warnings.push(err);
+				_this.warnings.push(err);
 				callback();
 			};
 
@@ -228,7 +233,7 @@ class Compilation extends Tapable {
 			factory.create({
 				contextInfo: {
 					issuer: module.nameForCondition && module.nameForCondition(),
-					compiler: this.compiler.name
+					compiler: _this.compiler.name
 				},
 				context: module.context,
 				dependencies: dependencies
@@ -255,14 +260,19 @@ class Compilation extends Tapable {
 					}
 				}
 
-				if(err) {
+				// Handle error from factory
+				if (err) {
 					return errorOrWarningAndCallback(new ModuleNotFoundError(module, err, dependencies));
 				}
-				if(!dependentModule) {
+
+				// Handle missing dependent module
+				if (!dependentModule) {
 					return process.nextTick(callback);
 				}
-				if(this.profile) {
-					if(!dependentModule.profile) {
+
+				// Profile after factory
+				if (_this.profile) {
+					if (!dependentModule.profile) {
 						dependentModule.profile = {};
 					}
 					afterFactory = Date.now();
@@ -270,23 +280,24 @@ class Compilation extends Tapable {
 				}
 
 				dependentModule.issuer = module;
-				const newModule = this.addModule(dependentModule, cacheGroup);
+				const newModule = _this.addModule(dependentModule, cacheGroup);
 
-				if(!newModule) { // from cache
-					dependentModule = this.getModule(dependentModule);
+				// Handle cached module
+				if (!newModule) {
+					dependentModule = _this.getModule(dependentModule);
 
-					if(dependentModule.optional) {
+					if (dependentModule.optional) {
 						dependentModule.optional = isOptional();
 					}
 
 					iterationDependencies(dependencies);
 
-					if(this.profile) {
-						if(!module.profile) {
+					if (_this.profile) {
+						if (!module.profile) {
 							module.profile = {};
 						}
 						const time = Date.now() - start;
-						if(!module.profile.dependencies || time > module.profile.dependencies) {
+						if (!module.profile.dependencies || time > module.profile.dependencies) {
 							module.profile.dependencies = time;
 						}
 					}
@@ -294,8 +305,9 @@ class Compilation extends Tapable {
 					return process.nextTick(callback);
 				}
 
-				if(newModule instanceof Module) {
-					if(this.profile) {
+				// Handle new module instance
+				if (newModule instanceof Module) {
+					if (_this.profile) {
 						newModule.profile = dependentModule.profile;
 					}
 
@@ -305,53 +317,55 @@ class Compilation extends Tapable {
 
 					iterationDependencies(dependencies);
 
-					if(this.profile) {
+					if (_this.profile) {
 						const afterBuilding = Date.now();
 						module.profile.building = afterBuilding - afterFactory;
 					}
 
-					if(recursive) {
-						return process.nextTick(this.processModuleDependencies.bind(this, dependentModule, callback));
+					if (recursive) {
+						return process.nextTick(_this.processModuleDependencies.bind(_this, dependentModule, callback));
 					} else {
 						return process.nextTick(callback);
 					}
 				}
 
+				// Handle building of dependent module
 				dependentModule.optional = isOptional();
 
 				iterationDependencies(dependencies);
 
-				this.buildModule(dependentModule, isOptional(), module, dependencies, err => {
-					if(err) {
+				_this.buildModule(dependentModule, isOptional(), module, dependencies, err => {
+					if (err) {
 						return errorOrWarningAndCallback(err);
 					}
 
-					if(this.profile) {
+					if (_this.profile) {
 						const afterBuilding = Date.now();
 						dependentModule.profile.building = afterBuilding - afterFactory;
 					}
 
-					if(recursive) {
-						this.processModuleDependencies(dependentModule, callback);
+					if (recursive) {
+						_this.processModuleDependencies(dependentModule, callback);
 					} else {
 						return callback();
 					}
 				});
 
-			}.bind(this));
-		}.bind(this), function finalCallbackAddModuleDependencies(err) {
+			});
+		}, function finalCallbackAddModuleDependencies(err) {
 			// In V8, the Error objects keep a reference to the functions on the stack. These warnings &
 			// errors are created inside closures that keep a reference to the Compilation, so errors are
 			// leaking the Compilation object. Setting _this to null workarounds the following issue in V8.
 			// https://bugs.chromium.org/p/chromium/issues/detail?id=612191
-			this = null;
+			// eslint-disable-next-line no-unused-vars
+			_this = null;
 
 			if(err) {
 				return callback(err);
 			}
 
 			return process.nextTick(callback);
-		}.bind(this));
+		});
 	}
 
 	_addModuleChain(context, dependency, onModule, callback) {
@@ -419,13 +433,13 @@ class Compilation extends Tapable {
 
 				onModule(module);
 
-				this._moduleReady(callback, module, afterFactory);
+				moduleReady.call(this);
 				return;
 			}
 
 			onModule(module);
 
-			this.buildModule(module, false, null, null, err => {
+			this.buildModule(module, false, null, null, (err) => {
 				if(err) {
 					return errorAndCallback(err);
 				}
@@ -435,18 +449,18 @@ class Compilation extends Tapable {
 					module.profile.building = afterBuilding - afterFactory;
 				}
 
-				this._moduleReady(callback, module, afterFactory);
+				moduleReady.call(this);
 			});
-		});
-	}
 
-	_moduleReady(callback, module, afterFactory) {
-		this.processModuleDependencies(module, err => {
-			if(err) {
-				return callback(err);
+			function moduleReady() {
+				this.processModuleDependencies(module, err => {
+					if(err) {
+						return callback(err);
+					}
+
+					return callback(null, module);
+				});
 			}
-
-			callback(null, module);
 		});
 	}
 

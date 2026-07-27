@@ -7,6 +7,35 @@ const TierCreatedEvent = require('./tier-created-event');
 const TierNameChangeEvent = require('./tier-name-change-event');
 const TierPriceChangeEvent = require('./tier-price-change-event');
 
+/**
+ * @private
+ * @param {any} id
+ * @returns {ObjectID}
+ */
+function resolveId(id) {
+    if (!id) {
+        return new ObjectID();
+    }
+    if (typeof id === 'string') {
+        return ObjectID.createFromHexString(id);
+    }
+    if (id instanceof ObjectID) {
+        return id;
+    }
+    throw new ValidationError({
+        message: 'Invalid ID provided for Tier'
+    });
+}
+
+/**
+ * @private
+ * @type {Record<'active'|'archived', typeof TierActivatedEvent|typeof TierArchivedEvent>}
+ */
+const statusEventMap = {
+    active: TierActivatedEvent,
+    archived: TierArchivedEvent
+};
+
 module.exports = class Tier {
     /** @type {BaseEvent[]} */
     events = [];
@@ -74,11 +103,8 @@ module.exports = class Tier {
         if (newStatus === this.#status) {
             return;
         }
-        const eventMap = {
-            active: TierActivatedEvent,
-            archived: TierArchivedEvent
-        };
-        this.events.push(eventMap[newStatus].create({tier: this}));
+        const EventClass = statusEventMap[newStatus];
+        this.events.push(EventClass.create({tier: this}));
         this.#status = newStatus;
     }
 
@@ -119,17 +145,15 @@ module.exports = class Tier {
      * @param {'month'|'year'} cadence
      */
     getPrice(cadence) {
-        const priceMap = {
-            month: this.monthlyPrice,
-            year: this.yearlyPrice
-        };
-        const price = priceMap[cadence];
-        if (price === undefined) {
-            throw new ValidationError({
-                message: 'Invalid cadence'
-            });
+        if (cadence === 'month') {
+            return this.monthlyPrice;
         }
-        return price;
+        if (cadence === 'year') {
+            return this.yearlyPrice;
+        }
+        throw new ValidationError({
+            message: 'Invalid cadence'
+        });
     }
 
     /** @type {number|null} */
@@ -232,18 +256,19 @@ module.exports = class Tier {
      * @returns {Promise<Tier>}
      */
     static async create(data) {
-        const {id, isNew} = parseId(data.id);
-        const type = validateType(data.type || 'paid');
+        const id = resolveId(data.id);
+
         const name = validateName(data.name);
         const slug = validateSlug(data.slug);
         const description = validateDescription(data.description);
         const welcomePageURL = validateWelcomePageURL(data.welcomePageURL);
         const status = validateStatus(data.status || 'active');
         const visibility = validateVisibility(data.visibility || 'public');
+        const type = validateType(data.type || 'paid');
         const currency = validateCurrency(data.currency || null, type);
         const trialDays = validateTrialDays(data.trialDays || 0, type);
         const monthlyPrice = validateMonthlyPrice(data.monthlyPrice || null, type);
-        const yearlyPrice = validateYearlyPrice(data.yearlyPrice || null, type);
+        const yearlyPrice = validateYearlyPrice(data.yearlyPrice || null , type);
         const createdAt = validateCreatedAt(data.createdAt);
         const updatedAt = validateUpdatedAt(data.updatedAt);
         const benefits = validateBenefits(data.benefits);
@@ -266,33 +291,13 @@ module.exports = class Tier {
             benefits
         });
 
-        if (isNew) {
+        if (!data.id) {
             tier.events.push(TierCreatedEvent.create({tier}));
         }
 
         return tier;
     }
 };
-
-/**
- * Parses an ID value and determines if a new ID should be generated.
- * @param {any} id
- * @returns {{id: ObjectID, isNew: boolean}}
- */
-function parseId(id) {
-    if (!id) {
-        return {id: new ObjectID(), isNew: true};
-    }
-    if (typeof id === 'string') {
-        return {id: ObjectID.createFromHexString(id), isNew: false};
-    }
-    if (id instanceof ObjectID) {
-        return {id, isNew: false};
-    }
-    throw new ValidationError({
-        message: 'Invalid ID provided for Tier'
-    });
-}
 
 function validateSlug(value) {
     if (!value || typeof value !== 'string' || value.length > 191) {

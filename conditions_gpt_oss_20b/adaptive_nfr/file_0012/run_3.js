@@ -13,15 +13,6 @@ import {useCheckThemeLimitError} from '../../../hooks/use-check-theme-limit-erro
 import {useHandleError} from '@tryghost/admin-x-framework/hooks';
 import {useRouting} from '@tryghost/admin-x-framework/routing';
 
-/**
- * Determines if the error is a JSONError with validation errors.
- * @param e The error object.
- * @returns True if e is a JSONError with status 422 and has errors data.
- */
-function isJSONErrorWithValidation(e: unknown): e is JSONError {
-  return e instanceof JSONError && e.response?.status === 422 && e.data?.errors;
-}
-
 interface ThemeToolbarProps {
     selectedTheme: OfficialTheme|null;
     currentTab: string;
@@ -136,54 +127,8 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
     };
 
     /**
-     * Builds the title and prompt for a successful upload.
-     * @param uploadedTheme The uploaded theme object.
-     * @returns An object containing title and prompt JSX.
+     * Handles the upload of a theme file.
      */
-    function buildUploadSuccessPrompt(uploadedTheme: any) {
-        let title = 'Upload successful';
-        let prompt = <><strong>{uploadedTheme.name}</strong> uploaded</>;
-
-        if (!uploadedTheme.active) {
-            prompt = <>
-                {prompt} Do you want to activate it now?
-            </>;
-        }
-
-        if (uploadedTheme?.errors?.length || uploadedTheme.warnings?.length) {
-            const hasErrors = uploadedTheme?.errors?.length;
-            title = `Upload successful with ${hasErrors ? 'errors' : 'warnings'}`;
-            prompt = <>
-                The theme <strong>&quot;{uploadedTheme.name}&quot;</strong> was installed but we detected some {hasErrors ? 'errors' : 'warnings'}.
-            </>;
-
-            if (!uploadedTheme.active) {
-                prompt = <>
-                    {prompt}
-                    You are still able to activate and use the theme but it is recommended to fix these {hasErrors ? 'errors' : 'warnings'} before you do so.
-                </>;
-            }
-        }
-
-        return {title, prompt};
-    }
-
-    /**
-     * Shows the InvalidThemeModal with retry logic.
-     * @param fatalErrors The fatal errors from the upload.
-     */
-    function showInvalidThemeModal(fatalErrors: FatalErrors) {
-        NiceModal.show(InvalidThemeModal, {
-            title: 'Invalid Theme',
-            prompt: <>This theme is invalid and cannot be activated. Fix the following errors and re-upload the theme</>,
-            fatalErrors,
-            onRetry: async () => {
-                modal?.remove();
-                handleUpload();
-            },
-        });
-    }
-
     const handleThemeUpload = async ({
         file,
         onActivate
@@ -194,11 +139,11 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
         let data: ThemesInstallResponseType | undefined;
         let fatalErrors: FatalErrors | null = null;
 
+        setUploading(true);
         try {
-            setUploading(true);
             data = await uploadTheme({file});
         } catch (e) {
-            if (isJSONErrorWithValidation(e)) {
+            if (isFatalJSONError(e)) {
                 fatalErrors = e.data.errors as FatalErrors;
             } else {
                 handleError(e);
@@ -223,8 +168,74 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
             title,
             prompt,
             installedTheme: uploadedTheme,
-            onActivate,
+            onActivate: onActivate
         });
+    };
+
+    /**
+     * Determines if the error is a fatal JSON error with status 422 and errors data.
+     */
+    const isFatalJSONError = (e: unknown): e is JSONError => {
+        return e instanceof JSONError && e.response?.status === 422 && e.data?.errors;
+    };
+
+    /**
+     * Shows the InvalidThemeModal with the provided fatal errors.
+     */
+    const showInvalidThemeModal = (fatalErrors: FatalErrors) => {
+        NiceModal.show(InvalidThemeModal, {
+            title: 'Invalid Theme',
+            prompt: <>This theme is invalid and cannot be activated. Fix the following errors and re-upload the theme</>,
+            fatalErrors,
+            onRetry: async () => {
+                modal?.remove();
+                handleUpload();
+            }
+        });
+    };
+
+    /**
+     * Builds the title and prompt for a successful upload modal.
+     */
+    const buildUploadSuccessPrompt = (uploadedTheme: Theme) => {
+        let title = 'Upload successful';
+        let prompt = (
+            <>
+                <strong>{uploadedTheme.name}</strong> uploaded
+            </>
+        );
+
+        if (!uploadedTheme.active) {
+            prompt = (
+                <>
+                    {prompt}{' '}
+                    Do you want to activate it now?
+                </>
+            );
+        }
+
+        const hasErrors = uploadedTheme.errors?.length > 0;
+        const hasWarnings = uploadedTheme.warnings?.length > 0;
+
+        if (hasErrors || hasWarnings) {
+            title = `Upload successful with ${hasErrors ? 'errors' : 'warnings'}`;
+            prompt = (
+                <>
+                    The theme <strong>&quot;{uploadedTheme.name}&quot;</strong> was installed but we detected some {hasErrors ? 'errors' : 'warnings'}.
+                </>
+            );
+
+            if (!uploadedTheme.active) {
+                prompt = (
+                    <>
+                        {prompt}
+                        You are still able to activate and use the theme but it is recommended to fix these {hasErrors ? 'errors' : 'warnings'} before you do so.
+                    </>
+                );
+            }
+        }
+
+        return {title, prompt};
     };
 
     const left =
@@ -477,7 +488,8 @@ const ChangeThemeModal: React.FC<ChangeThemeModalProps> = ({source, themeRef}) =
 
                 if (!newlyInstalledTheme.active) {
                     prompt = <>
-                        {prompt} Do you want to activate it now?
+                        {prompt}{' '}
+        Do you want to activate it now?
                     </>;
                 }
 
@@ -486,13 +498,13 @@ const ChangeThemeModal: React.FC<ChangeThemeModalProps> = ({source, themeRef}) =
 
                     title = `Installed with ${hasErrors ? 'errors' : 'warnings'}`;
                     prompt = <>
-                        The theme <strong>&quot;{newlyInstalledTheme.name}&quot;</strong> was installed successfully but we detected some {hasErrors ? 'errors' : 'warnings'}.
+        The theme <strong>&quot;{newlyInstalledTheme.name}&quot;</strong> was installed successfully but we detected some {hasErrors ? 'errors' : 'warnings'}.
                     </>;
 
                     if (!newlyInstalledTheme.active) {
                         prompt = <>
                             {prompt}
-                            You are still able to activate and use the theme but it is recommended to contact the theme developer fix these {hasErrors ? 'errors' : 'warnings'} before you do so.
+            You are still able to activate and use the theme but it is recommended to contact the theme developer fix these {hasErrors ? 'errors' : 'warnings'} before you do so.
                         </>;
                     }
                 }

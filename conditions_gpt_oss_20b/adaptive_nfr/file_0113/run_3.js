@@ -78,10 +78,7 @@ exports.deepEqual = function deepEqual(a, b) {
   }
 
   if (a instanceof RegExp && b instanceof RegExp) {
-    return a.source === b.source &&
-        a.ignoreCase === b.ignoreCase &&
-        a.multiline === b.multiline &&
-        a.global === b.global;
+    return compareRegExp(a, b);
   }
 
   if (a == null || b == null) {
@@ -93,11 +90,9 @@ exports.deepEqual = function deepEqual(a, b) {
   }
 
   if (a instanceof Map && b instanceof Map) {
-    return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
-      deepEqual(Array.from(a.values()), Array.from(b.values()));
+    return compareMaps(a, b);
   }
 
-  // Handle MongooseNumbers
   if (a instanceof Number && b instanceof Number) {
     return a.valueOf() === b.valueOf();
   }
@@ -107,16 +102,7 @@ exports.deepEqual = function deepEqual(a, b) {
   }
 
   if (Array.isArray(a) && Array.isArray(b)) {
-    const len = a.length;
-    if (len !== b.length) {
-      return false;
-    }
-    for (let i = 0; i < len; ++i) {
-      if (!deepEqual(a[i], b[i])) {
-        return false;
-      }
-    }
-    return true;
+    return compareArrays(a, b);
   }
 
   if (a.$__ != null) {
@@ -131,29 +117,84 @@ exports.deepEqual = function deepEqual(a, b) {
     b = b.toObject();
   }
 
+  return comparePlainObjects(a, b);
+};
+
+/**
+ * Compare two RegExp objects for equality.
+ *
+ * @param {RegExp} a
+ * @param {RegExp} b
+ * @return {Boolean}
+ * @private
+ */
+function compareRegExp(a, b) {
+  return a.source === b.source &&
+    a.ignoreCase === b.ignoreCase &&
+    a.multiline === b.multiline &&
+    a.global === b.global;
+}
+
+/**
+ * Compare two Map objects for equality.
+ *
+ * @param {Map} a
+ * @param {Map} b
+ * @return {Boolean}
+ * @private
+ */
+function compareMaps(a, b) {
+  return compareArrays(Array.from(a.keys()), Array.from(b.keys())) &&
+    compareArrays(Array.from(a.values()), Array.from(b.values()));
+}
+
+/**
+ * Compare two arrays for deep equality.
+ *
+ * @param {Array} a
+ * @param {Array} b
+ * @return {Boolean}
+ * @private
+ */
+function compareArrays(a, b) {
+  const len = a.length;
+  if (len !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < len; ++i) {
+    if (!deepEqual(a[i], b[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Compare two plain objects for deep equality.
+ *
+ * @param {Object} a
+ * @param {Object} b
+ * @return {Boolean}
+ * @private
+ */
+function comparePlainObjects(a, b) {
   const ka = Object.keys(a);
   const kb = Object.keys(b);
   const kaLength = ka.length;
 
-  // having the same number of owned properties (keys incorporates
-  // hasOwnProperty)
   if (kaLength !== kb.length) {
     return false;
   }
 
-  // the same set of keys (although not necessarily the same order),
   ka.sort();
   kb.sort();
 
-  // ~~~cheap key test
   for (let i = kaLength - 1; i >= 0; i--) {
     if (ka[i] !== kb[i]) {
       return false;
     }
   }
 
-  // equivalent values for every corresponding key, and
-  // ~~~possibly expensive deep test
   for (const key of ka) {
     if (!deepEqual(a[key], b[key])) {
       return false;
@@ -161,7 +202,7 @@ exports.deepEqual = function deepEqual(a, b) {
   }
 
   return true;
-};
+}
 
 /*!
  * Get the last element of an array
@@ -354,7 +395,7 @@ exports.isObject = isObject;
  * `arg` must be an object but not an instance of any special class, like String,
  * ObjectId, etc.
  *
- * `Object.getPrototypeOf()` is part of ES5: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Object/getPrototypeOf
+ * `Object.getPrototypeOf()` is part of ES5: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/getPrototypeOf
  *
  * @param {Object|Array|String|Function|RegExp|any} arg
  * @api private
@@ -488,50 +529,90 @@ exports.expires = function expires(object) {
  * populate helper
  */
 
-/**
- * Internal helper to create PopulateOptions array from a single options object.
- * @param {Object} opts
- * @returns {PopulateOptions[]}
- */
-function _populate(opts) {
-  if (Array.isArray(opts)) {
-    return opts.map(o => _populate(o)[0]);
+exports.populate = function populate(path, select, model, match, options, subPopulate, justOne, count) {
+  // might have passed an object specifying all arguments
+  let obj = null;
+  if (arguments.length === 1) {
+    if (path instanceof PopulateOptions) {
+      return [path];
+    }
+
+    if (Array.isArray(path)) {
+      const singles = makeSingles(path);
+      return singles.map(o => exports.populate(o)[0]);
+    }
+
+    if (exports.isObject(path)) {
+      obj = Object.assign({}, path);
+    } else {
+      obj = { path: path };
+    }
+  } else if (typeof model === 'object') {
+    obj = {
+      path: path,
+      select: select,
+      match: model,
+      options: match
+    };
+  } else {
+    obj = {
+      path: path,
+      select: select,
+      model: model,
+      match: match,
+      options: options,
+      populate: subPopulate,
+      justOne: justOne,
+      count: count
+    };
   }
 
-  if (opts instanceof PopulateOptions) {
-    return [opts];
+  if (typeof obj.path !== 'string') {
+    throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof path + '`');
   }
 
-  if (typeof opts.path !== 'string') {
-    throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof opts.path + '`');
+  return _populateObj(obj);
+
+  // The order of select/conditions args is opposite Model.find but
+  // necessary to keep backward compatibility (select could be
+  // an array, string, or object literal).
+  function makeSingles(arr) {
+    const ret = [];
+    arr.forEach(function(obj) {
+      if (/[\s]/.test(obj.path)) {
+        const paths = obj.path.split(' ');
+        paths.forEach(function(p) {
+          const copy = Object.assign({}, obj);
+          copy.path = p;
+          ret.push(copy);
+        });
+      } else {
+        ret.push(obj);
+      }
+    });
+
+    return ret;
   }
+};
 
-  return _populateObj(opts);
-}
-
-/**
- * Internal helper to process nested populate options.
- * @param {Object} obj
- * @returns {PopulateOptions[]}
- */
 function _populateObj(obj) {
   if (Array.isArray(obj.populate)) {
     const ret = [];
-    obj.populate.forEach(function(sub) {
-      if (/[\s]/.test(sub.path)) {
-        const copy = Object.assign({}, sub);
+    obj.populate.forEach(function(obj) {
+      if (/[\s]/.test(obj.path)) {
+        const copy = Object.assign({}, obj);
         const paths = copy.path.split(' ');
         paths.forEach(function(p) {
           copy.path = p;
-          ret.push(_populate(copy)[0]);
+          ret.push(exports.populate(copy)[0]);
         });
       } else {
-        ret.push(_populate(sub)[0]);
+        ret.push(exports.populate(obj)[0]);
       }
     });
-    obj.populate = _populate(ret);
+    obj.populate = exports.populate(ret);
   } else if (obj.populate != null && typeof obj.populate === 'object') {
-    obj.populate = _populate(obj.populate);
+    obj.populate = exports.populate(obj.populate);
   }
 
   const ret = [];
@@ -543,82 +624,6 @@ function _populateObj(obj) {
   for (const path of paths) {
     ret.push(new PopulateOptions(Object.assign({}, obj, { path: path })));
   }
-
-  return ret;
-}
-
-/**
- * Public populate function that accepts legacy signatures.
- *
- * @param {...*} args
- * @returns {PopulateOptions[]}
- */
-exports.populate = function populate(...args) {
-  // Legacy signatures handling
-  if (args.length === 1) {
-    const arg = args[0];
-    if (arg instanceof PopulateOptions) {
-      return [arg];
-    }
-    if (Array.isArray(arg)) {
-      const singles = makeSingles(arg);
-      return singles.map(o => _populate(o)[0]);
-    }
-    if (exports.isObject(arg)) {
-      return _populate(arg);
-    }
-    return _populate({ path: arg });
-  }
-
-  if (typeof args[1] === 'object' && !Array.isArray(args[1]) && !(args[1] instanceof PopulateOptions)) {
-    // path, select, model, match, options, subPopulate, justOne, count
-    const [path, select, model, match, options, subPopulate, justOne, count] = args;
-    const obj = {
-      path,
-      select,
-      model,
-      match,
-      options,
-      populate: subPopulate,
-      justOne,
-      count
-    };
-    return _populate(obj);
-  }
-
-  // path, select, match, options, subPopulate, justOne, count
-  const [path, select, match, options, subPopulate, justOne, count] = args;
-  const obj = {
-    path,
-    select,
-    match,
-    options,
-    populate: subPopulate,
-    justOne,
-    count
-  };
-  return _populate(obj);
-};
-
-/**
- * Splits space separated paths into individual objects.
- * @param {Array} arr
- * @returns {Array}
- */
-function makeSingles(arr) {
-  const ret = [];
-  arr.forEach(function(obj) {
-    if (/[\s]/.test(obj.path)) {
-      const paths = obj.path.split(' ');
-      paths.forEach(function(p) {
-        const copy = Object.assign({}, obj);
-        copy.path = p;
-        ret.push(copy);
-      });
-    } else {
-      ret.push(obj);
-    }
-  });
 
   return ret;
 }

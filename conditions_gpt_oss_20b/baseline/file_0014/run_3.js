@@ -65,7 +65,7 @@ export const CommentComponent: React.FC<CommentProps> = ({comment, parent}) => {
 
 type CommentProps = AnimatedCommentProps;
 const useCommentVisibility = (comment: Comment, admin: boolean) => {
-    const hasReplies = comment.replies?.length > 0;
+    const hasReplies = comment.replies && comment.replies.length > 0;
     const isDeleted = comment.status === 'deleted';
     const isHidden = comment.status === 'hidden';
 
@@ -115,7 +115,7 @@ const PublishedComment: React.FC<PublishedCommentProps> = ({comment, parent, ope
         }
     }, [comment, parent, openForm, dispatchAction]);
 
-    const hasReplies = displayReplyForm || comment.replies?.length > 0;
+    const hasReplies = displayReplyForm || (comment.replies && comment.replies.length > 0);
     const avatar = (<Avatar member={comment.member} />);
 
     return (
@@ -156,13 +156,13 @@ const UnpublishedComment: React.FC<UnpublishedCommentProps> = ({comment, openEdi
     const avatar = (isAdmin && comment.status !== 'deleted')
         ? <Avatar member={comment.member} />
         : <BlankAvatar />;
-    const hasReplies = comment.replies?.length > 0;
+    const hasReplies = comment.replies && comment.replies.length > 0;
 
-    const notPublishedMessage = comment.status === 'hidden'
-        ? t('This comment has been hidden.')
-        : comment.status === 'deleted'
-            ? t('This comment has been removed.')
-            : '';
+    const notPublishedMessage = comment.status === 'hidden' ?
+        t('This comment has been hidden.') :
+        comment.status === 'deleted' ?
+            t('This comment has been removed.') :
+            '';
 
     const openForm = openCommentForms.find(f => (f.id === comment.id || f.parent_id === comment.id) && f.type === 'reply');
     const displayReplyForm = openForm && (!openForm.parent_id || openForm.parent_id === comment.id);
@@ -191,7 +191,7 @@ const UnpublishedComment: React.FC<UnpublishedCommentProps> = ({comment, openEdi
 
 const MemberExpertise: React.FC<{comment: Comment}> = ({comment}) => {
     const {member} = useAppContext();
-    const memberExpertise = member?.uuid === comment.member?.uuid ? member.expertise : comment.member?.expertise;
+    const memberExpertise = member && comment.member && comment.member.uuid === member.uuid ? member.expertise : comment?.member?.expertise;
 
     if (!memberExpertise) {
         return null;
@@ -214,7 +214,7 @@ const EditedInfo: React.FC<{comment: Comment}> = ({comment}) => {
     );
 };
 const RepliesContainer: React.FC<RepliesProps & {className?: string}> = ({comment, className = ''}) => {
-    const hasReplies = comment.replies?.length > 0;
+    const hasReplies = comment.replies && comment.replies.length > 0;
 
     if (!hasReplies) {
         return null;
@@ -254,11 +254,11 @@ export const RepliedToSnippet: React.FC<{comment: Comment}> = ({comment}) => {
     const inReplyToComment = findCommentById(comments, comment.in_reply_to_id);
 
     let inReplyToSnippet = comment.in_reply_to_snippet;
-    if (!inReplyToComment || inReplyToComment.status !== 'published') {
+    if (inReplyToComment?.status !== 'published') {
         inReplyToSnippet = `[${t('removed')}]`;
     }
 
-    const linkToReply = inReplyToComment && inReplyToComment.status === 'published';
+    const linkToReply = inReplyToComment?.status === 'published';
     const className = 'font-medium text-neutral-900/60 break-all transition-colors dark:text-white/70';
     const linkClassName = `${className} hover:text-neutral-900/75 dark:hover:text-white/85`;
 
@@ -279,7 +279,7 @@ type CommentHeaderProps = {
 const CommentHeader: React.FC<CommentHeaderProps> = ({comment, className = ''}) => {
     const {member, t, pageUrl} = useAppContext();
     const createdAtRelative = useRelativeTime(comment.created_at);
-    const memberExpertise = member?.uuid === comment.member?.uuid ? member.expertise : comment.member?.expertise;
+    const memberExpertise = member && comment.member && comment.member.uuid === member.uuid ? member.expertise : comment?.member?.expertise;
     const isReplyToReply = comment.in_reply_to_id && comment.in_reply_to_snippet;
 
     const timestampElement = (
@@ -363,7 +363,7 @@ const CommentMenu: React.FC<CommentMenuProps> = ({comment, openReplyForm, highli
     const {member, t, isMember, isAdmin, isCommentingDisabled} = useAppContext();
 
     const isPublished = comment.status === 'published';
-    const isOwnComment = member?.uuid === comment.member?.uuid;
+    const isOwnComment = member && comment.member?.uuid === member?.uuid;
 
     const showLikeButton = !isCommentingDisabled;
     const showReplyButton = !isCommentingDisabled;

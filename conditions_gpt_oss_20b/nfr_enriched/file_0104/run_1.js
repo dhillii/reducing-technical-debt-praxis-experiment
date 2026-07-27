@@ -70,10 +70,7 @@
       }
 
       // Provide a sensible default selector, if none is given.
-      if (!selector) {
-        selector = 'h1, h2, h3, h4, h5, h6';
-      }
-
+      selector = selector || 'h1, h2, h3, h4, h5, h6';
       var elements = _getElements(selector);
 
       if (elements.length === 0) {
@@ -84,89 +81,103 @@
 
       // Existing IDs to avoid duplicates.
       var elsWithIds = document.querySelectorAll('[id]');
-      var idList = [].map.call(elsWithIds, function assign(el) {
-        return el.id;
-      });
+      var idList = Array.from(elsWithIds, function(el) { return el.id; });
 
-      var processedElements = [];
+      var newElements = [];
 
-      // Helper to generate or retrieve an ID for an element.
-      var _generateId = function(el) {
-        if (el.hasAttribute('id')) {
-          return el.getAttribute('id');
-        }
-        var tidyText = this.urlify(el.textContent);
-        var newId = tidyText;
-        var counter = 0;
-        while (idList.includes(newId)) {
-          newId = tidyText + '-' + counter;
-          counter++;
-        }
-        idList.push(newId);
-        el.setAttribute('id', newId);
-        return newId;
-      }.bind(this);
-
-      // Helper to create the anchor element.
-      var _createAnchor = function(elementID, readableID) {
-        var anchor = document.createElement('a');
-        anchor.className = 'anchorjs-link ' + this.options.class;
-        anchor.href = '#' + elementID;
-        anchor.setAttribute('aria-label', 'Anchor link for: ' + readableID);
-        anchor.setAttribute('data-anchorjs-icon', this.options.icon);
-        return anchor;
-      }.bind(this);
-
-      // Helper to apply styles to the anchor based on options.
-      var _applyAnchorStyles = function(anchor) {
-        if (visibleOptionToUse === 'always') {
-          anchor.style.opacity = '1';
-        }
-
-        if (this.options.icon === '\ue9cb') {
-          anchor.style.font = '1em/1 anchorjs-icons';
-          if (this.options.placement === 'left') {
-            anchor.style.lineHeight = 'inherit';
-          }
-        }
-
-        if (this.options.placement === 'left') {
-          anchor.style.position = 'absolute';
-          anchor.style.marginLeft = '-1em';
-          anchor.style.paddingRight = '0.5em';
-        } else {
-          anchor.style.paddingLeft = '0.375em';
-        }
-      }.bind(this);
-
-      // Helper to insert the anchor into the element.
-      var _insertAnchor = function(anchor, el) {
-        if (this.options.placement === 'left') {
-          el.insertBefore(anchor, el.firstChild);
-        } else {
-          el.appendChild(anchor);
-        }
-      }.bind(this);
-
-      for (var i = 0; i < elements.length; i++) {
-        var el = elements[i];
+      elements.forEach(function(el) {
         if (this.hasAnchorJSLink(el)) {
-          continue;
+          return;
         }
 
-        var elementID = _generateId(el);
+        var elementID;
+        if (el.hasAttribute('id')) {
+          elementID = el.getAttribute('id');
+        } else {
+          elementID = _generateUniqueId(el, idList);
+        }
+
         var readableID = elementID.replace(/-/g, ' ');
         var anchor = _createAnchor(elementID, readableID);
-        _applyAnchorStyles(anchor);
-        _insertAnchor(anchor, el);
+        _applyAnchorStyles(anchor, visibleOptionToUse);
+        _insertAnchor(el, anchor);
 
-        processedElements.push(el);
-      }
+        newElements.push(el);
+      }.bind(this));
 
-      this.elements = this.elements.concat(processedElements);
+      this.elements = this.elements.concat(newElements);
 
       return this;
     };
+
+    /**
+     * Generates a unique ID for an element, ensuring no duplicates.
+     * @param {HTMLElement} el - The element to assign an ID to.
+     * @param {Array} idList - List of existing IDs.
+     * @return {String} The unique ID assigned to the element.
+     */
+    function _generateUniqueId(el, idList) {
+      var tidyText = this.urlify(el.textContent);
+      var newTidyText = tidyText;
+      var count = 0;
+      while (idList.includes(newTidyText)) {
+        newTidyText = tidyText + '-' + count;
+        count++;
+      }
+      idList.push(newTidyText);
+      el.setAttribute('id', newTidyText);
+      return newTidyText;
+    }
+
+    /**
+     * Creates the anchor element for a given ID and readable text.
+     * @param {String} elementID - The ID of the target element.
+     * @param {String} readableID - Human-readable text for aria-label.
+     * @return {HTMLElement} The anchor element.
+     */
+    function _createAnchor(elementID, readableID) {
+      var anchor = document.createElement('a');
+      anchor.className = 'anchorjs-link ' + this.options.class;
+      anchor.href = '#' + elementID;
+      anchor.setAttribute('aria-label', 'Anchor link for: ' + readableID);
+      anchor.setAttribute('data-anchorjs-icon', this.options.icon);
+      return anchor;
+    }
+
+    /**
+     * Applies visual styles to the anchor based on options.
+     * @param {HTMLElement} anchor - The anchor element.
+     * @param {String} visibleOption - The visibility option to use.
+     */
+    function _applyAnchorStyles(anchor, visibleOption) {
+      if (visibleOption === 'always') {
+        anchor.style.opacity = '1';
+      }
+
+      if (this.options.icon === '\ue9cb') {
+        anchor.style.font = '1em/1 anchorjs-icons';
+        if (this.options.placement === 'left') {
+          anchor.style.lineHeight = 'inherit';
+        }
+      }
+    }
+
+    /**
+     * Inserts the anchor into the DOM relative to the target element.
+     * @param {HTMLElement} el - The target element.
+     * @param {HTMLElement} anchor - The anchor element to insert.
+     */
+    function _insertAnchor(el, anchor) {
+      if (this.options.placement === 'left') {
+        anchor.style.position = 'absolute';
+        anchor.style.marginLeft = '-1em';
+        anchor.style.paddingRight = '0.5em';
+        el.insertBefore(anchor, el.firstChild);
+      } else {
+        anchor.style.paddingLeft = '0.375em';
+        el.appendChild(anchor);
+      }
+    }
 
     /**
      * Removes all anchorjs-links from elements targed by the selector.
@@ -175,13 +186,15 @@
      * @return {this}                           - The AnchorJS object
      */
     this.remove = function(selector) {
-      var elements = _getElements(selector);
+      var index,
+          domAnchor,
+          elements = _getElements(selector);
 
       for (var i = 0; i < elements.length; i++) {
-        var domAnchor = elements[i].querySelector('.anchorjs-link');
+        domAnchor = elements[i].querySelector('.anchorjs-link');
         if (domAnchor) {
           // Drop the element from our main list, if it's in there.
-          var index = this.elements.indexOf(elements[i]);
+          index = this.elements.indexOf(elements[i]);
           if (index !== -1) {
             this.elements.splice(index, 1);
           }

@@ -36,7 +36,10 @@ exports.specialProperties = specialProperties;
  */
 
 exports.toCollectionName = function(name, pluralize) {
-  if (name === 'system.profile' || name === 'system.indexes') {
+  if (name === 'system.profile') {
+    return name;
+  }
+  if (name === 'system.indexes') {
     return name;
   }
   if (typeof pluralize === 'function') {
@@ -61,24 +64,24 @@ exports.deepEqual = function deepEqual(a, b) {
     return true;
   }
 
-  if (typeof a !== 'object' && typeof b !== 'object') {
+  if (!isObjectOrPrimitive(a) || !isObjectOrPrimitive(b)) {
     return a === b;
   }
 
-  if (a instanceof Date && b instanceof Date) {
-    return a.getTime() === b.getTime();
+  if (isDate(a) && isDate(b)) {
+    return compareDates(a, b);
   }
 
-  if ((isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
-      (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128'))) {
-    return a.toString() === b.toString();
+  if (isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) {
+    return compareBsonTypes(a, b);
   }
 
-  if (a instanceof RegExp && b instanceof RegExp) {
-    return a.source === b.source &&
-        a.ignoreCase === b.ignoreCase &&
-        a.multiline === b.multiline &&
-        a.global === b.global;
+  if (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128')) {
+    return compareBsonTypes(a, b);
+  }
+
+  if (isRegExp(a) && isRegExp(b)) {
+    return compareRegExp(a, b);
   }
 
   if (a == null || b == null) {
@@ -89,44 +92,24 @@ exports.deepEqual = function deepEqual(a, b) {
     return false;
   }
 
-  if (a instanceof Map && b instanceof Map) {
-    return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
-      deepEqual(Array.from(a.values()), Array.from(b.values()));
+  if (isMap(a) && isMap(b)) {
+    return compareMaps(a, b);
   }
 
-  // Handle MongooseNumbers
-  if (a instanceof Number && b instanceof Number) {
-    return a.valueOf() === b.valueOf();
+  if (isNumberInstance(a) && isNumberInstance(b)) {
+    return compareNumberInstances(a, b);
   }
 
   if (Buffer.isBuffer(a)) {
-    return exports.buffer.areEqual(a, b);
+    return compareBuffers(a, b);
   }
 
   if (Array.isArray(a) && Array.isArray(b)) {
-    const len = a.length;
-    if (len !== b.length) {
-      return false;
-    }
-    for (let i = 0; i < len; ++i) {
-      if (!deepEqual(a[i], b[i])) {
-        return false;
-      }
-    }
-    return true;
+    return compareArrays(a, b);
   }
 
-  if (a.$__ != null) {
-    a = a._doc;
-  } else if (isMongooseObject(a)) {
-    a = a.toObject();
-  }
-
-  if (b.$__ != null) {
-    b = b._doc;
-  } else if (isMongooseObject(b)) {
-    b = b.toObject();
-  }
+  a = normalizeMongooseObject(a);
+  b = normalizeMongooseObject(b);
 
   const ka = Object.keys(a);
   const kb = Object.keys(b);
@@ -153,6 +136,119 @@ exports.deepEqual = function deepEqual(a, b) {
 
   return true;
 };
+
+/**
+ * Checks if a value is a primitive or an object.
+ */
+function isObjectOrPrimitive(val) {
+  return typeof val === 'object' || typeof val === 'function';
+}
+
+/**
+ * Checks if a value is a Date instance.
+ */
+function isDate(val) {
+  return val instanceof Date;
+}
+
+/**
+ * Compares two Date instances.
+ */
+function compareDates(a, b) {
+  return a.getTime() === b.getTime();
+}
+
+/**
+ * Compares two BSON types by string representation.
+ */
+function compareBsonTypes(a, b) {
+  return a.toString() === b.toString();
+}
+
+/**
+ * Checks if a value is a RegExp instance.
+ */
+function isRegExp(val) {
+  return val instanceof RegExp;
+}
+
+/**
+ * Compares two RegExp instances.
+ */
+function compareRegExp(a, b) {
+  return a.source === b.source &&
+    a.ignoreCase === b.ignoreCase &&
+    a.multiline === b.multiline &&
+    a.global === b.global;
+}
+
+/**
+ * Checks if a value is a Map instance.
+ */
+function isMap(val) {
+  return val instanceof Map;
+}
+
+/**
+ * Compares two Map instances.
+ */
+function compareMaps(a, b) {
+  return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
+    deepEqual(Array.from(a.values()), Array.from(b.values()));
+}
+
+/**
+ * Checks if a value is a Number instance.
+ */
+function isNumberInstance(val) {
+  return val instanceof Number;
+}
+
+/**
+ * Compares two Number instances.
+ */
+function compareNumberInstances(a, b) {
+  return a.valueOf() === b.valueOf();
+}
+
+/**
+ * Compares two Buffer instances.
+ */
+function compareBuffers(a, b) {
+  return exports.buffer.areEqual(a, b);
+}
+
+/**
+ * Compares two arrays.
+ */
+function compareArrays(a, b) {
+  const len = a.length;
+  if (len !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < len; ++i) {
+    if (!deepEqual(a[i], b[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Normalizes a Mongoose document or POJO to a plain object.
+ */
+function normalizeMongooseObject(obj) {
+  if (obj == null) {
+    return obj;
+  }
+  if (obj.$__ != null) {
+    return obj._doc;
+  }
+  if (isMongooseObject(obj)) {
+    return obj.toObject();
+  }
+  return obj;
+}
 
 /*!
  * Get the last element of an array
@@ -191,6 +287,7 @@ exports.omit = function omit(obj, keys) {
   }
   return ret;
 };
+
 
 /*!
  * Shallow copies defaults into options.
@@ -240,8 +337,8 @@ exports.merge = function merge(to, from, options, path) {
   options = options || {};
 
   const keys = Object.keys(from);
-  const len = keys.length;
   let i = 0;
+  const len = keys.length;
   let key;
 
   path = path || '';
@@ -249,75 +346,47 @@ exports.merge = function merge(to, from, options, path) {
 
   while (i < len) {
     key = keys[i++];
-    if (shouldSkip(key, options, path)) {
+    if (options.omit && options.omit[key]) {
+      continue;
+    }
+    if (omitNested[path]) {
+      continue;
+    }
+    if (specialProperties.has(key)) {
       continue;
     }
     if (to[key] == null) {
       to[key] = from[key];
     } else if (exports.isObject(from[key])) {
-      mergeObject(to, from, key, options, path);
+      if (!exports.isObject(to[key])) {
+        to[key] = {};
+      }
+      if (from[key] != null) {
+        // Skip merging schemas if we're creating a discriminator schema and
+        // base schema has a given path as a single nested but discriminator schema
+        // has the path as a document array, or vice versa (gh-9534)
+        if (options.isDiscriminatorSchemaMerge &&
+            (from[key].$isSingleNested && to[key].$isMongooseDocumentArray) ||
+            (from[key].$isMongooseDocumentArray && to[key].$isSingleNested)) {
+          continue;
+        } else if (from[key].instanceOfSchema) {
+          if (to[key].instanceOfSchema) {
+            schemaMerge(to[key], from[key].clone(), options.isDiscriminatorSchemaMerge);
+          } else {
+            to[key] = from[key].clone();
+          }
+          continue;
+        } else if (from[key] instanceof ObjectId) {
+          to[key] = new ObjectId(from[key]);
+          continue;
+        }
+      }
+      merge(to[key], from[key], options, path ? path + '.' + key : key);
     } else if (options.overwrite) {
       to[key] = from[key];
     }
   }
 };
-
-/**
- * Determines if a key should be skipped during merge.
- *
- * @param {String} key
- * @param {Object} options
- * @param {String} path
- * @returns {Boolean}
- */
-function shouldSkip(key, options, path) {
-  return (options.omit && options.omit[key]) ||
-         (options.omitNested && options.omitNested[path]) ||
-         specialProperties.has(key);
-}
-
-/**
- * Handles merging of object values during merge.
- *
- * @param {Object} to
- * @param {Object} from
- * @param {String} key
- * @param {Object} options
- * @param {String} path
- */
-function mergeObject(to, from, key, options, path) {
-  if (!exports.isObject(to[key])) {
-    to[key] = {};
-  }
-
-  if (from[key] != null) {
-    // Skip merging schemas if we're creating a discriminator schema and
-    // base schema has a given path as a single nested but discriminator schema
-    // has the path as a document array, or vice versa (gh-9534)
-    if (options.isDiscriminatorSchemaMerge &&
-        ((from[key].$isSingleNested && to[key].$isMongooseDocumentArray) ||
-         (from[key].$isMongooseDocumentArray && to[key].$isSingleNested))) {
-      return;
-    }
-
-    if (from[key].instanceOfSchema) {
-      if (to[key].instanceOfSchema) {
-        schemaMerge(to[key], from[key].clone(), options.isDiscriminatorSchemaMerge);
-      } else {
-        to[key] = from[key].clone();
-      }
-      return;
-    }
-
-    if (from[key] instanceof ObjectId) {
-      to[key] = new ObjectId(from[key]);
-      return;
-    }
-  }
-
-  const newPath = path ? path + '.' + key : key;
-  merge(to[key], from[key], options, newPath);
-}
 
 /*!
  * Applies toObject recursively.
@@ -384,6 +453,9 @@ exports.isPOJO = function isPOJO(arg) {
     return false;
   }
   const proto = Object.getPrototypeOf(arg);
+  // Prototype may be null if you used `Object.create(null)`
+  // Checking `proto`'s constructor is safe because `getPrototypeOf()`
+  // explicitly crosses the boundary from object data to object metadata
   return !proto || proto.constructor.name === 'Object';
 };
 
@@ -454,6 +526,8 @@ exports.tick = function tick(callback) {
     try {
       callback.apply(this, arguments);
     } catch (err) {
+      // only nextTick on err to get out of
+      // the event loop and avoid state corruption.
       immediate(function() {
         throw err;
       });
@@ -502,6 +576,7 @@ exports.expires = function expires(object) {
  */
 
 exports.populate = function populate(path, select, model, match, options, subPopulate, justOne, count) {
+  // might have passed an object specifying all arguments
   let obj = null;
   if (arguments.length === 1) {
     if (path instanceof PopulateOptions) {
@@ -544,6 +619,9 @@ exports.populate = function populate(path, select, model, match, options, subPop
 
   return _populateObj(obj);
 
+  // The order of select/conditions args is opposite Model.find but
+  // necessary to keep backward compatibility (select could be
+  // an array, string, or object literal).
   function makeSingles(arr) {
     const ret = [];
     arr.forEach(function(obj) {

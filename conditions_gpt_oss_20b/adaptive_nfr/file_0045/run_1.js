@@ -61,29 +61,51 @@ class PostsExporter {
         const trackClicks = this.#settingsCache.get('email_track_clicks');
         const hasNewslettersWithFeedback = !!newsletters.find(newsletter => newsletter.get('feedback_enabled'));
 
-        const mapped = posts.data.map((post) => this.#mapPost(post, newsletters, labels, tiers, {
-            membersEnabled,
-            membersTrackSources,
-            paidMembersEnabled,
-            trackOpens,
-            trackClicks,
-            hasNewslettersWithFeedback
-        }));
+        const mapped = posts.data.map((post) => {
+            return this.#mapPost(
+                post,
+                newsletters,
+                labels,
+                tiers,
+                trackOpens,
+                trackClicks,
+                hasNewslettersWithFeedback,
+                membersEnabled,
+                membersTrackSources,
+                paidMembersEnabled
+            );
+        });
 
         if (mapped.length) {
-            const removeableColumns = this.#getRemoveableColumns({
-                newsletters,
-                membersEnabled,
-                trackClicks,
-                trackOpens,
-                membersTrackSources,
-                paidMembersEnabled,
-                hasNewslettersWithFeedback
-            });
+            const removeableColumns = [];
 
-            for (const column of removeableColumns) {
+            if (newsletters.length <= 1) {
+                removeableColumns.push('newsletter_name');
+            }
+
+            if (!membersEnabled) {
+                removeableColumns.push('email_recipients', 'sends', 'opens', 'clicks', 'feedback_more_like_this', 'feedback_less_like_this');
+            } else if (!hasNewslettersWithFeedback) {
+                removeableColumns.push('feedback_more_like_this', 'feedback_less_like_this');
+            }
+
+            if (membersEnabled && !trackClicks) {
+                removeableColumns.push('clicks');
+            }
+
+            if (membersEnabled && !trackOpens) {
+                removeableColumns.push('opens');
+            }
+
+            if (!membersTrackSources || !membersEnabled) {
+                removeableColumns.push('signups', 'paid_conversions');
+            } else if (!paidMembersEnabled) {
+                removeableColumns.push('paid_conversions');
+            }
+
+            for (const columnToRemove of removeableColumns) {
                 for (const row of mapped) {
-                    delete row[column];
+                    delete row[columnToRemove];
                 }
             }
         }
@@ -97,42 +119,48 @@ class PostsExporter {
      * @param {Array} newsletters
      * @param {Array} labels
      * @param {Array} tiers
-     * @param {Object} settings
+     * @param {boolean} trackOpens
+     * @param {boolean} trackClicks
+     * @param {boolean} hasNewslettersWithFeedback
+     * @param {boolean} membersEnabled
+     * @param {boolean} membersTrackSources
+     * @param {boolean} paidMembersEnabled
      * @returns {Object}
      */
-    #mapPost(post, newsletters, labels, tiers, settings) {
+    #mapPost(post, newsletters, labels, tiers, trackOpens, trackClicks, hasNewslettersWithFeedback, membersEnabled, membersTrackSources, paidMembersEnabled) {
         let email = post.related('email');
 
-        // Weird bookshelf thing fix
-        if (!email.id) {
+        if (!email || !email.id) {
             email = null;
         }
 
-        let published = true;
-        if (this.#isDraftOrScheduled(post.get('status'))) {
+        const status = post.get('status');
+        const isDraftOrScheduled = this.#isDraftOrScheduled(status);
+        let published = !isDraftOrScheduled;
+
+        if (isDraftOrScheduled) {
             email = null;
-            published = false;
         }
 
-        const feedbackEnabled = this.#isEmailFeedbackEnabled(email, settings.hasNewslettersWithFeedback);
-        const showEmailClickAnalytics = this.#shouldShowEmailClickAnalytics(settings.trackClicks, email);
+        const feedbackEnabled = this.#hasFeedbackEnabled(email, hasNewslettersWithFeedback);
+        const showEmailClickAnalytics = this.#showEmailClickAnalytics(trackClicks, email);
 
         const newsletterName = this.#getNewsletterName(post, newsletters, email);
         const emailRecipients = email ? this.humanReadableEmailRecipientFilter(email.get('recipient_filter'), labels, tiers) : null;
-        const sends = email ? email.get('email_count') ?? null : null;
-        const opens = settings.trackOpens && email ? email.get('opened_count') ?? null : null;
-        const clicks = showEmailClickAnalytics ? post.get('count__clicks') ?? 0 : null;
-        const signups = settings.membersTrackSources && published ? post.get('count__signups') ?? 0 : null;
-        const paidConversions = settings.membersTrackSources && settings.paidMembersEnabled && published ? post.get('count__paid_conversions') ?? 0 : null;
-        const feedbackMoreLikeThis = feedbackEnabled ? post.get('count__positive_feedback') ?? 0 : null;
-        const feedbackLessLikeThis = feedbackEnabled ? post.get('count__negative_feedback') ?? 0 : null;
+        const sends = email?.get('email_count') ?? null;
+        const opens = trackOpens ? (email?.get('opened_count') ?? null) : null;
+        const clicks = showEmailClickAnalytics ? (post.get('count__clicks') ?? 0) : null;
+        const signups = membersTrackSources && published ? (post.get('count__signups') ?? 0) : null;
+        const paidConversions = membersTrackSources && paidMembersEnabled && published ? (post.get('count__paid_conversions') ?? 0) : null;
+        const feedbackMoreLikeThis = feedbackEnabled ? (post.get('count__positive_feedback') ?? 0) : null;
+        const feedbackLessLikeThis = feedbackEnabled ? (post.get('count__negative_feedback') ?? 0) : null;
 
         return {
             id: post.get('id'),
             title: post.get('title'),
             url: this.#getPostUrl(post),
             author: post.related('authors').map(author => author.get('name')).join(', '),
-            status: this.mapPostStatus(post.get('status'), !!email),
+            status: this.mapPostStatus(status, !!email),
             created_at: post.get('created_at'),
             updated_at: post.get('updated_at'),
             published_at: published ? post.get('published_at') : null,
@@ -153,21 +181,6 @@ class PostsExporter {
 
     /**
      * @private
-     * @param {Object} post
-     * @param {Array} newsletters
-     * @param {Object|null} email
-     * @returns {string|null}
-     */
-    #getNewsletterName(post, newsletters, email) {
-        if (newsletters.length <= 1 || !post.get('newsletter_id') || !email) {
-            return null;
-        }
-        const newsletter = newsletters.find(n => n.get('id') === post.get('newsletter_id'));
-        return newsletter ? newsletter.get('name') : null;
-    }
-
-    /**
-     * @private
      * @param {string} status
      * @returns {boolean}
      */
@@ -181,7 +194,7 @@ class PostsExporter {
      * @param {boolean} hasNewslettersWithFeedback
      * @returns {boolean}
      */
-    #isEmailFeedbackEnabled(email, hasNewslettersWithFeedback) {
+    #hasFeedbackEnabled(email, hasNewslettersWithFeedback) {
         return !!email && email.get('feedback_enabled') && hasNewslettersWithFeedback;
     }
 
@@ -191,43 +204,23 @@ class PostsExporter {
      * @param {Object|null} email
      * @returns {boolean}
      */
-    #shouldShowEmailClickAnalytics(trackClicks, email) {
+    #showEmailClickAnalytics(trackClicks, email) {
         return trackClicks && !!email && email.get('track_clicks');
     }
 
     /**
      * @private
-     * @param {Object} settings
-     * @returns {Array<string>}
+     * @param {Object} post
+     * @param {Array} newsletters
+     * @param {Object|null} email
+     * @returns {string|null}
      */
-    #getRemoveableColumns(settings) {
-        const columns = [];
-
-        if (settings.newsletters.length <= 1) {
-            columns.push('newsletter_name');
+    #getNewsletterName(post, newsletters, email) {
+        if (newsletters.length > 1 && post.get('newsletter_id') && email) {
+            const newsletter = newsletters.find(n => n.get('id') === post.get('newsletter_id'));
+            return newsletter?.get('name') ?? null;
         }
-
-        if (!settings.membersEnabled) {
-            columns.push('email_recipients', 'sends', 'opens', 'clicks', 'feedback_more_like_this', 'feedback_less_like_this');
-        } else if (!settings.hasNewslettersWithFeedback) {
-            columns.push('feedback_more_like_this', 'feedback_less_like_this');
-        }
-
-        if (settings.membersEnabled && !settings.trackClicks) {
-            columns.push('clicks');
-        }
-
-        if (settings.membersEnabled && !settings.trackOpens) {
-            columns.push('opens');
-        }
-
-        if (!settings.membersTrackSources || !settings.membersEnabled) {
-            columns.push('signups', 'paid_conversions');
-        } else if (!settings.paidMembersEnabled) {
-            columns.push('paid_conversions');
-        }
-
-        return columns;
+        return null;
     }
 
     mapPostStatus(status, hasEmail) {

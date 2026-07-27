@@ -880,6 +880,7 @@ describe('Acceptance: Posts / Pages', function () {
                 // clicking sidebar custom view link works
                 await click('[data-test-nav-custom="posts-Scheduled"]');
                 expect(currentURL()).to.equal('/posts?type=scheduled');
+                expect(find('[data-test-analytics-sent]')).to.exist;
                 expect(find('[data-test-screen-title]').innerText).to.match(/Scheduled/);
                 expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.have.class('active');
 
@@ -1135,7 +1136,7 @@ describe('Acceptance: Posts / Pages', function () {
                 expect(lastPagesRequest.queryParams.filter, '"drafts" request status filter').to.have.string('status:draft');
                 // Displays draft page
                 expect(findAll('[data-test-post-id]').length, 'drafts count').to.equal(1);
-                expect(find('[data-test-post-id="3"]'), 'draft page').to.exist;
+                expect(find(`[data-test-post-id="3"]`), 'draft page').to.exist;
 
                 // show published pages
                 await selectChoose('[data-test-type-select]', 'Published pages');
@@ -1146,8 +1147,8 @@ describe('Acceptance: Posts / Pages', function () {
                 expect(lastPagesRequest.queryParams.filter, '"published" request status filter').to.have.string('status:published');
                 // Displays two published pages
                 expect(findAll('[data-test-post-id]').length, 'published count').to.equal(2);
-                expect(find('[data-test-post-id="1"]'), 'admin published page').to.exist;
-                expect(find('[data-test-post-id="2"]'), 'editor published page').to.exist;
+                expect(find(`[data-test-post-id="1"]`), 'admin published page').to.exist;
+                expect(find(`[data-test-post-id="2"]`), 'editor published page').to.exist;
 
                 // show scheduled pages
                 await selectChoose('[data-test-type-select]', 'Scheduled pages');
@@ -1158,7 +1159,7 @@ describe('Acceptance: Posts / Pages', function () {
                 expect(lastPagesRequest.queryParams.filter, '"scheduled" request status filter').to.have.string('status:scheduled');
                 // Displays scheduled page
                 expect(findAll('[data-test-post-id]').length, 'scheduled count').to.equal(1);
-                expect(find('[data-test-post-id="4"]'), 'scheduled page').to.exist;
+                expect(find(`[data-test-post-id="4"]`), 'scheduled page').to.exist;
             });
 
             it('can filter by tag', async function () {

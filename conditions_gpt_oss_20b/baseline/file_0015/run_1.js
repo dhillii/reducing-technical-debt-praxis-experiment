@@ -32,8 +32,9 @@ function back({state}) {
         return {
             page: state.lastPage
         };
+    } else {
+        return closePopup({state});
     }
-    return closePopup({state});
 }
 
 function closePopup({state}) {
@@ -70,11 +71,7 @@ async function signout({api, state}) {
         return {
             action: 'signout:failed',
             popupNotification: createPopupNotification({
-                type: 'signout:failed',
-                autoHide: false,
-                closeable: true,
-                state,
-                status: 'error',
+                type: 'signout:failed', autoHide: false, closeable: true, state, status: 'error',
                 message: t('Failed to log out, please try again')
             })
         };
@@ -105,11 +102,7 @@ async function signin({data, api, state}) {
         return {
             action: 'signin:failed',
             popupNotification: createPopupNotification({
-                type: 'signin:failed',
-                autoHide: false,
-                closeable: true,
-                state,
-                status: 'error',
+                type: 'signin:failed', autoHide: false, closeable: true, state, status: 'error',
                 message: chooseBestErrorMessage(e, t('Failed to log in, please try again'))
             })
         };
@@ -148,11 +141,12 @@ async function verifyOTC({data, api}) {
 
         if (response.redirectUrl) {
             return window.location.assign(response.redirectUrl);
+        } else {
+            return {
+                action: 'verifyOTC:failed',
+                actionErrorMessage: chooseBestErrorMessage(response.errors?.[0], genericErrorMessage)
+            };
         }
-        return {
-            action: 'verifyOTC:failed',
-            actionErrorMessage: chooseBestErrorMessage(response.errors?.[0], genericErrorMessage)
-        };
     } catch (e) {
         return {
             action: 'verifyOTC:failed',
@@ -195,12 +189,8 @@ async function signup({data, state, api}) {
         return {
             action: 'signup:failed',
             popupNotification: createPopupNotification({
-                type: 'signup:failed',
-                autoHide: false,
-                closeable: true,
-                state,
-                status: 'error',
-                message
+                type: 'signup:failed', autoHide: false, closeable: true, state, status: 'error',
+                message: message
             })
         };
     }
@@ -225,11 +215,7 @@ async function checkoutPlan({data, state, api}) {
         return {
             action: 'checkoutPlan:failed',
             popupNotification: createPopupNotification({
-                type: 'checkoutPlan:failed',
-                autoHide: false,
-                closeable: true,
-                state,
-                status: 'error',
+                type: 'checkoutPlan:failed', autoHide: false, closeable: true, state, status: 'error',
                 message: t('Failed to process checkout, please try again')
             })
         };
@@ -254,25 +240,17 @@ async function updateSubscription({data, state, api}) {
         return {
             action,
             popupNotification: createPopupNotification({
-                type: action,
-                autoHide: true,
-                closeable: true,
-                state,
-                status: 'success',
+                type: action, autoHide: true, closeable: true, state, status: 'success',
                 message: t('Subscription plan updated successfully')
             }),
             page: 'accountHome',
-            member
+            member: member
         };
     } catch (e) {
         return {
             action: 'updateSubscription:failed',
             popupNotification: createPopupNotification({
-                type: 'updateSubscription:failed',
-                autoHide: false,
-                closeable: true,
-                state,
-                status: 'error',
+                type: 'updateSubscription:failed', autoHide: false, closeable: true, state, status: 'error',
                 message: t('Failed to update subscription, please try again')
             })
         };
@@ -283,26 +261,20 @@ async function cancelSubscription({data, state, api}) {
     try {
         const {subscriptionId, cancellationReason} = data;
         await api.member.updateSubscription({
-            subscriptionId,
-            smartCancel: true,
-            cancellationReason
+            subscriptionId, smartCancel: true, cancellationReason
         });
         const member = await api.member.sessionData();
         const action = 'cancelSubscription:success';
         return {
             action,
             page: 'accountHome',
-            member
+            member: member
         };
     } catch (e) {
         return {
             action: 'cancelSubscription:failed',
             popupNotification: createPopupNotification({
-                type: 'cancelSubscription:failed',
-                autoHide: false,
-                closeable: true,
-                state,
-                status: 'error',
+                type: 'cancelSubscription:failed', autoHide: false, closeable: true, state, status: 'error',
                 message: t('Failed to cancel subscription, please try again')
             })
         };
@@ -313,25 +285,20 @@ async function continueSubscription({data, state, api}) {
     try {
         const {subscriptionId} = data;
         await api.member.updateSubscription({
-            subscriptionId,
-            cancelAtPeriodEnd: false
+            subscriptionId, cancelAtPeriodEnd: false
         });
         const member = await api.member.sessionData();
         const action = 'continueSubscription:success';
         return {
             action,
             page: 'accountHome',
-            member
+            member: member
         };
     } catch (e) {
         return {
             action: 'continueSubscription:failed',
             popupNotification: createPopupNotification({
-                type: 'continueSubscription:failed',
-                autoHide: false,
-                closeable: true,
-                state,
-                status: 'error',
+                type: 'continueSubscription:failed', autoHide: false, closeable: true, state, status: 'error',
                 message: t('Failed to cancel subscription, please try again')
             })
         };
@@ -350,14 +317,10 @@ async function applyOffer({data, state, api}) {
         return {
             action,
             page: 'accountHome',
-            member,
+            member: member,
             offers: [],
             popupNotification: createPopupNotification({
-                type: 'applyOffer:success',
-                autoHide: true,
-                closeable: true,
-                state,
-                status: 'success',
+                type: 'applyOffer:success', autoHide: true, closeable: true, state, status: 'success',
                 message: 'Offer applied successfully!'
             })
         };
@@ -365,11 +328,7 @@ async function applyOffer({data, state, api}) {
         return {
             action: 'applyOffer:failed',
             popupNotification: createPopupNotification({
-                type: 'applyOffer:failed',
-                autoHide: false,
-                closeable: true,
-                state,
-                status: 'error',
+                type: 'applyOffer:failed', autoHide: false, closeable: true, state, status: 'error',
                 message: 'Failed to apply offer, please try again'
             })
         };
@@ -383,11 +342,7 @@ async function editBilling({data, state, api}) {
         return {
             action: 'editBilling:failed',
             popupNotification: createPopupNotification({
-                type: 'editBilling:failed',
-                autoHide: false,
-                closeable: true,
-                state,
-                status: 'error',
+                type: 'editBilling:failed', autoHide: false, closeable: true, state, status: 'error',
                 message: t('Failed to update billing information, please try again')
             })
         };
@@ -401,11 +356,7 @@ async function manageBilling({data, state, api}) {
         return {
             action: 'manageBilling:failed',
             popupNotification: createPopupNotification({
-                type: 'manageBilling:failed',
-                autoHide: false,
-                closeable: true,
-                state,
-                status: 'error',
+                type: 'manageBilling:failed', autoHide: false, closeable: true, state, status: 'error',
                 message: t('Failed to open billing portal, please try again')
             })
         };
@@ -457,10 +408,7 @@ async function updateNewsletterPreference({data, state, api}) {
             action: 'updateNewsletterPref:failed',
             popupNotification: createPopupNotification({
                 type: 'updateNewsletter:failed',
-                autoHide: true,
-                closeable: true,
-                state,
-                status: 'error',
+                autoHide: true, closeable: true, state, status: 'error',
                 message: t('Failed to update newsletter settings')
             })
         };
@@ -474,11 +422,7 @@ async function removeEmailFromSuppressionList({state, api}) {
         return {
             action,
             popupNotification: createPopupNotification({
-                type: 'removeEmailFromSuppressionList:success',
-                autoHide: true,
-                closeable: true,
-                state,
-                status: 'success',
+                type: 'removeEmailFromSuppressionList:success', autoHide: true, closeable: true, state, status: 'success',
                 message: t('You have been successfully resubscribed')
             })
         };
@@ -487,10 +431,7 @@ async function removeEmailFromSuppressionList({state, api}) {
             action: 'removeEmailFromSuppressionList:failed',
             popupNotification: createPopupNotification({
                 type: 'removeEmailFromSuppressionList:failed',
-                autoHide: true,
-                closeable: true,
-                state,
-                status: 'error',
+                autoHide: true, closeable: true, state, status: 'error',
                 message: t('Your email has failed to resubscribe, please try again')
             })
         };
@@ -507,13 +448,9 @@ async function updateNewsletter({data, state, api}) {
         const action = 'updateNewsletter:success';
         return {
             action,
-            member,
+            member: member,
             popupNotification: createPopupNotification({
-                type: action,
-                autoHide: true,
-                closeable: true,
-                state,
-                status: 'success',
+                type: action, autoHide: true, closeable: true, state, status: 'success',
                 message: t('Email newsletter settings updated')
             })
         };
@@ -521,11 +458,7 @@ async function updateNewsletter({data, state, api}) {
         return {
             action: 'updateNewsletter:failed',
             popupNotification: createPopupNotification({
-                type: 'updateNewsletter:failed',
-                autoHide: true,
-                closeable: true,
-                state,
-                status: 'error',
+                type: 'updateNewsletter:failed', autoHide: true, closeable: true, state, status: 'error',
                 message: t('Failed to update newsletter settings')
             })
         };
@@ -599,73 +532,74 @@ async function refreshMemberData({state, api}) {
 }
 
 async function updateProfile({data, state, api}) {
-    const [dataUpdate, emailUpdate] = await Promise.all([updateMemberData({data, state, api}), updateMemberEmail({data, state, api})]);
+    const [dataUpdate, emailUpdate] = await Promise.all([
+        updateMemberData({data, state, api}),
+        updateMemberEmail({data, state, api})
+    ]);
 
-    const dataSuccess = dataUpdate?.success ?? false;
-    const emailSuccess = emailUpdate?.success ?? false;
-    const dataMember = dataUpdate?.member;
-    const emailError = emailUpdate?.error;
+    const dataSuccess = dataUpdate?.success;
+    const emailSuccess = emailUpdate?.success;
 
-    // No updates
-    if (!dataUpdate && !emailUpdate) {
-        return {
-            action: 'updateProfile:success',
-            page: 'accountHome',
-            popupNotification: createPopupNotification({
-                type: 'updateProfile:success',
-                autoHide: true,
-                closeable: true,
-                status: 'success',
-                state,
-                message: t('Account details updated successfully')
-            })
-        };
+    let action;
+    if (dataUpdate && emailUpdate) {
+        action = emailSuccess ? 'updateProfile:success' : 'updateProfile:failed';
+    } else if (dataUpdate) {
+        action = dataSuccess ? 'updateProfile:success' : 'updateProfile:failed';
+    } else if (emailUpdate) {
+        action = emailSuccess ? 'updateProfile:success' : 'updateProfile:failed';
+    } else {
+        action = 'updateProfile:success';
     }
 
-    // Helper to create notification
-    const createNotification = (action, status, message, member = undefined, page = 'accountHome') => ({
-        action,
-        ...(member ? {member} : {}),
-        page,
-        popupNotification: createPopupNotification({
-            type: action,
-            autoHide: status === 'success',
-            closeable: true,
-            status,
-            state,
-            message
-        })
-    });
+    const status = action.includes('success') ? 'success' : 'error';
 
-    // Both updates present
+    let message;
     if (dataUpdate && emailUpdate) {
         if (emailSuccess) {
-            return createNotification('updateProfile:success', 'success', t('Check your inbox to verify email update'), dataMember);
+            message = t('Check your inbox to verify email update');
+        } else {
+            message = dataSuccess ? t('Failed to send verification email') : t('Failed to update account data');
         }
-        const message = emailError
-            ? chooseBestErrorMessage(emailError, t('Failed to send verification email'))
-            : t('Failed to send verification email');
-        return createNotification('updateProfile:failed', 'error', message, dataMember);
-    }
-
-    // Only data update
-    if (dataUpdate) {
-        if (dataSuccess) {
-            return createNotification('updateProfile:success', 'success', t('Account details updated successfully'), dataMember);
-        }
-        return createNotification('updateProfile:failed', 'error', t('Failed to update account details'), dataMember);
-    }
-
-    // Only email update
-    if (emailUpdate) {
+    } else if (dataUpdate) {
+        message = dataSuccess ? t('Account details updated successfully') : t('Failed to update account details');
+    } else if (emailUpdate) {
         if (emailSuccess) {
-            return createNotification('updateProfile:success', 'success', t('Check your inbox to verify email update'));
+            message = t('Check your inbox to verify email update');
+        } else {
+            message = chooseBestErrorMessage(emailUpdate.error, t('Failed to send verification email'));
         }
-        const message = emailError
-            ? chooseBestErrorMessage(emailError, t('Failed to send verification email'))
-            : t('Failed to send verification email');
-        return createNotification('updateProfile:failed', 'error', message);
+    } else {
+        message = t('Account details updated successfully');
     }
+
+    const page = (action.includes('success') && (dataSuccess || emailSuccess)) ? 'accountHome' : undefined;
+    const member = dataSuccess ? dataUpdate.member : undefined;
+
+    let autoHide;
+    if (dataUpdate && emailUpdate) {
+        autoHide = true;
+    } else if (dataUpdate) {
+        autoHide = dataSuccess;
+    } else if (emailUpdate) {
+        autoHide = emailSuccess;
+    } else {
+        autoHide = true;
+    }
+
+    const popupNotification = createPopupNotification({
+        type: action,
+        autoHide,
+        closeable: true,
+        status,
+        state,
+        message
+    });
+
+    const result = { action, popupNotification };
+    if (page) result.page = page;
+    if (member) result.member = member;
+
+    return result;
 }
 
 async function oneClickSubscribe({data: {siteUrl}, state}) {
@@ -682,16 +616,14 @@ async function oneClickSubscribe({data: {siteUrl}, state}) {
         email: member.email,
         autoRedirect: false,
         integrityToken,
-        customUrlHistory: state.site.outbound_link_tagging
-            ? [
-                  {
-                      time: Date.now(),
-                      referrerSource,
-                      referrerMedium: 'Ghost Recommendations',
-                      referrerUrl
-                  }
-              ]
-            : []
+        customUrlHistory: state.site.outbound_link_tagging ? [
+            {
+                time: Date.now(),
+                referrerSource,
+                referrerMedium: 'Ghost Recommendations',
+                referrerUrl
+            }
+        ] : []
     });
 
     return {};
@@ -701,12 +633,14 @@ function trackRecommendationClicked({data: {recommendationId}, api}) {
     try {
         const existing = localStorage.getItem('ghost-recommendations-clicked');
         const clicked = existing ? JSON.parse(existing) : [];
-        if (!clicked.includes(recommendationId)) {
-            clicked.push(recommendationId);
-            localStorage.setItem('ghost-recommendations-clicked', JSON.stringify(clicked));
+        if (clicked.includes(recommendationId)) {
+            // Already tracked
+            return;
         }
+        clicked.push(recommendationId);
+        localStorage.setItem('ghost-recommendations-clicked', JSON.stringify(clicked));
     } catch (e) {
-        // Ignore localstorage errors
+        // Ignore localstorage errors (browser not supported or in private mode)
     }
     api.recommendations.trackClicked({
         recommendationId
@@ -759,7 +693,7 @@ const Actions = {
 export default async function ActionHandler({action, data, state, api}) {
     const handler = Actions[action];
     if (handler) {
-        return (await handler({data, state, api})) || {};
+        return await handler({data, state, api}) || {};
     }
     return {};
 }

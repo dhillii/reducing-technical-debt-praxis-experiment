@@ -74,7 +74,7 @@ const ModalStepper = ({
     goTo(next);
   };
 
-  downloadFilesRef.current = async () => {
+  const downloadFilesRefCurrent = async () => {
     const files = getFilesToDownload(filesToUpload);
 
     if (files.length > 0) {
@@ -117,9 +117,11 @@ const ModalStepper = ({
         })
       );
     } catch (err) {
-      // Silent
+      console.error('downloadFilesRef error', err);
     }
   };
+
+  downloadFilesRef.current = downloadFilesRefCurrent;
 
   const handleAbortUpload = () => {
     const { abortController } = fileToEdit;

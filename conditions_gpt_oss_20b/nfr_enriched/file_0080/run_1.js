@@ -294,34 +294,22 @@ internals.Request.prototype.getLog = function (tags, internal) {
     }
 
     tags = [].concat(tags || []);
-    if (!tags.length &&
-        internal === undefined) {
 
+    if (!tags.length && internal === undefined) {
         return this._logger;
     }
 
-    const filter = tags.length ? Hoek.mapToObject(tags) : null;
-    const result = [];
+    const filterTags = tags.length ? Hoek.mapToObject(tags) : null;
 
-    for (let i = 0; i < this._logger.length; ++i) {
-        const event = this._logger[i];
-        if (internal === undefined || event.internal === internal) {
-            if (filter) {
-                for (let j = 0; j < event.tags.length; ++j) {
-                    const tag = event.tags[j];
-                    if (filter[tag]) {
-                        result.push(event);
-                        break;
-                    }
-                }
-            }
-            else {
-                result.push(event);
-            }
+    return this._logger.filter(event => {
+        if (internal !== undefined && event.internal !== internal) {
+            return false;
         }
-    }
-
-    return result;
+        if (!filterTags) {
+            return true;
+        }
+        return event.tags.some(tag => filterTags[tag]);
+    });
 };
 
 
@@ -384,23 +372,22 @@ internals.Request.prototype._lifecycle = function () {
 
     this._setTimeouts();
 
-    return Items.serial(this._route._cycle, (func, next) => this._lifecycleEach(func, next), (err) => this._reply(err));
-};
+    const each = (func, next) => {
 
+        if (this._isReplied ||
+            this._isBailed) {
 
-internals.Request.prototype._lifecycleEach = function (func, next) {
+            return next(Boom.internal('Already closed'));                       // Error is not used
+        }
 
-    if (this._isReplied ||
-        this._isBailed) {
+        if (typeof func !== 'function') {                                       // Extension point
+            return this._invoke(func, next);                                    // next() called with response object which ends processing (treated like error)
+        }
 
-        return next(Boom.internal('Already closed'));
-    }
+        return func(this, next);
+    };
 
-    if (typeof func !== 'function') {
-        return this._invoke(func, next);
-    }
-
-    return func(this, next);
+    return Items.serial(this._route._cycle, each, (err) => this._reply(err));
 };
 
 
@@ -409,7 +396,7 @@ internals.Request.prototype._setTimeouts = function () {
     if (this.raw.req.socket &&
         this.route.settings.timeout.socket !== undefined) {
 
-        this.raw.req.socket.setTimeout(this.route.settings.timeout.socket || 0);      // Value can be false or positive
+        this.raw.req.socket.setTimeout(this.route.settings.timeout.socket || 0);    // Value can be false or positive
     }
 
     let serverTimeout = this.route.settings.timeout.server;
@@ -433,93 +420,80 @@ internals.Request.prototype._setTimeouts = function () {
 internals.Request.prototype._invoke = function (event, callback) {
 
     this._protect.run(callback, (exit) => {
-        Items.serial(event.nodes, (ext, next) => this._invokeEach(event, ext, next), exit);
+
+        const each = (ext, next) => {
+
+            const finalize = (result, override) => {
+
+                if (override) {
+                    this._setResponse(override);
+                }
+
+                return next(result);            // next() called with response object which ends processing (treated like error)
+            };
+
+            const options = { postHandler: (event.type === 'onPostHandler' || event.type === 'onPreResponse') };
+            const reply = this.server._replier.interface(this, ext.plugin.realm, options, finalize);
+            const bind = (ext.bind || ext.plugin.realm.settings.bind);
+
+            ext.func.call(bind, this, reply);
+        };
+
+        Items.serial(event.nodes, each, exit);
     });
-};
-
-
-internals.Request.prototype._invokeEach = function (event, ext, next) {
-
-    const finalize = (result, override) => {
-        if (override) {
-            this._setResponse(override);
-        }
-        next(result);
-    };
-
-    const options = { postHandler: (event.type === 'onPostHandler' || event.type === 'onPreResponse') };
-    const reply = this.server._replier.interface(this, ext.plugin.realm, options, finalize);
-    const bind = (ext.bind || ext.plugin.realm.settings.bind);
-
-    ext.func.call(bind, this, reply);
 };
 
 
 internals.Request.prototype._reply = function (exit) {
 
-    if (this._isReplied) {
+    if (this._isReplied) {                                  // Prevent any future responses to this request
         return;
     }
 
     this._isReplied = true;
+
     clearTimeout(this._serverTimeoutId);
 
     if (this._isBailed) {
         return this._finalize();
     }
 
-    if (this.response && this.response.closed) {
+    if (this.response &&                                    // Can be null if response coming from exit
+        this.response.closed) {
+
         if (this.response.end) {
-            this.raw.res.end();
+            this.raw.res.end();                             // End the response in case it wasn't already closed
         }
+
         return this._finalize();
     }
 
-    if (exit) {
+    if (exit) {                                             // Can be a valid response or error (if returned from an ext, already handled because this.response is also set)
         this._setResponse(Response.wrap(exit, this));
     }
 
     this._protect.reset();
 
-    const finalCallback = () => this._finalize();
+    const transmit = (err) => {
+
+        if (err) {                                          // Can be valid response or error
+            this._setResponse(Response.wrap(err, this));
+        }
+
+        return Transmit.send(this, () => this._finalize());
+    };
 
     if (!this._route._extensions.onPreResponse.nodes) {
-        return this._transmit(null, finalCallback);
+        return transmit();
     }
 
-    return this._invoke(this._route._extensions.onPreResponse, (err) => this._transmit(err, finalCallback));
-};
-
-
-internals.Request.prototype._transmit = function (err, callback) {
-
-    if (err) {
-        this._setResponse(Response.wrap(err, this));
-    }
-
-    Transmit.send(this, callback);
+    return this._invoke(this._route._extensions.onPreResponse, transmit);
 };
 
 
 internals.Request.prototype._finalize = function () {
 
     this.info.responded = Date.now();
-
-    this._finalizeResponseError();
-
-    this.connection.emit('response', this);
-
-    this._isFinalized = true;
-    this.addTail = undefined;
-    this.tail = undefined;
-
-    this._finalizeTail();
-
-    this._finalizeCleanup();
-};
-
-
-internals.Request.prototype._finalizeResponseError = function () {
 
     if (this.response &&
         this.response.statusCode === 500 &&
@@ -528,20 +502,18 @@ internals.Request.prototype._finalizeResponseError = function () {
         this.connection.emit('request-error', [this, this.response._error]);
         this._log(this.response._error.isDeveloperError ? ['internal', 'implementation', 'error'] : ['internal', 'error'], this.response._error);
     }
-};
 
+    this.connection.emit('response', this);
 
-internals.Request.prototype._finalizeTail = function () {
+    this._isFinalized = true;
+    this.addTail = undefined;
+    this.tail = undefined;
 
-    if (Object.keys(this._tails).length === 0 &&
-        this._isFinalized) {
-
+    if (Object.keys(this._tails).length === 0) {
         this.connection.emit('tail', this);
     }
-};
 
-
-internals.Request.prototype._finalizeCleanup = function () {
+    // Cleanup
 
     this.raw.req.removeListener('end', this._onEnd);
     this.raw.req.removeListener('close', this._onClose);
@@ -558,6 +530,28 @@ internals.Request.prototype._finalizeCleanup = function () {
 };
 
 
+internals.Request.prototype._setResponse = function (response) {
+
+    if (this.response &&
+        !this.response.isBoom &&
+        this.response !== response &&
+        (response.isBoom || this.response.source !== response.source)) {
+
+        this.response._close();
+    }
+
+    if (this._isFinalized) {
+        if (response._close) {
+            response._close();
+        }
+
+        return;
+    }
+
+    this.response = response;
+};
+
+
 internals.Request.prototype._addTail = function (name) {
 
     name = name || 'unknown';
@@ -567,31 +561,25 @@ internals.Request.prototype._addTail = function (name) {
 
     const drop = () => {
 
-        this._dropTail(tailId, name);
+        if (!this._tails[tailId]) {
+            this._log(['tail', 'remove', 'error'], { name, id: tailId });             // Already removed
+            return;
+        }
+
+        delete this._tails[tailId];
+
+        if (Object.keys(this._tails).length === 0 &&
+            this._isFinalized) {
+
+            this._log(['tail', 'remove', 'last'], { name, id: tailId });
+            this.connection.emit('tail', this);
+        }
+        else {
+            this._log(['tail', 'remove'], { name, id: tailId });
+        }
     };
 
     return drop;
-};
-
-
-internals.Request.prototype._dropTail = function (tailId, name) {
-
-    if (!this._tails[tailId]) {
-        this._log(['tail', 'remove', 'error'], { name, id: tailId });             // Already removed
-        return;
-    }
-
-    delete this._tails[tailId];
-
-    if (Object.keys(this._tails).length === 0 &&
-        this._isFinalized) {
-
-        this._log(['tail', 'remove', 'last'], { name, id: tailId });
-        this.connection.emit('tail', this);
-    }
-    else {
-        this._log(['tail', 'remove'], { name, id: tailId });
-    }
 };
 
 

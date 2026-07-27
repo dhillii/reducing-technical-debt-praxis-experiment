@@ -22,7 +22,7 @@ const mkdirp = require('mkdirp').sync;
 const win32 = process.platform === 'win32';
 
 // Normalize \\ paths to / paths.
-const unixifyPath = function(filepath) {
+const unixifyPath = (filepath) => {
   if (win32) {
     return filepath.replace(/\\/g, '/');
   } else {
@@ -38,11 +38,11 @@ file.setBase = function() {
 
 // Process specified wildcard glob patterns or filenames against a
 // callback, excluding and uniquing files in the result set.
-const processPatterns = function(patterns, fn) {
+const processPatterns = (patterns, fn) => {
   // Filepaths to return.
   let result = [];
   // Iterate over flattened patterns array.
-  grunt.util._.flattenDeep(patterns).forEach(function(pattern) {
+  grunt.util._.flattenDeep(patterns).forEach((pattern) => {
     // If the first character is ! it should be omitted
     const exclusion = pattern.indexOf('!') === 0;
     // If the pattern is an exclusion, remove the !
@@ -76,7 +76,7 @@ file.match = function(options, patterns, filepaths) {
   // Return empty set if there are no patterns or filepaths.
   if (patterns.length === 0 || filepaths.length === 0) { return []; }
   // Return all matching filepaths.
-  return processPatterns(patterns, function(pattern) {
+  return processPatterns(patterns, (pattern) => {
     return file.minimatch.match(filepaths, pattern, options);
   });
 };
@@ -99,13 +99,13 @@ file.expand = function() {
   // Return empty set if there are no patterns or filepaths.
   if (patterns.length === 0) { return []; }
   // Return all matching filepaths.
-  let matches = processPatterns(patterns, function(pattern) {
+  let matches = processPatterns(patterns, (pattern) => {
     // Find all matching files for this pattern.
     return file.glob.sync(pattern, options);
   });
   // Filter result set?
   if (options.filter) {
-    matches = matches.filter(function(filepath) {
+    matches = matches.filter((filepath) => {
       filepath = path.join(options.cwd || '', filepath);
       try {
         if (typeof options.filter === 'function') {
@@ -140,10 +140,10 @@ file.expandMapping = function(patterns, destBase, options) {
       return path.join(destBase || '', destPath);
     }
   });
-  const files = [];
-  const fileByDest = {};
+  let files = [];
+  let fileByDest = {};
   // Find all files matching pattern, using passed-in options.
-  file.expand(options, patterns).forEach(function(src) {
+  file.expand(options, patterns).forEach((src) => {
     let destPath = src;
     // Flatten?
     if (options.flatten) {
@@ -154,24 +154,24 @@ file.expandMapping = function(patterns, destBase, options) {
       destPath = destPath.replace(extDotRe[options.extDot], options.ext);
     }
     // Generate destination filename.
-    const dest = options.rename(destBase, destPath, options);
+    let dest = options.rename(destBase, destPath, options);
     // Prepend cwd to src path if necessary.
     if (options.cwd) { src = path.join(options.cwd, src); }
     // Normalize filepaths to be unix-style.
-    const normDest = dest.replace(pathSeparatorRe, '/');
-    const normSrc = src.replace(pathSeparatorRe, '/');
+    dest = dest.replace(pathSeparatorRe, '/');
+    src = src.replace(pathSeparatorRe, '/');
     // Map correct src path to dest path.
-    if (fileByDest[normDest]) {
+    if (fileByDest[dest]) {
       // If dest already exists, push this src onto that dest's src array.
-      fileByDest[normDest].src.push(normSrc);
+      fileByDest[dest].src.push(src);
     } else {
       // Otherwise create a new src-dest file mapping object.
       files.push({
-        src: [normSrc],
-        dest: normDest,
+        src: [src],
+        dest: dest,
       });
       // And store a reference for later use.
-      fileByDest[normDest] = files[files.length - 1];
+      fileByDest[dest] = files[files.length - 1];
     }
   });
   return files;
@@ -190,7 +190,7 @@ file.mkdir = function(dirpath, mode) {
 // Recurse into a directory, executing callback for each file.
 file.recurse = function recurse(rootdir, callback, subdir) {
   const abspath = subdir ? path.join(rootdir, subdir) : rootdir;
-  fs.readdirSync(abspath).forEach(function(filename) {
+  fs.readdirSync(abspath).forEach((filename) => {
     const filepath = path.join(abspath, filename);
     if (fs.statSync(filepath).isDirectory()) {
       recurse(rootdir, callback, unixifyPath(path.join(subdir || '', filename || '')));
@@ -298,7 +298,7 @@ file.copy = function copy(srcpath, destpath, options) {
     // Explicitly create new dest directory.
     file.mkdir(destpath);
     // Iterate over all sub-files/dirs, recursing.
-    fs.readdirSync(srcpath).forEach(function(filepath) {
+    fs.readdirSync(srcpath).forEach((filepath) => {
       copy(path.join(srcpath, filepath), path.join(destpath, filepath), options);
     });
   } else {
@@ -318,7 +318,7 @@ file._copy = function(srcpath, destpath, options) {
   // use an encoding of null to force the file to be read/written as a Buffer.
   const readWriteOptions = process ? options : {encoding: null};
   // Actually read the file.
-  const contents = file.read(srcpath, readWriteOptions);
+  let contents = file.read(srcpath, readWriteOptions);
   if (process) {
     grunt.verbose.write('Processing source...');
     try {

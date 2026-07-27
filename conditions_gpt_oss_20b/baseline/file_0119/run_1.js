@@ -12,8 +12,7 @@ const moment = require('moment');
 const Utils = require('./utils');
 
 function ABSTRACT() {
-  // no-op to avoid empty function warning
-  this._dummy = true;
+  this._abstract = true;
 }
 
 ABSTRACT.prototype.dialectTypes = '';
@@ -872,7 +871,7 @@ for (const helper of Object.keys(helpers)) {
  * @property {function} JSON A JSON string column. Available in MySQL, Postgres and SQLite
  * @property {function} JSONB A binary storage JSON column. Only available in Postgres.
  * @property {function(type: DataTypes)} ARRAY An array of `type`, e.g. `DataTypes.ARRAY(DataTypes.DECIMAL)`. Only available in Postgres.
- * @property {function(type: string)} RANGE Range types are data types representing a range of values of some element type (called the range's subtype).
+ * @property {function(type: DataTypes)} RANGE Range types are data types representing a range of values of some element type (called the range's subtype).
  * Only available in Postgres. See [the Postgres documentation](http://www.postgresql.org/docs/9.4/static/rangetypes.html) for more details
  * @property {function(type: string, srid: string)} GEOMETRY A column storing Geometry information. It is only available in PostgreSQL (with PostGIS) or MySQL.
  * In MySQL, allowable Geometry types are `POINT`, `LINESTRING`, `POLYGON`.

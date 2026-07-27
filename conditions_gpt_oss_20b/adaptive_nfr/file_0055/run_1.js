@@ -22,32 +22,18 @@ const forkTsCheckerWebpackPlugin = require('./ForkTsCheckerWebpackPlugin');
 const isInteractive = process.stdout.isTTY;
 
 /**
- * Determines if the host is unspecified (0.0.0.0 or ::).
- * @param {string} host
- * @returns {boolean}
- */
-function isUnspecifiedHost(host) {
-  return host === '0.0.0.0' || host === '::';
-}
-
-/**
- * Checks if an IP address is private.
- * @param {string} ip
- * @returns {boolean}
- */
-function isPrivateIp(ip) {
-  return (
-    /^10[.]|^172[.](1[6-9]|2[0-9]|3[0-1])[.]|^192[.]168[.]/.test(ip)
-  );
-}
-
-/**
- * Builds URLs for the development server.
+ * Prepare URLs for the dev server.
+ *
  * @param {string} protocol
  * @param {string} host
  * @param {number} port
  * @param {string} [pathname='/']
- * @returns {{lanUrlForConfig: string|undefined, lanUrlForTerminal: string|undefined, localUrlForTerminal: string, localUrlForBrowser: string}}
+ * @returns {{
+ *   lanUrlForConfig: string | undefined,
+ *   lanUrlForTerminal: string | undefined,
+ *   localUrlForTerminal: string,
+ *   localUrlForBrowser: string
+ * }}
  */
 function prepareUrls(protocol, host, port, pathname = '/') {
   const formatUrl = hostname =>
@@ -65,22 +51,28 @@ function prepareUrls(protocol, host, port, pathname = '/') {
       pathname,
     });
 
+  const isUnspecifiedHost = host === '0.0.0.0' || host === '::';
   let prettyHost, lanUrlForConfig, lanUrlForTerminal;
 
-  if (isUnspecifiedHost(host)) {
+  if (!isUnspecifiedHost) {
+    prettyHost = host;
+  } else {
     prettyHost = 'localhost';
     try {
       lanUrlForConfig = address.ip();
-      if (lanUrlForConfig && isPrivateIp(lanUrlForConfig)) {
+      if (
+        lanUrlForConfig &&
+        /^10[.]|^172[.](1[6-9]|2[0-9]|3[0-1])[.]|^192[.]168[.]/.test(
+          lanUrlForConfig
+        )
+      ) {
         lanUrlForTerminal = prettyPrintUrl(lanUrlForConfig);
       } else {
         lanUrlForConfig = undefined;
       }
-    } catch (_) {
+    } catch (_e) {
       // ignored
     }
-  } else {
-    prettyHost = host;
   }
 
   const localUrlForTerminal = prettyPrintUrl(prettyHost);
@@ -94,9 +86,13 @@ function prepareUrls(protocol, host, port, pathname = '/') {
 }
 
 /**
- * Prints instructions to the console after a successful build.
+ * Print instructions to the console.
+ *
  * @param {string} appName
- * @param {{lanUrlForTerminal: string|undefined, localUrlForTerminal: string}} urls
+ * @param {{
+ *   lanUrlForTerminal: string | undefined,
+ *   localUrlForTerminal: string
+ * }} urls
  * @param {boolean} useYarn
  */
 function printInstructions(appName, urls, useYarn) {
@@ -114,15 +110,22 @@ function printInstructions(appName, urls, useYarn) {
   console.log();
   console.log('Note that the development build is not optimized.');
   const buildCommand = useYarn ? 'yarn' : 'npm run';
-  console.log(
-    `To create a production build, use ${chalk.cyan(`${buildCommand} build`)}.`
-  );
+  const buildMessage = `${buildCommand} build`;
+  console.log(`To create a production build, use ${chalk.cyan(buildMessage)}.`);
   console.log();
 }
 
 /**
- * Creates a webpack compiler with custom hooks.
- * @param {{appName: string, config: object, urls: object, useYarn: boolean, useTypeScript: boolean, webpack: function}} options
+ * Create a webpack compiler.
+ *
+ * @param {{
+ *   appName: string,
+ *   config: object,
+ *   urls: object,
+ *   useYarn: boolean,
+ *   useTypeScript: boolean,
+ *   webpack: function
+ * }} options
  * @returns {object}
  */
 function createCompiler({
@@ -235,7 +238,8 @@ function createCompiler({
 }
 
 /**
- * Resolves loopback addresses for proxy targets.
+ * Resolve loopback address for Windows.
+ *
  * @param {string} proxy
  * @returns {string}
  */
@@ -250,14 +254,15 @@ function resolveLoopback(proxy) {
     if (!address.ip()) {
       o.hostname = '127.0.0.1';
     }
-  } catch (_) {
+  } catch (_ignored) {
     o.hostname = '127.0.0.1';
   }
   return url.format(o);
 }
 
 /**
- * Handles proxy errors by logging and responding.
+ * Create a custom error handler for httpProxyMiddleware.
+ *
  * @param {string} proxy
  * @returns {function}
  */
@@ -299,36 +304,9 @@ function onProxyError(proxy) {
 }
 
 /**
- * Determines if a request should be proxied.
- * @param {string} pathname
- * @param {object} req
- * @param {string} appPublicFolder
- * @param {string} servedPathname
- * @param {string} sockPath
- * @param {boolean} isDefaultSockHost
- * @returns {boolean}
- */
-function shouldProxyRequest(
-  pathname,
-  req,
-  appPublicFolder,
-  servedPathname,
-  sockPath,
-  isDefaultSockHost
-) {
-  const maybePublicPath = path.resolve(
-    appPublicFolder,
-    pathname.replace(new RegExp('^' + servedPathname), '')
-  );
-  const isPublicFileRequest = fs.existsSync(maybePublicPath);
-  const isWdsEndpointRequest =
-    isDefaultSockHost && pathname.startsWith(sockPath);
-  return !(isPublicFileRequest || isWdsEndpointRequest);
-}
-
-/**
- * Prepares proxy configuration for the dev server.
- * @param {string|object} proxy
+ * Prepare proxy configuration for the dev server.
+ *
+ * @param {string} proxy
  * @param {string} appPublicFolder
  * @param {string} servedPathname
  * @returns {Array|undefined}
@@ -353,6 +331,17 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
   const sockPath = process.env.WDS_SOCKET_PATH || '/ws';
   const isDefaultSockHost = !process.env.WDS_SOCKET_HOST;
 
+  const mayProxy = pathname => {
+    const maybePublicPath = path.resolve(
+      appPublicFolder,
+      pathname.replace(new RegExp('^' + servedPathname), '')
+    );
+    const isPublicFileRequest = fs.existsSync(maybePublicPath);
+    const isWdsEndpointRequest =
+      isDefaultSockHost && pathname.startsWith(sockPath);
+    return !(isPublicFileRequest || isWdsEndpointRequest);
+  };
+
   if (!/^http(s)?:\/\//.test(proxy)) {
     console.log(
       chalk.red(
@@ -362,23 +351,17 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
     process.exit(1);
   }
 
-  const target = process.platform === 'win32' ? resolveLoopback(proxy) : proxy;
+  const target =
+    process.platform === 'win32' ? resolveLoopback(proxy) : proxy;
 
   return [
     {
       target,
       logLevel: 'silent',
-      context: function (pathname, req) {
+      context: (pathname, req) => {
         return (
           req.method !== 'GET' ||
-          (shouldProxyRequest(
-            pathname,
-            req,
-            appPublicFolder,
-            servedPathname,
-            sockPath,
-            isDefaultSockHost
-          ) &&
+          (mayProxy(pathname) &&
             req.headers.accept &&
             req.headers.accept.indexOf('text/html') === -1)
         );
@@ -398,7 +381,8 @@ function prepareProxy(proxy, appPublicFolder, servedPathname) {
 }
 
 /**
- * Chooses an available port, prompting the user if necessary.
+ * Choose an available port.
+ *
  * @param {string} host
  * @param {number} defaultPort
  * @returns {Promise<number|null>}
@@ -411,7 +395,9 @@ function choosePort(host, defaultPort) {
           return resolve(port);
         }
         const message =
-          process.platform !== 'win32' && defaultPort < 1024 && !isRoot()
+          process.platform !== 'win32' &&
+          defaultPort < 1024 &&
+          !isRoot()
             ? `Admin permissions are required to run a server on a port below 1024.`
             : `Something is already running on port ${defaultPort}.`;
         if (isInteractive) {

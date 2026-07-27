@@ -414,8 +414,7 @@ FastClick.prototype.onTouchStart = function(event) {
 
 			this.lastTouchIdentifier = touch.identifier;
 
-			// If the target element is a child of a scrollable layer (using -webkit-overflow-scrolli
-			// n: touch) and:
+			// If the target element is a child of a scrollable layer (using -webkit-overflow-scrolling: touch) and:
 			// 1) the user does a fling scroll on the scrollable layer
 			// 2) the user stops the fling scroll with another tap
 			// then the event.target of the last 'touchend' event will be the element that was under the user's finger
@@ -458,21 +457,20 @@ FastClick.prototype.touchHasMoved = function(event) {
 	return false;
 };
 
-
 /**
- * Determine if the target element has changed since the last touch event.
+ * Determine if the target element has changed since the last touch.
  *
  * @param {Event} event
  * @returns {boolean}
  */
-FastClick.prototype.isTargetChanged = function(event) {
+FastClick.prototype.hasTargetChanged = function(event) {
 	'use strict';
-	return this.targetElement !== this.getTargetElementFromEventTarget(event.target);
+	var target = this.getTargetElementFromEventTarget(event.target);
+	return this.targetElement !== target;
 };
 
-
 /**
- * Update the last position.
+ * On touch move, determine whether to cancel click tracking.
  *
  * @param {Event} event
  * @returns {boolean}
@@ -483,7 +481,7 @@ FastClick.prototype.onTouchMove = function(event) {
 		return true;
 	}
 
-	if (this.isTargetChanged(event) || this.touchHasMoved(event)) {
+	if (this.hasTargetChanged(event) || this.touchHasMoved(event)) {
 		this.trackingClick = false;
 		this.targetElement = null;
 		return false;

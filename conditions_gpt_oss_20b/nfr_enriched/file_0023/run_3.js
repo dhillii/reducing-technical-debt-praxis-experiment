@@ -39,8 +39,23 @@ const StylesWrapper = () => {
     };
 };
 
-function PopupContent() {
-    return <Search />;
+class PopupContent extends React.Component {
+    static contextType = AppContext;
+
+    handlePopupClose(e) {
+        e.preventDefault();
+        if (e.target === e.currentTarget) {
+            this.context.dispatch('update', {
+                showPopup: false
+            });
+        }
+    }
+
+    render() {
+        return (
+            <Search />
+        );
+    }
 }
 
 function SearchBox() {
@@ -66,8 +81,9 @@ function SearchBox() {
         };
     }, [dispatch, inputRef]);
 
-    const baseClass = 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded-t-lg shadow';
-    const className = searchValue ? baseClass : 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded-lg';
+    const className = searchValue
+        ? 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded-t-lg shadow'
+        : 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded-lg';
 
     return (
         <div className={className} ref={containerRef}>
@@ -99,7 +115,9 @@ function SearchBox() {
 function SearchClearIcon() {
     const {searchValue = '', dispatch} = useContext(AppContext);
     if (!searchValue) {
-        return <SearchIcon className='text-neutral-900' alt='Search' />;
+        return (
+            <SearchIcon className='text-neutral-900' alt='Search' />
+        );
     }
     return (
         <button alt='Clear' className='-mb-[1px]' onClick={() => {
@@ -115,7 +133,9 @@ function SearchClearIcon() {
 function Loading() {
     const {indexComplete, searchValue} = useContext(AppContext);
     if (!indexComplete && searchValue) {
-        return <CircleAnimated className='shrink-0' />;
+        return (
+            <CircleAnimated className='shrink-0' />
+        );
     }
     return null;
 }
@@ -172,8 +192,7 @@ function TagResults({tags, selectedResult, setSelectedResult}) {
         <TagListItem
             key={d.name}
             tag={d}
-            selectedResult={selectedResult}
-            setSelectedResult={setSelectedResult}
+            {...{selectedResult, setSelectedResult}}
         />
     ));
     return (
@@ -274,7 +293,7 @@ function getHighlightParts({text, highlight}) {
 function HighlightedSection({text = '', highlight = '', isExcerpt}) {
     text = text || '';
     highlight = highlight || '';
-    const {parts, highlightIndexes} = getHighlightParts({text, highlight});
+    let {parts, highlightIndexes} = getHighlightParts({text, highlight});
     if (isExcerpt && highlightIndexes?.[0]) {
         const startIdx = highlightIndexes?.[0]?.startIdx;
         if (startIdx > 50) {
@@ -291,12 +310,13 @@ function HighlightedSection({text = '', highlight = '', isExcerpt}) {
                     <HighlightWord word={d.text} isExcerpt={isExcerpt}/>
                 </React.Fragment>
             );
+        } else {
+            return (
+                <React.Fragment key={idx}>
+                    {d.text}
+                </React.Fragment>
+            );
         }
-        return (
-            <React.Fragment key={idx}>
-                {d.text}
-            </React.Fragment>
-        );
     });
     return (
         <>
@@ -349,22 +369,18 @@ function PostResults({posts, selectedResult, setSelectedResult}) {
     useEffect(() => {
         setPaginatedPosts(posts?.slice(0, maxPosts + 1));
     }, [maxPosts, posts]);
-
     if (!posts?.length) {
         return null;
     }
-
     const PostItems = () => (
         paginatedPosts.map(d => (
             <PostListItem
                 key={d.title}
                 post={d}
-                selectedResult={selectedResult}
-                setSelectedResult={setSelectedResult}
+                {...{selectedResult, setSelectedResult}}
             />
         ))
     );
-
     return (
         <div className='border-t border-neutral-200 py-3 px-4 sm:px-7'>
             <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Posts')}</h1>
@@ -422,8 +438,7 @@ function AuthorResults({authors, selectedResult, setSelectedResult}) {
         <AuthorListItem
             key={d.name}
             author={d}
-            selectedResult={selectedResult}
-            setSelectedResult={setSelectedResult}
+            {...{selectedResult, setSelectedResult}}
         />
     ));
 
@@ -465,7 +480,9 @@ function SearchResultBox() {
             <Results posts={filteredPosts} authors={filteredAuthors} tags={filteredTags} />
         );
     } else if (searchValue) {
-        return <NoResultsBox />;
+        return (
+            <NoResultsBox />
+        );
     }
 
     return null;
@@ -636,7 +653,7 @@ export default class PopupModal extends React.Component {
             <div style={Styles.modalContainer} className='gh-root-frame'>
                 <Frame style={frameStyle} title='portal-popup' head={this.renderFrameStyles()} searchdir={this.context.dir}>
                     <div
-                        onClick={this.handlePopupClose}
+                        onClick = {e => this.handlePopupClose(e)}
                         className='absolute top-0 bottom-0 left-0 right-0 block backdrop-blur-[2px] animate-fadein z-0 bg-gradient-to-br from-[rgba(0,0,0,0.2)] to-[rgba(0,0,0,0.1)]' />
                     <PopupContent />
                 </Frame>

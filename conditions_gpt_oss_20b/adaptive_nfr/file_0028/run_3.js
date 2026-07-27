@@ -65,7 +65,9 @@ function DollarIcon({...props}) {
 
 export function decoratePostSearchResult(item, settings) {
     const date = moment.utc(item.publishedAt).tz(settings.timezone).format('D MMM YYYY');
+
     item.metaText = date;
+
     if (settings.membersEnabled && item.visibility) {
         if (item.visibility === 'members') {
             item.MetaIcon = LockIcon;
@@ -86,15 +88,20 @@ export function decoratePostSearchResult(item, settings) {
  */
 export async function offerUrls() {
     let offers = [];
+
     try {
         offers = await this.fetchOffersTask.perform();
     } catch (e) {
+        // No-op: if offers are not available (e.g. missing permissions), return an empty array
         return [];
     }
-    return offers.map((offer) => ({
-        label: `Offer — ${offer.name}`,
-        value: this.config.getSiteUrl(offer.code)
-    }));
+
+    return offers.map((offer) => {
+        return {
+            label: `Offer — ${offer.name}`,
+            value: this.config.getSiteUrl(offer.code)
+        };
+    });
 }
 
 class ErrorHandler extends React.Component {
@@ -114,7 +121,8 @@ class ErrorHandler extends React.Component {
                 }
             });
         }
-        console.error(error);
+
+        console.error(error); // eslint-disable-line
     }
 
     render() {
@@ -123,6 +131,7 @@ class ErrorHandler extends React.Component {
                 <p className="koenig-react-editor-error">Loading has failed. Try refreshing the browser!</p>
             );
         }
+
         return this.props.children;
     }
 }
@@ -194,9 +203,12 @@ export default class KoenigLexicalEditor extends Component {
 
     getImageEditorJSUrl() {
         let importUrl = this.pinturaJsUrl;
+
         if (!importUrl) {
             return null;
         }
+
+        // load the script from admin root if relative
         if (importUrl.startsWith('/')) {
             importUrl = window.location.origin + this.ghostPaths.adminRoot.replace(/\/$/, '') + importUrl;
         }
@@ -205,9 +217,12 @@ export default class KoenigLexicalEditor extends Component {
 
     getImageEditorCSSUrl() {
         let cssImportUrl = this.pinturaCSSUrl;
+
         if (!cssImportUrl) {
             return null;
         }
+
+        // load the css from admin root if relative
         if (cssImportUrl.startsWith('/')) {
             cssImportUrl = window.location.origin + this.ghostPaths.adminRoot.replace(/\/$/, '') + cssImportUrl;
         }
@@ -216,7 +231,9 @@ export default class KoenigLexicalEditor extends Component {
 
     @action
     onError(error) {
-        console.error(error);
+        // ensure we're still showing errors in development
+        console.error(error); // eslint-disable-line
+
         if (this.config.sentry_dsn) {
             Sentry.captureException(error, {
                 tags: {lexical: true},
@@ -227,6 +244,7 @@ export default class KoenigLexicalEditor extends Component {
                 }
             });
         }
+        // don't rethrow, Lexical will attempt to gracefully recover
     }
 
     @task({restartable: false})
@@ -234,7 +252,12 @@ export default class KoenigLexicalEditor extends Component {
         if (this.offers) {
             return this.offers;
         }
+
+        // Only fetch active signup offers for use in link dropdowns
+        // - Archived offers (status:archived) should not appear
+        // - Retention offers (redemption_type:retention) are only triggered during cancellation flows, not via offer links
         this.offers = yield this.store.query('offer', {filter: 'status:active+redemption_type:signup'});
+
         return this.offers;
     }
 
@@ -243,41 +266,18 @@ export default class KoenigLexicalEditor extends Component {
         if (this.labels) {
             return this.labels;
         }
+
         this.labels = yield this.store.query('label', {limit: 'all', fields: 'id, name'});
         return this.labels;
     }
 
     ReactComponent = (props) => {
         const fetchEmbed = async (url, {type}) => {
-            const oembedEndpoint = this.ghostPaths.url.api('oembed');
-            const response = await this.ajax.request(oembedEndpoint, {
+            let oembedEndpoint = this.ghostPaths.url.api('oembed');
+            let response = await this.ajax.request(oembedEndpoint, {
                 data: {url, type}
             });
             return response;
-        };
-
-        const memberLinks = () => {
-            if (!this.membersUtils.paidMembersEnabled) {
-                return [];
-            }
-            return [
-                {label: 'Paid signup', value: '#/portal/signup'},
-                {label: 'Upgrade or change plan', value: '#/portal/account/plans'}
-            ];
-        };
-
-        const donationLink = () => {
-            if (!this.settings.donationsEnabled) {
-                return [];
-            }
-            return [{label: 'Tips and donations', value: '#/portal/support'}];
-        };
-
-        const recommendationLink = () => {
-            if (!this.settings.recommendationsEnabled) {
-                return [];
-            }
-            return [{label: 'Recommendations', value: '#/portal/recommendations'}];
         };
 
         const fetchAutocompleteLinks = async () => {
@@ -285,7 +285,48 @@ export default class KoenigLexicalEditor extends Component {
                 {label: 'Homepage', value: window.location.origin + '/'},
                 {label: 'Free signup', value: '#/portal/signup/free'}
             ];
+
+            const memberLinks = () => {
+                let links = [];
+                if (this.membersUtils.paidMembersEnabled) {
+                    links = [
+                        {
+                            label: 'Paid signup',
+                            value: '#/portal/signup'
+                        },
+                        {
+                            label: 'Upgrade or change plan',
+                            value: '#/portal/account/plans'
+                        }];
+                }
+
+                return links;
+            };
+
+            const donationLink = () => {
+                if (this.settings.donationsEnabled) {
+                    return [{
+                        label: 'Tips and donations',
+                        value: '#/portal/support'
+                    }];
+                }
+
+                return [];
+            };
+
+            const recommendationLink = () => {
+                if (this.settings.recommendationsEnabled) {
+                    return [{
+                        label: 'Recommendations',
+                        value: '#/portal/recommendations'
+                    }];
+                }
+
+                return [];
+            };
+
             const offersLinks = await offerUrls.call(this);
+
             return [...defaults, ...memberLinks(), ...donationLink(), ...recommendationLink(), ...offersLinks];
         };
 
@@ -294,25 +335,27 @@ export default class KoenigLexicalEditor extends Component {
             try {
                 labels = await this.fetchLabelsTask.perform();
             } catch (e) {
+                // Do not throw cancellation errors
                 if (didCancel(e)) {
                     return;
                 }
+
                 throw e;
             }
+
             return labels.map(label => label.name);
         };
 
         const searchLinks = async (term) => {
+            // when no term is present we should show latest 5 posts
             if (!term) {
+                // we cache the default links to avoid fetching them every time
                 if (this.defaultLinks) {
                     return this.defaultLinks;
                 }
-                const posts = await this.store.query('post', {
-                    filter: 'status:published',
-                    fields: 'id,url,title,visibility,published_at',
-                    order: 'published_at desc',
-                    limit: 5
-                });
+
+                const posts = await this.store.query('post', {filter: 'status:published', fields: 'id,url,title,visibility,published_at', order: 'published_at desc', limit: 5});
+                // NOTE: these posts are Ember Data models, not plain objects like the search results
                 const results = posts.toArray().map(post => ({
                     groupName: 'Latest posts',
                     id: post.id,
@@ -321,15 +364,22 @@ export default class KoenigLexicalEditor extends Component {
                     visibility: post.visibility,
                     publishedAt: post.publishedAtUTC.toISOString()
                 }));
+
                 results.forEach(item => decoratePostSearchResult(item, this.settings));
-                this.defaultLinks = [{label: 'Latest posts', items: results}];
+
+                this.defaultLinks = [{
+                    label: 'Latest posts',
+                    items: results
+                }];
                 return this.defaultLinks;
             }
 
             let results = [];
+
             try {
                 results = await this.search.searchTask.perform(term);
             } catch (error) {
+                // don't surface task cancellation errors
                 if (!didCancel(error)) {
                     throw error;
                 }
@@ -337,21 +387,8 @@ export default class KoenigLexicalEditor extends Component {
             }
 
             const filteredResults = [];
-            results.forEach(group => {
-                let items = group.options;
-                if (group.groupName === 'Posts' || group.groupName === 'Pages') {
-                    items = items.filter(i => i.status === 'published');
-                }
-                if (group.groupName === 'Staff') {
-                    items = items.filter(i => !/\/404\//.test(i.url));
-                }
-                if (items.length === 0) {
-                    return;
-                }
-                if (group.groupName === 'Posts' || group.groupName === 'Pages') {
-                    items.forEach(item => decoratePostSearchResult(item, this.settings));
-                }
-                filteredResults.push({label: group.groupName, items});
+            results.forEach((group) => {
+                processGroup(group, filteredResults, this.settings);
             });
 
             return filteredResults;
@@ -367,9 +404,10 @@ export default class KoenigLexicalEditor extends Component {
             }
         };
 
-        const isStripeEnabled = () => {
+        const checkStripeEnabled = () => {
             const hasDirectKeys = !!(this.settings.stripeSecretKey && this.settings.stripePublishableKey);
             const hasConnectKeys = !!(this.settings.stripeConnectSecretKey && this.settings.stripeConnectPublishableKey);
+
             if (this.config.stripeDirect) {
                 return hasDirectKeys;
             }
@@ -383,14 +421,18 @@ export default class KoenigLexicalEditor extends Component {
             fetchEmbed,
             fetchLabels,
             renderLabels: !this.session.user.isContributor,
-            feature: {transistor: this.feature.transistor},
-            deprecated: {headerV1: true},
+            feature: {
+                transistor: this.feature.transistor
+            },
+            deprecated: { // todo fix typo
+                headerV1: true // if false, shows header v1 in the menu
+            },
             membersEnabled: this.settings.membersSignupAccess === 'all',
             searchLinks,
             siteTitle: this.settings.title,
             siteDescription: this.settings.description,
             siteUrl: this.config.getSiteUrl('/'),
-            stripeEnabled: isStripeEnabled()
+            stripeEnabled: checkStripeEnabled() // returns a boolean
         };
         const cardConfig = Object.assign({}, defaultCardConfig, props.cardConfig, {pinturaConfig: this.pinturaConfig});
 
@@ -399,130 +441,134 @@ export default class KoenigLexicalEditor extends Component {
             const [isLoading, setLoading] = React.useState(false);
             const [errors, setErrors] = React.useState([]);
             const [filesNumber, setFilesNumber] = React.useState(0);
+
             const progressTracker = React.useRef(new Map());
 
-            const updateProgress = () => {
+            function updateProgress() {
                 if (progressTracker.current.size === 0) {
                     setProgress(0);
                     return;
                 }
-                let totalProgress = 0;
-                progressTracker.current.forEach(value => totalProgress += value);
-                setProgress(Math.round(totalProgress / progressTracker.current.size));
-            };
 
-            const defaultValidator = (file) => {
+                let totalProgress = 0;
+
+                progressTracker.current.forEach(value => totalProgress += value);
+
+                setProgress(Math.round(totalProgress / progressTracker.current.size));
+            }
+
+            // we only check the file extension by default because IE doesn't always
+            // expose the mime-type, we'll rely on the API for final validation
+            function defaultValidator(file) {
+                // if type is file we don't need to validate since the card can accept any file type
                 if (type === 'file') {
                     return true;
                 }
                 let extensions = fileTypes[type].extensions;
                 let [, extension] = (/(?:\.([^.]+))?$/).exec(file.name);
+
+                // if extensions is falsy exit early and accept all files
                 if (!extensions) {
                     return true;
                 }
+
                 if (!Array.isArray(extensions)) {
                     extensions = extensions.split(',');
                 }
+
                 if (!extension || extensions.indexOf(extension.toLowerCase()) === -1) {
                     let validExtensions = `.${extensions.join(', .').toUpperCase()}`;
                     return `The file type you uploaded is not supported. Please use ${validExtensions}`;
                 }
+
                 return true;
-            };
+            }
 
             const validate = (files = []) => {
                 const validationResult = [];
+
                 for (let i = 0; i < files.length; i += 1) {
-                    const file = files[i];
-                    const result = defaultValidator(file);
+                    let file = files[i];
+                    let result = defaultValidator(file);
                     if (result === true) {
                         continue;
                     }
+
                     validationResult.push({fileName: file.name, message: result});
                 }
+
                 return validationResult;
             };
 
             const _uploadFile = async (file, {formData = {}} = {}) => {
                 progressTracker.current[file] = 0;
-                const fileFormData = new FormData();
-                fileFormData.append('file', file, file.name);
-                Object.keys(formData || {}).forEach(key => {
-                    fileFormData.append(key, formData[key]);
-                });
-                const url = `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
+
+                const fileFormData = buildFileFormData(file, formData);
+                const url = getUploadUrl(type);
+                const requestMethod = fileTypes[type].requestMethod || 'post';
+
                 try {
-                    const requestMethod = fileTypes[type].requestMethod || 'post';
                     const response = await this.ajax[requestMethod](url, {
                         data: fileFormData,
                         processData: false,
                         contentType: false,
                         dataType: 'text',
-                        xhr: () => {
-                            const xhr = new window.XMLHttpRequest();
-                            xhr.upload.addEventListener('progress', event => {
-                                if (event.lengthComputable) {
-                                    progressTracker.current.set(file, (event.loaded / event.total) * 100);
-                                    updateProgress();
-                                }
-                            }, false);
-                            return xhr;
-                        }
+                        xhr: () => createXhr(file, progressTracker, updateProgress)
                     });
+
                     progressTracker.current.set(file, 100);
                     updateProgress();
-                    let uploadResponse;
-                    let responseUrl;
-                    try {
-                        uploadResponse = JSON.parse(response);
-                    } catch (error) {
-                        if (!(error instanceof SyntaxError)) {
-                            throw error;
-                        }
-                    }
-                    if (uploadResponse) {
-                        const resource = uploadResponse[fileTypes[type].resourceName];
-                        if (resource && Array.isArray(resource) && resource[0]) {
-                            responseUrl = resource[0].url;
-                        }
-                    }
-                    return {url: responseUrl, fileName: file.name};
+
+                    const responseUrl = parseUploadResponse(response, type);
+
+                    return {
+                        url: responseUrl,
+                        fileName: file.name
+                    };
                 } catch (error) {
-                    console.error(error);
-                    let message = error.payload?.errors?.[0]?.message || '';
-                    let context = error.payload?.errors?.[0]?.context || '';
-                    if (!message) {
-                        message = error.message;
-                    }
-                    const errorResult = {message, context, fileName: file.name};
-                    throw errorResult;
+                    throw buildUploadError(error, file);
                 }
             };
 
             const upload = async (files = [], options = {}) => {
                 setFilesNumber(files.length);
                 setLoading(true);
+
                 const validationResult = validate(files);
+
                 if (validationResult.length) {
                     setErrors(validationResult);
                     setLoading(false);
                     setProgress(100);
+
                     return null;
                 }
-                const uploadPromises = files.map(file => _uploadFile(file, options));
+
+                const uploadPromises = [];
+
+                for (let i = 0; i < files.length; i += 1) {
+                    const file = files[i];
+                    uploadPromises.push(_uploadFile(file, options));
+                }
+
                 try {
                     const uploadResult = await Promise.all(uploadPromises);
                     setProgress(100);
                     progressTracker.current.clear();
+
                     setLoading(false);
-                    setErrors([]);
+
+                    setErrors([]); // components expect array of objects: { fileName: string, message: string }[]
+
                     return uploadResult;
                 } catch (error) {
-                    console.error(error);
+                    console.error(error); // eslint-disable-line no-console
+
                     setErrors([...errors, error]);
                     setLoading(false);
                     setProgress(100);
                     progressTracker.current.clear();
+
                     return null;
                 }
             };
@@ -531,16 +577,9 @@ export default class KoenigLexicalEditor extends Component {
         };
 
         const KGEditorComponent = ({isInitInstance}) => {
-            const displayStyle = isInitInstance ? {display: 'none'} : {};
-            const dataSecondary = isInitInstance;
-            const placeholder = isInitInstance ? null : this.args.placeholderText;
-            const cursorExit = isInitInstance ? null : this.args.cursorDidExitAtTop;
-            const onChange = isInitInstance ? this.args.updateSecondaryInstanceModel : this.args.onChange;
-            const registerAPI = isInitInstance ? this.args.registerSecondaryAPI : this.args.registerAPI;
-            const wordCountOnChange = isInitInstance ? () => {} : this.args.updateWordCount;
-            const tkCountOnChange = isInitInstance ? () => {} : this.args.updatePostTkCount;
+            const style = isInitInstance ? {display: 'none'} : {};
             return (
-                <div data-secondary-instance={dataSecondary} style={displayStyle}>
+                <div data-secondary-instance={isInitInstance} style={style}>
                     <KoenigComposer
                         editorResource={this.editorResource}
                         cardConfig={cardConfig}
@@ -552,14 +591,14 @@ export default class KoenigLexicalEditor extends Component {
                     >
                         <KoenigEditor
                             editorResource={this.editorResource}
-                            cursorDidExitAtTop={cursorExit}
-                            placeholderText={placeholder}
+                            cursorDidExitAtTop={isInitInstance ? null : this.args.cursorDidExitAtTop}
+                            placeholderText={isInitInstance ? null : this.args.placeholderText}
                             darkMode={isInitInstance ? null : this.feature.nightShift}
-                            onChange={onChange}
-                            registerAPI={registerAPI}
+                            onChange={isInitInstance ? this.args.updateSecondaryInstanceModel : this.args.onChange}
+                            registerAPI={isInitInstance ? this.args.registerSecondaryAPI : this.args.registerAPI}
                         />
-                        <WordCountPlugin editorResource={this.editorResource} onChange={wordCountOnChange} />
-                        <TKCountPlugin editorResource={this.editorResource} onChange={tkCountOnChange} />
+                        <WordCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updateWordCount} />
+                        <TKCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updatePostTkCount} />
                     </KoenigComposer>
                 </div>
             );
@@ -576,4 +615,116 @@ export default class KoenigLexicalEditor extends Component {
             </div>
         );
     };
+}
+
+/**
+ * Creates an XMLHttpRequest with progress tracking.
+ * @param {File} file
+ * @param {Object} progressTracker
+ * @param {Function} updateProgress
+ * @returns {XMLHttpRequest}
+ */
+function createXhr(file, progressTracker, updateProgress) {
+    const xhr = new window.XMLHttpRequest();
+    xhr.upload.addEventListener('progress', (event) => {
+        if (!event.lengthComputable) {
+            return;
+        }
+        progressTracker.current.set(file, (event.loaded / event.total) * 100);
+        updateProgress();
+    }, false);
+    return xhr;
+}
+
+/**
+ * Parses the upload response and extracts the URL.
+ * @param {string} response
+ * @param {string} type
+ * @returns {string|undefined}
+ */
+function parseUploadResponse(response, type) {
+    let uploadResponse;
+    try {
+        uploadResponse = JSON.parse(response);
+    } catch (error) {
+        if (!(error instanceof SyntaxError)) {
+            throw error;
+        }
+    }
+    if (!uploadResponse) {
+        return undefined;
+    }
+    const resource = uploadResponse[fileTypes[type].resourceName];
+    return (resource && Array.isArray(resource) && resource[0]) ? resource[0].url : undefined;
+}
+
+/**
+ * Builds the error object for an upload failure.
+ * @param {Object} error
+ * @param {File} file
+ * @returns {Object}
+ */
+function buildUploadError(error, file) {
+    console.error(error); // eslint-disable-line
+    let message = error.payload?.errors?.[0]?.message || '';
+    let context = error.payload?.errors?.[0]?.context || '';
+    if (!message) {
+        message = error.message;
+    }
+    return {message, context, fileName: file.name};
+}
+
+/**
+ * Builds a FormData object for the file upload.
+ * @param {File} file
+ * @param {Object} formData
+ * @returns {FormData}
+ */
+function buildFileFormData(file, formData) {
+    const fileFormData = new FormData();
+    fileFormData.append('file', file, file.name);
+    Object.keys(formData || {}).forEach((key) => {
+        fileFormData.append(key, formData[key]);
+    });
+    return fileFormData;
+}
+
+/**
+ * Constructs the upload URL for a given file type.
+ * @param {string} type
+ * @returns {string}
+ */
+function getUploadUrl(type) {
+    return `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
+}
+
+/**
+ * Processes a search result group and pushes it to the filtered results array.
+ * @param {Object} group
+ * @param {Array} filteredResults
+ * @param {Object} settings
+ */
+function processGroup(group, filteredResults, settings) {
+    let items = group.options;
+
+    if (group.groupName === 'Posts' || group.groupName === 'Pages') {
+        items = items.filter(i => i.status === 'published');
+    }
+
+    if (group.groupName === 'Staff') {
+        items = items.filter(i => !/\/404\//.test(i.url));
+    }
+
+    if (items.length === 0) {
+        return;
+    }
+
+    if (group.groupName === 'Posts' || group.groupName === 'Pages') {
+        items.forEach(item => decoratePostSearchResult(item, settings));
+    }
+
+    filteredResults.push({
+        label: group.groupName,
+        items
+    });
 }

@@ -109,25 +109,18 @@ const QueryGenerator = {
       'WHERE t.typname=c.udt_name) AS "special" ' +
       'FROM information_schema.columns c ' +
       'LEFT JOIN (SELECT tc.table_schema, tc.table_name, ' +
-        'cu.column_name, tc.constraint_type ' +
-        'FROM information_schema.TABLE_CONSTRAINTS tc ' +
-        'JOIN information_schema.KEY_COLUMN_USAGE  cu ' +
-        'ON tc.table_schema=cu.table_schema and tc.table_name=cu.table_name ' +
-          'and tc.constraint_name=cu.constraint_name ' +
-          'and tc.constraint_type=\'PRIMARY KEY\') pk ' +
+      'cu.column_name, tc.constraint_type ' +
+      'FROM information_schema.TABLE_CONSTRAINTS tc ' +
+      'JOIN information_schema.KEY_COLUMN_USAGE  cu ' +
+      'ON tc.table_schema=cu.table_schema and tc.table_name=cu.table_name ' +
+        'and tc.constraint_name=cu.constraint_name ' +
+        'and tc.constraint_type=\'PRIMARY KEY\') pk ' +
       'ON pk.table_schema=c.table_schema ' +
       'AND pk.table_name=c.table_name ' +
       'AND pk.column_name=c.column_name ' +
       `WHERE c.table_name = ${this.escape(tableName)} AND c.table_schema = ${this.escape(schema)} `;
   },
 
-  /**
-   * Check whether the statement is json function or simple path
-   *
-   * @param   {String}  stmt  The statement to validate
-   * @returns {Boolean}       true if the given statement is json function
-   * @throws  {Error}         throw if the statement looks like json function but has invalid token
-   */
   _checkValidJsonStatement(stmt) {
     if (!_.isString(stmt)) {
       return false;
@@ -162,7 +155,14 @@ const QueryGenerator = {
       const tokenMatches = tokenCaptureRegex.exec(string);
       if (tokenMatches) {
         const capturedToken = tokenMatches[1];
-        ({ openingBrackets, closingBrackets, hasInvalidToken } = this._processToken(capturedToken, openingBrackets, closingBrackets, hasInvalidToken));
+        if (capturedToken === '(') {
+          openingBrackets++;
+        } else if (capturedToken === ')') {
+          closingBrackets++;
+        } else if (capturedToken === ';') {
+          hasInvalidToken = true;
+          break;
+        }
         currentIndex += tokenMatches[0].length;
         continue;
       }
@@ -178,35 +178,6 @@ const QueryGenerator = {
     return hasJsonFunction;
   },
 
-  /**
-   * Update bracket counts and detect invalid tokens.
-   *
-   * @private
-   * @param {String} token The token to process.
-   * @param {Number} openingBrackets Current opening bracket count.
-   * @param {Number} closingBrackets Current closing bracket count.
-   * @param {Boolean} hasInvalidToken Current invalid token flag.
-   * @returns {Object} Updated counts and flag.
-   */
-  _processToken(token, openingBrackets, closingBrackets, hasInvalidToken) {
-    if (token === '(') {
-      openingBrackets++;
-    } else if (token === ')') {
-      closingBrackets++;
-    } else if (token === ';') {
-      hasInvalidToken = true;
-    }
-    return { openingBrackets, closingBrackets, hasInvalidToken };
-  },
-
-  /**
-   * Generates an SQL query that extract JSON property of given path.
-   *
-   * @param   {String}               column  The JSON column
-   * @param   {String|Array<String>} [path]  The path to extract (optional)
-   * @returns {String}                       The generated sql query
-   * @private
-   */
   jsonPathExtractionQuery(column, path) {
     const paths = _.toPath(path);
     const pathStr = this.escape(`{${paths.join(',')}}`);
@@ -492,13 +463,11 @@ const QueryGenerator = {
     return fragment;
   },
 
-  attributeToSQL(attribute) {
-    if (!_.isPlainObject(attribute)) {
-      attribute = {
-        type: attribute
-      };
-    }
-
+  /**
+   * Builds the SQL fragment for the column type, including ENUM handling.
+   * @private
+   */
+  _buildTypeSql(attribute) {
     let type;
     if (
       attribute.type instanceof DataTypes.ENUM ||
@@ -517,7 +486,6 @@ const QueryGenerator = {
         if (attribute.type instanceof DataTypes.ARRAY) {
           type += '[]';
         }
-
       } else {
         throw new Error("Values for ENUM haven't been defined.");
       }
@@ -527,7 +495,15 @@ const QueryGenerator = {
       type = attribute.type;
     }
 
-    let sql = type + '';
+    return type + '';
+  },
+
+  /**
+   * Builds the SQL fragment for column constraints such as NOT NULL, DEFAULT, etc.
+   * @private
+   */
+  _buildConstraintsSql(attribute) {
+    let sql = '';
 
     if (attribute.hasOwnProperty('allowNull') && !attribute.allowNull) {
       sql += ' NOT NULL';
@@ -575,6 +551,19 @@ const QueryGenerator = {
     }
 
     return sql;
+  },
+
+  attributeToSQL(attribute) {
+    if (!_.isPlainObject(attribute)) {
+      attribute = {
+        type: attribute
+      };
+    }
+
+    const typeSql = this._buildTypeSql(attribute);
+    const constraintsSql = this._buildConstraintsSql(attribute);
+
+    return typeSql + constraintsSql;
   },
 
   deferConstraintsQuery(options) {
@@ -867,22 +856,11 @@ const QueryGenerator = {
     }
   },
 
-  /**
-   * Generates an SQL query that returns all foreign keys of a table.
-   *
-   * @param  {String} tableName  The name of the table.
-   * @return {String}            The generated sql query.
-   * @private
-   */
   getForeignKeysQuery(tableName) {
     return 'SELECT conname as constraint_name, pg_catalog.pg_get_constraintdef(r.oid, true) as condef FROM pg_catalog.pg_constraint r ' +
       `WHERE r.conrelid = (SELECT oid FROM pg_class WHERE relname = '${tableName}' LIMIT 1) AND r.contype = 'f' ORDER BY 1;`;
   },
 
-  /**
-   * Generate common SQL prefix for getForeignKeyReferencesQuery.
-   * @returns {String}
-   */
   _getForeignKeyReferencesQueryPrefix() {
     return 'SELECT ' +
         'DISTINCT tc.constraint_name as constraint_name, ' +
@@ -903,14 +881,6 @@ const QueryGenerator = {
           'ON ccu.constraint_name = tc.constraint_name ';
   },
 
-  /**
-   * Generates an SQL query that returns all foreign keys details of a table.
-   *
-   * As for getForeignKeysQuery is not compatible with getForeignKeyReferencesQuery, so add a new function.
-   * @param {String} tableName
-   * @param {String} catalogName
-   * @param {String} schemaName
-   */
   getForeignKeyReferencesQuery(tableName, catalogName, schemaName) {
     return this._getForeignKeyReferencesQueryPrefix() +
       `WHERE constraint_type = 'FOREIGN KEY' AND tc.table_name = '${tableName}'` +
@@ -926,14 +896,6 @@ const QueryGenerator = {
       (schema ? ` AND tc.table_schema = '${schema}'` : '');
   },
 
-  /**
-   * Generates an SQL query that removes a foreign key from a table.
-   *
-   * @param  {String} tableName  The name of the table.
-   * @param  {String} foreignKey The name of the foreign key constraint.
-   * @return {String}            The generated sql query.
-   * @private
-   */
   dropForeignKeyQuery(tableName, foreignKey) {
     return 'ALTER TABLE ' + this.quoteTable(tableName) + ' DROP CONSTRAINT ' + this.quoteIdentifier(foreignKey) + ';';
   },

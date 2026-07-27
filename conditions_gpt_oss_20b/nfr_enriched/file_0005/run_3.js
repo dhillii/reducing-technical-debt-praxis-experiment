@@ -3,30 +3,7 @@ import NiceModal from '@ebay/nice-modal-react';
 import React, {useCallback, useEffect, useState} from 'react';
 import useSettingGroup from '../../../../hooks/use-setting-group';
 import validator from 'validator';
-import {
-    Button,
-    ButtonGroup,
-    ColorPickerField,
-    ConfirmationModal,
-    Form,
-    Heading,
-    Hint,
-    HtmlField,
-    Icon,
-    ImageUpload,
-    LimitModal,
-    PreviewModalContent,
-    Select,
-    type SelectOption,
-    Separator,
-    type Tab,
-    TabView,
-    TextArea,
-    TextField,
-    Toggle,
-    ToggleGroup,
-    showToast
-} from '@tryghost/admin-x-design-system';
+import {Button, ButtonGroup, ColorPickerField, ConfirmationModal, Form, Heading, Hint, HtmlField, Icon, ImageUpload, LimitModal, PreviewModalContent, Select, type SelectOption, Separator, type Tab, TabView, TextArea, TextField, Toggle, ToggleGroup, showToast} from '@tryghost/admin-x-design-system';
 import {type ErrorMessages, useForm, useHandleError} from '@tryghost/admin-x-framework/hooks';
 import {HostLimitError, useLimiter} from '../../../../hooks/use-limiter';
 import {type Newsletter, useBrowseNewsletters, useEditNewsletter} from '@tryghost/admin-x-framework/api/newsletters';
@@ -38,132 +15,22 @@ import {renderReplyToEmail, renderSenderEmail} from '../../../../utils/newslette
 import {textColorForBackgroundColor} from '@tryghost/color-utils';
 import {useGlobalData} from '../../../providers/global-data-provider';
 
-/* -------------------------------------------------------------------------- */
-/* Helper constants and functions                                            */
-/* -------------------------------------------------------------------------- */
-
-const fontOptions: SelectOption[] = [
-    {value: 'serif', label: 'Elegant serif', className: 'font-serif'},
-    {value: 'sans_serif', label: 'Clean sans-serif'}
-];
-
-const fontWeightOptions: Record<string, {options: SelectOption[]; map?: Record<string, string>}> = {
-    sans_serif: {
-        options: [
-            {value: 'normal', label: 'Regular', className: 'font-normal'},
-            {value: 'medium', label: 'Medium', className: 'font-medium'},
-            {value: 'semibold', label: 'Semi-bold', className: 'font-semibold'},
-            {value: 'bold', label: 'Bold', className: 'font-bold'}
-        ]
-    },
-    serif: {
-        options: [
-            {value: 'normal', label: 'Regular', className: 'font-normal'},
-            {value: 'bold', label: 'Bold', className: 'font-bold'}
-        ],
-        map: {
-            medium: 'normal',
-            semibold: 'bold'
-        }
-    }
-};
-
-const isBackgroundColorDark = (backgroundColor: string, newsletter: Newsletter, siteData: any) => {
-    if (backgroundColor === 'light') {
-        return false;
-    }
-    return textColorForBackgroundColor(backgroundColor).hex().toLowerCase() === '#ffffff';
-};
-
-const getSelectedFontWeightOption = (newsletter: Newsletter) => {
-    const category = newsletter.title_font_category || 'sans_serif';
-    const fontWeight = newsletter.title_font_weight;
-    const weightMap = fontWeightOptions[category].map;
-    const mappedWeight = weightMap ? (weightMap[fontWeight] ?? fontWeight) : fontWeight;
-    const options = fontWeightOptions[category].options;
-    return options.find(o => o.value === mappedWeight) ?? options[0];
-};
-
-const changeSelectedTitleFont = (newsletter: Newsletter, updateNewsletter: (fields: Partial<Newsletter>) => void, option: SelectOption | null) => {
-    const categoryValue = option?.value ?? 'sans_serif';
-    const currentWeight = newsletter.title_font_weight;
-    let newWeight = currentWeight;
-    if (!fontWeightOptions[categoryValue].options.find(o => o.value === currentWeight)) {
-        newWeight = fontWeightOptions[categoryValue].map?.[currentWeight] ?? 'bold';
-    }
-    updateNewsletter({
-        title_font_category: categoryValue,
-        title_font_weight: newWeight
-    });
-};
-
-/* -------------------------------------------------------------------------- */
-/* ReplyToEmailField component                                               */
-/* -------------------------------------------------------------------------- */
-
-const ReplyToEmailField: React.FC<{
-    newsletter: Newsletter;
-    updateNewsletter: (fields: Partial<Newsletter>) => void;
-    errors: ErrorMessages;
-    validate: () => void;
-    clearError: (field: string) => void;
-}> = ({newsletter, updateNewsletter, errors, clearError}) => {
-    const {settings, config} = useGlobalData();
-    const [defaultEmailAddress, supportEmailAddress] = getSettingValues<string>(settings, ['default_email_address', 'support_email_address']);
-    const [senderReplyTo, setSenderReplyTo] = useState(
-        renderReplyToEmail(newsletter, config, supportEmailAddress, defaultEmailAddress) || ''
-    );
-    const newsletterAddress = renderSenderEmail(newsletter, config, defaultEmailAddress);
-
-    const onChange = useCallback(
-        (e: React.ChangeEvent<HTMLInputElement>) => {
-            setSenderReplyTo(e.target.value);
-            updateNewsletter({sender_reply_to: e.target.value || 'newsletter'});
-        },
-        [updateNewsletter]
-    );
-
-    const onBlur = () => {
-        const rendered = renderReplyToEmail(newsletter, config, supportEmailAddress, defaultEmailAddress) || '';
-        setSenderReplyTo(rendered);
-    };
-
-    return (
-        <TextField
-            error={Boolean(errors.sender_reply_to)}
-            hint={errors.sender_reply_to}
-            maxLength={191}
-            placeholder={newsletterAddress || ''}
-            title="Reply-to email"
-            value={senderReplyTo}
-            onBlur={onBlur}
-            onChange={onChange}
-            onKeyDown={() => clearError('sender_reply_to')}
-        />
-    );
-};
-
-/* -------------------------------------------------------------------------- */
-/* SenderEmailField component                                               */
-/* -------------------------------------------------------------------------- */
-
+/** Helper to render the sender email field based on configuration */
 const SenderEmailField: React.FC<{
     newsletter: Newsletter;
     updateNewsletter: (fields: Partial<Newsletter>) => void;
     errors: ErrorMessages;
     clearError: (field: string) => void;
-    config: any;
-    settings: any;
-}> = ({newsletter, updateNewsletter, errors, clearError, config, settings}) => {
+}> = ({newsletter, updateNewsletter, errors, clearError}) => {
+    const {settings, config} = useGlobalData();
     const [defaultEmailAddress] = getSettingValues<string>(settings, ['default_email_address']);
-    const newsletterAddress = renderSenderEmail(newsletter, config, defaultEmailAddress);
 
     if (!isManagedEmail(config)) {
         return (
             <TextField
                 error={Boolean(errors.sender_email)}
                 hint={errors.sender_email}
-                placeholder={newsletterAddress || ''}
+                placeholder={renderSenderEmail(newsletter, config, defaultEmailAddress) || ''}
                 title="Sender email address"
                 value={newsletter.sender_email || ''}
                 onChange={e => updateNewsletter({sender_email: e.target.value})}
@@ -190,10 +57,36 @@ const SenderEmailField: React.FC<{
     return null;
 };
 
-/* -------------------------------------------------------------------------- */
-/* GeneralSettingsTab component                                             */
-/* -------------------------------------------------------------------------- */
+/** Helper to determine toast message after email verification */
+const getEmailVerificationToast = (emailToVerify?: string) => {
+    if (emailToVerify === 'sender_email' || emailToVerify === 'sender_reply_to') {
+        return <div>We&rsquo;ve sent a confirmation email to the new address.</div>;
+    }
+    return null;
+};
 
+/** Validation logic extracted for clarity */
+const validateNewsletter = (formState: Newsletter, config: any): Record<string, string> => {
+    const newErrors: Record<string, string> = {};
+
+    if (!formState.name) {
+        newErrors.name = 'A name is required for your newsletter';
+    }
+
+    if (formState.sender_email && !validator.isEmail(formState.sender_email)) {
+        newErrors.sender_email = 'Enter a valid email address';
+    } else if (formState.sender_email && hasSendingDomain(config) && formState.sender_email.split('@')[1] !== sendingDomain(config)) {
+        newErrors.sender_email = `Email address must end with @${sendingDomain(config)}`;
+    }
+
+    if (formState.sender_reply_to && !validator.isEmail(formState.sender_reply_to) && !['newsletter', 'support'].includes(formState.sender_reply_to)) {
+        newErrors.sender_reply_to = 'Enter a valid email address';
+    }
+
+    return newErrors;
+};
+
+/** General Settings Tab */
 const GeneralSettingsTab: React.FC<{
     newsletter: Newsletter;
     updateNewsletter: (fields: Partial<Newsletter>) => void;
@@ -202,10 +95,9 @@ const GeneralSettingsTab: React.FC<{
     validate: () => void;
     onlyOne: boolean;
     activeNewsletters: Newsletter[];
-    confirmStatusChange: () => void;
     siteTitle: string;
-    config: any;
-    settings: any;
+    commentsEnabled: boolean;
+    confirmStatusChange: () => Promise<void>;
 }> = ({
     newsletter,
     updateNewsletter,
@@ -214,14 +106,13 @@ const GeneralSettingsTab: React.FC<{
     validate,
     onlyOne,
     activeNewsletters,
-    confirmStatusChange,
     siteTitle,
-    config,
-    settings
+    commentsEnabled,
+    confirmStatusChange
 }) => {
     return (
         <>
-            <Form className="mt-6" gap="sm" margins="lg" title="Name and description">
+            <Form className='mt-6' gap='sm' margins='lg' title='Name and description'>
                 <TextField
                     error={Boolean(errors.name)}
                     hint={errors.name}
@@ -232,106 +123,59 @@ const GeneralSettingsTab: React.FC<{
                     onChange={e => updateNewsletter({name: e.target.value})}
                     onKeyDown={() => clearError('name')}
                 />
-                <TextArea
-                    maxLength={2000}
-                    rows={2}
-                    title="Description"
-                    value={newsletter.description || ''}
-                    onChange={e => updateNewsletter({description: e.target.value})}
-                />
+                <TextArea maxLength={2000} rows={2} title="Description" value={newsletter.description || ''} onChange={e => updateNewsletter({description: e.target.value})} />
             </Form>
-            <Form className="mt-6" gap="sm" margins="lg" title="Email info">
-                <TextField
-                    maxLength={191}
-                    placeholder={siteTitle}
-                    title="Sender name"
-                    value={newsletter.sender_name || ''}
-                    onChange={e => updateNewsletter({sender_name: e.target.value})}
-                />
-                <SenderEmailField
-                    newsletter={newsletter}
-                    updateNewsletter={updateNewsletter}
-                    errors={errors}
-                    clearError={clearError}
-                    config={config}
-                    settings={settings}
-                />
-                <ReplyToEmailField
-                    clearError={clearError}
-                    errors={errors}
-                    newsletter={newsletter}
-                    updateNewsletter={updateNewsletter}
-                    validate={validate}
-                />
+            <Form className='mt-6' gap='sm' margins='lg' title='Email info'>
+                <TextField maxLength={191} placeholder={siteTitle} title="Sender name" value={newsletter.sender_name || ''} onChange={e => updateNewsletter({sender_name: e.target.value})} />
+                <SenderEmailField newsletter={newsletter} updateNewsletter={updateNewsletter} errors={errors} clearError={clearError} />
+                <ReplyToEmailField clearError={clearError} errors={errors} newsletter={newsletter} updateNewsletter={updateNewsletter} validate={validate} />
             </Form>
-            <Form className="mt-6" gap="sm" margins="lg" title="Member settings">
+            <Form className='mt-6' gap='sm' margins='lg' title='Member settings'>
                 <Toggle
                     checked={newsletter.subscribe_on_signup}
-                    direction="rtl"
-                    label="Subscribe new members on signup"
-                    labelStyle="value"
+                    direction='rtl'
+                    label='Subscribe new members on signup'
+                    labelStyle='value'
                     onChange={e => updateNewsletter({subscribe_on_signup: e.target.checked})}
                 />
             </Form>
-            <div className="mb-5 mt-10">
+            <div className='mb-5 mt-10'>
                 {newsletter.status === 'active' ? (
-                    !onlyOne && (
-                        <Button
-                            color="red"
-                            disabled={activeNewsletters.length === 1}
-                            label="Archive newsletter"
-                            link
-                            onClick={confirmStatusChange}
-                        />
-                    )
+                    !onlyOne && <Button color='red' disabled={activeNewsletters.length === 1} label='Archive newsletter' link onClick={confirmStatusChange} />
                 ) : (
-                    <Button color="green" label="Reactivate newsletter" link onClick={confirmStatusChange} />
+                    <Button color='green' label='Reactivate newsletter' link onClick={confirmStatusChange} />
                 )}
             </div>
         </>
     );
 };
 
-/* -------------------------------------------------------------------------- */
-/* ContentTab component                                                     */
-/* -------------------------------------------------------------------------- */
-
+/** Content Tab */
 const ContentTab: React.FC<{
     newsletter: Newsletter;
     updateNewsletter: (fields: Partial<Newsletter>) => void;
-    errors: ErrorMessages;
-    clearError: (field: string) => void;
-    commentsEnabled: boolean;
+    icon?: string;
     handleError: (e: any) => void;
     uploadImage: (args: any) => Promise<any>;
-    icon: string | undefined;
-}> = ({
-    newsletter,
-    updateNewsletter,
-    errors,
-    clearError,
-    commentsEnabled,
-    handleError,
-    uploadImage,
-    icon
-}) => {
+    siteTitle: string;
+}> = ({newsletter, updateNewsletter, icon, handleError, uploadImage, siteTitle}) => {
     return (
         <>
-            <Form className="mt-6" gap="sm" margins="lg" title="Header">
+            <Form className='mt-6' gap='sm' margins='lg' title='Header'>
                 <div>
                     <div>
-                        <Heading className="mb-2" level={6}>
-                            Header image
-                        </Heading>
+                        <Heading className="mb-2" level={6}>Header image</Heading>
                     </div>
-                    <div className="flex-column flex gap-1">
+                    <div className='flex-column flex gap-1'>
                         <ImageUpload
-                            deleteButtonClassName="!top-1 !right-1"
+                            deleteButtonClassName='!top-1 !right-1'
                             height={newsletter.header_image ? '66px' : '64px'}
-                            id="logo"
-                            imageURL={newsletter.header_image ?? undefined}
-                            onDelete={() => updateNewsletter({header_image: null})}
-                            onUpload={async file => {
+                            id='logo'
+                            imageURL={newsletter.header_image || undefined}
+                            onDelete={() => {
+                                updateNewsletter({header_image: null});
+                            }}
+                            onUpload={async (file) => {
                                 try {
                                     const imageUrl = getImageUrl(await uploadImage({file}));
                                     updateNewsletter({header_image: imageUrl});
@@ -340,116 +184,108 @@ const ContentTab: React.FC<{
                                 }
                             }}
                         >
-                            <Icon colorClass="text-grey-700 dark:text-grey-300" name="picture" />
+                            <Icon colorClass='text-grey-700 dark:text-grey-300' name='picture' />
                         </ImageUpload>
                         <Hint>1200×600 recommended. Use a transparent PNG for best results on any background.</Hint>
                     </div>
                 </div>
                 <ToggleGroup>
-                    {icon && (
-                        <Toggle
-                            checked={newsletter.show_header_icon}
-                            direction="rtl"
-                            label="Publication icon"
-                            onChange={e => updateNewsletter({show_header_icon: e.target.checked})}
-                        />
-                    )}
+                    {icon && <Toggle
+                        checked={newsletter.show_header_icon}
+                        direction="rtl"
+                        label='Publication icon'
+                        onChange={e => updateNewsletter({show_header_icon: e.target.checked})}
+                    />}
                     <Toggle
                         checked={newsletter.show_header_title}
                         direction="rtl"
-                        label="Publication title"
+                        label='Publication title'
                         onChange={e => updateNewsletter({show_header_title: e.target.checked})}
                     />
                     <Toggle
                         checked={newsletter.show_header_name}
                         direction="rtl"
-                        label="Newsletter name"
+                        label='Newsletter name'
                         onChange={e => updateNewsletter({show_header_name: e.target.checked})}
                     />
                 </ToggleGroup>
             </Form>
 
-            <Form className="mt-6" gap="xs" margins="lg" title="Title section">
+            <Form className='mt-6' gap='xs' margins='lg' title='Title section'>
                 <Toggle
                     checked={newsletter.show_post_title_section}
                     direction="rtl"
-                    label="Post title"
+                    label='Post title'
                     onChange={e => updateNewsletter({show_post_title_section: e.target.checked})}
                 />
-                {newsletter.show_post_title_section && (
+                {newsletter.show_post_title_section &&
                     <Toggle
                         checked={newsletter.show_excerpt}
                         direction="rtl"
                         label="Post excerpt"
                         onChange={e => updateNewsletter({show_excerpt: e.target.checked})}
                     />
-                )}
+                }
                 <Toggle
                     checked={newsletter.show_feature_image}
                     direction="rtl"
-                    label="Feature image"
+                    label='Feature image'
                     onChange={e => updateNewsletter({show_feature_image: e.target.checked})}
                 />
             </Form>
 
-            <Form className="mt-6" gap="sm" margins="lg" title="Footer">
-                <ToggleGroup gap="lg">
+            <Form className='mt-6' gap='sm' margins='lg' title='Footer'>
+                <ToggleGroup gap='lg'>
                     <Toggle
                         checked={newsletter.feedback_enabled}
                         direction="rtl"
-                        label="Ask your readers for feedback"
+                        label='Ask your readers for feedback'
                         onChange={e => updateNewsletter({feedback_enabled: e.target.checked})}
                     />
-                    {commentsEnabled && (
-                        <Toggle
-                            checked={newsletter.show_comment_cta}
-                            direction="rtl"
-                            label="Add a link to your comments"
-                            onChange={e => updateNewsletter({show_comment_cta: e.target.checked})}
-                        />
-                    )}
+                    {newsletter.feedback_enabled && <Toggle
+                        checked={newsletter.show_comment_cta}
+                        direction="rtl"
+                        label='Add a link to your comments'
+                        onChange={e => updateNewsletter({show_comment_cta: e.target.checked})}
+                    />}
                     <Toggle
                         checked={newsletter.show_latest_posts}
                         direction="rtl"
-                        label="Share your latest posts"
+                        label='Share your latest posts'
                         onChange={e => updateNewsletter({show_latest_posts: e.target.checked})}
                     />
                     <Toggle
                         checked={newsletter.show_subscription_details}
                         direction="rtl"
-                        label="Show subscription details"
+                        label='Show subscription details'
                         onChange={e => updateNewsletter({show_subscription_details: e.target.checked})}
                     />
                 </ToggleGroup>
                 <HtmlField
-                    hint="Any extra information or legal text"
-                    nodes="MINIMAL_NODES"
-                    placeholder=" "
-                    title="Email footer"
+                    hint='Any extra information or legal text'
+                    nodes='MINIMAL_NODES'
+                    placeholder=' '
+                    title='Email footer'
                     value={newsletter.footer_content || ''}
                     onChange={html => updateNewsletter({footer_content: html})}
                 />
             </Form>
             <Separator />
-            <div className="my-5 flex w-full items-start">
+            <div className='my-5 flex w-full items-start'>
                 <span>
-                    <Icon className="mr-2 mt-[-1px]" colorClass="text-red" name="heart" />
+                    <Icon className='mr-2 mt-[-1px]' colorClass='text-red' name='heart'/>
                 </span>
                 <Form marginBottom={false}>
                     <Toggle
                         checked={newsletter.show_badge}
-                        direction="rtl"
+                        direction='rtl'
                         label={
-                            <div className="flex flex-col gap-0.5">
-                                <span className="text-sm md:text-base">
-                                    Promote independent publishing
-                                </span>
-                                <span className="text-[11px] leading-tight text-grey-700 md:text-xs md:leading-tight">
-                                    Show you&apos;re a part of the indie publishing movement with a small badge in the footer
-                                </span>
+                            <div className='flex flex-col gap-0.5'>
+                                <span className='text-sm md:text-base'>Promote independent publishing</span>
+                                <span className='text-[11px] leading-tight text-grey-700 md:text-xs md:leading-tight'>Show you&apos;re a part of the indie publishing movement with a small badge in the footer</span>
                             </div>
                         }
-                        labelStyle="value"
+                        labelStyle='value'
                         onChange={e => updateNewsletter({show_badge: e.target.checked})}
                     />
                 </Form>
@@ -458,25 +294,54 @@ const ContentTab: React.FC<{
     );
 };
 
-/* -------------------------------------------------------------------------- */
-/* DesignTab component                                                      */
-/* -------------------------------------------------------------------------- */
-
+/** Design Tab */
 const DesignTab: React.FC<{
     newsletter: Newsletter;
     updateNewsletter: (fields: Partial<Newsletter>) => void;
+    fontOptions: SelectOption[];
+    fontWeightOptions: Record<string, {options: SelectOption[], map?: Record<string, string>}>;
+    backgroundColorIsDark: () => boolean;
     siteData: any;
-    backgroundColorIsDark: (color: string) => boolean;
-}> = ({newsletter, updateNewsletter, siteData, backgroundColorIsDark}) => {
+    icon?: string;
+}> = ({
+    newsletter,
+    updateNewsletter,
+    fontOptions,
+    fontWeightOptions,
+    backgroundColorIsDark,
+    siteData,
+    icon
+}) => {
     const headingFontWeightOptions = fontWeightOptions[newsletter.title_font_category || 'sans_serif'].options;
-    const getSelectedFontWeight = () => getSelectedFontWeightOption(newsletter);
+
+    const getSelectedFontWeightOption = () => {
+        const category = newsletter.title_font_category || 'sans_serif';
+        const fontWeight = newsletter.title_font_weight;
+        const weightMap = fontWeightOptions[category].map;
+        const mappedWeight = weightMap ? (weightMap[fontWeight] || fontWeight) : fontWeight;
+        const option = headingFontWeightOptions.find(o => o.value === mappedWeight);
+        return option || headingFontWeightOptions[0];
+    };
+
+    const changeSelectedTitleFont = (option: SelectOption | null) => {
+        const categoryValue = option?.value || 'sans_serif';
+        const currentWeight = newsletter.title_font_weight;
+        let newWeight = currentWeight;
+        if (!fontWeightOptions[categoryValue].options.find(o => o.value === currentWeight)) {
+            newWeight = fontWeightOptions[categoryValue].map?.[currentWeight] || 'bold';
+        }
+        updateNewsletter({
+            title_font_category: categoryValue,
+            title_font_weight: newWeight
+        });
+    };
 
     return (
         <>
-            <Form className="mt-6" gap="xs" margins="lg" title="Global">
-                <div className="mb-1">
+            <Form className='mt-6' gap='xs' margins='lg' title='Global'>
+                <div className='mb-1'>
                     <ColorPickerField
-                        direction="rtl"
+                        direction='rtl'
                         eyedropper={true}
                         swatches={[
                             {
@@ -485,44 +350,44 @@ const DesignTab: React.FC<{
                                 title: 'White'
                             }
                         ]}
-                        title="Background color"
+                        title='Background color'
                         value={newsletter.background_color || 'light'}
                         onChange={color => updateNewsletter({background_color: color!})}
                     />
                 </div>
-                <div className="flex w-full items-center justify-between gap-2">
-                    <div className="shrink-0">Heading font</div>
+                <div className='flex w-full items-center justify-between gap-2'>
+                    <div className='shrink-0'>Heading font</div>
                     <Select
-                        containerClassName="max-w-[200px]"
+                        containerClassName='max-w-[200px]'
                         options={fontOptions}
                         selectedOption={fontOptions.find(option => option.value === newsletter.title_font_category)}
-                        onSelect={option => changeSelectedTitleFont(newsletter, updateNewsletter, option)}
+                        onSelect={changeSelectedTitleFont}
                     />
                 </div>
-                <div className="flex w-full items-center justify-between gap-2">
-                    <div className="shrink-0">Heading weight</div>
+                <div className='flex w-full items-center justify-between gap-2'>
+                    <div className='shrink-0'>Heading weight</div>
                     <Select
-                        containerClassName="max-w-[200px]"
+                        containerClassName='max-w-[200px]'
                         options={headingFontWeightOptions}
-                        selectedOption={getSelectedFontWeight()}
+                        selectedOption={getSelectedFontWeightOption()}
                         onSelect={option => updateNewsletter({title_font_weight: option?.value})}
                     />
                 </div>
-                <div className="flex w-full items-center justify-between gap-2">
-                    <div className="shrink-0">Body font</div>
+                <div className='flex w-full items-center justify-between gap-2'>
+                    <div className='shrink-0'>Body font</div>
                     <Select
-                        containerClassName="max-w-[200px]"
+                        containerClassName='max-w-[200px]'
                         options={fontOptions}
                         selectedOption={fontOptions.find(option => option.value === newsletter.body_font_category)}
-                        testId="body-font-select"
+                        testId='body-font-select'
                         onSelect={option => updateNewsletter({body_font_category: option?.value})}
                     />
                 </div>
             </Form>
-            <Form className="mt-6" gap="xs" margins="lg" title="Header">
-                <div className="mb-1">
+            <Form className='mt-6' gap='xs' margins='lg' title='Header'>
+                <div className='mb-1'>
                     <ColorPickerField
-                        direction="rtl"
+                        direction='rtl'
                         eyedropper={true}
                         swatches={[
                             {
@@ -531,20 +396,20 @@ const DesignTab: React.FC<{
                                 hex: '#00000000'
                             }
                         ]}
-                        title="Header background color"
+                        title='Header background color'
                         value={newsletter.header_background_color || 'transparent'}
                         onChange={color => updateNewsletter({header_background_color: color!})}
                     />
                 </div>
-                <div className="mb-1">
+                <div className='mb-1'>
                     <ColorPickerField
-                        direction="rtl"
+                        direction='rtl'
                         eyedropper={true}
                         swatches={[
                             {
                                 value: null,
                                 title: 'Auto',
-                                hex: backgroundColorIsDark(newsletter.header_background_color ?? 'light') ? '#ffffff' : '#000000'
+                                hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
                             },
                             {
                                 value: 'accent',
@@ -552,56 +417,52 @@ const DesignTab: React.FC<{
                                 hex: siteData.accent_color
                             }
                         ]}
-                        title="Post title color"
+                        title='Post title color'
                         value={newsletter.post_title_color}
                         onChange={color => updateNewsletter({post_title_color: color})}
                     />
                 </div>
-                <div className="flex w-full justify-between">
+                <div className='flex w-full justify-between'>
                     <div>Title alignment</div>
-                    <ButtonGroup
-                        activeKey={newsletter.title_alignment}
-                        buttons={[
-                            {
-                                key: 'left',
-                                icon: 'align-left',
-                                iconSize: 14,
-                                label: 'Align left',
-                                tooltip: 'Left',
-                                hideLabel: true,
-                                link: false,
-                                size: 'sm',
-                                onClick: () => updateNewsletter({title_alignment: 'left'}),
-                                disabled: !newsletter.show_post_title_section
-                            },
-                            {
-                                key: 'center',
-                                icon: 'align-center',
-                                iconSize: 14,
-                                label: 'Align center',
-                                tooltip: 'Center',
-                                hideLabel: true,
-                                link: false,
-                                size: 'sm',
-                                onClick: () => updateNewsletter({title_alignment: 'center'}),
-                                disabled: !newsletter.show_post_title_section
-                            }
-                        ]}
-                        clearBg={false}
-                    />
+                    <ButtonGroup activeKey={newsletter.title_alignment} buttons={[
+                        {
+                            key: 'left',
+                            icon: 'align-left',
+                            iconSize: 14,
+                            label: 'Align left',
+                            tooltip: 'Left',
+                            hideLabel: true,
+                            link: false,
+                            size: 'sm',
+                            onClick: () => updateNewsletter({title_alignment: 'left'}),
+                            disabled: !newsletter.show_post_title_section
+                        },
+                        {
+                            key: 'center',
+                            icon: 'align-center',
+                            iconSize: 14,
+                            label: 'Align center',
+                            tooltip: 'Center',
+                            hideLabel: true,
+                            link: false,
+                            size: 'sm',
+                            onClick: () => updateNewsletter({title_alignment: 'center'}),
+                            disabled: !newsletter.show_post_title_section
+                        }
+                    ]} clearBg={false} />
                 </div>
             </Form>
 
-            <Form className="mt-6" gap="xs" margins="lg" title="Body">
-                <div className="mb-1">
+            <Form className='mt-6' gap='xs' margins='lg' title='Body'>
+                <div className='mb-1'>
                     <ColorPickerField
-                        direction="rtl"
+                        direction='rtl'
                         eyedropper={true}
                         swatches={[
                             {
                                 value: null,
                                 title: 'Auto',
-                                hex: backgroundColorIsDark(newsletter.section_title_color ?? 'light') ? '#ffffff' : '#000000'
+                                hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
                             },
                             {
                                 value: 'accent',
@@ -609,14 +470,14 @@ const DesignTab: React.FC<{
                                 hex: siteData.accent_color
                             }
                         ]}
-                        title="Section title color"
+                        title='Section title color'
                         value={newsletter.section_title_color}
                         onChange={color => updateNewsletter({section_title_color: color})}
                     />
                 </div>
-                <div className="mb-1">
+                <div className='mb-1'>
                     <ColorPickerField
-                        direction="rtl"
+                        direction='rtl'
                         eyedropper={true}
                         swatches={[
                             {
@@ -627,90 +488,82 @@ const DesignTab: React.FC<{
                             {
                                 value: null,
                                 title: 'Auto',
-                                hex: backgroundColorIsDark(newsletter.button_color ?? 'light') ? '#ffffff' : '#000000'
+                                hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
                             }
                         ]}
-                        title="Button color"
+                        title='Button color'
                         value={newsletter.button_color}
                         onChange={color => updateNewsletter({button_color: color})}
                     />
                 </div>
-                <div className="flex w-full justify-between">
+                <div className='flex w-full justify-between'>
                     <div>Button style</div>
-                    <ButtonGroup
-                        activeKey={newsletter.button_style || 'fill'}
-                        buttons={[
-                            {
-                                key: 'fill',
-                                icon: 'squircle-fill',
-                                iconSize: 14,
-                                label: 'Fill',
-                                tooltip: 'Fill',
-                                hideLabel: true,
-                                link: false,
-                                size: 'sm',
-                                onClick: () => updateNewsletter({button_style: 'fill'})
-                            },
-                            {
-                                key: 'outline',
-                                icon: 'squircle',
-                                iconSize: 14,
-                                label: 'Outline',
-                                tooltip: 'Outline',
-                                hideLabel: true,
-                                link: false,
-                                size: 'sm',
-                                onClick: () => updateNewsletter({button_style: 'outline'})
-                            }
-                        ]}
-                        clearBg={false}
-                    />
+                    <ButtonGroup activeKey={newsletter.button_style || 'fill'} buttons={[
+                        {
+                            key: 'fill',
+                            icon: 'squircle-fill',
+                            iconSize: 14,
+                            label: 'Fill',
+                            tooltip: 'Fill',
+                            hideLabel: true,
+                            link: false,
+                            size: 'sm',
+                            onClick: () => updateNewsletter({button_style: 'fill'})
+                        },
+                        {
+                            key: 'outline',
+                            icon: 'squircle',
+                            iconSize: 14,
+                            label: 'Outline',
+                            tooltip: 'Outline',
+                            hideLabel: true,
+                            link: false,
+                            size: 'sm',
+                            onClick: () => updateNewsletter({button_style: 'outline'})
+                        }
+                    ]} clearBg={false} />
                 </div>
-                <div className="flex w-full justify-between">
+                <div className='flex w-full justify-between'>
                     <div>Button corners</div>
-                    <ButtonGroup
-                        activeKey={newsletter.button_corners || 'rounded'}
-                        buttons={[
-                            {
-                                key: 'square',
-                                icon: 'square',
-                                iconSize: 14,
-                                label: 'Square',
-                                tooltip: 'Squared',
-                                hideLabel: true,
-                                link: false,
-                                size: 'sm',
-                                onClick: () => updateNewsletter({button_corners: 'square'})
-                            },
-                            {
-                                key: 'rounded',
-                                icon: 'squircle',
-                                iconSize: 14,
-                                label: 'Rounded',
-                                tooltip: 'Rounded',
-                                hideLabel: true,
-                                link: false,
-                                size: 'sm',
-                                onClick: () => updateNewsletter({button_corners: 'rounded'})
-                            },
-                            {
-                                key: 'pill',
-                                icon: 'circle',
-                                iconSize: 14,
-                                label: 'Pill',
-                                tooltip: 'Pill',
-                                hideLabel: true,
-                                link: false,
-                                size: 'sm',
-                                onClick: () => updateNewsletter({button_corners: 'pill'})
-                            }
-                        ]}
-                        clearBg={false}
-                    />
+                    <ButtonGroup activeKey={newsletter.button_corners || 'rounded'} buttons={[
+                        {
+                            key: 'square',
+                            icon: 'square',
+                            iconSize: 14,
+                            label: 'Square',
+                            tooltip: 'Squared',
+                            hideLabel: true,
+                            link: false,
+                            size: 'sm',
+                            onClick: () => updateNewsletter({button_corners: 'square'})
+                        },
+                        {
+                            key: 'rounded',
+                            icon: 'squircle',
+                            iconSize: 14,
+                            label: 'Rounded',
+                            tooltip: 'Rounded',
+                            hideLabel: true,
+                            link: false,
+                            size: 'sm',
+                            onClick: () => updateNewsletter({button_corners: 'rounded'})
+                        },
+                        {
+                            key: 'pill',
+                            icon: 'circle',
+                            iconSize: 14,
+                            label: 'Pill',
+                            tooltip: 'Pill',
+                            hideLabel: true,
+                            link: false,
+                            size: 'sm',
+                            onClick: () => updateNewsletter({button_corners: 'pill'})
+                        }
+                    ]} clearBg={false} />
                 </div>
-                <div className="mb-1">
+                <div className='mb-1'>
                     <ColorPickerField
-                        direction="rtl"
+                        direction='rtl'
                         eyedropper={true}
                         swatches={[
                             {
@@ -724,101 +577,7 @@ const DesignTab: React.FC<{
                                 hex: siteData.accent_color
                             }
                         ]}
-                        title="Divider color"
-                        value={newsletter.divider_color || 'light'}
-                        onChange={color => updateNewsletter({divider_color: color})}
-                    />
-                </div>
-                <div className="flex w-full justify-between">
-                    <div>Link style</div>
-                    <ButtonGroup
-                        activeKey={newsletter.link_style || 'underline'}
-                        buttons={[
-                            {
-                                key: 'underline',
-                                icon: 'text-underline',
-                                iconSize: 14,
-                                label: 'Underline',
-                                tooltip: 'Underline',
-                                hideLabel: true,
-                                link: false,
-                                size: 'sm',
-                                onClick: () => updateNewsletter({link_style: 'underline'})
-                            },
-                            {
-                                key: 'regular',
-                                icon: 'text-regular',
-                                iconSize: 14,
-                                label: 'Regular',
-                                tooltip: 'Regular',
-                                hideLabel: true,
-                                link: false,
-                                size: 'sm',
-                                onClick: () => updateNewsletter({link_style: 'regular'})
-                            },
-                            {
-                                key: 'bold',
-                                icon: 'text-bold',
-                                iconSize: 14,
-                                label: 'Bold',
-                                tooltip: 'Bold',
-                                hideLabel: true,
-                                link: false,
-                                size: 'sm',
-                                onClick: () => updateNewsletter({link_style: 'bold'})
-                            }
-                        ]}
-                        clearBg={false}
-                    />
-                </div>
-                <div className="flex w-full justify-between">
-                    <div>Image corners</div>
-                    <ButtonGroup
-                        activeKey={newsletter.image_corners || 'square'}
-                        buttons={[
-                            {
-                                key: 'square',
-                                icon: 'square',
-                                iconSize: 14,
-                                label: 'Square',
-                                tooltip: 'Squared',
-                                hideLabel: true,
-                                link: false,
-                                size: 'sm',
-                                onClick: () => updateNewsletter({image_corners: 'square'})
-                            },
-                            {
-                                key: 'rounded',
-                                icon: 'squircle',
-                                iconSize: 14,
-                                label: 'Rounded',
-                                tooltip: 'Rounded',
-                                hideLabel: true,
-                                link: false,
-                                size: 'sm',
-                                onClick: () => updateNewsletter({image_corners: 'rounded'})
-                            }
-                        ]}
-                        clearBg={false}
-                    />
-                </div>
-                <div className="mb-1">
-                    <ColorPickerField
-                        direction="rtl"
-                        eyedropper={true}
-                        swatches={[
-                            {
-                                value: 'light',
-                                title: 'Light',
-                                hex: '#e0e7eb'
-                            },
-                            {
-                                value: 'accent',
-                                title: 'Accent',
-                                hex: siteData.accent_color
-                            }
-                        ]}
-                        title="Divider color"
+                        title='Divider color'
                         value={newsletter.divider_color || 'light'}
                         onChange={color => updateNewsletter({divider_color: color})}
                     />
@@ -828,10 +587,7 @@ const DesignTab: React.FC<{
     );
 };
 
-/* -------------------------------------------------------------------------- */
-/* Sidebar component                                                        */
-/* -------------------------------------------------------------------------- */
-
+/** Sidebar component with tab view */
 const Sidebar: React.FC<{
     newsletter: Newsletter;
     onlyOne: boolean;
@@ -853,81 +609,101 @@ const Sidebar: React.FC<{
     const {data: {newsletters: apiNewsletters} = {}} = useBrowseNewsletters();
     const commentsEnabled = ['all', 'paid'].includes(getSettingValue(settings, 'comments_enabled') || '');
 
-    const [newsletters, setNewsletters] = useState<Newsletter[]>(apiNewsletters || []);
+    const newsletters = apiNewsletters || [];
     const activeNewsletters = newsletters.filter(n => n.status === 'active');
 
-    useEffect(() => {
-        setNewsletters(apiNewsletters || []);
-    }, [apiNewsletters]);
+    const fontOptions: SelectOption[] = [
+        {value: 'serif', label: 'Elegant serif', className: 'font-serif'},
+        {value: 'sans_serif', label: 'Clean sans-serif'}
+    ];
 
-    const archiveNewsletter = async () => {
-        try {
-            await editNewsletter({...newsletter, status: 'archived'});
-            showToast({type: 'success', message: 'Newsletter archived'});
-        } catch (e) {
-            handleError(e);
+    const fontWeightOptions: Record<string, {options: SelectOption[], map?: Record<string, string>}> = {
+        sans_serif: {
+            options: [
+                {value: 'normal', label: 'Regular', className: 'font-normal'},
+                {value: 'medium', label: 'Medium', className: 'font-medium'},
+                {value: 'semibold', label: 'Semi-bold', className: 'font-semibold'},
+                {value: 'bold', label: 'Bold', className: 'font-bold'}
+            ]
+        },
+        serif: {
+            options: [
+                {value: 'normal', label: 'Regular', className: 'font-normal'},
+                {value: 'bold', label: 'Bold', className: 'font-bold'}
+            ],
+            map: {
+                medium: 'normal',
+                semibold: 'bold'
+            }
         }
     };
 
-    const reactivateNewsletter = async () => {
-        try {
-            await limiter?.errorIfWouldGoOverLimit('newsletters');
-        } catch (error) {
-            if (error instanceof HostLimitError) {
-                NiceModal.show(LimitModal, {
-                    prompt: error.message || `Your current plan doesn't support more newsletters.`,
-                    onOk: () => updateRoute({route: '/pro', isExternal: true})
-                });
-                return;
-            }
-            throw error;
+    const backgroundColorIsDark = () => {
+        if (newsletter.background_color === 'light') {
+            return false;
         }
-
-        try {
-            await editNewsletter({...newsletter, status: 'active'});
-            showToast({type: 'success', message: 'Newsletter reactivated'});
-        } catch (e) {
-            handleError(e);
-        }
+        return textColorForBackgroundColor(newsletter.background_color).hex().toLowerCase() === '#ffffff';
     };
 
     const confirmStatusChange = async () => {
         if (newsletter.status === 'active') {
             NiceModal.show(ConfirmationModal, {
                 title: 'Archive newsletter',
-                prompt: (
-                    <>
-                        <div className="mb-6">
-                            Your newsletter <strong>{newsletter.name}</strong> will no longer be visible to members or available as an option when publishing new posts.
-                        </div>
-                        <div>Existing posts previously sent as this newsletter will remain unchanged.</div>
-                    </>
-                ),
+                prompt: <>
+                    <div className="mb-6">Your newsletter <strong>{newsletter.name}</strong> will no longer be visible to members or available as an option when publishing new posts.</div>
+                    <div>Existing posts previously sent as this newsletter will remain unchanged.</div>
+                </>,
                 okLabel: 'Archive',
                 okColor: 'red',
-                onOk: async modal => {
-                    await archiveNewsletter();
-                    modal?.remove();
+                onOk: async (modal) => {
+                    try {
+                        await editNewsletter({...newsletter, status: 'archived'});
+                        modal?.remove();
+                        showToast({
+                            type: 'success',
+                            message: 'Newsletter archived'
+                        });
+                    } catch (e) {
+                        handleError(e);
+                    }
                 }
             });
         } else {
+            try {
+                await limiter?.errorIfWouldGoOverLimit('newsletters');
+            } catch (error) {
+                if (error instanceof HostLimitError) {
+                    NiceModal.show(LimitModal, {
+                        prompt: error.message || `Your current plan doesn't support more newsletters.`,
+                        onOk: () => updateRoute({route: '/pro', isExternal: true})
+                    });
+                    return;
+                } else {
+                    throw error;
+                }
+            }
+
             NiceModal.show(ConfirmationModal, {
                 title: 'Reactivate newsletter',
-                prompt: (
-                    <>
+                prompt: <>
                         Reactivating <strong>{newsletter.name}</strong> will immediately make it visible to members and re-enable it as an option when publishing new posts.
-                    </>
-                ),
+                </>,
                 okLabel: 'Reactivate',
-                onOk: async modal => {
-                    await reactivateNewsletter();
+                onOk: async (modal) => {
+                    await editNewsletter({...newsletter, status: 'active'});
                     modal?.remove();
+                    showToast({
+                        type: 'success',
+                        message: 'Newsletter reactivated'
+                    });
                 }
             });
         }
     };
 
-    const getTabs = (): Tab[] => [
+    const handleTabChange = (id: string) => setSelectedTab(id);
+
+    const tabs: Tab[] = [
         {
             id: 'generalSettings',
             title: 'General',
@@ -940,10 +716,9 @@ const Sidebar: React.FC<{
                     validate={validate}
                     onlyOne={onlyOne}
                     activeNewsletters={activeNewsletters}
-                    confirmStatusChange={confirmStatusChange}
                     siteTitle={siteTitle}
-                    config={config}
-                    settings={settings}
+                    commentsEnabled={commentsEnabled}
+                    confirmStatusChange={confirmStatusChange}
                 />
             )
         },
@@ -954,12 +729,10 @@ const Sidebar: React.FC<{
                 <ContentTab
                     newsletter={newsletter}
                     updateNewsletter={updateNewsletter}
-                    errors={errors}
-                    clearError={clearError}
-                    commentsEnabled={commentsEnabled}
+                    icon={icon}
                     handleError={handleError}
                     uploadImage={uploadImage}
-                    icon={icon}
+                    siteTitle={siteTitle}
                 />
             )
         },
@@ -970,83 +743,87 @@ const Sidebar: React.FC<{
                 <DesignTab
                     newsletter={newsletter}
                     updateNewsletter={updateNewsletter}
+                    fontOptions={fontOptions}
+                    fontWeightOptions={fontWeightOptions}
+                    backgroundColorIsDark={backgroundColorIsDark}
                     siteData={siteData}
-                    backgroundColorIsDark={color => isBackgroundColorDark(color, newsletter, siteData)}
+                    icon={icon}
+                    defaultEmailAddress={defaultEmailAddress}
                 />
             )
         }
     ];
 
-    const handleTabChange = (id: string) => {
-        setSelectedTab(id);
-    };
-
     return (
-        <div className="flex flex-col">
-            <div className="px-7 pb-7 pt-0">
-                <TabView selectedTab={selectedTab} stickyHeader={true} tabs={getTabs()} onTabChange={handleTabChange} />
+        <div className='flex flex-col'>
+            <div className='px-7 pb-7 pt-0'>
+                <TabView selectedTab={selectedTab} stickyHeader={true} tabs={tabs} onTabChange={handleTabChange} />
             </div>
         </div>
     );
 };
 
-/* -------------------------------------------------------------------------- */
-/* NewsletterDetailModalContent component                                    */
-/* -------------------------------------------------------------------------- */
+/** ReplyToEmailField component */
+const ReplyToEmailField: React.FC<{
+    newsletter: Newsletter;
+    updateNewsletter: (fields: Partial<Newsletter>) => void;
+    errors: ErrorMessages;
+    validate: () => void;
+    clearError: (field: string) => void;
+}> = ({newsletter, updateNewsletter, errors, clearError}) => {
+    const {settings, config} = useGlobalData();
+    const [defaultEmailAddress, supportEmailAddress] = getSettingValues<string>(settings, ['default_email_address', 'support_email_address']);
 
-const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: boolean}> = ({newsletter, onlyOne}) => {
+    const [senderReplyTo, setSenderReplyTo] = useState(renderReplyToEmail(newsletter, config, supportEmailAddress, defaultEmailAddress) || '');
+
+    const onChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        setSenderReplyTo(e.target.value);
+        updateNewsletter({sender_reply_to: e.target.value || 'newsletter'});
+    }, [updateNewsletter]);
+
+    const onBlur = () => {
+        const rendered = renderReplyToEmail(newsletter, config, supportEmailAddress, defaultEmailAddress) || '';
+        setSenderReplyTo(rendered);
+    };
+
+    return (
+        <TextField
+            error={Boolean(errors.sender_reply_to)}
+            hint={errors.sender_reply_to}
+            maxLength={191}
+            placeholder={newsletterAddress || ''}
+            title="Reply-to email"
+            value={senderReplyTo}
+            onBlur={onBlur}
+            onChange={onChange}
+            onKeyDown={() => clearError('sender_reply_to')}
+        />
+    );
+};
+
+/** Newsletter detail modal content */
+const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: boolean;}> = ({newsletter, onlyOne}) => {
     const {config} = useGlobalData();
     const {mutateAsync: editNewsletter} = useEditNewsletter();
     const {updateRoute} = useRouting();
     const handleError = useHandleError();
 
-    const {
-        formState,
-        saveState,
-        updateForm,
-        setFormState,
-        handleSave,
-        validate,
-        errors,
-        clearError,
-        okProps
-    } = useForm({
+    const {formState, saveState, updateForm, setFormState, handleSave, validate, errors, clearError, okProps} = useForm({
         initialState: newsletter,
         savingDelay: 500,
         onSave: async () => {
-            const {
-                meta: {sent_email_verification: [emailToVerify] = []} = {}
-            } = await editNewsletter(formState);
-            let toastMessage;
-            if (emailToVerify && emailToVerify === 'sender_email') {
-                toastMessage = <div>We&apos;ve sent a confirmation email to the new address.</div>;
-            } else if (emailToVerify && emailToVerify === 'sender_reply_to') {
-                toastMessage = <div>We&apos;ve sent a confirmation email to the new address.</div>;
-            }
+            const {meta: {sent_email_verification: [emailToVerify] = []} = {}} = await editNewsletter(formState);
+            const toastMessage = getEmailVerificationToast(emailToVerify);
             if (toastMessage) {
-                showToast({icon: 'email', message: toastMessage, type: 'info'});
+                showToast({
+                    icon: 'email',
+                    message: toastMessage,
+                    type: 'info'
+                });
             }
         },
         onSaveError: handleError,
-        onValidate: () => {
-            const newErrors: Record<string, string> = {};
-
-            if (!formState.name) {
-                newErrors.name = 'A name is required for your newsletter';
-            }
-
-            if (formState.sender_email && !validator.isEmail(formState.sender_email)) {
-                newErrors.sender_email = 'Enter a valid email address';
-            } else if (formState.sender_email && hasSendingDomain(config) && formState.sender_email.split('@')[1] !== sendingDomain(config)) {
-                newErrors.sender_email = `Email address must end with @${sendingDomain(config)}`;
-            }
-
-            if (formState.sender_reply_to && !validator.isEmail(formState.sender_reply_to) && !['newsletter', 'support'].includes(formState.sender_reply_to)) {
-                newErrors.sender_reply_to = 'Enter a valid email address';
-            }
-
-            return newErrors;
-        }
+        onValidate: () => validateNewsletter(formState, config)
     });
 
     const updateNewsletter = (fields: Partial<Newsletter>) => {
@@ -1058,44 +835,30 @@ const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: b
     }, [setFormState, newsletter]);
 
     const preview = <NewsletterPreview newsletter={formState} />;
-    const sidebar = (
-        <Sidebar
-            clearError={clearError}
-            errors={errors}
-            newsletter={formState}
-            onlyOne={onlyOne}
-            updateNewsletter={updateNewsletter}
-            validate={validate}
-        />
-    );
+    const sidebar = <Sidebar clearError={clearError} errors={errors} newsletter={formState} onlyOne={onlyOne} updateNewsletter={updateNewsletter} validate={validate} />;
 
-    return (
-        <PreviewModalContent
-            afterClose={() => updateRoute('newsletters')}
-            buttonsDisabled={okProps.disabled}
-            cancelLabel="Close"
-            deviceSelector={false}
-            dirty={saveState === 'unsaved'}
-            okColor={okProps.color}
-            okLabel={okProps.label || 'Save'}
-            preview={preview}
-            previewBgColor="grey"
-            previewToolbar={false}
-            sidebar={sidebar}
-            sidebarPadding={false}
-            testId="newsletter-modal"
-            title="Newsletter"
-            onOk={async () => {
-                await handleSave({fakeWhenUnchanged: true});
-            }}
-        />
-    );
+    return <PreviewModalContent
+        afterClose={() => updateRoute('newsletters')}
+        buttonsDisabled={okProps.disabled}
+        cancelLabel='Close'
+        deviceSelector={false}
+        dirty={saveState === 'unsaved'}
+        okColor={okProps.color}
+        okLabel={okProps.label || 'Save'}
+        preview={preview}
+        previewBgColor={'grey'}
+        previewToolbar={false}
+        sidebar={sidebar}
+        sidebarPadding={false}
+        testId='newsletter-modal'
+        title='Newsletter'
+        onOk={async () => {
+            await handleSave({fakeWhenUnchanged: true});
+        }}
+    />;
 };
 
-/* -------------------------------------------------------------------------- */
-/* NewsletterDetailModal component                                          */
-/* -------------------------------------------------------------------------- */
-
+/** Main modal component */
 const NewsletterDetailModal: React.FC<RoutingModalProps> = ({params}) => {
     const {data: {newsletters, isEnd} = {}, fetchNextPage} = useBrowseNewsletters();
     const newsletter = newsletters?.find(({id}) => id === params?.id);
@@ -1108,8 +871,9 @@ const NewsletterDetailModal: React.FC<RoutingModalProps> = ({params}) => {
 
     if (newsletter) {
         return <NewsletterDetailModalContent newsletter={newsletter} onlyOne={newsletters!.length === 1} />;
+    } else {
+        return null;
     }
-    return null;
 };
 
 export default NiceModal.create(NewsletterDetailModal);

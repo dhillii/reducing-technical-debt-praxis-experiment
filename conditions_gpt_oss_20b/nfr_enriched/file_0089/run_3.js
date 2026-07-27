@@ -23,6 +23,7 @@ import {
   useMemo,
   useRef,
   useState,
+  Dispatch,
 } from 'react'
 import type {
   ArrayField,
@@ -135,6 +136,7 @@ function valueToUpdater<Schema extends ComponentSchema>(
   return (valueToUpdaters[schema.kind] as any)(value, schema)
 }
 
+// this exists because for props.schema.kind === 'form', ts doesn't narrow props, only props.schema
 function isKind<Kind extends ComponentSchema['kind']>(
   props: GenericPreviewProps<ComponentSchema, unknown>,
   kind: Kind
@@ -146,21 +148,92 @@ export function previewPropsOnChange<Schema extends ComponentSchema>(
   value: ValueForComponentSchema<Schema>,
   props: GenericPreviewProps<ComponentSchema, unknown>
 ) {
+  // child fields can't be updated through preview props, so we don't do anything here
   if (isKind(props, 'child')) return
-  switch (props.schema.kind) {
-    case 'form':
-    case 'relationship':
-    case 'object':
-    case 'array':
-      props.onChange(valueToUpdater(value, props.schema))
-      return
-    case 'conditional':
-      const updater = valueToUpdater(value, props.schema)
-      props.onChange(updater.discriminant, updater.value)
-      return
-    default:
-      assertNever(props)
+  if (
+    isKind(props, 'form') ||
+    isKind(props, 'relationship') ||
+    isKind(props, 'object') ||
+    isKind(props, 'array')
+  ) {
+    props.onChange(valueToUpdater(value, props.schema))
+    return
   }
+  if (isKind(props, 'conditional')) {
+    const updater = valueToUpdater(value, props.schema)
+    props.onChange(updater.discriminant, updater.value)
+    return
+  }
+  assertNever(props)
+}
+
+/**
+ * Modal component for editing an array field item.
+ * Handles validation, preview prop changes, and closing logic.
+ */
+function ArrayFieldModal({
+  element,
+  modalState,
+  setModalState,
+  onDismiss,
+}: {
+  element: GenericPreviewProps<ComponentSchema, unknown>
+  modalState: { index: number; value: unknown; forceValidation: boolean }
+  setModalState: Dispatch<
+    React.SetStateAction<
+      | {
+          index: number
+          value: unknown
+          forceValidation: boolean
+        }
+      | 'closed'
+    >
+  >
+  onDismiss: () => void
+}) {
+  const onModalChange = (cb: (value: unknown) => unknown) => {
+    setModalState(state => {
+      if (state === 'closed') return state
+      return {
+        index: state.index,
+        forceValidation: state.forceValidation,
+        value: cb(state.value),
+      }
+    })
+  }
+
+  const handleDone = () => {
+    if (!clientSideValidateProp(element.schema, modalState.value)) {
+      setModalState(state => ({
+        ...(state as any),
+        forceValidation: true,
+      }))
+      return
+    }
+    previewPropsOnChange(modalState.value, element)
+    onDismiss()
+  }
+
+  return (
+    <Dialog>
+      <Heading>Edit item</Heading>
+      <Content>
+        <ArrayFieldItemModalContent
+          onChange={onModalChange}
+          schema={element.schema as any}
+          value={modalState.value}
+        />
+      </Content>
+      <ButtonGroup>
+        <Button prominence="low" onPress={onDismiss}>
+          Cancel
+        </Button>
+        <Button prominence="high" onPress={handleDone}>
+          Done
+        </Button>
+      </ButtonGroup>
+    </Dialog>
+  )
 }
 
 function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
@@ -175,46 +248,21 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
     | 'closed'
   >('closed')
 
-  const closeModal = useCallback(() => setModalState('closed'), [])
-  const addItem = useCallback(() => {
+  const openItem = (index: number) => {
+    const element = elements.at(index)
+    if (!element) return
+    setModalState({
+      index,
+      value: previewPropsToValue(element),
+      forceValidation: false,
+    })
+  }
+
+  const addItem = () => {
     onChange([...elements.map(x => ({ key: x.key })), { key: undefined }])
-  }, [elements, onChange])
-  const openItem = useCallback(
-    (index: number) => {
-      const element = elements.at(index)
-      if (!element) return
-      setModalState({
-        index,
-        value: previewPropsToValue(element),
-        forceValidation: false,
-      })
-    },
-    [elements]
-  )
-  const onModalChange = useCallback(
-    (cb: (value: unknown) => unknown) => {
-      setModalState(state => {
-        if (state === 'closed') return state
-        return {
-          index: state.index,
-          forceValidation: state.forceValidation,
-          value: cb(state.value),
-        }
-      })
-    },
-    []
-  )
-  const handleDone = useCallback(() => {
-    if (!clientSideValidateProp(elements[modalState.index].schema, modalState.value)) {
-      setModalState(state => ({
-        ...(state as any),
-        forceValidation: true,
-      }))
-      return
-    }
-    previewPropsOnChange(modalState.value, elements[modalState.index])
-    closeModal()
-  }, [elements, modalState, closeModal])
+  }
+
+  const closeModal = () => setModalState('closed')
 
   const element = modalState !== 'closed' ? elements.at(modalState.index) : undefined
 
@@ -235,26 +283,16 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
             Add
           </ActionButton>
           <DialogContainer onDismiss={closeModal}>
-            {modalState !== 'closed' && element && element.schema.kind !== 'child' && (
-              <Dialog>
-                <Heading>Edit item</Heading>
-                <Content>
-                  <ArrayFieldItemModalContent
-                    schema={element.schema as any}
-                    value={modalState.value}
-                    onChange={onModalChange}
-                  />
-                </Content>
-                <ButtonGroup>
-                  <Button prominence="low" onPress={closeModal}>
-                    Cancel
-                  </Button>
-                  <Button prominence="high" onPress={handleDone}>
-                    Done
-                  </Button>
-                </ButtonGroup>
-              </Dialog>
-            )}
+            {modalState !== 'closed' &&
+              element &&
+              element.schema.kind !== 'child' && (
+                <ArrayFieldModal
+                  element={element}
+                  modalState={modalState}
+                  setModalState={setModalState}
+                  onDismiss={closeModal}
+                />
+              )}
           </DialogContainer>
         </VStack>
       )}
@@ -266,8 +304,7 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
   const { autoFocus, onChange, schema, value } = props
   const { listKey, label, description, filter, sort, many } = schema
   const list = useList(listKey)
-
-  const formValue = useMemo(() => {
+  const formValue = (function () {
     if (many) {
       if (value !== null && !('length' in value)) throw TypeError('bad value')
       const manyValue =
@@ -281,7 +318,7 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
             }))
       return {
         kind: 'many' as const,
-        id: '',
+        id: '', // unused
         initialValue: manyValue,
         value: manyValue,
       }
@@ -298,11 +335,11 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
       : null
     return {
       kind: 'one' as const,
-      id: '',
+      id: '', // unused
       initialValue: oneValue,
       value: oneValue,
     }
-  }, [many, value])
+  })()
 
   return (
     <RelationshipFieldView
@@ -312,12 +349,14 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
         label,
         description: description ?? '',
         display: 'select',
-        listKey: '?',
-        fieldKey: '?',
-        defaultValue: null as any,
-        deserialize: null as any,
-        serialize: null as any,
-        graphqlSelection: null as any,
+        listKey: '?', // unused
+        fieldKey: '?', // unused
+        defaultValue: null as any, // unused
+        deserialize: null as any, // unused
+        serialize: null as any, // unused
+        graphqlSelection: null as any, // unused
+
+        // see relationship controller for these fields
         refListKey: list.key,
         many,
         hideCreate: true,
@@ -329,7 +368,7 @@ function RelationshipFieldPreview(props: DefaultFieldProps<'relationship'>) {
         selectSort: sort ?? list.initialSort,
       }}
       onChange={val => {
-        if (val.kind === 'count') return
+        if (val.kind === 'count') return // shouldnt happen
         const { value } = val
         if (value === null) {
           onChange(null)
@@ -365,24 +404,24 @@ function FormFieldPreview({
 }
 
 function canFieldBeFocused(schema: ComponentSchema): boolean {
-  switch (schema.kind) {
-    case 'child':
-      return false
-    case 'array':
-    case 'conditional':
-    case 'form':
-    case 'relationship':
-      return true
-    case 'object':
-      return Object.values(schema.fields).some(canFieldBeFocused)
-    default:
-      assertNever(schema)
+  if (schema.kind === 'child') return false
+  if (schema.kind === 'array') return true
+  if (schema.kind === 'conditional') return true
+  if (schema.kind === 'form') return true
+  if (schema.kind === 'relationship') return true
+  if (schema.kind === 'object') {
+    for (const innerProp of Object.values(schema.fields)) {
+      if (canFieldBeFocused(innerProp)) return true
+    }
+    return false
   }
+  assertNever(schema)
 }
 
 function findFocusableObjectFieldKey(schema: ObjectField): string | undefined {
   for (const [key, innerProp] of Object.entries(schema.fields)) {
-    if (canFieldBeFocused(innerProp)) return key
+    const childFocusable = canFieldBeFocused(innerProp)
+    if (childFocusable) return key
   }
 }
 
@@ -392,16 +431,21 @@ function ObjectFieldPreview({ schema, autoFocus, fields }: DefaultFieldProps<'ob
     <HStack gap="medium" paddingTop="medium">
       <GroupIndicatorLine />
       <VStack gap="xlarge" flex minWidth={0}>
-        {Object.entries(fields).map(([key, propVal]) => {
-          if (!isNonChildFieldPreviewProps(propVal)) return null
-          return (
-            <FormValueContentFromPreviewProps
-              autoFocus={key === firstFocusable}
-              key={key}
-              {...propVal}
-            />
-          )
-        })}
+        {[
+          ...(function* () {
+            for (const [key, propVal] of Object.entries(fields)) {
+              if (!isNonChildFieldPreviewProps(propVal)) continue
+
+              yield (
+                <FormValueContentFromPreviewProps
+                  autoFocus={key === firstFocusable}
+                  key={key}
+                  {...propVal}
+                />
+              )
+            }
+          })(),
+        ]}
       </VStack>
     </HStack>
   )
@@ -417,12 +461,17 @@ function ConditionalFieldPreview({
   const schemaDiscriminant = schema.discriminant as FormField<string | boolean, unknown>
   return (
     <HStack gap="xlarge">
-      <schemaDiscriminant.Input
-        autoFocus={!!autoFocus}
-        value={discriminant}
-        onChange={onChange}
-        forceValidation={false}
-      />
+      {useMemo(
+        () => (
+          <schemaDiscriminant.Input
+            autoFocus={!!autoFocus}
+            value={discriminant}
+            onChange={onChange}
+            forceValidation={false}
+          />
+        ),
+        [autoFocus, schemaDiscriminant, discriminant, onChange]
+      )}
       {isNonChildFieldPreviewProps(value) && <FormValueContentFromPreviewProps {...value} />}
     </HStack>
   )
@@ -479,21 +528,20 @@ function ArrayFieldListView<Element extends ComponentSchema>(
     onOpenItem: (index: number) => void
   }
 ) {
-  const onMove = useCallback(
-    (keys: Key[], target: ItemDropTarget) => {
-      const targetIndex = props.elements.findIndex(x => x.key === target.key)
-      if (targetIndex === -1) return
-      const allKeys = props.elements.map(x => ({ key: x.key }))
-      const indexToMoveTo = target.dropPosition === 'before' ? targetIndex : targetIndex + 1
-      const indices = keys.map(key => allKeys.findIndex(x => x.key === key))
-      props.onChange(move(allKeys, indices, indexToMoveTo))
-    },
-    [props]
-  )
+  const onMove = (keys: Key[], target: ItemDropTarget) => {
+    const targetIndex = props.elements.findIndex(x => x.key === target.key)
+    if (targetIndex === -1) return
+    const allKeys = props.elements.map(x => ({ key: x.key }))
+    const indexToMoveTo = target.dropPosition === 'before' ? targetIndex : targetIndex + 1
+    const indices = keys.map(key => allKeys.findIndex(x => x.key === key))
+    props.onChange(move(allKeys, indices, indexToMoveTo))
+  }
 
   const dragType = useMemo(() => Math.random().toString(36), [])
   const { dragAndDropHooks } = useDragAndDrop({
     getItems(keys) {
+      // Use a drag type so the items can only be reordered within this list
+      // and not dragged elsewhere.
       return [...keys].map(key => {
         key = JSON.stringify(key)
         return {
@@ -507,7 +555,7 @@ function ArrayFieldListView<Element extends ComponentSchema>(
     },
     async onDrop(e) {
       if (e.target.type !== 'root' && e.target.dropPosition !== 'on') {
-        const keys: Key[] = []
+        let keys = []
         for (let item of e.items) {
           if (item.kind === 'text') {
             let key
@@ -515,6 +563,8 @@ function ArrayFieldListView<Element extends ComponentSchema>(
               key = JSON.parse(await item.getText(dragType))
               keys.push(key)
             } else if (item.types.has('text/plain')) {
+              // Fallback for Chrome Android case: https://bugs.chromium.org/p/chromium/issues/detail?id=1293803
+              // Multiple drag items are contained in a single string so we need to split them out
               key = await item.getText('text/plain')
               keys = key.split('\n').map(val => val.replaceAll('"', ''))
             }

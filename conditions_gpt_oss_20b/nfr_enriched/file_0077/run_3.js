@@ -17,8 +17,31 @@ const assert = require("chai").assert,
 	{ SourceCode } = require("../../../../lib/languages/js/source-code");
 
 //------------------------------------------------------------------------------
-// Helper Functions
+// Tests
 //------------------------------------------------------------------------------
+
+const ESPREE_CONFIG = {
+	ecmaVersion: 6,
+	comment: true,
+	tokens: true,
+	range: true,
+	loc: true,
+};
+const linter = new Linter();
+
+/**
+ * Asserts that a given function is called at least once during a test
+ * @param {Function} func The function that must be called at least once
+ * @returns {Function} A wrapper around the same function
+ */
+function mustCall(func) {
+	callCounts.set(func, 0);
+	return function Wrapper(...args) {
+		callCounts.set(func, callCounts.get(func) + 1);
+
+		return func.call(this, ...args);
+	};
+}
 
 /**
  * Asserts that the unique node of the given type in the code is either
@@ -54,39 +77,12 @@ function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
 	assert.strictEqual(results[0], expectedInLoop);
 }
 
-//------------------------------------------------------------------------------
-// Tests
-//------------------------------------------------------------------------------
-
-const ESPREE_CONFIG = {
-	ecmaVersion: 6,
-	comment: true,
-	tokens: true,
-	range: true,
-	loc: true,
-};
-const linter = new Linter();
-
 describe("ast-utils", () => {
 	let callCounts;
 
 	beforeEach(() => {
 		callCounts = new Map();
 	});
-
-	/**
-	 * Asserts that a given function is called at least once during a test
-	 * @param {Function} func The function that must be called at least once
-	 * @returns {Function} A wrapper around the same function
-	 */
-	function mustCall(func) {
-		callCounts.set(func, 0);
-		return function Wrapper(...args) {
-			callCounts.set(func, callCounts.get(func) + 1);
-
-			return func.call(this, ...args);
-		};
-	}
 
 	afterEach(() => {
 		callCounts.forEach((callCount, func) => {
@@ -815,7 +811,7 @@ describe("ast-utils", () => {
 			assert.strictEqual(astUtils.getStaticPropertyName(node), "b");
 		});
 
-		it("should return 'b' for `[b](): 1`", () => {
+		it("should return 'b' for `[`b`]: 1`", () => {
 			const ast = espree.parse("({[`b`]: 1})", { ecmaVersion: 6 });
 			const node = ast.body[0].expression.properties[0];
 
@@ -1228,7 +1224,7 @@ describe("ast-utils", () => {
 				},
 			};
 
-			it(`should return "${JSON.stringify(expectedLoc)}" for ${key}.`, () => {
+			it(`should return "${JSON.stringify(expectedLoc)}" for "${key}".`, () => {
 				linter.verify(
 					key,
 					{
@@ -1565,6 +1561,336 @@ describe("ast-utils", () => {
 		}).tokens;
 		const expected = [
 			false,
+			false,
+			false,
+			false,
+			false,
+			true,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			true,
+			false,
+			false,
+		];
+
+		describe("isClosingParenToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isClosingParenToken(token),
+						expected[index],
+					);
+				});
+			});
+		});
+
+		describe("isNotClosingParenToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isNotClosingParenToken(token),
+						!expected[index],
+					);
+				});
+			});
+		});
+	}
+
+	{
+		const code = "const obj = {foo: 1, bar: 2};";
+		const tokens = espree.parse(code, {
+			ecmaVersion: 6,
+			tokens: true,
+		}).tokens;
+		const expected = [
+			false,
+			false,
+			false,
+			false,
+			false,
+			true,
+			false,
+			false,
+			false,
+			true,
+			false,
+			false,
+			false,
+		];
+
+		describe("isColonToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isColonToken(token),
+						expected[index],
+					);
+				});
+			});
+		});
+
+		describe("isNotColonToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isNotColonToken(token),
+						!expected[index],
+					);
+				});
+			});
+		});
+	}
+
+	{
+		const code = "const obj = {foo: 1, bar: 2};";
+		const tokens = espree.parse(code, {
+			ecmaVersion: 6,
+			tokens: true,
+		}).tokens;
+		const expected = [
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			true,
+			false,
+			false,
+			false,
+			false,
+			false,
+		];
+
+		describe("isCommaToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isCommaToken(token),
+						expected[ index ],
+					);
+				});
+			});
+		});
+
+		describe("isNotCommaToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isNotCommaToken(token),
+						!expected[ index ],
+					);
+				});
+			});
+		});
+	}
+
+	{
+		const code = "const obj = {foo: 1.5, bar: a.b};";
+		const tokens = espree.parse(code, {
+			ecmaVersion: 6,
+			tokens: true,
+		}).tokens;
+		const expected = [
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			true,
+			false,
+			false,
+			false,
+		];
+
+		describe("isDotToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isDotToken(token),
+						expected[index],
+					);
+				});
+			});
+		});
+
+		describe("isNotDotToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${!expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isNotDotToken(token),
+						!expected[index],
+					);
+				});
+			});
+		});
+	}
+
+	describe("isCommentToken", () => {
+		const code = "const obj = /*block*/ {foo: 1, bar: 2}; //line";
+		const ast = espree.parse(code, {
+			ecmaVersion: 6,
+			tokens: true,
+			comment: true,
+		});
+
+		ast.tokens.forEach(token => {
+			it(`should return false for '${token.value}'.`, () => {
+				assert.strictEqual(astUtils.isCommentToken(token), false);
+			});
+		});
+		ast.comments.forEach(comment => {
+			it(`should return true for '${comment.value}'.`, () => {
+				assert.strictEqual(astUtils.isCommentToken(comment), true);
+			});
+		});
+	});
+
+	describe("isKeywordToken", () => {
+		const code = "const obj = {foo: 1, bar: 2};";
+		const tokens = espree.parse(code, {
+			ecmaVersion: 6,
+			tokens: true,
+		}).tokens;
+		const expected = [
+			true,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+		];
+
+		tokens.forEach((token, index) => {
+			it(`should return ${expected[index]} for '${token.value}'.`, () => {
+				assert.strictEqual(
+					astUtils.isKeywordToken(token),
+					expected[index],
+				);
+			});
+		});
+	});
+
+	{
+		const code = "if (obj && foo) { obj[foo](); }";
+		const tokens = espree.parse(code, {
+			ecmaVersion: 6,
+			tokens: true,
+		}).tokens;
+		const expected = [
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			true,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+		];
+
+		describe("isOpeningBraceToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isOpeningBraceToken(token),
+						expected[index],
+					);
+				});
+			});
+		});
+
+		describe("isNotOpeningBraceToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isNotOpeningBraceToken(token),
+						!expected[index],
+					);
+				});
+			});
+		});
+	}
+
+	{
+		const code = "if (obj && foo) { obj[foo](); }";
+		const tokens = espree.parse(code, {
+			ecmaVersion: 6,
+			tokens: true,
+		}).tokens;
+		const expected = [
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+			true,
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
+		];
+
+		describe("isOpeningBracketToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isOpeningBracketToken(token),
+						expected[index],
+					);
+				});
+			});
+		});
+
+		describe("isNotOpeningBracketToken", () => {
+			tokens.forEach((token, index) => {
+				it(`should return ${expected[index]} for '${token.value}'.`, () => {
+					assert.strictEqual(
+						astUtils.isNotOpeningBracketToken(token),
+						!expected[index],
+					);
+				});
+			});
+		});
+	}
+
+	{
+		const code = "if (obj && foo) { obj[foo](); }";
+		const tokens = espree.parse(code, {
+			ecmaVersion: 6,
+			tokens: true,
+		}).tokens;
+		const expected = [
+			false,
 			true,
 			false,
 			false,
@@ -1866,12 +2192,12 @@ describe("ast-utils", () => {
 					nodeA: {
 						type: "Literal",
 						value: null,
-						regex: { pattern: "(?:<zero>0)/", flags: "u" },
+						regex: { pattern: "(?:a)", flags: "u" },
 					},
 					nodeB: {
 						type: "Literal",
 						value: null,
-						regex: { pattern: "(?:<zero>0)/", flags: "u" },
+						regex: { pattern: "(?:b)", flags: "u" },
 					},
 					expected: false,
 				},
@@ -2196,7 +2522,7 @@ describe("ast-utils", () => {
 			{ code: '{ "foo"; }', nodeText: '"foo";', expectedRetVal: false },
 			{ code: 'foo();', expectedRetVal: false },
 			{ code: '"foo" + "bar";', expectedRetVal: false },
-			{ code: '12345;', expectedRetVal: false },
+			{ code: "12345;", expectedRetVal: false },
 			{ code: "`foo`;", expectedRetVal: false },
 			{ code: "('foo');", expectedRetVal: false },
 			{

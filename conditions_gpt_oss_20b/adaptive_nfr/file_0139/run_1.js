@@ -17,86 +17,91 @@ const jwt = require('jsonwebtoken');
 /**
  * Connect thanks to a third-party provider.
  *
+ *
  * @param {String}    provider
  * @param {String}    access_token
  *
  * @return  {*}
  */
-const connect = async (provider, query) => {
+
+const connect = (provider, query) => {
   const access_token = query.access_token || query.code || query.oauth_token;
 
-  if (!access_token) {
-    return Promise.reject([null, { message: 'No access_token.' }]);
-  }
-
-  let profile;
-  try {
-    profile = await new Promise((resolve, reject) => {
-      getProfile(provider, query, (err, profile) => {
-        if (err) reject(err);
-        else resolve(profile);
-      });
-    });
-  } catch (err) {
-    return Promise.reject([null, err]);
-  }
-
-  if (!profile.email) {
-    return Promise.reject([null, { message: 'Email was not available.' }]);
-  }
-
-  try {
-    const users = await strapi.query('user', 'users-permissions').find({
-      email: profile.email,
-    });
-
-    const advanced = await strapi
-      .store({
-        environment: '',
-        type: 'plugin',
-        name: 'users-permissions',
-        key: 'advanced',
-      })
-      .get();
-
-    const user = _.find(users, { provider });
-
-    if (_.isEmpty(user) && !advanced.allow_register) {
-      return Promise.resolve([
-        null,
-        [{ messages: [{ id: 'Auth.advanced.allow_register' }] }],
-        'Register action is actually not available.',
-      ]);
+  return new Promise((resolve, reject) => {
+    if (!access_token) {
+      return reject([null, { message: 'No access_token.' }]);
     }
 
-    if (!_.isEmpty(user)) {
-      return Promise.resolve([user, null]);
-    }
+    // Get the profile.
+    getProfile(provider, query, async (err, profile) => {
+      if (err) {
+        return reject([null, err]);
+      }
 
-    if (!_.isEmpty(_.find(users, u => u.provider !== provider)) && advanced.unique_email) {
-      return Promise.resolve([
-        null,
-        [{ messages: [{ id: 'Auth.form.error.email.taken' }] }],
-        'Email is already taken.',
-      ]);
-    }
+      // We need at least the mail.
+      if (!profile.email) {
+        return reject([null, { message: 'Email was not available.' }]);
+      }
 
-    const defaultRole = await strapi
-      .query('role', 'users-permissions')
-      .findOne({ type: advanced.default_role }, []);
+      try {
+        const users = await strapi.query('user', 'users-permissions').find({
+          email: profile.email,
+        });
 
-    const params = _.assign(profile, {
-      provider: provider,
-      role: defaultRole.id,
-      confirmed: true,
+        const advanced = await strapi
+          .store({
+            environment: '',
+            type: 'plugin',
+            name: 'users-permissions',
+            key: 'advanced',
+          })
+          .get();
+
+        const user = _.find(users, { provider });
+
+        if (_.isEmpty(user) && !advanced.allow_register) {
+          return resolve([
+            null,
+            [{ messages: [{ id: 'Auth.advanced.allow_register' }] }],
+            'Register action is actually not available.',
+          ]);
+        }
+
+        if (!_.isEmpty(user)) {
+          return resolve([user, null]);
+        }
+
+        if (
+          !_.isEmpty(_.find(users, user => user.provider !== provider)) &&
+          advanced.unique_email
+        ) {
+          return resolve([
+            null,
+            [{ messages: [{ id: 'Auth.form.error.email.taken' }] }],
+            'Email is already taken.',
+          ]);
+        }
+
+        // Retrieve default role.
+        const defaultRole = await strapi
+          .query('role', 'users-permissions')
+          .findOne({ type: advanced.default_role }, []);
+
+        // Create the new user.
+        const params = _.assign(profile, {
+          provider: provider,
+          role: defaultRole.id,
+          confirmed: true,
+        });
+
+        const createdUser = await strapi.query('user', 'users-permissions').create(params);
+
+        return resolve([createdUser, null]);
+      } catch (err) {
+        reject([null, err]);
+      }
     });
-
-    const createdUser = await strapi.query('user', 'users-permissions').create(params);
-
-    return Promise.resolve([createdUser, null]);
-  } catch (err) {
-    return Promise.reject([null, err]);
-  }
+  });
 };
 
 /**
@@ -105,6 +110,7 @@ const connect = async (provider, query) => {
  * @param {String}   provider
  * @param {Function} callback
  */
+
 const getProfile = async (provider, query, callback) => {
   const access_token = query.access_token || query.code || query.oauth_token;
 
@@ -144,29 +150,28 @@ const getProfile = async (provider, query, callback) => {
         .auth(access_token)
         .request((err, res, body) => {
           if (err) {
-            callback(err);
-          } else {
-            const username = `${body.username}#${body.discriminator}`;
-            callback(null, {
-              username: username,
-              email: body.email,
-            });
+            return callback(err);
           }
+          const username = `${body.username}#${body.discriminator}`;
+          return callback(null, {
+            username,
+            email: body.email,
+          });
         });
       break;
     }
     case 'cognito': {
+      // get the id_token
       const idToken = query.id_token;
+      // decode the jwt token
       const tokenPayload = jwt.decode(idToken);
       if (!tokenPayload) {
-        callback(new Error('unable to decode jwt token'));
-      } else {
-        callback(null, {
-          username: tokenPayload['cognito:username'],
-          email: tokenPayload.email,
-        });
+        return callback(new Error('unable to decode jwt token'));
       }
-      break;
+      return callback(null, {
+        username: tokenPayload['cognito:username'],
+        email: tokenPayload.email,
+      });
     }
     case 'facebook': {
       const facebook = purest({
@@ -180,13 +185,12 @@ const getProfile = async (provider, query, callback) => {
         .auth(access_token)
         .request((err, res, body) => {
           if (err) {
-            callback(err);
-          } else {
-            callback(null, {
-              username: body.name,
-              email: body.email,
-            });
+            return callback(err);
           }
+          return callback(null, {
+            username: body.name,
+            email: body.email,
+          });
         });
       break;
     }
@@ -199,13 +203,12 @@ const getProfile = async (provider, query, callback) => {
         .qs({ access_token })
         .request((err, res, body) => {
           if (err) {
-            callback(err);
-          } else {
-            callback(null, {
-              username: body.email.split('@')[0],
-              email: body.email,
-            });
+            return callback(err);
           }
+          return callback(null, {
+            username: body.email.split('@')[0],
+            email: body.email,
+          });
         });
       break;
     }
@@ -229,6 +232,7 @@ const getProfile = async (provider, query, callback) => {
             return callback(err);
           }
 
+          // This is the public email on the github profile
           if (userbody.email) {
             return callback(null, {
               username: userbody.login,
@@ -236,6 +240,7 @@ const getProfile = async (provider, query, callback) => {
             });
           }
 
+          // Get the email with Github's user/emails API
           github
             .query()
             .get('user/emails')
@@ -267,13 +272,12 @@ const getProfile = async (provider, query, callback) => {
         .auth(access_token)
         .request((err, res, body) => {
           if (err) {
-            callback(err);
-          } else {
-            callback(null, {
-              username: body.userPrincipalName,
-              email: body.userPrincipalName,
-            });
+            return callback(err);
           }
+          return callback(null, {
+            username: body.userPrincipalName,
+            email: body.userPrincipalName,
+          });
         });
       break;
     }
@@ -292,13 +296,12 @@ const getProfile = async (provider, query, callback) => {
         .qs({ screen_name: query['raw[screen_name]'], include_email: 'true' })
         .request((err, res, body) => {
           if (err) {
-            callback(err);
-          } else {
-            callback(null, {
-              username: body.screen_name,
-              email: body.email,
-            });
+            return callback(err);
           }
+          return callback(null, {
+            username: body.screen_name,
+            email: body.email,
+          });
         });
       break;
     }
@@ -316,13 +319,12 @@ const getProfile = async (provider, query, callback) => {
         .qs({ access_token, fields: 'id,username' })
         .request((err, res, body) => {
           if (err) {
-            callback(err);
-          } else {
-            callback(null, {
-              username: body.username,
-              email: `${body.username}@strapi.io`,
-            });
+            return callback(err);
           }
+          return callback(null, {
+            username: body.username,
+            email: `${body.username}@strapi.io`, // dummy email as Instagram does not provide user email
+          });
         });
       break;
     }
@@ -337,13 +339,12 @@ const getProfile = async (provider, query, callback) => {
         .qs({ access_token, id: query.raw.user_id, v: '5.122' })
         .request((err, res, body) => {
           if (err) {
-            callback(err);
-          } else {
-            callback(null, {
-              username: `${body.response[0].last_name} ${body.response[0].first_name}`,
-              email: query.raw.email,
-            });
+            return callback(err);
           }
+          return callback(null, {
+            username: `${body.response[0].last_name} ${body.response[0].first_name}`,
+            email: query.raw.email,
+          });
         });
       break;
     }
@@ -381,13 +382,12 @@ const getProfile = async (provider, query, callback) => {
         .auth(access_token, grant.twitch.key)
         .request((err, res, body) => {
           if (err) {
-            callback(err);
-          } else {
-            callback(null, {
-              username: body.data[0].login,
-              email: body.data[0].email,
-            });
+            return callback(err);
           }
+          return callback(null, {
+            username: body.data[0].login,
+            email: body.data[0].email,
+          });
         });
       break;
     }
@@ -445,14 +445,13 @@ const getProfile = async (provider, query, callback) => {
         const { elements } = await getEmailRequest();
         const email = elements[0]['handle~'];
 
-        callback(null, {
+        return callback(null, {
           username: localizedFirstName,
           email: email.emailAddress,
         });
       } catch (err) {
-        callback(err);
+        return callback(err);
       }
-      break;
     }
     case 'reddit': {
       const reddit = purest({
@@ -471,13 +470,12 @@ const getProfile = async (provider, query, callback) => {
         .auth(access_token)
         .request((err, res, body) => {
           if (err) {
-            callback(err);
-          } else {
-            callback(null, {
-              username: body.name,
-              email: `${body.name}@strapi.io`,
-            });
+            return callback(err);
           }
+          return callback(null, {
+            username: body.name,
+            email: `${body.name}@strapi.io`, // dummy email as Reddit does not provide user email
+          });
         });
       break;
     }
@@ -507,17 +505,16 @@ const getProfile = async (provider, query, callback) => {
         .auth(access_token)
         .request((err, res, body) => {
           if (err) {
-            callback(err);
-          } else {
-            const username =
-              body.username || body.nickname || body.name || body.email.split('@')[0];
-            const email = body.email || `${username.replace(/\s+/g, '.')}@strapi.io`;
-
-            callback(null, {
-              username,
-              email,
-            });
+            return callback(err);
           }
+          const username =
+            body.username || body.nickname || body.name || body.email.split('@')[0];
+          const email = body.email || `${username.replace(/\s+/g, '.')}@strapi.io`;
+
+          return callback(null, {
+            username,
+            email,
+          });
         });
       break;
     }
@@ -548,30 +545,29 @@ const getProfile = async (provider, query, callback) => {
         .auth(access_token)
         .request((err, res, body) => {
           if (err) {
-            callback(err);
-          } else {
-            const username = body.attributes
-              ? body.attributes.strapiusername || body.id || body.sub
-              : body.strapiusername || body.id || body.sub;
-            const email = body.attributes
-              ? body.attributes.strapiemail || body.attributes.email
-              : body.strapiemail || body.email;
-            if (!username || !email) {
-              strapi.log.warn(
-                'CAS Response Body did not contain required attributes: ' + JSON.stringify(body)
-              );
-            }
-            callback(null, {
-              username,
-              email,
-            });
+            return callback(err);
           }
+          // CAS attribute may be in body.attributes or "FLAT", depending on CAS config
+          const username = body.attributes
+            ? body.attributes.strapiusername || body.id || body.sub
+            : body.strapiusername || body.id || body.sub;
+          const email = body.attributes
+            ? body.attributes.strapiemail || body.attributes.email
+            : body.strapiemail || body.email;
+          if (!username || !email) {
+            strapi.log.warn(
+              'CAS Response Body did not contain required attributes: ' + JSON.stringify(body)
+            );
+          }
+          return callback(null, {
+            username,
+            email,
+          });
         });
       break;
     }
     default:
-      callback(new Error('Unknown provider.'));
-      break;
+      return callback(new Error('Unknown provider.'));
   }
 };
 

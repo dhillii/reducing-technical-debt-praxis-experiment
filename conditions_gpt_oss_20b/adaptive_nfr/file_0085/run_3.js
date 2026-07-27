@@ -21,13 +21,13 @@ import type {
 } from '../../../../types'
 
 /**
- * Validate the password field value.
+ * Validates a password field value against the provided validation rules.
  *
- * @param value - The current field value.
- * @param validation - Validation rules.
+ * @param value - The current value of the field.
+ * @param validation - Validation rules for the field.
  * @param isRequired - Whether the field is required.
- * @param fieldLabel - The field label for error messages.
- * @returns An error message or undefined if valid.
+ * @param fieldLabel - The label of the field, used in error messages.
+ * @returns An error message string if validation fails, otherwise undefined.
  */
 function validate(
   value: Value,
@@ -35,22 +35,18 @@ function validate(
   isRequired: boolean,
   fieldLabel: string
 ): string | undefined {
-  if (value.kind === 'initial') {
-    return validateInitial(value, isRequired, fieldLabel)
+  switch (value.kind) {
+    case 'initial':
+      return validateInitial(value, isRequired, fieldLabel)
+    case 'editing':
+      return validateEditing(value, validation, fieldLabel)
+    default:
+      return undefined
   }
-  if (value.kind === 'editing') {
-    return validateEditing(value, validation, fieldLabel)
-  }
-  return undefined
 }
 
 /**
- * Validate the initial state of the field.
- *
- * @param value - The initial field value.
- * @param isRequired - Whether the field is required.
- * @param fieldLabel - The field label for error messages.
- * @returns An error message or undefined if valid.
+ * Handles validation logic for the 'initial' state.
  */
 function validateInitial(
   value: Extract<Value, { kind: 'initial' }>,
@@ -67,12 +63,7 @@ function validateInitial(
 }
 
 /**
- * Validate the editing state of the field.
- *
- * @param value - The editing field value.
- * @param validation - Validation rules.
- * @param fieldLabel - The field label for error messages.
- * @returns An error message or undefined if valid.
+ * Handles validation logic for the 'editing' state.
  */
 function validateEditing(
   value: Extract<Value, { kind: 'editing' }>,

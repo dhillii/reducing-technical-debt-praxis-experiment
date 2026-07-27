@@ -449,22 +449,7 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        if (json === null) {
-            return {
-                accounts: [],
-                next: null
-            };
-        }
-
-        if (!('accounts' in json)) {
-            return {
-                accounts: [],
-                next: null
-            };
-        }
-
-        const accounts = Array.isArray(json.accounts) ? json.accounts : [];
-        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+        const { items: accounts, next: nextPage } = this.parsePaginated<FollowAccount>(json, 'accounts');
 
         return {
             accounts,
@@ -517,6 +502,19 @@ export class ActivityPubAPI {
         return this.getPaginatedPosts(`.ghost/activitypub/v1/posts/me/liked`, next);
     }
 
+    /**
+     * Parses a paginated API response.
+     * @private
+     */
+    private parsePaginated<T>(json: any, key: string): { items: T[], next: string | null } {
+        if (!json || !Array.isArray(json[key])) {
+            return { items: [], next: null };
+        }
+        const items = json[key] as T[];
+        const next = typeof json.next === 'string' ? json.next : null;
+        return { items, next };
+    }
+
     private async getPaginatedPosts(endpoint: string, next?: string): Promise<PaginatedPostsResponse> {
         const url = new URL(endpoint, this.apiUrl);
 
@@ -526,15 +524,7 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        if (json === null || !('posts' in json)) {
-            return {
-                posts: [],
-                next: null
-            };
-        }
-
-        const posts = Array.isArray(json.posts) ? json.posts : [];
-        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+        const { items: posts, next: nextPage } = this.parsePaginated<Post>(json, 'posts');
 
         return {
             posts,
@@ -550,22 +540,7 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        if (json === null) {
-            return {
-                notifications: [],
-                next: null
-            };
-        }
-
-        if (!('notifications' in json)) {
-            return {
-                notifications: [],
-                next: null
-            };
-        }
-
-        const notifications = Array.isArray(json.notifications) ? json.notifications : [];
-        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+        const { items: notifications, next: nextPage } = this.parsePaginated<Notification>(json, 'notifications');
 
         return {
             notifications,
@@ -607,17 +582,7 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        if (json === null) {
-            return {
-                accounts: [],
-                next: null
-            };
-        }
-
-        const accounts = ('blocked_accounts' in json && Array.isArray(json.blocked_accounts))
-            ? json.blocked_accounts as Account[]
-            : [];
-        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+        const { items: accounts, next: nextPage } = this.parsePaginated<Account>(json, 'blocked_accounts');
 
         return {
             accounts,
@@ -633,18 +598,7 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        if (json === null) {
-            return {
-                domains: [],
-                next: null
-            };
-        }
-
-        const domains = ('blocked_domains' in json && Array.isArray(json.blocked_domains))
-            ? json.blocked_domains as Account[]
-            : [];
-
-        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+        const { items: domains, next: nextPage } = this.parsePaginated<Account>(json, 'blocked_domains');
 
         return {
             domains,
@@ -661,15 +615,7 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        if (json === null || !('accounts' in json)) {
-            return {
-                accounts: [],
-                next: null
-            };
-        }
-
-        const accounts = Array.isArray(json.accounts) ? json.accounts : [];
-        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
+        const { items: accounts, next: nextPage } = this.parsePaginated<ExploreAccount>(json, 'accounts');
 
         return {
             accounts,
@@ -731,10 +677,8 @@ export class ActivityPubAPI {
         });
 
         if (!response.ok) {
-            const error: ApiError = {
-                message: 'Upload failed',
-                statusCode: response.status
-            };
+            const error = new Error('Upload failed');
+            (error as any).statusCode = response.status;
             throw error;
         }
 

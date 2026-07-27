@@ -1,18 +1,12 @@
-/***************************
- *
- * Extra methods
- *
- **************************/
-
-const cst         = require('../../constants.js');
-const Common      = require('../Common.js');
-const UX          = require('./UX');
-const chalk       = require('ansis');
-const path        = require('path');
-const fs          = require('fs');
-const fmt         = require('../tools/fmt.js');
-const dayjs      = require('dayjs');
-const pkg         = require('../../package.json');
+var cst         = require('../../constants.js');
+var Common      = require('../Common.js');
+var UX          = require('./UX');
+var chalk       = require('ansis');
+var path        = require('path');
+var fs          = require('fs');
+var fmt         = require('../tools/fmt.js');
+var dayjs      = require('dayjs');
+var pkg         = require('../../package.json');
 const copyDirSync = require('../tools/copydirSync.js')
 
 module.exports = function(CLI) {
@@ -227,7 +221,7 @@ module.exports = function(CLI) {
     }
 
     const file = path.join(process.cwd(), dayjs().format('dd-HH:mm:ss') + cmd.ext);
-    time = time || 10000
+    let time = time || 10000
 
     console.log(`Starting ${cmd.action} profiling for ${time}ms...`)
     that.Client.executeRemote(cmd.action, {

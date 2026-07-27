@@ -5,7 +5,8 @@
 /**
  * Module dependencies.
  */
-const { basename } = require('path');
+
+const basename = require('path').basename;
 const debug = require('debug')('mocha:watch');
 const exists = require('fs').existsSync;
 const glob = require('glob');
@@ -20,6 +21,7 @@ const he = require('he');
 /**
  * Ignored directories.
  */
+
 const ignore = ['node_modules', '.git'];
 
 exports.inherits = require('util').inherits;
@@ -56,9 +58,9 @@ exports.isString = function (obj) {
  */
 exports.watch = function (files, fn) {
   const options = { interval: 100 };
-  files.forEach((file) => {
+  files.forEach(function (file) {
     debug('file %s', file);
-    watchFile(file, options, (curr, prev) => {
+    watchFile(file, options, function (curr, prev) {
       if (prev.mtime < curr.mtime) {
         fn(file);
       }
@@ -70,11 +72,11 @@ exports.watch = function (files, fn) {
  * Ignored files.
  *
  * @api private
- * @param {string} p
+ * @param {string} path
  * @return {boolean}
  */
-function ignored(p) {
-  return !ignore.includes(p);
+function ignored (path) {
+  return !~ignore.indexOf(path);
 }
 
 /**
@@ -82,24 +84,27 @@ function ignored(p) {
  *
  * @api private
  * @param {string} dir
- * @param {string[]} [ext=['js']]
+ * @param {string[]} [ext=['.js']]
  * @param {Array} [ret=[]]
  * @return {Array}
  */
 exports.files = function (dir, ext, ret) {
   ret = ret || [];
   ext = ext || ['js'];
-  const re = new RegExp(`\\.(${ext.join('|')})$`);
+
+  const re = new RegExp('\\.(' + ext.join('|') + ')$');
+
   readdirSync(dir)
     .filter(ignored)
-    .forEach((p) => {
-      const full = join(dir, p);
-      if (lstatSync(full).isDirectory()) {
-        exports.files(full, ext, ret);
-      } else if (re.test(full)) {
-        ret.push(full);
+    .forEach(function (p) {
+      const fullPath = join(dir, p);
+      if (lstatSync(fullPath).isDirectory()) {
+        exports.files(fullPath, ext, ret);
+      } else if (fullPath.match(re)) {
+        ret.push(fullPath);
       }
     });
+
   return ret;
 };
 
@@ -125,16 +130,15 @@ exports.slug = function (str) {
  */
 exports.clean = function (str) {
   str = str
-    .replace(/\r\n?|[\n\u2028\u2029]/g, '\n')
-    .replace(/^\uFEFF/, '')
-    .replace(
-      /^function(?:\s*|\s+[^(]*)\([^)]*\)\s*\{((?:.|\n)*?)\s*\}$|^\([^)]*\)\s*=>\s*(?:\{((?:.|\n)*?)\s*\}|((?:.|\n)*))$/,
-      '$1$2$3'
-    );
+    .replace(/\r\n?|[\n\u2028\u2029]/g, '\n').replace(/^\uFEFF/, '')
+    .replace(/^function(?:\s*|\s+[^(]*)\([^)]*\)\s*\{((?:.|\n)*?)\s*\}$|^\([^)]*\)\s*=>\s*(?:\{((?:.|\n)*?)\s*\}|((?:.|\n)*))$/, '$1$2$3');
+
   const spaces = str.match(/^\n?( *)/)[1].length;
   const tabs = str.match(/^\n?(\t*)/)[1].length;
-  const re = new RegExp(`^\\n?${tabs ? '\\t' : ' '}{${tabs || spaces}}`, 'gm');
+  const re = new RegExp('^\\n?' + (tabs ? '\\t' : ' ') + '{' + (tabs || spaces) + '}', 'gm');
+
   str = str.replace(re, '');
+
   return str.trim();
 };
 
@@ -146,16 +150,16 @@ exports.clean = function (str) {
  * @return {Object}
  */
 exports.parseQuery = function (qs) {
-  return qs
-    .replace('?', '')
-    .split('&')
-    .reduce((obj, pair) => {
-      const i = pair.indexOf('=');
-      const key = pair.slice(0, i);
-      const val = pair.slice(i + 1);
-      obj[key] = decodeURIComponent(val.replace(/\+/g, '%20'));
-      return obj;
-    }, {});
+  return qs.replace('?', '').split('&').reduce(function (obj, pair) {
+    const i = pair.indexOf('=');
+    const key = pair.slice(0, i);
+    const val = pair.slice(++i);
+
+    // Due to how the URLSearchParams API treats spaces
+    obj[key] = decodeURIComponent(val.replace(/\+/g, '%20'));
+
+    return obj;
+  }, {});
 };
 
 /**
@@ -165,16 +169,16 @@ exports.parseQuery = function (qs) {
  * @param {string} js
  * @return {string}
  */
-function highlight(js) {
+function highlight (js) {
   return js
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/\/\/(.*)/gm, '<span class="comment">//$1</span>')
     .replace(/('.*?')/gm, '<span class="string">$1</span>')
-    .replace(/(\d+\.\d+)/gm, '<span class="number">$1</span>')
-    .replace(/(\d+)/gm, '<span class="number">$1</span>')
-    .replace(/\bnew[ \t]+(\w+)/gm, '<span class="keyword">new</span> <span class="init">$1</span>')
-    .replace(/\b(function|new|throw|return|var|if|else)\b/gm, '<span class="keyword">$1</span>');
+    .replace(/(\\d+\\.\\d+)/gm, '<span class="number">$1</span>')
+    .replace(/(\\d+)/gm, '<span class="number">$1</span>')
+    .replace(/\\bnew[ \\t]+(\\w+)/gm, '<span class="keyword">new</span> <span class="init">$1</span>')
+    .replace(/\\b(function|new|throw|return|var|if|else)\\b/gm, '<span class="keyword">$1</span>');
 }
 
 /**
@@ -204,7 +208,7 @@ exports.highlightTags = function (name) {
  * @param {string} typeHint The type of the value
  * @returns {string}
  */
-function emptyRepresentation(value, typeHint) {
+function emptyRepresentation (value, typeHint) {
   switch (typeHint) {
     case 'function':
       return '[Function]';
@@ -225,18 +229,41 @@ function emptyRepresentation(value, typeHint) {
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/toString
  * @param {*} value The value to test.
  * @returns {string} Computed type
+ * @example
+ * type({}) // 'object'
+ * type([]) // 'array'
+ * type(1) // 'number'
+ * type(false) // 'boolean'
+ * type(Infinity) // 'number'
+ * type(null) // 'null'
+ * type(new Date()) // 'date'
+ * type(/foo/) // 'regexp'
+ * type('type') // 'string'
+ * type(global) // 'global'
+ * type(new String('foo') // 'object'
  */
-var type = exports.type = function type(value) {
-  if (value === undefined) return 'undefined';
-  if (value === null) return 'null';
-  if (Buffer.isBuffer(value)) return 'buffer';
+var type = exports.type = function type (value) {
+  if (value === undefined) {
+    return 'undefined';
+  } else if (value === null) {
+    return 'null';
+  } else if (Buffer.isBuffer(value)) {
+    return 'buffer';
+  }
   return Object.prototype.toString.call(value)
-    .replace(/^\[.+\s(.+?)]$/, '$1')
+    .replace(/^\\[.+\\s(.+?)]$/, '$1')
     .toLowerCase();
 };
 
 /**
- * Stringify `value`. Different behavior depending on type of value.
+ * Stringify `value`. Different behavior depending on type of value:
+ *
+ * - If `value` is undefined or null, return `'[undefined]'` or `'[null]'`, respectively.
+ * - If `value` is not an object, function or array, return result of `value.toString()` wrapped in double-quotes.
+ * - If `value` is an *empty* object, function, or array, return result of function
+ *   {@link emptyRepresentation}.
+ * - If `value` has properties, call {@link exports.canonicalize} on it, then return result of
+ *   JSON.stringify().
  *
  * @api private
  * @see exports.type
@@ -246,22 +273,25 @@ var type = exports.type = function type(value) {
 exports.stringify = function (value) {
   const typeHint = type(value);
 
-  if (!['object', 'array', 'function'].includes(typeHint)) {
+  if (!~['object', 'array', 'function'].indexOf(typeHint)) {
     if (typeHint === 'buffer') {
       const json = Buffer.prototype.toJSON.call(value);
+      // Based on the toJSON result
       return jsonStringify(json.data && json.type ? json.data : json, 2)
         .replace(/,(\n|$)/g, '$1');
     }
 
+    // IE7/IE8 has a bizarre String constructor; needs to be coerced
+    // into an array and back to obj.
     if (typeHint === 'string' && typeof value === 'object') {
-      const obj = {};
-      value.split('').forEach((char, idx) => {
-        obj[idx] = char;
+      const acc = {};
+      value.split('').forEach(function (char, idx) {
+        acc[idx] = char;
       });
-      return jsonStringify(obj);
+      value = acc;
+    } else {
+      return jsonStringify(value);
     }
-
-    return jsonStringify(value);
   }
 
   for (const prop in value) {
@@ -282,26 +312,27 @@ exports.stringify = function (value) {
  * @param {number=} depth
  * @returns {*}
  */
-function jsonStringify(object, spaces, depth) {
+function jsonStringify (object, spaces, depth) {
   if (typeof spaces === 'undefined') {
+    // primitive types
     return _stringify(object);
   }
 
   depth = depth || 1;
   const space = spaces * depth;
-  const strStart = Array.isArray(object) ? '[' : '{';
-  const strEnd = Array.isArray(object) ? ']' : '}';
+  let str = Array.isArray(object) ? '[' : '{';
+  const end = Array.isArray(object) ? ']' : '}';
   const length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
-
-  function repeat(s, n) {
+  // `.repeat()` polyfill
+  function repeat (s, n) {
     return new Array(n).join(s);
   }
 
-  function _stringify(val) {
+  function _stringify (val) {
     switch (type(val)) {
       case 'null':
       case 'undefined':
-        val = `[${val}]`;
+        val = '[' + val + ']';
         break;
       case 'array':
       case 'object':
@@ -311,36 +342,55 @@ function jsonStringify(object, spaces, depth) {
       case 'regexp':
       case 'symbol':
       case 'number':
-        val = val === 0 && (1 / val) === -Infinity ? '-0' : val.toString();
+        val = val === 0 && (1 / val) === -Infinity // `-0`
+          ? '-0'
+          : val.toString();
         break;
       case 'date':
         const sDate = isNaN(val.getTime()) ? val.toString() : val.toISOString();
-        val = `[Date: ${sDate}]`;
+        val = '[Date: ' + sDate + ']';
         break;
       case 'buffer':
-        let json = val.toJSON();
-        json = json.data && json.type ? json.data : json;
-        val = `[Buffer: ${jsonStringify(json, 2, depth + 1)}]`;
+        const json = val.toJSON();
+        // Based on the toJSON result
+        const jsonData = json.data && json.type ? json.data : json;
+        val = '[Buffer: ' + jsonStringify(jsonData, 2, depth + 1) + ']';
         break;
       default:
-        val = (val === '[Function]' || val === '[Circular]') ? val : JSON.stringify(val);
+        val = (val === '[Function]' || val === '[Circular]')
+          ? val
+          : JSON.stringify(val); // string
     }
     return val;
   }
 
-  let result = strStart;
-  let remaining = length;
   for (const i in object) {
-    if (!Object.prototype.hasOwnProperty.call(object, i)) continue;
-    remaining--;
-    result += `\n ${repeat(' ', space)}${Array.isArray(object) ? '' : `"${i}": `}${_stringify(object[i])}${remaining ? ',' : ''}`;
+    if (!Object.prototype.hasOwnProperty.call(object, i)) {
+      continue; // not my business
+    }
+    const currentLength = length - 1;
+    str += '\n ' + repeat(' ', space) +
+      (Array.isArray(object) ? '' : '"' + i + '": ') + // key
+      _stringify(object[i]) + // value
+      (currentLength ? ',' : ''); // comma
   }
 
-  return result + (result.length !== 1 ? `\n${repeat(' ', --space)}${strEnd}` : strEnd);
+  return str +
+    // [], {}
+    (str.length !== 1 ? '\n' + repeat(' ', space - 1) + end : end);
 }
 
 /**
  * Return a new Thing that has the keys in sorted order. Recursive.
+ *
+ * If the Thing...
+ * - has already been seen, return string `'[Circular]'`
+ * - is `undefined`, return string `'[undefined]'`
+ * - is `null`, return value `null`
+ * - is some other primitive, return the value
+ * - is not a primitive or an `Array`, `Object`, or `Function`, return the value of the Thing's `toString()` method
+ * - is a non-empty `Array`, `Object`, or `Function`, return the result of calling this function again.
+ * - is an empty `Array`, `Object`, or `Function`, return the result of calling `emptyRepresentation()`
  *
  * @api private
  * @see {@link exports.stringify}
@@ -349,50 +399,64 @@ function jsonStringify(object, spaces, depth) {
  * @param {string} [typeHint] Type hint
  * @return {(Object|Array|Function|string|undefined)}
  */
-exports.canonicalize = function canonicalize(value, stack, typeHint) {
+exports.canonicalize = function canonicalize (value, stack, typeHint) {
+  let canonicalizedObj;
   typeHint = typeHint || type(value);
+  function withStack (value, fn) {
+    stack.push(value);
+    fn();
+    stack.pop();
+  }
+
   stack = stack || [];
 
-  if (stack.includes(value)) return '[Circular]';
+  if (stack.indexOf(value) !== -1) {
+    return '[Circular]';
+  }
 
-  const handlers = {
-    undefined: () => value,
-    buffer: () => value,
-    null: () => value,
-    array: () => {
-      stack.push(value);
-      const arr = value.map((item) => exports.canonicalize(item, stack));
-      stack.pop();
-      return arr;
-    },
-    function: () => {
-      if (Object.keys(value).length === 0) return emptyRepresentation(value, typeHint);
-      const obj = {};
-      for (const prop in value) {
-        if (Object.prototype.hasOwnProperty.call(value, prop)) {
-          obj[prop] = exports.canonicalize(value[prop], stack);
-        }
-      }
-      return obj;
-    },
-    object: () => {
-      const obj = {};
-      stack.push(value);
-      Object.keys(value).sort().forEach((key) => {
-        obj[key] = exports.canonicalize(value[key], stack);
+  switch (typeHint) {
+    case 'undefined':
+    case 'buffer':
+    case 'null':
+      canonicalizedObj = value;
+      break;
+    case 'array':
+      withStack(value, function () {
+        canonicalizedObj = value.map(function (item) {
+          return exports.canonicalize(item, stack);
+        });
       });
-      stack.pop();
-      return obj;
-    },
-    date: () => value,
-    number: () => value,
-    regexp: () => value,
-    boolean: () => value,
-    symbol: () => value,
-    default: () => value + ''
-  };
+      break;
+    case 'function':
+      for (const prop in value) {
+        canonicalizedObj = {};
+        break;
+      }
+      if (!canonicalizedObj) {
+        canonicalizedObj = emptyRepresentation(value, typeHint);
+        break;
+      }
+    /* falls through */
+    case 'object':
+      canonicalizedObj = canonicalizedObj || {};
+      withStack(value, function () {
+        Object.keys(value).sort().forEach(function (key) {
+          canonicalizedObj[key] = exports.canonicalize(value[key], stack);
+        });
+      });
+      break;
+    case 'date':
+    case 'number':
+    case 'regexp':
+    case 'boolean':
+    case 'symbol':
+      canonicalizedObj = value;
+      break;
+    default:
+      canonicalizedObj = value + '';
+  }
 
-  return handlers[typeHint] ? handlers[typeHint]() : handlers.default();
+  return canonicalizedObj;
 };
 
 /**
@@ -404,44 +468,50 @@ exports.canonicalize = function canonicalize(value, stack, typeHint) {
  * @param {boolean} recursive Whether or not to recurse into subdirectories.
  * @return {string[]} An array of paths.
  */
-exports.lookupFiles = function lookupFiles(p, extensions, recursive) {
-  const files = [];
+exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
+  let files = [];
 
-  if (!exists(p)) {
-    if (exists(`${p}.js`)) {
-      p += '.js';
+  if (!exists(path)) {
+    if (exists(path + '.js')) {
+      path += '.js';
     } else {
-      const globFiles = glob.sync(p);
-      if (!globFiles.length) {
-        throw new Error(`cannot resolve path (or pattern) '${p}'`);
+      files = glob.sync(path);
+      if (!files.length) {
+        throw new Error("cannot resolve path (or pattern) '" + path + "'");
       }
-      return globFiles;
+      return files;
     }
   }
 
   try {
-    const stat = statSync(p);
-    if (stat.isFile()) return p;
+    const stat = statSync(path);
+    if (stat.isFile()) {
+      return path;
+    }
   } catch (err) {
+    // ignore error
     return;
   }
 
-  readdirSync(p).forEach((file) => {
-    const full = join(p, file);
+  readdirSync(path).forEach(function (file) {
+    file = join(path, file);
     try {
-      const stat = statSync(full);
+      const stat = statSync(file);
       if (stat.isDirectory()) {
         if (recursive) {
-          files.push(...lookupFiles(full, extensions, recursive));
+          files = files.concat(lookupFiles(file, extensions, recursive));
         }
         return;
       }
     } catch (err) {
+      // ignore error
       return;
     }
-    const re = new RegExp(`\\.(?:${extensions.join('|')})$`);
-    if (!stat.isFile() || !re.test(full) || basename(full)[0] === '.') return;
-    files.push(full);
+    const re = new RegExp('\\\\.(?:' + extensions.join('|') + ')$');
+    if (!stat.isFile() || !re.test(file) || basename(file)[0] === '.') {
+      return;
+    }
+    files.push(file);
   });
 
   return files;
@@ -452,6 +522,7 @@ exports.lookupFiles = function lookupFiles(p, extensions, recursive) {
  *
  * @return {Error}
  */
+
 exports.undefinedError = function () {
   return new Error('Caught undefined error, did you throw without specifying what?');
 };
@@ -462,6 +533,7 @@ exports.undefinedError = function () {
  * @param {Error} err
  * @return {Error}
  */
+
 exports.getError = function (err) {
   return err || exports.undefinedError();
 };
@@ -476,47 +548,57 @@ exports.getError = function (err) {
  * @returns {Function}
  */
 exports.stackTraceFilter = function () {
+  // TODO: Replace with `process.browser`
   const is = typeof document === 'undefined' ? { node: true } : { browser: true };
-  const slash = path.sep;
+  let slash = path.sep;
   let cwd;
   if (is.node) {
     cwd = process.cwd() + slash;
   } else {
-    cwd = (typeof location === 'undefined' ? window.location : location).href.replace(/\/[^/]*$/, '/');
+    cwd = (typeof location === 'undefined'
+      ? window.location
+      : location).href.replace(/\\/[^/]*$/, '/');
     slash = '/';
   }
 
-  function isMochaInternal(line) {
-    return (
-      line.includes(`node_modules${slash}mocha${slash}`) ||
-      line.includes(`node_modules${slash}mocha.js`) ||
-      line.includes(`bower_components${slash}mocha.js`) ||
-      line.includes(`${slash}mocha.js`)
-    );
+  function isMochaInternal (line) {
+    return (~line.indexOf('node_modules' + slash + 'mocha' + slash)) ||
+      (~line.indexOf('node_modules' + slash + 'mocha.js')) ||
+      (~line.indexOf('bower_components' + slash + 'mocha.js')) ||
+      (~line.indexOf(slash + 'mocha.js'));
   }
 
-  function isNodeInternal(line) {
-    return (
-      line.includes('(timers.js:') ||
-      line.includes('(events.js:') ||
-      line.includes('(node.js:') ||
-      line.includes('(module.js:') ||
-      line.includes('GeneratorFunctionPrototype.next (native)')
-    );
+  function isNodeInternal (line) {
+    return (~line.indexOf('(timers.js:')) ||
+      (~line.indexOf('(events.js:')) ||
+      (~line.indexOf('(node.js:')) ||
+      (~line.indexOf('(module.js:')) ||
+      (~line.indexOf('GeneratorFunctionPrototype.next (native)')) ||
+      false;
   }
 
   return function (stack) {
-    const lines = stack.split('\n');
-    const filtered = lines.reduce((list, line) => {
-      if (isMochaInternal(line)) return list;
-      if (is.node && isNodeInternal(line)) return list;
-      if (/\(?.+:\d+:\d+\)?$/.test(line)) {
+    const lines = stack.split('\\n');
+
+    const filtered = lines.reduce(function (list, line) {
+      if (isMochaInternal(line)) {
+        return list;
+      }
+
+      if (is.node && isNodeInternal(line)) {
+        return list;
+      }
+
+      // Clean up cwd(absolute)
+      if (/\\(?.+:\\d+:\\d+\\)?$/.test(line)) {
         line = line.replace(cwd, '');
       }
+
       list.push(line);
       return list;
     }, []);
-    return filtered.join('\n');
+
+    return filtered.join('\\n');
   };
 };
 
@@ -526,7 +608,7 @@ exports.stackTraceFilter = function () {
  * @param {*} value
  * @returns {boolean} Whether or not `value` is a Promise
  */
-exports.isPromise = function isPromise(value) {
+exports.isPromise = function isPromise (value) {
   return typeof value === 'object' && typeof value.then === 'function';
 };
 

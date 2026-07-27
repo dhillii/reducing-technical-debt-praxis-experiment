@@ -148,6 +148,10 @@ module.exports = class Tier {
         this.#yearlyPrice = validateYearlyPrice(value, this.#type);
     }
 
+    /**
+     * Update tier pricing details.
+     * @param {{currency: string|null, monthlyPrice: number|null, yearlyPrice: number|null}} params
+     */
     updatePricing({currency, monthlyPrice, yearlyPrice}) {
         if (this.#type !== 'paid' && (currency || monthlyPrice || yearlyPrice)) {
             throw new ValidationError({
@@ -155,11 +159,16 @@ module.exports = class Tier {
             });
         }
 
-        const newCurrency = validateCurrency(currency, this.#type);
-        const newMonthlyPrice = validateMonthlyPrice(monthlyPrice, this.#type);
-        const newYearlyPrice = validateYearlyPrice(yearlyPrice, this.#type);
+        const {newCurrency, newMonthlyPrice, newYearlyPrice} = validatePricingUpdates(
+            {currency, monthlyPrice, yearlyPrice},
+            this.#type
+        );
 
-        if (newCurrency === this.#currency && newMonthlyPrice === this.#monthlyPrice && newYearlyPrice === this.#yearlyPrice) {
+        if (
+            newCurrency === this.#currency &&
+            newMonthlyPrice === this.#monthlyPrice &&
+            newYearlyPrice === this.#yearlyPrice
+        ) {
             return;
         }
 
@@ -232,38 +241,9 @@ module.exports = class Tier {
     static async create(data) {
         const {id, isNew} = parseId(data);
 
-        const name = validateName(data.name);
-        const slug = validateSlug(data.slug);
-        const description = validateDescription(data.description);
-        const welcomePageURL = validateWelcomePageURL(data.welcomePageURL);
-        const status = validateStatus(data.status ?? 'active');
-        const visibility = validateVisibility(data.visibility ?? 'public');
-        const type = validateType(data.type ?? 'paid');
-        const currency = validateCurrency(data.currency ?? null, type);
-        const trialDays = validateTrialDays(data.trialDays ?? 0, type);
-        const monthlyPrice = validateMonthlyPrice(data.monthlyPrice ?? null, type);
-        const yearlyPrice = validateYearlyPrice(data.yearlyPrice ?? null, type);
-        const createdAt = validateCreatedAt(data.createdAt);
-        const updatedAt = validateUpdatedAt(data.updatedAt);
-        const benefits = validateBenefits(data.benefits);
+        const validated = validateTierData(data, id);
 
-        const tier = new Tier({
-            id,
-            slug,
-            name,
-            description,
-            welcome_page_url: welcomePageURL,
-            status,
-            visibility,
-            type,
-            trial_days: trialDays,
-            currency,
-            monthly_price: monthlyPrice,
-            yearly_price: yearlyPrice,
-            created_at: createdAt,
-            updated_at: updatedAt,
-            benefits
-        });
+        const tier = new Tier(validated);
 
         if (isNew) {
             tier.events.push(TierCreatedEvent.create({tier}));
@@ -274,26 +254,77 @@ module.exports = class Tier {
 };
 
 /**
- * Parses the provided ID value and returns an ObjectID instance.
+ * Parse and validate the tier ID.
  * @param {any} data
  * @returns {{id: ObjectID, isNew: boolean}}
  */
 function parseId(data) {
-    let id;
-    let isNew = false;
     if (!data.id) {
-        isNew = true;
-        id = new ObjectID();
-    } else if (typeof data.id === 'string') {
-        id = ObjectID.createFromHexString(data.id);
-    } else if (data.id instanceof ObjectID) {
-        id = data.id;
-    } else {
-        throw new ValidationError({
-            message: 'Invalid ID provided for Tier'
-        });
+        return {id: new ObjectID(), isNew: true};
     }
-    return {id, isNew};
+    if (typeof data.id === 'string') {
+        return {id: ObjectID.createFromHexString(data.id), isNew: false};
+    }
+    if (data.id instanceof ObjectID) {
+        return {id: data.id, isNew: false};
+    }
+    throw new ValidationError({
+        message: 'Invalid ID provided for Tier'
+    });
+}
+
+/**
+ * Validate and transform tier data into the shape expected by the constructor.
+ * @param {any} data
+ * @param {ObjectID} id
+ * @returns {object}
+ */
+function validateTierData(data, id) {
+    const slug = validateSlug(data.slug);
+    const name = validateName(data.name);
+    const description = validateDescription(data.description);
+    const welcomePageURL = validateWelcomePageURL(data.welcomePageURL);
+    const status = validateStatus(data.status || 'active');
+    const visibility = validateVisibility(data.visibility || 'public');
+    const type = validateType(data.type || 'paid');
+    const currency = validateCurrency(data.currency || null, type);
+    const trialDays = validateTrialDays(data.trialDays || 0, type);
+    const monthlyPrice = validateMonthlyPrice(data.monthlyPrice || null, type);
+    const yearlyPrice = validateYearlyPrice(data.yearlyPrice || null, type);
+    const createdAt = validateCreatedAt(data.createdAt);
+    const updatedAt = validateUpdatedAt(data.updatedAt);
+    const benefits = validateBenefits(data.benefits);
+
+    return {
+        id,
+        slug,
+        name,
+        description,
+        welcome_page_url: welcomePageURL,
+        status,
+        visibility,
+        type,
+        trial_days: trialDays,
+        currency,
+        monthly_price: monthlyPrice,
+        yearly_price: yearlyPrice,
+        created_at: createdAt,
+        updated_at: updatedAt,
+        benefits
+    };
+}
+
+/**
+ * Validate pricing updates and return new values.
+ * @param {{currency: string|null, monthlyPrice: number|null, yearlyPrice: number|null}} params
+ * @param {'paid'|'free'} type
+ * @returns {{newCurrency: string|null, newMonthlyPrice: number|null, newYearlyPrice: number|null}}
+ */
+function validatePricingUpdates({currency, monthlyPrice, yearlyPrice}, type) {
+    const newCurrency = validateCurrency(currency, type);
+    const newMonthlyPrice = validateMonthlyPrice(monthlyPrice, type);
+    const newYearlyPrice = validateYearlyPrice(yearlyPrice, type);
+    return {newCurrency, newMonthlyPrice, newYearlyPrice};
 }
 
 function validateSlug(value) {

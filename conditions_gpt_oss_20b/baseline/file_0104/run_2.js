@@ -61,65 +61,68 @@
      * @return {this}                           - The AnchorJS object
      */
     this.add = function(selector) {
-      const self = this;
       _applyRemainingDefaultOptions(this.options);
 
-      let visibleOptionToUse = this.options.visible;
-      if (visibleOptionToUse === 'touch') {
-        visibleOptionToUse = this.isTouchDevice() ? 'always' : 'hover';
-      }
+      const visibleOptionToUse = this.options.visible === 'touch'
+        ? (this.isTouchDevice() ? 'always' : 'hover')
+        : this.options.visible;
 
       if (!selector) {
         selector = 'h1, h2, h3, h4, h5, h6';
       }
 
       const elements = _getElements(selector);
+
       if (elements.length === 0) {
         return false;
       }
 
       _addBaselineStyles();
 
-      const existingIds = new Set(Array.from(document.querySelectorAll('[id]')).map(el => el.id));
+      const existingIds = new Set(
+        Array.from(document.querySelectorAll('[id]')).map(el => el.id)
+      );
+
       const newElements = [];
 
-      elements.forEach(function(el) {
-        if (self.hasAnchorJSLink(el)) {
+      elements.forEach(el => {
+        if (this.hasAnchorJSLink(el)) {
           return;
         }
 
         let elementID = el.id;
         if (!elementID) {
-          const tidyText = self.urlify(el.textContent);
-          let candidate = tidyText;
+          const base = this.urlify(el.textContent);
+          let candidate = base;
           let counter = 0;
           while (existingIds.has(candidate)) {
-            candidate = `${tidyText}-${counter++}`;
+            candidate = `${base}-${counter++}`;
           }
           elementID = candidate;
-          el.id = elementID;
+          el.setAttribute('id', elementID);
           existingIds.add(elementID);
         }
 
         const readableID = elementID.replace(/-/g, ' ');
+
         const anchor = document.createElement('a');
-        anchor.className = 'anchorjs-link ' + self.options.class;
-        anchor.href = '#' + elementID;
-        anchor.setAttribute('aria-label', 'Anchor link for: ' + readableID);
-        anchor.setAttribute('data-anchorjs-icon', self.options.icon);
+        anchor.className = `anchorjs-link ${this.options.class}`;
+        anchor.href = `#${elementID}`;
+        anchor.setAttribute('aria-label', `Anchor link for: ${readableID}`);
+        anchor.setAttribute('data-anchorjs-icon', this.options.icon);
 
         if (visibleOptionToUse === 'always') {
           anchor.style.opacity = '1';
         }
 
-        if (self.options.icon === '\ue9cb') {
+        if (this.options.icon === '\ue9cb') {
           anchor.style.font = '1em/1 anchorjs-icons';
-          if (self.options.placement === 'left') {
+          if (this.options.placement === 'left') {
             anchor.style.lineHeight = 'inherit';
           }
         }
 
-        if (self.options.placement === 'left') {
+        if (this.options.placement === 'left') {
           anchor.style.position = 'absolute';
           anchor.style.marginLeft = '-1em';
           anchor.style.paddingRight = '0.5em';
@@ -133,6 +136,7 @@
       });
 
       this.elements = this.elements.concat(newElements);
+
       return this;
     };
 

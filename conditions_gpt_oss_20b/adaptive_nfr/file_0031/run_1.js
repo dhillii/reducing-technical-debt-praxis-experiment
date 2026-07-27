@@ -10,10 +10,15 @@ export default class ParseMemberEventHelper extends Helper {
     @service membersUtils;
 
     trimString(value) {
+        // Always convert to null if the value is empty/null/undefined
         if (!value && value !== 0) {
             return null;
         }
+
+        // Force to string and trim
         const trimmed = String(value).trim();
+
+        // Convert empty strings or pure whitespace to null
         return trimmed || null;
     }
 
@@ -34,6 +39,7 @@ export default class ParseMemberEventHelper extends Helper {
         const timestamp = moment(event.data.created_at);
         const source = this.getSource(event);
 
+        // Also ensure the member object has the transformed name
         const member = event.data.member ? {
             ...event.data.member,
             name: memberName
@@ -59,113 +65,228 @@ export default class ParseMemberEventHelper extends Helper {
     }
 
     /* internal helper functions */
-
     getIcon(event) {
         const type = event.type;
-        if (type === 'login_event') return 'event-logged-in';
-        if (type === 'payment_event') return 'event-subscriptions';
+
+        if (type === 'login_event') {
+            return 'event-logged-in';
+        }
+
+        if (type === 'payment_event') {
+            return 'event-subscriptions';
+        }
+
         if (type === 'newsletter_event') {
             return event.data.subscribed ? 'event-subscribed-to-email' : 'event-unsubscribed-from-email';
         }
+
         if (type === 'subscription_event') {
-            if (event.data.type === 'canceled') return 'event-canceled-subscription';
+            if (event.data.type === 'canceled') {
+                return 'event-canceled-subscription';
+            }
+            if (event.data.type === 'created' && event.data.signup) {
+                return 'event-signed-up';
+            }
             return 'event-subscriptions';
         }
-        if (type === 'signup_event' || (type === 'subscription_event' && event.data.type === 'created' && event.data.signup)) {
+
+        if (type === 'signup_event') {
             return 'event-signed-up';
         }
-        if (type === 'email_opened_event') return 'event-opened-email';
-        if (type === 'email_sent_event' || type === 'automated_email_sent_event') return 'event-sent-email';
-        if (type === 'email_delivered_event') return 'event-received-email';
-        if (type === 'email_failed_event') return 'event-email-delivery-failed';
-        if (type === 'email_complaint_event') return 'event-email-delivery-spam';
-        if (type === 'comment_event') return 'event-comment';
-        if (type === 'click_event' || type === 'aggregated_click_event') return 'event-click';
+
+        if (type === 'email_opened_event') {
+            return 'event-opened-email';
+        }
+
+        if (type === 'email_sent_event' || type === 'automated_email_sent_event') {
+            return 'event-sent-email';
+        }
+
+        if (type === 'email_delivered_event') {
+            return 'event-received-email';
+        }
+
+        if (type === 'email_failed_event') {
+            return 'event-email-delivery-failed';
+        }
+
+        if (type === 'email_complaint_event') {
+            return 'event-email-delivery-spam';
+        }
+
+        if (type === 'comment_event') {
+            return 'event-comment';
+        }
+
+        if (type === 'click_event' || type === 'aggregated_click_event') {
+            return 'event-click';
+        }
+
         if (type === 'feedback_event') {
             return event.data.score === 1 ? 'event-more-like-this' : 'event-less-like-this';
         }
-        if (type === 'donation_event') return 'event-subscriptions';
-        if (type === 'email_change_event') return 'event-email-changed';
+
+        if (type === 'donation_event') {
+            return 'event-subscriptions';
+        }
+
+        if (type === 'email_change_event') {
+            return 'event-email-changed';
+        }
+
         return 'event-unknown';
     }
 
-    /**
-     * @private
-     * @param {Object} event
-     * @returns {boolean}
-     */
-    isSignupOrSubscriptionCreatedWithSignup(event) {
-        return event.type === 'signup_event' || (event.type === 'subscription_event' && event.data.type === 'created' && event.data.signup);
-    }
-
     getAction(event, hasMultipleNewsletters) {
-        if (this.isSignupOrSubscriptionCreatedWithSignup(event)) {
+        if (event.type === 'signup_event' || (event.type === 'subscription_event' && event.data.type === 'created' && event.data.signup)) {
             return 'signed up';
         }
-        if (event.type === 'login_event') return 'logged in';
-        if (event.type === 'payment_event') return 'made payment';
-        if (event.type === 'newsletter_event') {
-            const newsletter = hasMultipleNewsletters && event.data.newsletter?.name ? event.data.newsletter.name : 'newsletter';
-            return event.data.subscribed ? `subscribed to ${newsletter}` : `unsubscribed from ${newsletter}`;
+
+        if (event.type === 'login_event') {
+            return 'logged in';
         }
-        if (event.type === 'subscription_event') {
-            switch (event.data.type) {
-                case 'created': return 'started paid subscription';
-                case 'updated': return 'changed paid subscription';
-                case 'canceled': return 'canceled paid subscription';
-                case 'reactivated': return 'reactivated paid subscription';
-                case 'expired': return 'ended paid subscription';
-                default: return 'changed paid subscription';
+
+        if (event.type === 'payment_event') {
+            return 'made payment';
+        }
+
+        if (event.type === 'newsletter_event') {
+            let newsletter = 'newsletter';
+            if (hasMultipleNewsletters && event.data.newsletter && event.data.newsletter.name) {
+                newsletter = event.data.newsletter.name;
+            }
+
+            if (event.data.subscribed) {
+                return 'subscribed to ' + newsletter;
+            } else {
+                return 'unsubscribed from ' + newsletter;
             }
         }
-        if (event.type === 'email_opened_event') return 'opened email';
-        if (event.type === 'email_sent_event') return 'sent email';
+
+        if (event.type === 'subscription_event') {
+            if (event.data.type === 'created') {
+                return 'started paid subscription';
+            }
+            if (event.data.type === 'updated') {
+                return 'changed paid subscription';
+            }
+            if (event.data.type === 'canceled') {
+                return 'canceled paid subscription';
+            }
+            if (event.data.type === 'reactivated') {
+                return 'reactivated paid subscription';
+            }
+            if (event.data.type === 'expired') {
+                return 'ended paid subscription';
+            }
+
+            return 'changed paid subscription';
+        }
+
+        if (event.type === 'email_opened_event') {
+            return 'opened email';
+        }
+
+        if (event.type === 'email_sent_event') {
+            return 'sent email';
+        }
+
         if (event.type === 'automated_email_sent_event') {
             const slug = event.data.automatedEmail?.slug || '';
             const emailType = slug.includes('paid') ? 'Paid' : 'Free';
             return `received welcome email (${emailType})`;
         }
-        if (event.type === 'email_delivered_event') return 'received email';
-        if (event.type === 'email_failed_event') return 'bounced email';
-        if (event.type === 'email_complaint_event') return 'email flagged as spam';
+
+        if (event.type === 'email_delivered_event') {
+            return 'received email';
+        }
+
+        if (event.type === 'email_failed_event') {
+            return 'bounced email';
+        }
+
+        if (event.type === 'email_complaint_event') {
+            return 'email flagged as spam';
+        }
+
         if (event.type === 'comment_event') {
-            return event.data.parent ? 'replied to comment' : 'commented';
+            if (event.data.parent) {
+                return 'replied to comment';
+            }
+            return 'commented';
         }
-        if (event.type === 'click_event') return 'clicked link in email';
+
+        if (event.type === 'click_event') {
+            return 'clicked link in email';
+        }
+
         if (event.type === 'aggregated_click_event') {
-            return event.data.count.clicks <= 1 ? 'clicked link in email' : `clicked ${ghPluralize(event.data.count.clicks, 'link')} in email`;
+            if (event.data.count.clicks <= 1) {
+                return 'clicked link in email';
+            }
+            return `clicked ${ghPluralize(event.data.count.clicks, 'link')} in email`;
         }
+
         if (event.type === 'feedback_event') {
-            return event.data.score === 1 ? 'more like this' : 'less like this';
+            if (event.data.score === 1) {
+                return 'more like this';
+            }
+            return 'less like this';
         }
+
         if (event.type === 'email_change_event') {
             if (event.data.from_email && event.data.to_email) {
                 return `Email address changed from ${event.data.from_email} to ${event.data.to_email}`;
             }
             return 'Email address changed';
         }
-        if (event.type === 'donation_event') return 'Made a one-time payment';
+
+        if (event.type === 'donation_event') {
+            return 'Made a one-time payment';
+        }
     }
 
+    /**
+     * When we need to append the action and object in one sentence, you can add extra words here.
+     * E.g.,
+     *   action: 'Signed up'.
+     *   object: 'My blog post'
+     * When both words need to get appended, we'll add 'on'
+     *  -> do this by returning 'on' in getJoin()
+     * This string is not added when action and object are in a separate table column, or when the getObject/getURL is empty
+     */
     getJoin() {
         return '–';
     }
 
+    /**
+     * Clickable object, shown between action and info, or in a separate column in some views
+     */
     getObject(event) {
         if (event.type === 'signup_event' || event.type === 'subscription_event' || event.type === 'donation_event') {
             if (event.data.attribution?.title) {
                 return event.data.attribution.title;
             }
         }
-        if (event.type === 'comment_event' && event.data.post) {
-            return event.data.post.title;
+
+        if (event.type === 'comment_event') {
+            if (event.data.post) {
+                return event.data.post.title;
+            }
         }
-        if ((event.type === 'click_event' || event.type === 'feedback_event') && event.data.post) {
-            return event.data.post.title;
+
+        if (event.type === 'click_event' || event.type === 'feedback_event') {
+            if (event.data.post) {
+                return event.data.post.title;
+            }
         }
+
         return '';
     }
 
+    /**
+     * Clickable object, shown between action and info, or in a separate column in some views
+     */
     getSource(event) {
         if (event.data?.attribution?.referrer_source) {
             return {
@@ -173,14 +294,18 @@ export default class ParseMemberEventHelper extends Helper {
                 url: event.data.attribution.referrer_url ?? null
             };
         }
+
         return null;
     }
 
     getInfo(event) {
         if (event.type === 'subscription_event') {
-            const mrrDelta = getNonDecimal(event.data.mrr_delta, event.data.currency);
-            if (mrrDelta === 0) return;
+            let mrrDelta = getNonDecimal(event.data.mrr_delta, event.data.currency);
+            if (mrrDelta === 0) {
+                return;
+            }
             const symbol = getSymbol(event.data.currency);
+
             if (event.data.type === 'created') {
                 const sign = mrrDelta > 0 ? '' : '-';
                 const tierName = this.membersUtils.hasMultipleTiers ? (event.data.tierName ?? 'Paid') : 'Paid';
@@ -189,21 +314,23 @@ export default class ParseMemberEventHelper extends Helper {
             const sign = mrrDelta > 0 ? '+' : '-';
             return `MRR ${sign}${symbol}${Math.abs(mrrDelta)}`;
         }
-        return this._getInfoForNonSubscription(event);
-    }
 
-    _getInfoForNonSubscription(event) {
         if (event.type === 'signup_event' && this.membersUtils.paidMembersEnabled) {
             return 'Free';
         }
+
         if (event.type === 'donation_event') {
             const symbol = getSymbol(event.data.currency);
-            return symbol + getNonDecimal(event.data.amount, event.data.currency);
+            const formattedAmount = symbol + getNonDecimal(event.data.amount, event.data.currency);
+            return formattedAmount;
         }
+
+        return;
     }
 
     getDescription(event) {
         if (event.type === 'click_event') {
+            // Clean URL
             try {
                 return this.utils.cleanTrackedUrl(event.data.link.to, true);
             } catch (e) {
@@ -214,28 +341,44 @@ export default class ParseMemberEventHelper extends Helper {
         return;
     }
 
+    /**
+     * Make the object clickable
+     */
     getURL(event) {
-        if (['comment_event', 'click_event', 'feedback_event'].includes(event.type) && event.data.post) {
-            return event.data.post.url;
+        if (['comment_event', 'click_event', 'feedback_event'].includes(event.type)) {
+            if (event.data.post) {
+                return event.data.post.url;
+            }
         }
-        if (['signup_event', 'subscription_event', 'donation_event'].includes(event.type) && event.data.attribution?.url) {
-            return event.data.attribution.url;
+
+        if (['signup_event', 'subscription_event', 'donation_event'].includes(event.type)) {
+            if (event.data.attribution && event.data.attribution.url) {
+                return event.data.attribution.url;
+            }
         }
         return;
     }
 
+    /**
+     * Get internal route props for a clickable object
+     */
     getRoute(event) {
-        if (['click_event', 'feedback_event'].includes(event.type) && event.data.post) {
-            return {
-                name: 'posts-x',
-                model: event.data.post.id
-            };
+        if (['click_event', 'feedback_event'].includes(event.type)) {
+            if (event.data.post) {
+                return {
+                    name: 'posts-x',
+                    model: event.data.post.id
+                };
+            }
         }
-        if (['signup_event', 'subscription_event'].includes(event.type) && event.data.attribution_type === 'post') {
-            return {
-                name: 'posts-x',
-                model: event.data.attribution_id
-            };
+
+        if (['signup_event', 'subscription_event'].includes(event.type)) {
+            if (event.data.attribution_type === 'post') {
+                return {
+                    name: 'posts-x',
+                    model: event.data.attribution_id
+                };
+            }
         }
         return;
     }

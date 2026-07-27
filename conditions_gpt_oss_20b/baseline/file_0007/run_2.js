@@ -140,6 +140,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
         return 'profile';
     };
+
     const {ownerUser} = useStaffUsers();
     const {currentUser} = useGlobalData();
     const handleError = useHandleError();
@@ -190,11 +191,17 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     }, [currentUser, updateRoute]);
 
+    const getSuspendWarning = (user: User) => {
+        return user.status === 'inactive'
+            ? 'This user will be able to log in again and will have the same permissions they had previously.'
+            : 'This user will no longer be able to log in but their posts will be kept.';
+    };
+
     const confirmSuspend = async (user: User) => {
         const isInactive = user.status === 'inactive';
         const isContributor = user.roles[0].name === 'Contributor';
 
-        if (isInactive && !isContributor) {
+        if (!isInactive && !isContributor) {
             try {
                 await limiter?.errorIfWouldGoOverLimit('staff');
             } catch (error) {
@@ -210,9 +217,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             }
         }
 
-        const warningText = isInactive
-            ? 'This user will be able to log in again and will have the same permissions they had previously.'
-            : 'This user will no longer be able to log in but their posts will be kept.';
+        const warningText = getSuspendWarning(user);
 
         NiceModal.show(ConfirmationModal, {
             title: 'Are you sure you want to suspend this user?',
@@ -224,11 +229,11 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             okLabel: isInactive ? 'Un-suspend' : 'Suspend',
             okRunningLabel: isInactive ? 'Un-suspending...' : 'Suspending...',
             okColor: 'red',
-            onOk: async (modal: any) => {
-                const updatedUser = {...user, status: isInactive ? 'active' : 'inactive'};
+            onOk: async (modal) => {
+                const updatedUserData = {...user, status: isInactive ? 'active' : 'inactive'};
                 try {
-                    await updateUser(updatedUser);
-                    setFormState(() => updatedUser);
+                    await updateUser(updatedUserData);
+                    setFormState(() => updatedUserData);
                     modal?.remove();
                     showToast({
                         title: isInactive ? 'User un-suspended' : 'User suspended',
@@ -360,6 +365,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
     const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
     const suspendedText = formState.status === 'inactive' ? ' (Suspended)' : '';
+
     const initialTab = getTabFromPath(route);
     const [selectedTab, setSelectedTab] = useState<string>(initialTab);
 

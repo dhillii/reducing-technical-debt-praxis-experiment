@@ -14,9 +14,9 @@ export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
 };
 
 /**
- * Returns the modal title based on the tier state.
- * @param tier - The tier being edited or undefined for a new tier.
- * @returns The appropriate title string.
+ * Returns the appropriate modal title based on the tier state.
+ * @param tier The tier being edited or undefined for a new tier.
+ * @returns The modal title string.
  */
 const getModalTitle = (tier?: Tier): string => {
     if (!tier) {
@@ -162,36 +162,26 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         }
     };
 
-    /**
-     * Returns the left button props for the modal based on the tier state.
-     * @param tier - The tier being edited or undefined.
-     * @param onClick - The click handler for status change.
-     * @returns ButtonProps for the left button.
-     */
-    const getLeftButtonProps = (tier?: Tier, onClick?: () => void): ButtonProps => {
-        if (!tier) {
-            return {};
-        }
+    let leftButtonProps: ButtonProps = {};
+    if (tier) {
         if (tier.active && tier.type !== 'free') {
-            return {
+            leftButtonProps = {
                 label: 'Archive tier',
                 color: 'red',
                 link: true,
-                onClick: onClick
+                onClick: confirmTierStatusChange
             };
-        }
-        if (!tier.active) {
-            return {
+        } else if (!tier.active) {
+            leftButtonProps = {
                 label: 'Reactivate tier',
                 color: 'green',
                 link: true,
-                onClick: onClick
+                onClick: confirmTierStatusChange
             };
         }
-        return {};
-    };
+    }
 
-    const leftButtonProps: ButtonProps = getLeftButtonProps(tier, confirmTierStatusChange);
+    const modalTitle = getModalTitle(tier);
 
     return <Modal
         afterClose={() => {
@@ -205,7 +195,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         okLabel={okProps.label || 'Save'}
         size='lg'
         testId='tier-detail-modal'
-        title={getModalTitle(tier)}
+        title={modalTitle}
         stickyFooter
         onOk={async () => {
             await handleSave({fakeWhenUnchanged: true});

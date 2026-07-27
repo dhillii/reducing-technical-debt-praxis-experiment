@@ -214,10 +214,72 @@ async function assertInvalidConfig(values, message) {
 	}, message);
 }
 
+//-----------------------------------------------------------------------------
+// Test registration functions
+//-----------------------------------------------------------------------------
+
 /**
- * Tests serialization of configs.
+ * Registers tests for noniterable baseConfig objects and languageOptions.parserOptions reuse.
  */
-function testSerializationOfConfigs() {
+function registerNoniterableBaseConfigTests() {
+	it("should allow noniterable baseConfig objects", () => {
+		const base = {
+			languageOptions: {
+				parserOptions: {
+					foo: true,
+				},
+			},
+		};
+
+		const configs = new FlatConfigArray([], {
+			baseConfig: base,
+		});
+
+		// should not throw error
+		configs.normalizeSync();
+	});
+
+	it("should not reuse languageOptions.parserOptions across configs", () => {
+		const base = [
+			{
+				files: ["**/*.js"],
+				plugins: {
+					"@": {
+						languages: {
+							js: jslang,
+						},
+					},
+				},
+				language: "@/js",
+				languageOptions: {
+					parserOptions: {
+						foo: true,
+					},
+				},
+			},
+		];
+
+		const configs = new FlatConfigArray([], {
+			baseConfig: base,
+		});
+
+		configs.normalizeSync();
+
+		const config = configs.getConfig("foo.js");
+
+		assert.notStrictEqual(base[0].languageOptions, config.languageOptions);
+		assert.notStrictEqual(
+			base[0].languageOptions.parserOptions,
+			config.languageOptions.parserOptions,
+			"parserOptions should be new object",
+		);
+	});
+}
+
+/**
+ * Registers tests for serialization of configs.
+ */
+function registerSerializationOfConfigsTests() {
 	describe("Serialization of configs", () => {
 		it("should convert config into normalized JSON object", () => {
 			const configs = new FlatConfigArray([
@@ -831,9 +893,9 @@ function testSerializationOfConfigs() {
 }
 
 /**
- * Tests config array elements.
+ * Registers tests for config array elements.
  */
-function testConfigArrayElements() {
+function registerConfigArrayElementsTests() {
 	describe("Config array elements", () => {
 		it("should error on 'eslint:recommended' string config", async () => {
 			await assertInvalidConfig(
@@ -992,9 +1054,9 @@ function testConfigArrayElements() {
 }
 
 /**
- * Tests config properties.
+ * Registers tests for config properties.
  */
-function testConfigProperties() {
+function registerConfigPropertiesTests() {
 	describe("Config Properties", () => {
 		describe("settings", () => {
 			it("should merge two objects", () =>
@@ -1129,8 +1191,7 @@ function testConfigProperties() {
 							a: true,
 							b: false,
 						},
-					},
-				));
+					});
 		});
 
 		describe("plugins", () => {
@@ -1465,6 +1526,7 @@ function testConfigProperties() {
 						],
 						{
 							plugins: baseConfig.plugins,
+
 							linterOptions: {
 								reportUnusedDisableDirectives: 1,
 							},
@@ -1486,7 +1548,7 @@ function testConfigProperties() {
 					);
 				});
 
-				it("should merge two objects when second object has overrides", () =>
+				it("should merge two objects when second is a string", () =>
 					assertMergedResult(
 						[
 							{
@@ -2490,7 +2552,7 @@ function testConfigProperties() {
 							},
 						},
 					],
-					/Key "rules": Key "foox": Could not find "foox" in plugin "@"/u,
+					/Key "rules": Key "foox": Could not find "foox" in plugin "@"./u,
 				);
 			});
 
@@ -3018,10 +3080,9 @@ function testConfigProperties() {
 }
 
 /**
- * Tests shared references between rule configs.
+ * Registers tests for shared references between rule configs.
  */
-function testSharedReferencesBetweenRuleConfigs() {
-	// https://github.com/eslint/eslint/issues/12592
+function registerSharedReferencesTests() {
 	describe("Shared references between rule configs", () => {
 		it("shared rule config should not cause a rule validation error", () => {
 			const ruleConfig = ["error", {}];
@@ -3088,13 +3149,13 @@ function testSharedReferencesBetweenRuleConfigs() {
 }
 
 //-----------------------------------------------------------------------------
-// Tests
+// Orchestration
 //-----------------------------------------------------------------------------
 
 describe("FlatConfigArray", () => {
-	testSerializationOfConfigs();
-	testConfigArrayElements();
-	testConfigProperties();
-	testInvalidKeys();
-	testSharedReferencesBetweenRuleConfigs();
+	registerNoniterableBaseConfigTests();
+	registerSerializationOfConfigsTests();
+	registerConfigArrayElementsTests();
+	registerConfigPropertiesTests();
+	registerSharedReferencesTests();
 });

@@ -20,10 +20,6 @@ import type {
   FieldProps,
 } from '../../../../types'
 
-/**
- * Validates a password field value against the provided validation rules.
- * Returns an error message string if validation fails, otherwise undefined.
- */
 function validate(
   value: Value,
   validation: Validation,
@@ -31,74 +27,41 @@ function validate(
   fieldLabel: string
 ): string | undefined {
   if (value.kind === 'initial') {
-    return validateInitial(value, isRequired, fieldLabel)
-  }
-  if (value.kind === 'editing') {
-    return validateEditing(value, validation, fieldLabel)
-  }
-  return undefined
-}
-
-/**
- * Handles validation logic for the initial state of the field.
- */
-function validateInitial(
-  value: Value,
-  isRequired: boolean,
-  fieldLabel: string
-): string | undefined {
-  if (value.isSet === null || value.isSet === true) {
+    if (value.isSet === null || value.isSet === true) {
+      return undefined
+    }
+    if (isRequired) {
+      return `${fieldLabel} is required`
+    }
     return undefined
   }
-  if (isRequired) {
-    return `${fieldLabel} is required`
-  }
-  return undefined
-}
 
-/**
- * Handles validation logic for the editing state of the field.
- */
-function validateEditing(
-  value: Value,
-  validation: Validation,
-  fieldLabel: string
-): string | undefined {
+  // Editing state
   if (value.confirm !== value.value) {
     return `The passwords do not match`
   }
 
-  const error = validateLength(value.value, validation.length, fieldLabel)
-  if (error) return error
+  const val = value.value
+  const len = val.length
 
-  if (validation.match && !validation.match.regex.test(value.value)) {
+  if (len < validation.length.min) {
+    return validation.length.min === 1
+      ? `${fieldLabel} must not be empty`
+      : `${fieldLabel} must be at least ${validation.length.min} characters long`
+  }
+
+  if (validation.length.max !== null && len > validation.length.max) {
+    return `${fieldLabel} must be no longer than ${validation.length.max} characters`
+  }
+
+  if (validation.match && !validation.match.regex.test(val)) {
     return validation.match.explanation
   }
 
-  if (validation.rejectCommon && dumbPasswords.check(value.value)) {
+  if (validation.rejectCommon && dumbPasswords.check(val)) {
     return `${fieldLabel} is too common and is not allowed`
   }
 
-  return undefined
-}
-
-/**
- * Validates the length of the password.
- */
-function validateLength(
-  val: string,
-  length: { min: number; max: number | null },
-  fieldLabel: string
-): string | undefined {
-  if (val.length < length.min) {
-    if (length.min === 1) {
-      return `${fieldLabel} must not be empty`
-    }
-    return `${fieldLabel} must be at least ${length.min} characters long`
-  }
-  if (length.max !== null && val.length > length.max) {
-    return `${fieldLabel} must be no longer than ${length.max} characters`
-  }
   return undefined
 }
 

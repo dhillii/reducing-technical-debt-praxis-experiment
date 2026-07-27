@@ -31,43 +31,43 @@ export default class GhPostSettingsMenu extends Component {
     isViewingSubview = false;
 
     @alias('post.canonicalUrlScratch')
-        canonicalUrlScratch;
+    canonicalUrlScratch;
 
     @alias('post.customExcerptScratch')
-        customExcerptScratch;
+    customExcerptScratch;
 
     @alias('post.codeinjectionFootScratch')
-        codeinjectionFootScratch;
+    codeinjectionFootScratch;
 
     @alias('post.codeinjectionHeadScratch')
-        codeinjectionHeadScratch;
+    codeinjectionHeadScratch;
 
     @alias('post.metaDescriptionScratch')
-        metaDescriptionScratch;
+    metaDescriptionScratch;
 
     @alias('post.metaTitleScratch')
-        metaTitleScratch;
+    metaTitleScratch;
 
     @alias('post.ogDescriptionScratch')
-        ogDescriptionScratch;
+    ogDescriptionScratch;
 
     @alias('post.ogTitleScratch')
-        ogTitleScratch;
+    ogTitleScratch;
 
     @alias('post.twitterDescriptionScratch')
-        twitterDescriptionScratch;
+    twitterDescriptionScratch;
 
     @alias('post.twitterTitleScratch')
-        twitterTitleScratch;
+    twitterTitleScratch;
 
     @boundOneWay('post.slug')
-        slugValue;
+    slugValue;
 
     @boundOneWay('post.uuid')
-        uuidValue;
+    uuidValue;
 
     @or('metaDescriptionScratch', 'customExcerptScratch')
-        seoDescription;
+    seoDescription;
 
     @or(
         'ogDescriptionScratch',
@@ -77,7 +77,7 @@ export default class GhPostSettingsMenu extends Component {
         'settings.description',
         ''
     )
-        facebookDescription;
+    facebookDescription;
 
     @or(
         'post.ogImage',
@@ -85,10 +85,10 @@ export default class GhPostSettingsMenu extends Component {
         'settings.ogImage',
         'settings.coverImage'
     )
-        facebookImage;
+    facebookImage;
 
     @or('ogTitleScratch', 'seoTitle')
-        facebookTitle;
+    facebookTitle;
 
     @or(
         'twitterDescriptionScratch',
@@ -98,7 +98,7 @@ export default class GhPostSettingsMenu extends Component {
         'settings.description',
         ''
     )
-        twitterDescription;
+    twitterDescription;
 
     @or(
         'post.twitterImage',
@@ -106,39 +106,45 @@ export default class GhPostSettingsMenu extends Component {
         'settings.twitterImage',
         'settings.coverImage'
     )
-        twitterImage;
+    twitterImage;
 
     @or('twitterTitleScratch', 'seoTitle')
-        twitterTitle;
+    twitterTitle;
 
     @or(
         'session.user.isOwnerOnly',
         'session.user.isAdminOnly',
         'session.user.isEitherEditor'
     )
-        showVisibilityInput;
+    showVisibilityInput;
 
     @computed('metaTitleScratch', 'post.titleScratch')
     get seoTitle() {
         return this.metaTitleScratch || this.post.titleScratch || '(Untitled)';
     }
 
+    /**
+     * Safely parse a URL string into its host and path segments.
+     * Returns an array of parts or an empty array if the URL is invalid.
+     */
+    private parseUrlParts(urlString: string): string[] {
+        try {
+            const url = new URL(urlString);
+            return [url.host, ...url.pathname.split('/').filter(Boolean)];
+        } catch {
+            return [];
+        }
+    }
+
     @computed('post.{slug,canonicalUrl}', 'config.blogUrl')
     get seoURL() {
-        const urlParts = [];
+        const urlParts: string[] = [];
 
         if (this.post.canonicalUrl) {
-            try {
-                const canonicalUrl = new URL(this.post.canonicalUrl);
-                urlParts.push(canonicalUrl.host);
-                urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
-            } catch (e) {
-                // no-op, invalid URL
-            }
+            urlParts.push(...this.parseUrlParts(this.post.canonicalUrl));
         } else {
             const blogUrl = new URL(this.config.blogUrl);
-            urlParts.push(blogUrl.host);
-            urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
+            urlParts.push(...this.parseUrlParts(blogUrl.toString()));
             urlParts.push(this.post.slug);
         }
 
@@ -146,18 +152,26 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     get canViewPostHistory() {
+        // Cannot view history for new posts
         if (this.post.isNew) {
             return false;
         }
+
+        // Can only view history for lexical posts
         if (this.post.lexical === null) {
             return false;
         }
+
+        // Can view history for all unpublished/unsent posts
         if (!this.post.isPublished && !this.post.isSent) {
             return true;
         }
+
+        // Cannot view history for published posts if there isn't a web version
         if (this.post.emailOnly) {
             return false;
         }
+
         return true;
     }
 
@@ -171,6 +185,7 @@ export default class GhPostSettingsMenu extends Component {
         const post = this.post;
         const errors = post.get('errors');
 
+        // reset the publish date if it has an error
         if (errors.has('publishedAtBlogDate') || errors.has('publishedAtBlogTime')) {
             post.set('publishedAtBlogTZ', post.get('publishedAtUTC'));
             post.validate({attribute: 'publishedAtBlog'});
@@ -198,12 +213,30 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     toggleFeatured() {
-        this._toggleBoolean('featured');
+        this.post.featured = !this.post.featured;
+
+        if (this.post.isNew) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     toggleShowTitleAndFeatureImage(event) {
-        this._toggleBoolean('showTitleAndFeatureImage', event.target.checked);
+        this.post.showTitleAndFeatureImage = event.target.checked;
+
+        if (this.post.isNew) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -217,7 +250,7 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * triggered by user manually changing slug
+     * Triggered by user manually changing slug
      */
     @action
     updateSlug(newSlug) {
@@ -254,7 +287,11 @@ export default class GhPostSettingsMenu extends Component {
                 await this.savePostTask.perform();
             }
         } catch (e) {
-            // Let the error propagate
+            if (!e) {
+                // validation error
+                return;
+            }
+
             throw e;
         }
     }
@@ -275,82 +312,136 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setCustomExcerpt(excerpt) {
-        return this._updateAttribute('customExcerpt', excerpt);
+        return this.updateAttribute('customExcerpt', excerpt, 'customExcerpt');
     }
 
     @action
     setHeaderInjection(code) {
-        return this._updateAttribute('codeinjectionHead', code);
+        return this.updateAttribute('codeinjectionHead', code, 'codeinjectionHead');
     }
 
     @action
     setFooterInjection(code) {
-        return this._updateAttribute('codeinjectionFoot', code);
+        return this.updateAttribute('codeinjectionFoot', code, 'codeinjectionFoot');
     }
 
     @action
     setMetaTitle(metaTitle) {
-        return this._updateAttribute('metaTitle', metaTitle);
+        return this.updateAttribute('metaTitle', metaTitle, 'metaTitle');
     }
 
     @action
     setMetaDescription(metaDescription) {
-        return this._updateAttribute('metaDescription', metaDescription);
+        return this.updateAttribute('metaDescription', metaDescription, 'metaDescription');
     }
 
     @action
     setCanonicalUrl(value) {
-        return this._updateAttribute('canonicalUrl', value);
+        return this.updateAttribute('canonicalUrl', value, 'canonicalUrl');
     }
 
     @action
     setOgTitle(ogTitle) {
-        return this._updateAttribute('ogTitle', ogTitle);
+        return this.updateAttribute('ogTitle', ogTitle, 'ogTitle');
     }
 
     @action
     setOgDescription(ogDescription) {
-        return this._updateAttribute('ogDescription', ogDescription);
+        return this.updateAttribute('ogDescription', ogDescription, 'ogDescription');
     }
 
     @action
     setTwitterTitle(twitterTitle) {
-        return this._updateAttribute('twitterTitle', twitterTitle);
+        return this.updateAttribute('twitterTitle', twitterTitle, 'twitterTitle');
     }
 
     @action
     setTwitterDescription(twitterDescription) {
-        return this._updateAttribute('twitterDescription', twitterDescription);
+        return this.updateAttribute('twitterDescription', twitterDescription, 'twitterDescription');
     }
 
     @action
     setCoverImage(image) {
-        return this._setImage('featureImage', image);
+        this.set('post.featureImage', image);
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     clearCoverImage() {
-        return this._setImage('featureImage', '');
+        this.set('post.featureImage', '');
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     setOgImage(image) {
-        return this._setImage('ogImage', image);
+        this.set('post.ogImage', image);
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     clearOgImage() {
-        return this._setImage('ogImage', '');
+        this.set('post.ogImage', '');
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     setTwitterImage(image) {
-        return this._setImage('twitterImage', image);
+        this.set('post.twitterImage', image);
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     clearTwitterImage() {
-        return this._setImage('twitterImage', '');
+        this.set('post.twitterImage', '');
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -368,7 +459,7 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        return this.savePostTask.perform().catch((error) => {
+        this.savePostTask.perform().catch((error) => {
             this.showError(error);
             post.rollbackAttributes();
         });
@@ -376,7 +467,7 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     savePost() {
-        return this.savePostTask.perform().catch((error) => {
+        this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
         });
@@ -407,58 +498,28 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     /**
-     * Toggle a boolean attribute on the post and persist if necessary.
-     * @param {string} attr - The attribute name.
-     * @param {boolean} [value] - Optional value to set; if omitted, the attribute is toggled.
+     * Generic helper to update a post attribute, validate it, and persist changes.
+     * Handles rollback and error notification.
      */
-    _toggleBoolean(attr, value) {
+    private updateAttribute(attribute: string, value: any, property: string): Promise<any> {
         const post = this.post;
-        const newValue = typeof value === 'boolean' ? value : !post.get(attr);
-        post.set(attr, newValue);
-        return this._savePost();
-    }
+        const current = post.get(attribute);
 
-    /**
-     * Update a string attribute on the post, validate, and persist if not new.
-     * @param {string} attr - The attribute name.
-     * @param {string} value - The new value.
-     */
-    _updateAttribute(attr, value) {
-        const post = this.post;
-        if (post.get(attr) === value) {
+        if (current === value) {
             return Promise.resolve();
         }
-        post.set(attr, value);
-        return post.validate({property: attr}).then(() => {
+
+        post.set(attribute, value);
+
+        return post.validate({property}).then(() => {
             if (post.get('isNew')) {
                 return;
             }
-            return this._savePost();
-        });
-    }
-
-    /**
-     * Set an image attribute on the post and persist if not new.
-     * @param {string} attr - The attribute name.
-     * @param {string} image - The image URL.
-     */
-    _setImage(attr, image) {
-        const post = this.post;
-        post.set(attr, image);
-        return this._savePost();
-    }
-
-    /**
-     * Persist the post if it has already been saved before.
-     */
-    _savePost() {
-        const post = this.post;
-        if (post.get('isNew')) {
-            return Promise.resolve();
-        }
-        return this.savePostTask.perform().catch((error) => {
+            return this.savePostTask.perform();
+        }).catch((error) => {
             this.showError(error);
             post.rollbackAttributes();
+            return Promise.resolve();
         });
     }
 }

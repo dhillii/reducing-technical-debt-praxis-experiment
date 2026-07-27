@@ -13,13 +13,6 @@ export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
     trial_days: string;
 };
 
-const getModalTitle = (tier?: Tier): string => {
-    if (!tier) {
-        return 'New tier';
-    }
-    return tier.active ? 'Edit tier' : 'Edit archived tier';
-};
-
 const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
     const isFreeTier = tier?.type === 'free';
 
@@ -176,6 +169,16 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         }
     }
 
+    /**
+     * Returns the modal title based on the tier state.
+     */
+    const getTitle = (): string => {
+        if (!tier) {
+            return 'New tier';
+        }
+        return tier.active ? 'Edit tier' : 'Edit archived tier';
+    };
+
     return <Modal
         afterClose={() => {
             updateRoute('tiers');
@@ -188,7 +191,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         okLabel={okProps.label || 'Save'}
         size='lg'
         testId='tier-detail-modal'
-        title={getModalTitle(tier)}
+        title={getTitle()}
         stickyFooter
         onOk={async () => {
             await handleSave({fakeWhenUnchanged: true});

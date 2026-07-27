@@ -9,9 +9,13 @@ import {type Tier, useAddTier, useBrowseTiers, useEditTier} from '@tryghost/admi
 import {currencies, currencySelectGroups, validateCurrencyAmount} from '../../../../utils/currency';
 import {getSettingValues, useEditSettings} from '@tryghost/admin-x-framework/api/settings';
 
+export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
+    trial_days: string;
+};
+
 /**
  * Returns the modal title based on the tier state.
- * @param tier - The tier being edited or undefined for a new tier.
+ * @param tier The tier being edited or undefined for a new tier.
  * @returns The appropriate title string.
  */
 const getModalTitle = (tier?: Tier): string => {
@@ -21,8 +25,33 @@ const getModalTitle = (tier?: Tier): string => {
     return tier.active ? 'Edit tier' : 'Edit archived tier';
 };
 
-export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
-    trial_days: string;
+/**
+ * Returns the left button props for the modal based on the tier state.
+ * @param tier The tier being edited or undefined for a new tier.
+ * @param onConfirm Callback to confirm tier status change.
+ * @returns The button props or an empty object if no button is needed.
+ */
+const getLeftButtonProps = (tier?: Tier, onConfirm?: () => void): ButtonProps => {
+    if (!tier) {
+        return {};
+    }
+    if (tier.active && tier.type !== 'free') {
+        return {
+            label: 'Archive tier',
+            color: 'red',
+            link: true,
+            onClick: onConfirm
+        };
+    }
+    if (!tier.active) {
+        return {
+            label: 'Reactivate tier',
+            color: 'green',
+            link: true,
+            onClick: onConfirm
+        };
+    }
+    return {};
 };
 
 const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
@@ -80,8 +109,6 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                 await createTier(values);
             }
             if (isFreeTier) {
-                // If we changed the visibility, we also need to update Portal settings in some situations
-                // Like the free tier is a special case, and should also be present/absent in portal_plans
                 const visible = formState.visibility === 'public';
                 let save = false;
 
@@ -125,7 +152,6 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         }
     };
 
-    // Only validate amounts when the user changes currency, don't show errors on initial render
     const didInitialRender = useRef(false);
     useEffect(() => {
         if (didInitialRender.current) {
@@ -134,7 +160,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         }
 
         didInitialRender.current = true;
-    }, [formState.currency]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [formState.currency]);
 
     const confirmTierStatusChange = () => {
         if (tier) {
@@ -163,35 +189,6 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                 }
             });
         }
-    };
-
-    /**
-     * Determines the left button props for the modal based on tier state.
-     * @param tier - The tier being edited or undefined.
-     * @param onClick - Callback to invoke when the button is clicked.
-     * @returns ButtonProps for the left button.
-     */
-    const getLeftButtonProps = (tier?: Tier, onClick: () => void): ButtonProps => {
-        if (!tier) {
-            return {};
-        }
-        if (tier.active && tier.type !== 'free') {
-            return {
-                label: 'Archive tier',
-                color: 'red',
-                link: true,
-                onClick
-            };
-        }
-        if (!tier.active) {
-            return {
-                label: 'Reactivate tier',
-                color: 'green',
-                link: true,
-                onClick
-            };
-        }
-        return {};
     };
 
     const leftButtonProps: ButtonProps = getLeftButtonProps(tier, confirmTierStatusChange);
@@ -323,9 +320,8 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
                             items={benefits.items}
                             itemSeparator={false}
                             renderItem={({id, item}) => <div className='relative flex w-full items-center gap-5'>
-                                <div className='absolute left-[-32px] top-7 flex size-6 items-center justify-center bg-white group-hover:hidden dark:bg-black'><Icon name='check' size='sm' /></div>
+                                <div className='absolute left-[-32px] top-[7px] flex size-6 items-center justify-center bg-white group-hover:hidden dark:bg-black'><Icon name='check' size='sm' /></div>
                                 <TextField
-                                    // className='grow border-b border-grey-500 py-2 focus:border-grey-800 group-hover:border-grey-600'
                                     maxLength={191}
                                     value={item}
                                     onChange={e => benefits.updateItem(id, e.target.value)}

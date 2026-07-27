@@ -14,6 +14,7 @@ import type {
 } from '../../../../types'
 import { entriesTyped } from '../../../../lib/core/utils'
 
+// TODO: extract
 const TYPE_OPERATOR_MAP = {
   equals: '=',
   not: '≠',
@@ -195,10 +196,14 @@ export function controller(
   }
 }
 
-export function Field(
-  props: Readonly<FieldProps<typeof controller>>
-) {
-  const { field, value, onChange, autoFocus, forceValidation, isRequired } = props
+export function Field({
+  field,
+  value,
+  onChange,
+  autoFocus,
+  forceValidation,
+  isRequired,
+}: Readonly<FieldProps<typeof controller>>) {
   const [isDirty, setDirty] = useState(false)
   const isReadOnly = !onChange || field.hasAutoIncrementDefault
 

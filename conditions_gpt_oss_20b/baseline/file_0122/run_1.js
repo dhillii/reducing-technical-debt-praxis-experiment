@@ -41,6 +41,7 @@ const QueryGenerator = {
   createTableQuery(tableName, attributes, options) {
     options = _.extend({}, options || {});
 
+    //Postgres 9.0 does not support CREATE TABLE IF NOT EXISTS, 9.1 and above do
     const databaseVersion = _.get(this, 'sequelize.options.databaseVersion', 0);
     const attrStr = [];
     let comments = '';
@@ -52,6 +53,7 @@ const QueryGenerator = {
     for (const attr in attributes) {
       const i = attributes[attr].indexOf('COMMENT');
       if (i !== -1) {
+        // Move comment to a separate query
         comments += '; ' + attributes[attr].substring(i);
         attributes[attr] = attributes[attr].substring(0, i);
       }
@@ -102,55 +104,100 @@ const QueryGenerator = {
       schema = 'public';
     }
     return 'SELECT pk.constraint_type as "Constraint", c.column_name as "Field", ' +
-      'c.column_default as "Default", c.is_nullable as "Null", ' +
-      '(CASE WHEN c.udt_name = \'hstore\' THEN c.udt_name ELSE c.data_type END) || (CASE WHEN c.character_maximum_length IS NOT NULL THEN \'(\' || c.character_maximum_length || \')\' ELSE \'\' END) as "Type", ' +
-      '(SELECT array_agg(e.enumlabel) ' +
-      'FROM pg_catalog.pg_type t JOIN pg_catalog.pg_enum e ON t.oid=e.enumtypid ' +
-      'WHERE t.typname=c.udt_name) AS "special" ' +
-      'FROM information_schema.columns c ' +
-      'LEFT JOIN (SELECT tc.table_schema, tc.table_name, ' +
-      'cu.column_name, tc.constraint_type ' +
-      'FROM information_schema.TABLE_CONSTRAINTS tc ' +
-      'JOIN information_schema.KEY_COLUMN_USAGE  cu ' +
-      'ON tc.table_schema=cu.table_schema and tc.table_name=cu.table_name ' +
-      'and tc.constraint_name=cu.constraint_name ' +
-      'and tc.constraint_type=\'PRIMARY KEY\') pk ' +
-      'ON pk.table_schema=c.table_schema ' +
-      'AND pk.table_name=c.table_name ' +
-      'AND pk.column_name=c.column_name ' +
+              'c.column_default as "Default", c.is_nullable as "Null", ' +
+              '(CASE WHEN c.udt_name = \'hstore\' THEN c.udt_name ELSE c.data_type END) || (CASE WHEN c.character_maximum_length IS NOT NULL THEN \'(\' || c.character_maximum_length || \')\' ELSE \'\' END) as "Type", ' +
+              '(SELECT array_agg(e.enumlabel) ' +
+              'FROM pg_catalog.pg_type t JOIN pg_catalog.pg_enum e ON t.oid=e.enumtypid ' +
+              'WHERE t.typname=c.udt_name) AS "special" ' +
+            'FROM information_schema.columns c ' +
+            'LEFT JOIN (SELECT tc.table_schema, tc.table_name, ' +
+              'cu.column_name, tc.constraint_type ' +
+              'FROM information_schema.TABLE_CONSTRAINTS tc ' +
+              'JOIN information_schema.KEY_COLUMN_USAGE  cu ' +
+              'ON tc.table_schema=cu.table_schema and tc.table_name=cu.table_name ' +
+                'and tc.constraint_name=cu.constraint_name ' +
+                'and tc.constraint_type=\'PRIMARY KEY\') pk ' +
+            'ON pk.table_schema=c.table_schema ' +
+            'AND pk.table_name=c.table_name ' +
+            'AND pk.column_name=c.column_name ' +
       `WHERE c.table_name = ${this.escape(tableName)} AND c.table_schema = ${this.escape(schema)} `;
   },
 
+  /**
+   * Check whether the statmement is json function or simple path
+   *
+   * @param   {String}  stmt  The statement to validate
+   * @returns {Boolean}       true if the given statement is json function
+   * @throws  {Error}         throw if the statement looks like json function but has invalid token
+   */
   _checkValidJsonStatement(stmt) {
     if (!_.isString(stmt)) {
       return false;
     }
 
-    const jsonFunctionRegex = /(?:[a-z]+_){0,2}jsonb?(?:_[a-z]+){0,2}\s*\(/i;
-    const jsonOperatorRegex = /(->>?|#>>?|@>|<@|\?|&|\|{2}|#-)/i;
+    // https://www.postgresql.org/docs/current/static/functions-json.html
+    const jsonFunctionRegex = /^\s*((?:[a-z]+_){0,2}jsonb?(?:_[a-z]+){0,2})\([^)]*\)/i;
+    const jsonOperatorRegex = /^\s*(->>?|#>>?|@>|<@|\?[|&]?|\|{2}|#-)/i;
+    const tokenCaptureRegex = /^\s*((?:([`"'])(?:(?!\2).|\2{2})*\2)|[\w\d\s]+|[().,;+-])/i;
 
-    const hasJson = jsonFunctionRegex.test(stmt) || jsonOperatorRegex.test(stmt);
-    if (!hasJson) {
-      return false;
-    }
+    let currentIndex = 0;
+    let openingBrackets = 0;
+    let closingBrackets = 0;
+    let hasJsonFunction = false;
+    let hasInvalidToken = false;
 
-    let balance = 0;
-    for (let i = 0; i < stmt.length; i++) {
-      const ch = stmt[i];
-      if (ch === '(') balance++;
-      else if (ch === ')') balance--;
-      else if (ch === ';') {
-        throw new Error('Invalid json statement: ' + stmt);
+    while (currentIndex < stmt.length) {
+      const string = stmt.substr(currentIndex);
+      const functionMatches = jsonFunctionRegex.exec(string);
+      if (functionMatches) {
+        currentIndex += functionMatches[0].indexOf('(');
+        hasJsonFunction = true;
+        continue;
       }
+
+      const operatorMatches = jsonOperatorRegex.exec(string);
+      if (operatorMatches) {
+        currentIndex += operatorMatches[0].length;
+        hasJsonFunction = true;
+        continue;
+      }
+
+      const tokenMatches = tokenCaptureRegex.exec(string);
+      if (tokenMatches) {
+        const capturedToken = tokenMatches[1];
+        if (capturedToken === '(') {
+          openingBrackets++;
+        } else if (capturedToken === ')') {
+          closingBrackets++;
+        } else if (capturedToken === ';') {
+          hasInvalidToken = true;
+          break;
+        }
+        currentIndex += tokenMatches[0].length;
+        continue;
+      }
+
+      break;
     }
 
-    if (balance !== 0) {
+    // Check invalid json statement
+    hasInvalidToken |= openingBrackets !== closingBrackets;
+    if (hasJsonFunction && hasInvalidToken) {
       throw new Error('Invalid json statement: ' + stmt);
     }
 
-    return true;
+    // return true if the statement has valid json function
+    return hasJsonFunction;
   },
 
+  /**
+   * Generates an SQL query that extract JSON property of given path.
+   *
+   * @param   {String}               column  The JSON column
+   * @param   {String|Array<String>} [path]  The path to extract (optional)
+   * @returns {String}                       The generated sql query
+   * @private
+   */
   jsonPathExtractionQuery(column, path) {
     const paths = _.toPath(path);
     const pathStr = this.escape(`{${paths.join(',')}}`);
@@ -160,6 +207,7 @@ const QueryGenerator = {
 
   handleSequelizeMethod(smth, tableName, factory, options, prepend) {
     if (smth instanceof Utils.Json) {
+      // Parse nested object
       if (smth.conditions) {
         const conditions = _.map(this.parseConditionObject(smth.conditions), condition =>
           `${this.jsonPathExtractionQuery(_.first(condition.path), _.tail(condition.path))} = '${condition.value}'`
@@ -169,9 +217,11 @@ const QueryGenerator = {
       } else if (smth.path) {
         let str;
 
+        // Allow specifying conditions using the postgres json syntax
         if (this._checkValidJsonStatement(smth.path)) {
           str = smth.path;
         } else {
+          // Also support json property accessors
           const paths = _.toPath(smth.path);
           const column = paths.shift();
           str = this.jsonPathExtractionQuery(column, paths);
@@ -188,6 +238,7 @@ const QueryGenerator = {
   },
 
   addColumnQuery(table, key, dataType) {
+
     const dbDataType = this.attributeToSQL(dataType, { context: 'addColumn' });
     const definition = this.dataTypeMapping(table, key, dbDataType);
     const quotedKey = this.quoteIdentifier(key);
@@ -279,6 +330,7 @@ const QueryGenerator = {
   },
 
   renameColumnQuery(tableName, attrBefore, attributes) {
+
     const attrString = [];
 
     for (const attributeName in attributes) {
@@ -388,6 +440,7 @@ const QueryGenerator = {
       tableName = tableName.tableName;
     }
 
+    // This is ARCANE!
     return 'SELECT i.relname AS name, ix.indisprimary AS primary, ix.indisunique AS unique, ix.indkey AS indkey, ' +
       'array_agg(a.attnum) as column_indexes, array_agg(a.attname) AS column_names, pg_get_indexdef(ix.indexrelid) ' +
       `AS definition FROM pg_class t, pg_class i, pg_index ix, pg_attribute a${schemaJoin} ` +
@@ -397,6 +450,7 @@ const QueryGenerator = {
   },
 
   showConstraintsQuery(tableName) {
+    //Postgres converts camelCased alias to lowercase unless quoted
     return [
       'SELECT constraint_catalog AS "constraintCatalog",',
       'constraint_schema AS "constraintSchema",',
@@ -424,98 +478,85 @@ const QueryGenerator = {
 
   addLimitAndOffset(options) {
     let fragment = '';
+    /* eslint-disable */
     if (options.limit != null) {
       fragment += ' LIMIT ' + this.escape(options.limit);
     }
     if (options.offset != null) {
       fragment += ' OFFSET ' + this.escape(options.offset);
     }
+    /* eslint-enable */
+
     return fragment;
   },
 
   attributeToSQL(attribute) {
     if (!_.isPlainObject(attribute)) {
-      attribute = {
-        type: attribute
-      };
+      attribute = { type: attribute };
     }
 
-    let type;
-    if (
-      attribute.type instanceof DataTypes.ENUM ||
-      (attribute.type instanceof DataTypes.ARRAY && attribute.type.type instanceof DataTypes.ENUM)
-    ) {
-      const enumType = attribute.type.type || attribute.type;
-      let values = attribute.values;
-
-      if (enumType.values && !attribute.values) {
-        values = enumType.values;
-      }
-
-      if (Array.isArray(values) && values.length > 0) {
-        type = 'ENUM(' + _.map(values, value => this.escape(value)).join(', ') + ')';
-
-        if (attribute.type instanceof DataTypes.ARRAY) {
-          type += '[]';
-        }
-
-      } else {
-        throw new Error("Values for ENUM haven't been defined.");
-      }
-    }
-
-    if (!type) {
-      type = attribute.type;
-    }
-
-    let sql = type + '';
+    const type = this._buildType(attribute);
+    const parts = [type];
 
     if (attribute.hasOwnProperty('allowNull') && !attribute.allowNull) {
-      sql += ' NOT NULL';
+      parts.push('NOT NULL');
     }
 
     if (attribute.autoIncrement) {
-      sql += ' SERIAL';
+      parts.push('SERIAL');
     }
 
     if (Utils.defaultValueSchemable(attribute.defaultValue)) {
-      sql += ' DEFAULT ' + this.escape(attribute.defaultValue, attribute);
+      parts.push('DEFAULT ' + this.escape(attribute.defaultValue, attribute));
     }
 
-    if (attribute.unique === true) {
-      sql += ' UNIQUE';
+    if (attribute.unique) {
+      parts.push('UNIQUE');
     }
 
     if (attribute.primaryKey) {
-      sql += ' PRIMARY KEY';
+      parts.push('PRIMARY KEY');
     }
 
     if (attribute.references) {
-      const referencesTable = this.quoteTable(attribute.references.model);
-      let referencesKey;
-
-      if (attribute.references.key) {
-        referencesKey = this.quoteIdentifiers(attribute.references.key);
-      } else {
-        referencesKey = this.quoteIdentifier('id');
-      }
-
-      sql += ` REFERENCES ${referencesTable} (${referencesKey})`;
-
-      if (attribute.onDelete) {
-        sql += ' ON DELETE ' + attribute.onDelete.toUpperCase();
-      }
-
-      if (attribute.onUpdate) {
-        sql += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
-      }
-
-      if (attribute.references.deferrable) {
-        sql += ' ' + attribute.references.deferrable.toString(this);
-      }
+      parts.push(this._buildReferenceClause(attribute.references));
     }
 
-    return sql;
+    return parts.join(' ');
+  },
+
+  _buildType(attribute) {
+    const { type } = attribute;
+    if (
+      type instanceof DataTypes.ENUM ||
+      (type instanceof DataTypes.ARRAY && type.type instanceof DataTypes.ENUM)
+    ) {
+      const enumType = type.type || type;
+      let values = attribute.values || enumType.values;
+
+      if (!Array.isArray(values) || values.length === 0) {
+        throw new Error("Values for ENUM haven't been defined.");
+      }
+
+      let enumStr = 'ENUM(' + values.map(v => this.escape(v)).join(', ') + ')';
+      if (type instanceof DataTypes.ARRAY) {
+        enumStr += '[]';
+      }
+      return enumStr;
+    }
+    return type + '';
+  },
+
+  _buildReferenceClause(ref) {
+    const table = this.quoteTable(ref.model);
+    const key = ref.key ? this.quoteIdentifiers(ref.key) : this.quoteIdentifier('id');
+    let clause = `REFERENCES ${table} (${key})`;
+
+    if (ref.onDelete) clause += ' ON DELETE ' + ref.onDelete.toUpperCase();
+    if (ref.onUpdate) clause += ' ON UPDATE ' + ref.onUpdate.toUpperCase();
+    if (ref.deferrable) clause += ' ' + ref.deferrable.toString(this);
+
+    return clause;
   },
 
   deferConstraintsQuery(options) {
@@ -552,6 +593,7 @@ const QueryGenerator = {
   },
 
   createTrigger(tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray) {
+
     const decodedEventType = this.decodeTriggerEventType(eventType);
     const eventSpec = this.expandTriggerEventSpec(fireOnSpec);
     const expandedOptions = this.expandOptions(optionsArray);
@@ -589,6 +631,7 @@ const QueryGenerator = {
 
   dropFunction(functionName, params) {
     if (!functionName) throw new Error('requires functionName');
+    // RESTRICT is (currently, as of 9.2) default but we'll be explicit
     const paramList = this.expandFunctionParamList(params);
     return `DROP FUNCTION ${functionName}(${paramList}) RESTRICT;`;
   },
@@ -696,6 +739,7 @@ const QueryGenerator = {
     const tableDetails = this.extractTableDetails(tableName, options);
     let enumName = Utils.addTicks(Utils.generateEnumName(tableDetails.tableName, attr), '"');
 
+    // pgListEnums requires the enum name only, without the schema
     if (options.schema !== false && tableDetails.schema) {
       enumName = this.quoteIdentifier(tableDetails.schema) + tableDetails.delimiter + enumName;
     }
@@ -801,18 +845,34 @@ const QueryGenerator = {
 
   quoteIdentifier(identifier, force) {
     if (identifier === '*') return identifier;
-    if (!force && this.options && this.options.quoteIdentifiers === false && identifier.indexOf('.') === -1 && identifier.indexOf('->') === -1) {
+    if (!force && this.options && this.options.quoteIdentifiers === false && identifier.indexOf('.') === -1 && identifier.indexOf('->') === -1) { // default is `true`
+      // In Postgres, if tables or attributes are created double-quoted,
+      // they are also case sensitive. If they contain any uppercase
+      // characters, they must always be double-quoted. This makes it
+      // impossible to write queries in portable SQL if tables are created in
+      // this way. Hence, we strip quotes if we don't want case sensitivity.
       return Utils.removeTicks(identifier, '"');
     } else {
       return Utils.addTicks(Utils.removeTicks(identifier, '"'), '"');
     }
   },
 
+  /**
+   * Generates an SQL query that returns all foreign keys of a table.
+   *
+   * @param  {String} tableName  The name of the table.
+   * @return {String}            The generated sql query.
+   * @private
+   */
   getForeignKeysQuery(tableName) {
     return 'SELECT conname as constraint_name, pg_catalog.pg_get_constraintdef(r.oid, true) as condef FROM pg_catalog.pg_constraint r ' +
       `WHERE r.conrelid = (SELECT oid FROM pg_class WHERE relname = '${tableName}' LIMIT 1) AND r.contype = 'f' ORDER BY 1;`;
   },
 
+  /**
+   * Generate common SQL prefix for getForeignKeyReferencesQuery.
+   * @returns {String}
+   */
   _getForeignKeyReferencesQueryPrefix() {
     return 'SELECT ' +
         'DISTINCT tc.constraint_name as constraint_name, ' +
@@ -833,6 +893,14 @@ const QueryGenerator = {
           'ON ccu.constraint_name = tc.constraint_name ';
   },
 
+  /**
+   * Generates an SQL query that returns all foreign keys details of a table.
+   *
+   * As for getForeignKeysQuery is not compatible with getForeignKeyReferencesQuery, so add a new function.
+   * @param {String} tableName
+   * @param {String} catalogName
+   * @param {String} schemaName
+   */
   getForeignKeyReferencesQuery(tableName, catalogName, schemaName) {
     return this._getForeignKeyReferencesQueryPrefix() +
       `WHERE constraint_type = 'FOREIGN KEY' AND tc.table_name = '${tableName}'` +
@@ -848,6 +916,14 @@ const QueryGenerator = {
       (schema ? ` AND tc.table_schema = '${schema}'` : '');
   },
 
+  /**
+   * Generates an SQL query that removes a foreign key from a table.
+   *
+   * @param  {String} tableName  The name of the table.
+   * @param  {String} foreignKey The name of the foreign key constraint.
+   * @return {String}            The generated sql query.
+   * @private
+   */
   dropForeignKeyQuery(tableName, foreignKey) {
     return 'ALTER TABLE ' + this.quoteTable(tableName) + ' DROP CONSTRAINT ' + this.quoteIdentifier(foreignKey) + ';';
   },
@@ -857,6 +933,13 @@ const QueryGenerator = {
       return;
     }
 
+    // POSTGRES does not support setting AUTOCOMMIT = OFF as of 9.4.0
+    // Additionally it does not support AUTOCOMMIT at all starting at v9.5
+    // The assumption is that it won't be returning in future versions either
+    // If you are on a Pg version that is not semver compliant e.g. '9.5.0beta2', which fails due to the 'beta' qualification, then you need to pass
+    // the database version as "9.5.0" explicitly through the options param passed when creating the Sequelize instance under the key "databaseVersion"
+    // otherwise Pg version "9.4.0" is assumed by default as per Sequelize 3.14.2.
+    // For Pg versions that are semver compliant, this is auto-detected upon the first connection.
     if (!value || semver.gte(this.sequelize.options.databaseVersion, '9.4.0')) {
       return;
     }

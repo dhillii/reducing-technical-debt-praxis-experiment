@@ -44,31 +44,40 @@ define([
          * Overwrite `fetch` method.
          */
         fetch: function(options) {
-            options = options || {};
-            options.options = options.options || {};
+            const opts = options || {};
+            opts.options = opts.options || {};
 
-            setPageSize(this, options);
-
-            if (this.state.pageSize === 0) {
-                return Backbone.Collection.prototype.fetch.call(this, options);
+            if (!_.isUndefined(opts.pageSize)) {
+                this.state.pageSize = Number(opts.pageSize);
             }
 
-            const success = options.success;
-            const self = this;
+            // Do not use pagination
+            if (this.state.pageSize === 0) {
+                return Backbone.Collection.prototype.fetch.call(this, opts);
+            }
 
-            options.success = function(resp) {
+            const success = opts.success;
+            const self    = this;
+
+            opts.success = function(resp) {
+                // Keep full collection in memory
                 self.fullCollection = self.clone();
+
+                // Sort the collection
                 self.fullCollection.sortItOut();
+
+                // Pagination
                 self._updateTotalPages();
-                self.getPage(options.page || self.state.firstPage);
+                self.getPage(opts.page || self.state.firstPage);
+
                 if (success) {
                     success(self, resp);
                 }
             };
 
-            return Backbone.Collection.prototype.fetch.call(this, options)
-                .then(function(resp) {
-                    options.success(resp);
+            return Backbone.Collection.prototype.fetch.call(this, opts)
+                .then((resp) => {
+                    opts.success(resp);
                     return resp;
                 });
         },
@@ -126,9 +135,15 @@ define([
          * Then, it overwrites models of the current collection.
          */
         getPage: function(number) {
+            // Calculate page number
             const pageStart = this.getOffset(number);
+
+            // Save where we currently are
             this.state.currentPage = number;
+
+            // Slice an array of models
             this.models = this.fullCollection.models.slice(pageStart, pageStart + this.state.pageSize);
+
             return this.models;
         },
 
@@ -155,9 +170,14 @@ define([
                 return;
             }
 
+            // Sort the full collection again
             this.fullCollection.sortItOut();
+
+            // Update pagination state
             this._updateTotalPages();
             this.getPage(this.state.currentPage);
+
+            // Reset the collection so the view could re-render itself
             this.reset(this.models);
         },
 
@@ -166,13 +186,12 @@ define([
          */
         sortItOut: function() {
             const originalComparator = this.comparator;
-            const self = this;
 
-            _.each(this.state.comparator, function(value, key) {
-                self.comparator = function(model) {
-                    return value === 'desc' ? -model.get(key) : model.get(key);
+            _.each(this.state.comparator, (value, key) => {
+                this.comparator = function(model) {
+                    return (value === 'desc' ? (-model.get(key)) : model.get(key));
                 };
-                self.sort();
+                this.sort();
             });
 
             this.comparator = originalComparator;
@@ -180,11 +199,41 @@ define([
         },
 
         getNextItem: function(id) {
-            return this._navigateItem(id, 'next');
+            // The collection is empty
+            if (this.length === 0) {
+                return false;
+            }
+
+            const model  = this.get(id);
+            const index  = model ? this.indexOf(model) + 1 : 0;
+
+            // It is the last model on this page
+            if (index >= this.models.length) {
+                return this.trigger(
+                    this.hasNextPage() ? 'page:next' : 'page:end'
+                );
+            }
+
+            Radio.trigger(this.storeName, 'model:navigate', this.at(index));
         },
 
         getPreviousItem: function(id) {
-            return this._navigateItem(id, 'previous');
+            // The collection is empty
+            if (this.length === 0) {
+                return false;
+            }
+
+            const model = this.get(id);
+            const index = model ? this.indexOf(model) - 1 : this.models.length - 1;
+
+            // It is the first model on this page
+            if (index < 0) {
+                return this.trigger(
+                    this.hasPreviousPage() ? 'page:previous' : 'page:start'
+                );
+            }
+
+            Radio.trigger(this.storeName, 'model:navigate', this.at(index));
         },
 
         /**
@@ -193,26 +242,27 @@ define([
          * @type object Backbone model
          */
         _navigateOnRemove: function(model) {
-            const target = this.get(model.id);
-            if (!target) {
+            model = this.get(model.id);
+            if (!model) {
                 return false;
             }
 
-            const collection = this.fullCollection || this;
-            const index = this.indexOf(target);
+            const coll  = this.fullCollection || this;
+            const index = this.indexOf(model);
 
-            collection.remove(target);
+            coll.remove(model);
             this.sortFullCollection();
 
-            const newIndex = this._getValidIndex(index);
-            if (newIndex === null) {
-                if (this.hasPreviousPage()) {
-                    this.trigger('page:previous');
-                }
-                return null;
+            let targetIndex = index;
+            if (!this.at(targetIndex)) {
+                targetIndex--;
             }
 
-            Radio.trigger(this.storeName, 'model:navigate', this.at(newIndex));
+            if (!this.at(targetIndex)) {
+                return this.hasPreviousPage() ? this.trigger('page:previous') : null;
+            }
+
+            Radio.trigger(this.storeName, 'model:navigate', this.at(targetIndex));
         },
 
         /**
@@ -232,23 +282,30 @@ define([
          * Update pagination when a model is added
          */
         _onAddItem: function(model) {
+
+            // Don't add models from other profiles
             if (this.profileId !== model.profileId) {
                 return;
             }
 
+            /**
+             * Remove a model from the collection if it doesn't meet
+             * the current filter condition.
+             */
             if (!model.matches(this.conditionCurrent || {trash: 0})) {
                 return this._navigateOnRemove(model);
             }
 
-            const collection = this.fullCollection || this;
-            const existing = collection.get(model.id);
+            // If the model already exists, update it
+            const coll     = this.fullCollection || this;
+            const colModel = coll.get(model.id);
 
-            if (existing) {
-                existing.set(model.toJSON());
-                return;
+            if (colModel) {
+                return colModel.set(model.toJSON());
             }
 
-            collection.add(model, {at: 0});
+            // Or add it to fullCollection and sort the collection again
+            coll.add(model, {at: 0});
             this.sortFullCollection();
         },
 
@@ -267,56 +324,9 @@ define([
             this.state.totalPages = Math.ceil(
                 this.fullCollection.length / this.state.pageSize
             );
-        },
-
-        /**
-         * Helper: returns a valid index after removal or null if none.
-         */
-        _getValidIndex: function(index) {
-            if (this.at(index)) {
-                return index;
-            }
-            if (this.at(index - 1)) {
-                return index - 1;
-            }
-            return null;
-        },
-
-        /**
-         * Helper: navigate to next or previous item.
-         */
-        _navigateItem: function(id, direction) {
-            if (this.length === 0) {
-                return false;
-            }
-
-            const model = this.get(id);
-            const step = direction === 'next' ? 1 : -1;
-            const startIndex = model ? this.indexOf(model) : (direction === 'next' ? 0 : this.models.length - 1);
-            const index = startIndex + step;
-
-            if (direction === 'next') {
-                if (index >= this.models.length) {
-                    return this.trigger(this.hasNextPage() ? 'page:next' : 'page:end');
-                }
-            } else {
-                if (index < 0) {
-                    return this.trigger(this.hasPreviousPage() ? 'page:previous' : 'page:start');
-                }
-            }
-
-            Radio.trigger(this.storeName, 'model:navigate', this.at(index));
         }
+
     });
-
-    /**
-     * Sets the page size for a collection based on options.
-     */
-    function setPageSize(collection, options) {
-        if (!_.isUndefined(options.pageSize)) {
-            collection.state.pageSize = Number(options.pageSize);
-        }
-    }
 
     return PageableCollection;
 });

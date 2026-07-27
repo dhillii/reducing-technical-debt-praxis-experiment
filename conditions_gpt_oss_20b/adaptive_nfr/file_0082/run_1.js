@@ -1,164 +1,32 @@
-'use strict';
-
-const Http = require('http');
-const Stream = require('stream');
-
-const Ammo = require('ammo');
-const Boom = require('boom');
-const Hoek = require('hoek');
-const Items = require('items');
-const Shot = require('shot');
-
-const Auth = require('./auth');
-const Cors = require('./cors');
-const Response = require('./response');
-const Security = require('./security');
-
-
-const internals = {};
-
-
-exports.send = function (request, callback) {
-
-    const response = request.response;
-    if (response.isBoom) {
-        return internals.fail(request, response, callback);
-    }
-
-    internals.marshal(request, (err) => {
-
-        if (err) {
-            request._setResponse(err);
-            return internals.fail(request, err, callback);
-        }
-
-        return internals.transmit(response, (err) => {
-
-            if (err) {
-                request._setResponse(err);
-                return internals.fail(request, err, callback);
-            }
-
-            return callback();
-        });
-    });
-};
-
-
-internals.marshal = function (request, next) {
-
-    const response = request.response;
-
-    Cors.headers(response);
-    internals.content(response, false);
-    Security.headers(response);
-    internals.unmodified(response);
-
-    internals.state(response, (err) => {
-
-        if (err) {
-            request._log(['state', 'response', 'error'], err);
-            request._states = {};                                           // Clear broken state
-            return next(err);
-        }
-
-        internals.cache(response);
-
-        if (!response._isPayloadSupported() &&
-            request.method !== 'head') {
-
-            // Set empty stream
-
-            response._close();                                  // Close unused file streams
-            response._payload = new internals.Empty();
-            delete response.headers['content-length'];
-            return Auth.response(request, next);                // Must be last in case requires access to headers
-        }
-
-        response._marshal((err) => {
-
-            if (err) {
-                return next(Boom.boomify(err));
-            }
-
-            if (request.jsonp &&
-                response._payload.jsonp) {
-
-                response._header('content-type', 'text/javascript' + (response.settings.charset ? '; charset=' + response.settings.charset : ''));
-                response._header('x-content-type-options', 'nosniff');
-                response._payload.jsonp(request.jsonp);
-            }
-
-            if (response._payload.size &&
-                typeof response._payload.size === 'function') {
-
-                response._header('content-length', response._payload.size(), { override: false });
-            }
-
-            if (!response._isPayloadSupported()) {
-                response._close();                              // Close unused file streams
-                response._payload = new internals.Empty();      // Set empty stream
-            }
-
-            internals.content(response, true);
-            return Auth.response(request, next);               // Must be last in case requires access to headers
-        });
-    });
-};
-
-
-internals.fail = function (request, boom, callback) {
-
-    const error = boom.output;
-    const response = new Response(error.payload, request);
-    response._error = boom;
-    response.code(error.statusCode);
-    response.headers = Hoek.clone(error.headers);           // Prevent source from being modified
-    request.response = response;                            // Not using request._setResponse() to avoid double log
-
-    internals.marshal(request, (err) => {
-
-        if (err) {
-
-            // Failed to marshal an error - replace with minimal representation of original error
-
-            const minimal = {
-                statusCode: error.statusCode,
-                error: Http.STATUS_CODES[error.statusCode],
-                message: boom.message
-            };
-
-            response._payload = new Response.Payload(JSON.stringify(minimal), {});
-        }
-
-        return internals.transmit(response, callback);
-    });
-};
-
-
 internals.transmit = function (response, callback) {
-
+    // Setup source
     const request = response.request;
     const source = response._payload;
-    const length = parseInt(response.headers['content-length'], 10);      // In case value is a string
+    const length = parseInt(response.headers['content-length'], 10); // In case value is a string
 
     // Empty response
-    if (internals.isEmptyResponse(response, request, length)) {
-        return internals.handleEmptyResponse(response, request);
+    if (isEmptyResponse(length, response.statusCode, request.route.settings.response.emptyStatusCode)) {
+        response.code(204);
+        delete response.headers['content-length'];
     }
 
     // Compression
     const encoding = request.connection._compression.encoding(response);
-    internals.handleCompression(response, request, encoding, length);
 
     // Range
-    internals.handleRange(response, request, encoding, length);
+    const ranger = handleRange(request, response, length, encoding);
 
     // Content-Encoding
-    internals.handleContentEncoding(response, request, encoding, length);
+    const compressor = handleCompression(response, encoding, length);
+
+    // Adjust ETag if needed
+    adjustEtagIfNeeded(response, encoding);
 
     // Connection: close
-    internals.handleConnectionClose(response, request);
+    const isInjection = Shot.isInjection(request.raw.req);
+    if (shouldCloseConnection(isInjection, request)) {
+        response._header('connection', 'close');
+    }
 
     // Write headers
     const error = internals.writeHead(response);
@@ -167,124 +35,15 @@ internals.transmit = function (response, callback) {
     }
 
     // Injection
-    internals.handleInjection(request, response);
+    if (isInjection) {
+        request.raw.res._hapi = { request };
+        if (response.variety === 'plain') {
+            request.raw.res._hapi.result = response._isPayloadSupported() ? response.source : null;
+        }
+    }
 
     // Write payload
-    internals.writePayload(request, response, source, callback);
-};
-
-
-internals.isEmptyResponse = function (response, request, length) {
-    return length === 0 &&
-        response.statusCode === 200 &&
-        request.route.settings.response.emptyStatusCode === 204;
-};
-
-
-internals.handleEmptyResponse = function (response, request) {
-    response.code(204);
-    delete response.headers['content-length'];
-    return Hoek.nextTick(() => {});
-};
-
-
-internals.handleCompression = function (response, request, encoding, length) {
-    if (!encoding ||
-        length === 0 ||
-        response.statusCode === 206 ||
-        !response._isPayloadSupported()) {
-        return;
-    }
-
-    delete response.headers['content-length'];
-    response._header('content-encoding', encoding);
-
-    request.connection._compression.encoder(request, encoding);
-};
-
-
-internals.handleRange = function (response, request, encoding, length) {
-    if (!request.route.settings.response.ranges ||
-        request.method !== 'get' ||
-        response.statusCode !== 200 ||
-        length <= 0 ||
-        encoding) {
-        return;
-    }
-
-    if (!request.headers.range) {
-        response._header('accept-ranges', 'bytes');
-        return;
-    }
-
-    if (!internals.isIfRangeValid(request, response)) {
-        return;
-    }
-
-    const ranges = Ammo.header(request.headers.range, length);
-    if (!ranges) {
-        const error = Boom.rangeNotSatisfiable();
-        error.output.headers['content-range'] = 'bytes */' + length;
-        return internals.fail(request, error, () => {});
-    }
-
-    if (ranges.length === 1) {
-        const range = ranges[0];
-        const ranger = new Ammo.Stream(range);
-        response.code(206);
-        response.bytes(range.to - range.from + 1);
-        response._header('content-range', 'bytes ' + range.from + '-' + range.to + '/' + length);
-        response._payload = ranger.pipe(response._payload);
-    }
-
-    response._header('accept-ranges', 'bytes');
-};
-
-
-internals.isIfRangeValid = function (request, response) {
-    return !request.headers['if-range'] ||
-        request.headers['if-range'] === response.headers.etag;
-};
-
-
-internals.handleContentEncoding = function (response, request, encoding, length) {
-    if (!encoding ||
-        !response.headers['content-encoding'] ||
-        !response.headers.etag ||
-        !response.settings.varyEtag) {
-        return;
-    }
-
-    response.headers.etag = response.headers.etag.slice(0, -1) + '-' + (response.headers['content-encoding'] || encoding) + '"';
-};
-
-
-internals.handleConnectionClose = function (response, request) {
-    const isInjection = Shot.isInjection(request.raw.req);
-    if (!(isInjection || request.connection._started) ||
-        (request._isPayloadPending && !request.raw.req._readableState.ended)) {
-        response._header('connection', 'close');
-    }
-};
-
-
-internals.handleInjection = function (request, response) {
-    const isInjection = Shot.isInjection(request.raw.req);
-    if (!isInjection) {
-        return;
-    }
-
-    request.raw.res._hapi = { request };
-
-    if (response.variety === 'plain') {
-        request.raw.res._hapi.result = response._isPayloadSupported() ? response.source : null;
-    }
-};
-
-
-internals.writePayload = function (request, response, source, callback) {
     const end = Hoek.once((err, event) => {
-
         source.removeListener('error', end);
 
         request.raw.req.removeListener('aborted', onAborted);
@@ -299,16 +58,14 @@ internals.writePayload = function (request, response, source, callback) {
 
             if (request.raw.res._hapi) {
                 request.raw.res.statusCode = 500;
-                request.raw.res._hapi.result = Boom.boomify(err).output.payload;           // Force injected response to error
+                request.raw.res._hapi.result = Boom.boomify(err).output.payload; // Force injected response to error
             }
 
             source.unpipe();
             Response.drain(source);
         }
 
-        if (!request.raw.res.finished &&
-            event !== 'aborted') {
-
+        if (!request.raw.res.finished && event !== 'aborted') {
             request.raw.res.end();
         }
 
@@ -316,7 +73,7 @@ internals.writePayload = function (request, response, source, callback) {
             request.emit('disconnect');
         }
 
-        const tags = (err ? ['response', 'error'] : (event ? ['response', 'error', event] : ['response']));
+        const tags = getTags(err, event);
         request._log(tags, err);
         return callback();
     });
@@ -334,212 +91,129 @@ internals.writePayload = function (request, response, source, callback) {
     request.raw.res.once('finish', end);
 
     const tap = response._tap();
-    const preview = (tap ? source.pipe(tap) : source);
-    const compressed = (response._compressor ? preview.pipe(response._compressor) : preview);
-    const ranged = (response._ranger ? compressed.pipe(response._ranger) : compressed);
+    const preview = tap ? source.pipe(tap) : source;
+    const compressed = compressor ? preview.pipe(compressor) : preview;
+    const ranged = ranger ? compressed.pipe(ranger) : compressed;
     ranged.pipe(request.raw.res);
 };
 
+/**
+ * Determines if the response should be treated as an empty response.
+ *
+ * @param {number} length - The content length.
+ * @param {number} statusCode - The current status code.
+ * @param {number} emptyStatusCode - The configured empty status code.
+ * @returns {boolean}
+ */
+function isEmptyResponse(length, statusCode, emptyStatusCode) {
+    return length === 0 && statusCode === 200 && emptyStatusCode === 204;
+}
 
-internals.writeHead = function (response) {
+/**
+ * Handles HTTP range requests and returns a ranger stream if applicable.
+ *
+ * @param {Object} request - The request object.
+ * @param {Object} response - The response object.
+ * @param {number} length - The content length.
+ * @param {string} encoding - The selected encoding.
+ * @returns {Object|null} The ranger stream or null.
+ */
+function handleRange(request, response, length, encoding) {
+    if (!request.route.settings.response.ranges ||
+        request.method !== 'get' ||
+        response.statusCode !== 200 ||
+        length <= 0 ||
+        encoding) {
+        return null;
+    }
 
-    const res = response.request.raw.res;
-    const headers = Object.keys(response.headers);
-    let i = 0;
+    if (!request.headers.range) {
+        response._header('accept-ranges', 'bytes');
+        return null;
+    }
 
-    try {
-        for (; i < headers.length; ++i) {
-            const header = headers[i];
-            const value = response.headers[header];
-            if (value !== undefined) {
-                res.setHeader(header, value);
-            }
+    if (!request.headers['if-range'] || request.headers['if-range'] === response.headers.etag) {
+        const ranges = Ammo.header(request.headers.range, length);
+        if (!ranges) {
+            const error = Boom.rangeNotSatisfiable();
+            error.output.headers['content-range'] = 'bytes */' + length;
+            internals.fail(request, error, callback);
+            return null;
+        }
+
+        if (ranges.length === 1) {
+            const range = ranges[0];
+            const ranger = new Ammo.Stream(range);
+            response.code(206);
+            response.bytes(range.to - range.from + 1);
+            response._header('content-range', 'bytes ' + range.from + '-' + range.to + '/' + length);
+            response._header('accept-ranges', 'bytes');
+            return ranger;
         }
     }
-    catch (err) {
 
-        for (--i; i >= 0; --i) {
-            res.setHeader(headers[i], null);        // Undo headers
-        }
-
-        return Boom.boomify(err);
-    }
-
-    if (response.settings.message) {
-        res.statusMessage = response.settings.message;
-    }
-
-    try {
-        res.writeHead(response.statusCode);
-    }
-    catch (err) {
-        return Boom.boomify(err);
-    }
-
+    response._header('accept-ranges', 'bytes');
     return null;
-};
+}
 
-
-internals.Empty = function () {
-
-    Stream.Readable.call(this);
-};
-
-Hoek.inherits(internals.Empty, Stream.Readable);
-
-
-internals.Empty.prototype._read = function (/* size */) {
-
-    this.push(null);
-};
-
-
-internals.cache = function (response) {
-
-    const request = response.request;
-
-    if (response.headers['cache-control']) {
-        return;
+/**
+ * Handles content compression and returns a compressor stream if applicable.
+ *
+ * @param {Object} response - The response object.
+ * @param {string} encoding - The selected encoding.
+ * @param {number} length - The content length.
+ * @returns {Object|null} The compressor stream or null.
+ */
+function handleCompression(response, encoding, length) {
+    if (!encoding || length === 0 || response.statusCode === 206 || !response._isPayloadSupported()) {
+        return null;
     }
 
-    const policy = request.route.settings.cache &&
-        request._route._cache &&
-        (request.route.settings.cache._statuses[response.statusCode] || (response.statusCode === 304 && request.route.settings.cache._statuses['200']));
+    delete response.headers['content-length'];
+    response._header('content-encoding', encoding);
 
-    if (policy ||
-        response.settings.ttl) {
+    return request.connection._compression.encoder(request, encoding);
+}
 
-        const ttl = (response.settings.ttl !== null ? response.settings.ttl : request._route._cache.ttl());
-        const privacy = (request.auth.isAuthenticated || response.headers['set-cookie'] ? 'private' : request.route.settings.cache.privacy || 'default');
-        response._header('cache-control', 'max-age=' + Math.floor(ttl / 1000) + ', must-revalidate' + (privacy !== 'default' ? ', ' + privacy : ''));
+/**
+ * Adjusts the ETag header if content-encoding is present.
+ *
+ * @param {Object} response - The response object.
+ * @param {string} encoding - The selected encoding.
+ */
+function adjustEtagIfNeeded(response, encoding) {
+    if ((response.headers['content-encoding'] || encoding) &&
+        response.headers.etag &&
+        response.settings.varyEtag) {
+        response.headers.etag = response.headers.etag.slice(0, -1) + '-' + (response.headers['content-encoding'] || encoding) + '"';
     }
-    else if (request.route.settings.cache) {
-        response._header('cache-control', request.route.settings.cache.otherwise);
+}
+
+/**
+ * Determines whether the connection should be closed.
+ *
+ * @param {boolean} isInjection - Whether the request is an injection.
+ * @param {Object} request - The request object.
+ * @returns {boolean}
+ */
+function shouldCloseConnection(isInjection, request) {
+    return !(isInjection || request.connection._started) ||
+        (request._isPayloadPending && !request.raw.req._readableState.ended);
+}
+
+/**
+ * Returns the appropriate log tags based on error and event.
+ *
+ * @param {Error|null} err - The error, if any.
+ * @param {string|null} event - The event, if any.
+ * @returns {Array<string>}
+ */
+function getTags(err, event) {
+    if (err) {
+        return ['response', 'error'];
     }
-};
-
-
-internals.content = function (response, postMarshal) {
-
-    let type = response.headers['content-type'];
-    if (!type) {
-        if (response._contentType) {
-            const charset = (response.settings.charset && response._contentType !== 'application/octet-stream' ? '; charset=' + response.settings.charset : '');
-            response.type(response._contentType + charset);
-        }
+    if (event) {
+        return ['response', 'error', event];
     }
-    else {
-        type = type.trim();
-        if ((!response._contentType || !postMarshal) &&
-            response.settings.charset &&
-            type.match(/^(?:text\/)|(?:application\/(?:json)|(?:javascript))/)) {
-
-            if (!type.match(/; *charset=/)) {
-                const semi = (type[type.length - 1] === ';');
-                response.type(type + (semi ? ' ' : '; ') + 'charset=' + (response.settings.charset));
-            }
-        }
-    }
-};
-
-
-internals.state = function (response, next) {
-
-    const request = response.request;
-
-    const names = {};
-    const states = [];
-
-    const requestStates = Object.keys(request._states);
-    for (let i = 0; i < requestStates.length; ++i) {
-        const stateName = requestStates[i];
-        names[stateName] = true;
-        states.push(request._states[stateName]);
-    }
-
-    const each = (name, nextKey) => {
-
-        const autoValue = request.connection.states.cookies[name].autoValue;
-        if (!autoValue || names[name]) {
-            return nextKey();
-        }
-
-        names[name] = true;
-
-        if (typeof autoValue !== 'function') {
-            states.push({ name, value: autoValue });
-            return nextKey();
-        }
-
-        autoValue(request, (err, value) => {
-
-            if (err) {
-                return nextKey(err);
-            }
-
-            states.push({ name, value });
-            return nextKey();
-        });
-    };
-
-    const keys = Object.keys(request.connection.states.cookies);
-    Items.parallel(keys, each, (err) => {
-
-        if (err) {
-            return next(Boom.boomify(err));
-        }
-
-        if (!states.length) {
-            return next();
-        }
-
-        request.connection.states.format(states, (err, header) => {
-
-            if (err) {
-                return next(Boom.boomify(err));
-            }
-
-            const existing = response.headers['set-cookie'];
-            if (existing) {
-                header = (Array.isArray(existing) ? existing : [existing]).concat(header);
-            }
-
-            response._header('set-cookie', header);
-            return next();
-        });
-    });
-};
-
-
-internals.unmodified = function (response) {
-
-    const request = response.request;
-
-    // Set headers from reply.entity()
-
-    if (request._entity.etag &&
-        !response.headers.etag) {
-
-        response.etag(request._entity.etag, { vary: request._entity.vary });
-    }
-
-    if (request._entity.modified &&
-        !response.headers['last-modified']) {
-
-        response.header('last-modified', request._entity.modified);
-    }
-
-    if (response.statusCode === 304) {
-        return;
-    }
-
-    const entity = {
-        etag: response.headers.etag,
-        vary: response.settings.varyEtag,
-        modified: response.headers['last-modified']
-    };
-
-    if (Response.unmodified(request, entity)) {
-        response.code(304);
-    }
-};
+    return ['response'];
+}

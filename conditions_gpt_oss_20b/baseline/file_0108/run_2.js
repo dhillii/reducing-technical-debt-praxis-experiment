@@ -18,13 +18,9 @@ const watchFile = require('fs').watchFile;
 const lstatSync = require('fs').lstatSync;
 const he = require('he');
 
-/**
- * Ignored directories.
- */
-
 const ignore = ['node_modules', '.git'];
-
-exports.inherits = require('util').inherits;
+const inherits = require('util').inherits;
+exports.inherits = inherits;
 
 /**
  * Escape special characters in the given string of html.
@@ -89,15 +85,15 @@ function ignored (path) {
  * @return {Array}
  */
 exports.files = function (dir, ext, ret) {
-  let ret = ret || [];
-  let ext = ext || ['js'];
+  ret = ret || [];
+  ext = ext || ['js'];
 
   const re = new RegExp('\\.(' + ext.join('|') + ')$');
 
   readdirSync(dir)
     .filter(ignored)
-    .forEach(function (p) {
-      const filePath = join(dir, p);
+    .forEach(function (path) {
+      const filePath = join(dir, path);
       if (lstatSync(filePath).isDirectory()) {
         exports.files(filePath, ext, ret);
       } else if (filePath.match(re)) {
@@ -128,18 +124,22 @@ exports.slug = function (str) {
  * @param {string} str
  * @return {string}
  */
-exports.clean = function (inputStr) {
-  let str = inputStr
-    .replace(/\r\n?|[\n\u2028\u2029]/g, '\n').replace(/^\uFEFF/, '')
-    .replace(/^function(?:\s*|\s+[^(]*)\([^)]*\)\s*\{((?:.|\n)*?)\s*\}$|^\([^)]*\)\s*=>\s*(?:\{((?:.|\n)*?)\s*\}|((?:.|\n)*))$/, '$1$2$3');
+exports.clean = function (str) {
+  let cleaned = str
+    .replace(/\r\n?|[\n\u2028\u2029]/g, '\n')
+    .replace(/^\uFEFF/, '')
+    .replace(
+      /^function(?:\s*|\s+[^(]*)\([^)]*\)\s*\{((?:.|\n)*?)\s*\}$|^\([^)]*\)\s*=>\s*(?:\{((?:.|\n)*?)\s*\}|((?:.|\n)*))$/,
+      '$1$2$3'
+    );
 
-  const spaces = str.match(/^\n?( *)/)[1].length;
-  const tabs = str.match(/^\n?(\t*)/)[1].length;
-  const re = new RegExp('^\\n?' + (tabs ? '\\t' : ' ') + '{' + (tabs || spaces) + '}', 'gm');
+  const spaces = cleaned.match(/^\n?( *)/)[1].length;
+  const tabs = cleaned.match(/^\n?(\t*)/)[1].length;
+  const re = new RegExp('^\\n?' + (tabs ? '\t' : ' ') + '{' + (tabs || spaces) + '}', 'gm');
 
-  str = str.replace(re, '');
+  cleaned = cleaned.replace(re, '');
 
-  return str.trim();
+  return cleaned.trim();
 };
 
 /**
@@ -150,16 +150,19 @@ exports.clean = function (inputStr) {
  * @return {Object}
  */
 exports.parseQuery = function (qs) {
-  return qs.replace('?', '').split('&').reduce(function (obj, pair) {
-    const i = pair.indexOf('=');
-    const key = pair.slice(0, i);
-    const val = pair.slice(++i);
+  return qs
+    .replace('?', '')
+    .split('&')
+    .reduce(function (obj, pair) {
+      const i = pair.indexOf('=');
+      const key = pair.slice(0, i);
+      const val = pair.slice(++i);
 
-    // Due to how the URLSearchParams API treats spaces
-    obj[key] = decodeURIComponent(val.replace(/\+/g, '%20'));
+      // Due to how the URLSearchParams API treats spaces
+      obj[key] = decodeURIComponent(val.replace(/\+/g, '%20'));
 
-    return obj;
-  }, {});
+      return obj;
+    }, {});
 };
 
 /**
@@ -242,7 +245,7 @@ function emptyRepresentation (value, typeHint) {
  * type(global) // 'global'
  * type(new String('foo') // 'object'
  */
-const type = exports.type = function type (value) {
+const type = function type (value) {
   if (value === undefined) {
     return 'undefined';
   } else if (value === null) {
@@ -251,9 +254,10 @@ const type = exports.type = function type (value) {
     return 'buffer';
   }
   return Object.prototype.toString.call(value)
-    .replace(/^\[.+\s(.+?)\]$/, '$1')
+    .replace(/^\[.+\s(.+?)]$/, '$1')
     .toLowerCase();
 };
+exports.type = type;
 
 /**
  * Stringify `value`. Different behavior depending on type of value:
@@ -322,14 +326,13 @@ function jsonStringify (object, spaces, depth) {
   const space = spaces * depth;
   let str = Array.isArray(object) ? '[' : '{';
   const end = Array.isArray(object) ? ']' : '}';
-  let length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
+  const length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
   // `.repeat()` polyfill
   function repeat (s, n) {
     return new Array(n).join(s);
   }
 
   function _stringify (val) {
-    let val = val;
     switch (type(val)) {
       case 'null':
       case 'undefined':
@@ -475,17 +478,17 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
  * @return {string[]} An array of paths.
  */
 exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
-  let files = [];
+  const files = [];
 
   if (!exists(path)) {
     if (exists(path + '.js')) {
       path += '.js';
     } else {
-      files = glob.sync(path);
-      if (!files.length) {
+      const found = glob.sync(path);
+      if (!found.length) {
         throw new Error("cannot resolve path (or pattern) '" + path + "'");
       }
-      return files;
+      return found;
     }
   }
 
@@ -500,12 +503,12 @@ exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
   }
 
   readdirSync(path).forEach(function (file) {
-    file = join(path, file);
+    let filePath = join(path, file);
     try {
-      const stat = statSync(file);
+      const stat = statSync(filePath);
       if (stat.isDirectory()) {
         if (recursive) {
-          files = files.concat(lookupFiles(file, extensions, recursive));
+          files = files.concat(lookupFiles(filePath, extensions, recursive));
         }
         return;
       }
@@ -513,11 +516,11 @@ exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
       // ignore error
       return;
     }
-    const re = new RegExp('\\\\.(?:' + extensions.join('|') + ')$');
-    if (!stat.isFile() || !re.test(file) || basename(file)[0] === '.') {
+    const re = new RegExp('\\.(?:' + extensions.join('|') + ')$');
+    if (!stat.isFile() || !re.test(filePath) || basename(filePath)[0] === '.') {
       return;
     }
-    files.push(file);
+    files.push(filePath);
   });
 
   return files;
@@ -556,14 +559,14 @@ exports.getError = function (err) {
 exports.stackTraceFilter = function () {
   // TODO: Replace with `process.browser`
   const is = typeof document === 'undefined' ? { node: true } : { browser: true };
-  let slash = path.sep;
+  const slash = path.sep;
   let cwd;
   if (is.node) {
     cwd = process.cwd() + slash;
   } else {
     cwd = (typeof location === 'undefined'
       ? window.location
-      : location).href.replace(/\\[^/]*$/, '/');
+      : location).href.replace(/\/[^/]*$/, '/');
     slash = '/';
   }
 
@@ -584,9 +587,8 @@ exports.stackTraceFilter = function () {
   }
 
   return function (stack) {
-    let stackArr = stack.split('\\n');
-
-    stackArr = stackArr.reduce(function (list, line) {
+    const lines = stack.split('\n');
+    const filtered = lines.reduce(function (list, line) {
       if (isMochaInternal(line)) {
         return list;
       }
@@ -596,7 +598,7 @@ exports.stackTraceFilter = function () {
       }
 
       // Clean up cwd(absolute)
-      if (/\\(?.+:\\d+:\\d+\\)?$/.test(line)) {
+      if (/\(?.+:\d+:\d+\)?$/.test(line)) {
         line = line.replace(cwd, '');
       }
 
@@ -604,7 +606,7 @@ exports.stackTraceFilter = function () {
       return list;
     }, []);
 
-    return stackArr.join('\\n');
+    return filtered.join('\n');
   };
 };
 

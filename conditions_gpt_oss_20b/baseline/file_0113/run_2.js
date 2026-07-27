@@ -59,95 +59,6 @@ exports.toCollectionName = function(name, pluralize) {
  * @api private
  */
 
-function compareDates(a, b) {
-  return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
-}
-
-function compareBson(a, b) {
-  if (isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) {
-    return a.toString() === b.toString();
-  }
-  if (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128')) {
-    return a.toString() === b.toString();
-  }
-  return false;
-}
-
-function compareRegExp(a, b) {
-  if (a instanceof RegExp && b instanceof RegExp) {
-    return (
-      a.source === b.source &&
-      a.ignoreCase === b.ignoreCase &&
-      a.multiline === b.multiline &&
-      a.global === b.global
-    );
-  }
-  return false;
-}
-
-function compareMaps(a, b) {
-  if (a instanceof Map && b instanceof Map) {
-    return (
-      deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
-      deepEqual(Array.from(a.values()), Array.from(b.values()))
-    );
-  }
-  return false;
-}
-
-function compareBuffers(a, b) {
-  if (Buffer.isBuffer(a) && Buffer.isBuffer(b)) {
-    return exports.buffer.areEqual(a, b);
-  }
-  return false;
-}
-
-function compareArrays(a, b) {
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) {
-      return false;
-    }
-    for (let i = 0; i < a.length; ++i) {
-      if (!deepEqual(a[i], b[i])) {
-        return false;
-      }
-    }
-    return true;
-  }
-  return false;
-}
-
-function convertMongooseObject(obj) {
-  if (obj && obj.$__ != null) {
-    return obj._doc;
-  }
-  if (isMongooseObject(obj)) {
-    return obj.toObject();
-  }
-  return obj;
-}
-
-function compareObjects(a, b) {
-  const ka = Object.keys(a);
-  const kb = Object.keys(b);
-  if (ka.length !== kb.length) {
-    return false;
-  }
-  ka.sort();
-  kb.sort();
-  for (let i = ka.length - 1; i >= 0; i--) {
-    if (ka[i] !== kb[i]) {
-      return false;
-    }
-  }
-  for (const key of ka) {
-    if (!deepEqual(a[key], b[key])) {
-      return false;
-    }
-  }
-  return true;
-}
-
 exports.deepEqual = function deepEqual(a, b) {
   if (a === b) {
     return true;
@@ -161,46 +72,110 @@ exports.deepEqual = function deepEqual(a, b) {
     return false;
   }
 
+  // Primitive types
   if (typeof a !== 'object') {
     return a === b;
   }
 
-  if (compareDates(a, b)) {
+  // Date
+  if (a instanceof Date && b instanceof Date) {
+    return a.getTime() === b.getTime();
+  }
+
+  // BSON types
+  if (
+    (isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
+    (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128'))
+  ) {
+    return a.toString() === b.toString();
+  }
+
+  // RegExp
+  if (a instanceof RegExp && b instanceof RegExp) {
+    return (
+      a.source === b.source &&
+      a.ignoreCase === b.ignoreCase &&
+      a.multiline === b.multiline &&
+      a.global === b.global
+    );
+  }
+
+  // Map
+  if (a instanceof Map && b instanceof Map) {
+    return (
+      deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
+      deepEqual(Array.from(a.values()), Array.from(b.values()))
+    );
+  }
+
+  // Number objects
+  if (a instanceof Number && b instanceof Number) {
+    return a.valueOf() === b.valueOf();
+  }
+
+  // Buffer
+  if (Buffer.isBuffer(a) && Buffer.isBuffer(b)) {
+    return exports.buffer.areEqual(a, b);
+  }
+
+  // Array
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) {
+      return false;
+    }
+    for (let i = 0; i < a.length; ++i) {
+      if (!deepEqual(a[i], b[i])) {
+        return false;
+      }
+    }
     return true;
   }
 
-  if (compareBson(a, b)) {
-    return true;
+  // Convert Mongoose objects to plain objects
+  if (a.$__ != null) {
+    a = a._doc;
+  } else if (isMongooseObject(a)) {
+    a = a.toObject();
   }
 
-  if (compareRegExp(a, b)) {
-    return true;
+  if (b.$__ != null) {
+    b = b._doc;
+  } else if (isMongooseObject(b)) {
+    b = b.toObject();
   }
 
-  if (compareMaps(a, b)) {
-    return true;
-  }
-
-  if (compareBuffers(a, b)) {
-    return true;
-  }
-
-  if (compareArrays(a, b)) {
-    return true;
-  }
-
-  a = convertMongooseObject(a);
-  b = convertMongooseObject(b);
-
-  if (a === b) {
-    return true;
-  }
-
+  // Plain objects
   if (typeof a !== 'object' || typeof b !== 'object') {
     return false;
   }
 
-  return compareObjects(a, b);
+  if (a.prototype !== b.prototype) {
+    return false;
+  }
+
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+
+  if (ka.length !== kb.length) {
+    return false;
+  }
+
+  ka.sort();
+  kb.sort();
+
+  for (let i = ka.length - 1; i >= 0; i--) {
+    if (ka[i] !== kb[i]) {
+      return false;
+    }
+  }
+
+  for (const key of ka) {
+    if (!deepEqual(a[key], b[key])) {
+      return false;
+    }
+  }
+
+  return true;
 };
 
 /*!

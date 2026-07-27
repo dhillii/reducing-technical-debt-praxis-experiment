@@ -135,6 +135,7 @@ function valueToUpdater<Schema extends ComponentSchema>(
   return (valueToUpdaters[schema.kind] as any)(value, schema)
 }
 
+// this exists because for props.schema.kind === 'form', ts doesn't narrow props, only props.schema
 function isKind<Kind extends ComponentSchema['kind']>(
   props: GenericPreviewProps<ComponentSchema, unknown>,
   kind: Kind
@@ -146,6 +147,7 @@ export function previewPropsOnChange<Schema extends ComponentSchema>(
   value: ValueForComponentSchema<Schema>,
   props: GenericPreviewProps<ComponentSchema, unknown>
 ) {
+  // child fields can't be updated through preview props, so we don't do anything here
   if (isKind(props, 'child')) return
   if (
     isKind(props, 'form') ||
@@ -176,17 +178,7 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
     | 'closed'
   >('closed')
 
-  const openItem = (index: number) => {
-    const element = elements.at(index)
-    if (!element) return
-    setModalState({
-      index,
-      value: previewPropsToValue(element),
-      forceValidation: false,
-    })
-  }
-
-  const closeModal = () => setModalState('closed')
+  const element = modalState !== 'closed' ? elements.at(modalState.index) : null
 
   return (
     <Field label={label} labelElementType="span">
@@ -195,7 +187,15 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
           <ArrayFieldListView
             {...props}
             aria-label={label ?? ''}
-            onOpenItem={openItem}
+            onOpenItem={index => {
+              const el = elements.at(index)
+              if (!el) return
+              setModalState({
+                index,
+                value: previewPropsToValue(el),
+                forceValidation: false,
+              })
+            }}
           />
           <ActionButton
             alignSelf="start"
@@ -206,15 +206,21 @@ function ArrayFieldPreview(props: DefaultFieldProps<'array'>) {
           >
             Add
           </ActionButton>
-          <DialogContainer onDismiss={closeModal}>
-            {modalState !== 'closed' && modalState.index !== undefined && (
-              <ArrayFieldModal
-                element={elements.at(modalState.index)}
-                modalState={modalState}
-                setModalState={setModalState}
-                onDismiss={closeModal}
-              />
-            )}
+          <DialogContainer
+            onDismiss={() => {
+              setModalState('closed')
+            }}
+          >
+            {modalState !== 'closed' &&
+              element &&
+              element.schema.kind !== 'child' && (
+                <ArrayFieldModal
+                  element={element}
+                  modalState={modalState}
+                  setModalState={setModalState}
+                  onChange={onChange}
+                />
+              )}
           </DialogContainer>
         </VStack>
       )}
@@ -226,43 +232,36 @@ function ArrayFieldModal({
   element,
   modalState,
   setModalState,
-  onDismiss,
+  onChange,
 }: {
-  element: GenericPreviewProps<ComponentSchema, unknown> | undefined
+  element: GenericPreviewProps<ComponentSchema, unknown>
   modalState: {
     index: number
     value: unknown
     forceValidation: boolean
   }
-  setModalState: React.Dispatch<
-    React.SetStateAction<
-      | {
-          index: number
-          value: unknown
-          forceValidation: boolean
-        }
-      | 'closed'
-    >
-  >
-  onDismiss: () => void
+  setModalState: (state: any) => void
+  onChange: any
 }) {
-  if (!element || element.schema.kind === 'child') return null
-
-  const onChange = useCallback(
+  const onModalChange = useCallback(
     (cb: (value: unknown) => unknown) => {
       setModalState(state => {
         if (state === 'closed') return state
         return {
-          index: state.index,
+          index: modalState.index,
           forceValidation: state.forceValidation,
           value: cb(state.value),
         }
       })
     },
-    [setModalState]
+    [modalState.index, setModalState]
   )
 
-  const onDone = useCallback(() => {
+  const cancelHandler = useCallback(() => {
+    setModalState('closed')
+  }, [setModalState])
+
+  const doneHandler = useCallback(() => {
     if (!clientSideValidateProp(element.schema, modalState.value)) {
       setModalState(state => ({
         ...(state as any),
@@ -271,28 +270,24 @@ function ArrayFieldModal({
       return
     }
     previewPropsOnChange(modalState.value, element)
-    onDismiss()
-  }, [element, modalState.value, setModalState, onDismiss])
-
-  const onCancel = useCallback(() => {
-    onDismiss()
-  }, [onDismiss])
+    setModalState('closed')
+  }, [clientSideValidateProp, element, modalState.value, previewPropsOnChange, setModalState])
 
   return (
     <Dialog>
       <Heading>Edit item</Heading>
       <Content>
         <ArrayFieldItemModalContent
+          onChange={onModalChange}
           schema={element.schema as any}
           value={modalState.value}
-          onChange={onChange}
         />
       </Content>
       <ButtonGroup>
-        <Button prominence="low" onPress={onCancel}>
+        <Button prominence="low" onPress={cancelHandler}>
           Cancel
         </Button>
-        <Button prominence="high" onPress={onDone}>
+        <Button prominence="high" onPress={doneHandler}>
           Done
         </Button>
       </ButtonGroup>

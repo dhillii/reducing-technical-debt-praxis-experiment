@@ -60,8 +60,6 @@ const ModalStepper = ({
         });
       }
     }
-    // Disabling the rule because we just want to let the ability to open the modal
-    // at a specific step then we will let the stepper handle the navigation
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
@@ -83,40 +81,44 @@ const ModalStepper = ({
       emitEvent('didSelectFile', { source: 'url', location: 'upload' });
     }
 
-    await Promise.all(
-      files.map(file => {
-        const { source } = file;
+    try {
+      await Promise.all(
+        files.map(file => {
+          const { source } = file;
 
-        return axios
-          .get(file.fileURL, {
-            responseType: 'blob',
-            cancelToken: source.token,
-            timeout: 60000,
-          })
-          .then(({ data }) => {
-            const fileName = file.fileInfo.name;
-            const createdFile = new File([data], fileName, {
-              type: data.type,
-            });
+          return axios
+            .get(file.fileURL, {
+              responseType: 'blob',
+              cancelToken: source.token,
+              timeout: 60000,
+            })
+            .then(({ data }) => {
+              const fileName = file.fileInfo.name;
+              const createdFile = new File([data], fileName, {
+                type: data.type,
+              });
 
-            dispatch({
-              type: 'FILE_DOWNLOADED',
-              blob: createdFile,
-              originalIndex: file.originalIndex,
-              fileTempId: file.tempId,
-            });
-          })
-          .catch(err => {
-            console.error('fetch file error', err);
+              dispatch({
+                type: 'FILE_DOWNLOADED',
+                blob: createdFile,
+                originalIndex: file.originalIndex,
+                fileTempId: file.tempId,
+              });
+            })
+            .catch(err => {
+              console.error('fetch file error', err);
 
-            dispatch({
-              type: 'SET_FILE_TO_DOWNLOAD_ERROR',
-              originalIndex: file.originalIndex,
-              fileTempId: file.tempId,
+              dispatch({
+                type: 'SET_FILE_TO_DOWNLOAD_ERROR',
+                originalIndex: file.originalIndex,
+                fileTempId: file.tempId,
+              });
             });
-          });
-      })
-    );
+        })
+      );
+    } catch (err) {
+      console.error('Error downloading files', err);
+    }
   };
 
   const handleAbortUpload = () => {

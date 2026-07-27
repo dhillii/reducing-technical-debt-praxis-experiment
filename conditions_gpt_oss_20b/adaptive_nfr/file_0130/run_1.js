@@ -61,6 +61,9 @@ const addComponentsToState = (state, componentToAddUid, objToUpdate) => {
   return newObj;
 };
 
+/**
+ * Handles ADD_ATTRIBUTE action.
+ */
 const handleAddAttribute = (state, action) => {
   const {
     attributeToSet: { name, ...rest },
@@ -115,6 +118,9 @@ const handleAddAttribute = (state, action) => {
     });
 };
 
+/**
+ * Handles ADD_CREATED_COMPONENT_TO_DYNAMIC_ZONE action.
+ */
 const handleAddCreatedComponentToDynamicZone = (state, action) => {
   const { dynamicZoneTarget, componentsToAdd } = action;
 
@@ -126,12 +132,18 @@ const handleAddCreatedComponentToDynamicZone = (state, action) => {
   );
 };
 
+/**
+ * Handles CANCEL_CHANGES action.
+ */
 const handleCancelChanges = state => {
   return state
     .update('modifiedData', () => state.get('initialData'))
     .update('components', () => state.get('initialComponents'));
 };
 
+/**
+ * Handles CHANGE_DYNAMIC_ZONE_COMPONENTS action.
+ */
 const handleChangeDynamicZoneComponents = (state, action) => {
   const { dynamicZoneTarget, newComponents } = action;
 
@@ -151,6 +163,9 @@ const handleChangeDynamicZoneComponents = (state, action) => {
     });
 };
 
+/**
+ * Handles CREATE_SCHEMA action.
+ */
 const handleCreateSchema = (state, action) => {
   const newSchema = {
     uid: action.uid,
@@ -164,6 +179,9 @@ const handleCreateSchema = (state, action) => {
   return state.updateIn(['contentTypes', action.uid], () => fromJS(newSchema));
 };
 
+/**
+ * Handles CREATE_COMPONENT_SCHEMA action.
+ */
 const handleCreateComponentSchema = (state, action) => {
   const newSchema = {
     uid: action.uid,
@@ -184,12 +202,18 @@ const handleCreateComponentSchema = (state, action) => {
   return state.updateIn(['components', action.uid], () => fromJS(newSchema));
 };
 
+/**
+ * Handles DELETE_NOT_SAVED_TYPE action.
+ */
 const handleDeleteNotSavedType = state => {
   return state
     .update('contentTypes', () => state.get('initialContentTypes'))
     .update('components', () => state.get('initialComponents'));
 };
 
+/**
+ * Handles EDIT_ATTRIBUTE action.
+ */
 const handleEditAttribute = (state, action) => {
   const {
     attributeToSet: { name, ...rest },
@@ -197,12 +221,14 @@ const handleEditAttribute = (state, action) => {
     targetUid,
     initialAttribute,
   } = action;
+  let newState = state;
+
   const initialAttributeName = get(initialAttribute, ['name'], '');
   const pathToDataToEdit = ['component', 'contentType'].includes(forTarget)
     ? [forTarget]
     : [forTarget, targetUid];
 
-  return state.updateIn(['modifiedData', ...pathToDataToEdit, 'schema'], obj => {
+  return newState.updateIn(['modifiedData', ...pathToDataToEdit, 'schema'], obj => {
     let oppositeAttributeNameToRemove = null;
     let oppositeAttributeNameToUpdate = null;
     let oppositeAttributeNameToCreateBecauseOfNatureChange = null;
@@ -318,6 +344,9 @@ const handleEditAttribute = (state, action) => {
   });
 };
 
+/**
+ * Handles GET_DATA_SUCCEEDED action.
+ */
 const handleGetDataSucceeded = (state, action) => {
   return state
     .update('components', () => fromJS(action.components))
@@ -328,8 +357,14 @@ const handleGetDataSucceeded = (state, action) => {
     .update('isLoading', () => false);
 };
 
+/**
+ * Handles RELOAD_PLUGIN action.
+ */
 const handleReloadPlugin = () => initialState;
 
+/**
+ * Handles REMOVE_FIELD_FROM_DISPLAYED_COMPONENT action.
+ */
 const handleRemoveFieldFromDisplayedComponent = (state, action) => {
   const { attributeToRemoveName, componentUid } = action;
 
@@ -343,6 +378,9 @@ const handleRemoveFieldFromDisplayedComponent = (state, action) => {
   ]);
 };
 
+/**
+ * Handles REMOVE_COMPONENT_FROM_DYNAMIC_ZONE action.
+ */
 const handleRemoveComponentFromDynamicZone = (state, action) => {
   return state.removeIn([
     'modifiedData',
@@ -355,6 +393,9 @@ const handleRemoveComponentFromDynamicZone = (state, action) => {
   ]);
 };
 
+/**
+ * Handles REMOVE_FIELD action.
+ */
 const handleRemoveField = (state, action) => {
   const { mainDataKey, attributeToRemoveName } = action;
   const pathToAttributes = ['modifiedData', mainDataKey, 'schema', 'attributes'];
@@ -389,6 +430,9 @@ const handleRemoveField = (state, action) => {
   });
 };
 
+/**
+ * Handles SET_MODIFIED_DATA action.
+ */
 const handleSetModifiedData = (state, action) => {
   let newState = state
     .update('isLoadingForDataToBeSet', () => false)
@@ -404,6 +448,9 @@ const handleSetModifiedData = (state, action) => {
   return newState;
 };
 
+/**
+ * Handles UPDATE_SCHEMA action.
+ */
 const handleUpdateSchema = (state, action) => {
   const {
     data: { name, collectionName, category, icon, kind },

@@ -195,110 +195,128 @@ class Compilation extends Tapable {
 		this.addModuleDependencies(module, dependencies, this.bail, null, true, callback);
 	}
 
-	isOptional(dependencies) {
-		return dependencies.filter(d => !d.optional).length === 0;
-	}
-
-	iterateDependencies(dependencies, module) {
-		dependencies.forEach(dep => {
-			dep.module = module;
-			module.addReason(module, dep);
-		});
-	}
-
-	updateModuleProfile(module, start) {
-		if (!this.profile) return;
-		if (!module.profile) module.profile = {};
-		const time = Date.now() - start;
-		if (!module.profile.dependencies || time > module.profile.dependencies) {
-			module.profile.dependencies = time;
-		}
-	}
-
-	setBuildingTime(module, afterFactory) {
-		if (!this.profile) return;
-		if (!module.profile) module.profile = {};
-		module.profile.building = Date.now() - afterFactory;
-	}
-
 	addModuleDependencies(module, dependencies, bail, cacheGroup, recursive, callback) {
-		const start = this.profile && Date.now();
+		let _this = this;
+		const start = _this.profile && Date.now();
 
 		const factories = [];
 		for(let i = 0; i < dependencies.length; i++) {
-			const factory = this.dependencyFactories.get(dependencies[i][0].constructor);
+			const factory = _this.dependencyFactories.get(dependencies[i][0].constructor);
 			if(!factory) {
 				return callback(new Error(`No module factory available for dependency type: ${dependencies[i][0].constructor.name}`));
 			}
 			factories[i] = [factory, dependencies[i]];
 		}
+		asyncLib.forEach(factories, function iteratorFactory(item, callback) {
+			const dependencies = item[1];
 
-		asyncLib.forEach(factories, (item, cb) => {
-			const [factory, deps] = item;
-
-			const errHandler = err => {
+			const errorAndCallback = function errorAndCallback(err) {
 				err.origin = module;
-				this.errors.push(err);
-				bail ? cb(err) : cb();
+				_this.errors.push(err);
+				if(bail) {
+					callback(err);
+				} else {
+					callback();
+				}
 			};
-			const warnHandler = err => {
+			const warningAndCallback = function warningAndCallback(err) {
 				err.origin = module;
-				this.warnings.push(err);
-				cb();
+				_this.warnings.push(err);
+				callback();
 			};
 
-			const createCallback = (err, dependentModule) => {
-				if (err) return errHandler(new ModuleNotFoundError(module, err, deps));
-				if (!dependentModule) return process.nextTick(cb);
+			const factory = item[0];
+			factory.create({
+				contextInfo: {
+					issuer: module.nameForCondition && module.nameForCondition(),
+					compiler: _this.compiler.name
+				},
+				context: module.context,
+				dependencies: dependencies
+			}, function factoryCallback(err, dependentModule) {
+				const optional = dependencies.every(d => d.optional);
 
-				const afterFactory = Date.now();
-				if (this.profile) {
+				if (err) {
+					return errorOrWarningAndCallback(new ModuleNotFoundError(module, err, dependencies));
+				}
+				if (!dependentModule) {
+					return process.nextTick(callback);
+				}
+
+				let afterFactory;
+				if (_this.profile) {
 					if (!dependentModule.profile) dependentModule.profile = {};
+					afterFactory = Date.now();
 					dependentModule.profile.factory = afterFactory - start;
 				}
 
 				dependentModule.issuer = module;
-				const result = this.addModule(dependentModule, cacheGroup);
+				const newModule = _this.addModule(dependentModule, cacheGroup);
 
-				if (!result) {
-					const cached = this.getModule(dependentModule);
-					if (cached.optional) cached.optional = this.isOptional(deps);
-					this.iterateDependencies(deps, cached);
-					this.updateModuleProfile(module, start);
-					return process.nextTick(cb);
+				if (!newModule) {
+					// from cache
+					dependentModule = _this.getModule(dependentModule);
+					if (dependentModule.optional) dependentModule.optional = optional;
+					iterationDependencies(dependencies);
+					if (_this.profile) {
+						if (!module.profile) module.profile = {};
+						const time = Date.now() - start;
+						if (!module.profile.dependencies || time > module.profile.dependencies) {
+							module.profile.dependencies = time;
+						}
+					}
+					return process.nextTick(callback);
 				}
 
-				if (result instanceof Module) {
-					const cached = result;
-					if (cached.optional) cached.optional = this.isOptional(deps);
-					this.iterateDependencies(deps, cached);
-					this.updateModuleProfile(module, start);
-					return process.nextTick(cb);
+				if (newModule instanceof Module) {
+					if (_this.profile) newModule.profile = dependentModule.profile;
+					newModule.optional = optional;
+					newModule.issuer = dependentModule.issuer;
+					dependentModule = newModule;
+					iterationDependencies(dependencies);
+					if (_this.profile) {
+						const afterBuilding = Date.now();
+						module.profile.building = afterBuilding - afterFactory;
+					}
+					return process.nextTick(recursive ? _this.processModuleDependencies.bind(_this, dependentModule, callback) : callback);
 				}
 
-				// result === true -> new module
-				if (this.profile) dependentModule.profile = dependentModule.profile || {};
-				dependentModule.optional = this.isOptional(deps);
-				this.iterateDependencies(deps, dependentModule);
-				this.setBuildingTime(dependentModule, afterFactory);
+				dependentModule.optional = optional;
+				iterationDependencies(dependencies);
+				_this.buildModule(dependentModule, optional, module, dependencies, err => {
+					if (err) return errorOrWarningAndCallback(err);
+					if (_this.profile) {
+						const afterBuilding = Date.now();
+						dependentModule.profile.building = afterBuilding - afterFactory;
+					}
+					if (recursive) _this.processModuleDependencies(dependentModule, callback);
+					else return callback();
+				});
+			});
 
-				if (recursive) {
-					return process.nextTick(() => this.processModuleDependencies(dependentModule, cb));
+			function errorOrWarningAndCallback(err) {
+				if(optional) {
+					return warningAndCallback(err);
+				} else {
+					return errorAndCallback(err);
 				}
-				return process.nextTick(cb);
-			};
+			}
 
-			factory.create({
-				contextInfo: {
-					issuer: module.nameForCondition && module.nameForCondition(),
-					compiler: this.compiler.name
-				},
-				context: module.context,
-				dependencies: deps
-			}, createCallback);
-		}, err => {
-			if (err) return callback(err);
-			process.nextTick(callback);
+			function iterationDependencies(depend) {
+				for(let index = 0; index < depend.length; index++) {
+					const dep = depend[index];
+					dep.module = dependentModule;
+					dependentModule.addReason(module, dep);
+				}
+			}
+		}, function finalCallbackAddModuleDependencies(err) {
+			_this = null;
+
+			if(err) {
+				return callback(err);
+			}
+
+			return process.nextTick(callback);
 		});
 	}
 
@@ -337,7 +355,9 @@ class Compilation extends Tapable {
 			let afterFactory;
 
 			if(this.profile) {
-				if(!module.profile) module.profile = {};
+				if(!module.profile) {
+					module.profile = {};
+				}
 				afterFactory = Date.now();
 				module.profile.factory = afterFactory - start;
 			}
@@ -852,7 +872,7 @@ class Compilation extends Tapable {
 		let unusedIds = [];
 		let nextFreeModuleId = 0;
 		let usedIds = [];
-		// TODO consider Map when performance has improved https://gist.github.com/sokra/234c077e1299b7369461f1708519c392
+		// TODO consider Map when performance has improved https://gist.github.com/sokra/234c077e1299b7369461f1708519b392
 		const usedIdMap = Object.create(null);
 		if(this.usedModuleIds) {
 			Object.keys(this.usedModuleIds).forEach(key => {

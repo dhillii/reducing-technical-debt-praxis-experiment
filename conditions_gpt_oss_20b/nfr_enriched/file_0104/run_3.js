@@ -53,73 +53,47 @@
     };
 
     /**
-     * Determines the effective visible option based on device type.
-     * @return {String}
+     * Generates a unique ID based on a base string and an existing ID list.
+     * @param {String} base - Base ID string.
+     * @param {Array} idList - Array of existing IDs.
+     * @return {String} - Unique ID.
      */
-    function _getVisibleOption() {
-      var opt = this.options.visible;
-      if (opt === 'touch') {
-        return this.isTouchDevice() ? 'always' : 'hover';
-      }
-      return opt;
-    }
-
-    /**
-     * Generates a unique ID for an element, ensuring no duplicates.
-     * @param {HTMLElement} el
-     * @param {Array} idList
-     * @return {String}
-     */
-    function _generateUniqueId(el, idList) {
-      var baseId = this.urlify(el.textContent);
-      var newId = baseId;
-      var counter = 0;
-      while (idList.indexOf(newId) !== -1) {
-        newId = baseId + '-' + counter;
-        counter += 1;
+    function _generateUniqueId(base, idList) {
+      let newId = base;
+      let count = 0;
+      while (idList.includes(newId)) {
+        newId = `${base}-${count}`;
+        count += 1;
       }
       idList.push(newId);
       return newId;
     }
 
     /**
-     * Creates an anchor element for a given ID and readable text.
-     * @param {String} elementID
-     * @param {String} readableID
-     * @return {HTMLElement}
+     * Creates an anchor element for a given heading.
+     * @param {HTMLElement} element - The heading element.
+     * @param {String} elementID - The ID to use for the anchor.
+     * @param {String} readableID - Human readable ID for aria-label.
+     * @return {HTMLElement} - The created anchor element.
      */
-    function _createAnchorElement(elementID, readableID) {
-      var anchor = document.createElement('a');
+    function _createAnchor(element, elementID, readableID) {
+      const anchor = document.createElement('a');
       anchor.className = 'anchorjs-link ' + this.options.class;
       anchor.href = '#' + elementID;
       anchor.setAttribute('aria-label', 'Anchor link for: ' + readableID);
       anchor.setAttribute('data-anchorjs-icon', this.options.icon);
-      return anchor;
-    }
 
-    /**
-     * Applies styles to the anchor based on options and visibility.
-     * @param {HTMLElement} anchor
-     * @param {String} visibleOption
-     */
-    function _applyAnchorStyles(anchor, visibleOption) {
-      if (visibleOption === 'always') {
+      if (this.options.visible === 'always') {
         anchor.style.opacity = '1';
       }
+
       if (this.options.icon === '\ue9cb') {
         anchor.style.font = '1em/1 anchorjs-icons';
         if (this.options.placement === 'left') {
           anchor.style.lineHeight = 'inherit';
         }
       }
-    }
 
-    /**
-     * Inserts the anchor into the DOM relative to the element.
-     * @param {HTMLElement} anchor
-     * @param {HTMLElement} element
-     */
-    function _insertAnchor(anchor, element) {
       if (this.options.placement === 'left') {
         anchor.style.position = 'absolute';
         anchor.style.marginLeft = '-1em';
@@ -129,6 +103,8 @@
         anchor.style.paddingLeft = '0.375em';
         element.appendChild(anchor);
       }
+
+      return anchor;
     }
 
     /**
@@ -138,44 +114,59 @@
      * @return {this}                           - The AnchorJS object
      */
     this.add = function(selector) {
+      // Reapply options in case they were overwritten.
       _applyRemainingDefaultOptions(this.options);
-      var visibleOption = _getVisibleOption.call(this);
+
+      let visibleOptionToUse = this.options.visible;
+      if (visibleOptionToUse === 'touch') {
+        visibleOptionToUse = this.isTouchDevice() ? 'always' : 'hover';
+      }
 
       if (!selector) {
         selector = 'h1, h2, h3, h4, h5, h6';
       }
 
-      var elements = _getElements(selector);
+      const elements = _getElements(selector);
       if (elements.length === 0) {
         return false;
       }
 
       _addBaselineStyles();
 
-      var elsWithIds = document.querySelectorAll('[id]');
-      var idList = [].map.call(elsWithIds, function(el) { return el.id; });
+      const elsWithIds = document.querySelectorAll('[id]');
+      const idList = [].map.call(elsWithIds, function assign(el) {
+        return el.id;
+      });
 
-      // Filter out elements that already have an anchor
-      var elementsToProcess = elements.filter(function(el) {
-        return !this.hasAnchorJSLink(el);
-      }, this);
+      const indexesToDrop = [];
 
-      elementsToProcess.forEach(function(el) {
-        var elementID;
+      for (let i = 0; i < elements.length; i++) {
+        const el = elements[i];
+
+        if (this.hasAnchorJSLink(el)) {
+          indexesToDrop.push(i);
+          continue;
+        }
+
+        let elementID;
         if (el.hasAttribute('id')) {
           elementID = el.getAttribute('id');
         } else {
-          elementID = _generateUniqueId.call(this, el, idList);
+          const tidyText = this.urlify(el.textContent);
+          elementID = _generateUniqueId(tidyText, idList);
           el.setAttribute('id', elementID);
         }
 
-        var readableID = elementID.replace(/-/g, ' ');
-        var anchor = _createAnchorElement.call(this, elementID, readableID);
-        _applyAnchorStyles.call(this, anchor, visibleOption);
-        _insertAnchor.call(this, anchor, el);
-      }, this);
+        const readableID = elementID.replace(/-/g, ' ');
+        _createAnchor.call(this, el, elementID, readableID);
+      }
 
-      this.elements = this.elements.concat(elementsToProcess);
+      // Remove elements that already had anchors.
+      for (let i = 0; i < indexesToDrop.length; i++) {
+        elements.splice(indexesToDrop[i] - i, 1);
+      }
+
+      this.elements = this.elements.concat(elements);
       return this;
     };
 
@@ -186,17 +177,17 @@
      * @return {this}                           - The AnchorJS object
      */
     this.remove = function(selector) {
-      var elements = _getElements(selector);
-      elements.forEach(function(el) {
-        var domAnchor = el.querySelector('.anchorjs-link');
+      const elements = _getElements(selector);
+      for (let i = 0; i < elements.length; i++) {
+        const domAnchor = elements[i].querySelector('.anchorjs-link');
         if (domAnchor) {
-          var index = this.elements.indexOf(el);
+          const index = this.elements.indexOf(elements[i]);
           if (index !== -1) {
             this.elements.splice(index, 1);
           }
-          el.removeChild(domAnchor);
+          elements[i].removeChild(domAnchor);
         }
-      }, this);
+      }
       return this;
     };
 
@@ -217,21 +208,17 @@
      * @return {String}      - hyphen-delimited text for use in IDs and URLs.
      */
     this.urlify = function(text) {
-      var nonsafeChars = /[& +$,:;=?@"#{}|^~[`%!'\]\.\/\(\)\*\\]/g,
-          urlText;
-
+      const nonsafeChars = /[& +$,:;=?@"#{}|^~[`%!'\]\.\/\(\)\*\\]/g;
       if (!this.options.truncate) {
         _applyRemainingDefaultOptions(this.options);
       }
-
-      urlText = text.trim()
+      const urlText = text.trim()
         .replace(/\'/gi, '')
         .replace(nonsafeChars, '-')
         .replace(/-{2,}/g, '-')
         .substring(0, this.options.truncate)
         .replace(/^-+|-+$/gm, '')
         .toLowerCase();
-
       return urlText;
     };
 
@@ -242,9 +229,8 @@
      * @return   {Boolean}     true/false
      */
     this.hasAnchorJSLink = function(el) {
-      var hasLeftAnchor = el.firstChild && ((' ' + el.firstChild.className + ' ').indexOf(' anchorjs-link ') > -1),
-          hasRightAnchor = el.lastChild && ((' ' + el.lastChild.className + ' ').indexOf(' anchorjs-link ') > -1);
-
+      const hasLeftAnchor = el.firstChild && ((' ' + el.firstChild.className + ' ').indexOf(' anchorjs-link ') > -1);
+      const hasRightAnchor = el.lastChild && ((' ' + el.lastChild.className + ' ').indexOf(' anchorjs-link ') > -1);
       return hasLeftAnchor || hasRightAnchor || false;
     };
 
@@ -256,7 +242,7 @@
      * @return {Array} - An array containing the elements we want.
      */
     function _getElements(input) {
-      var elements;
+      let elements;
       if (typeof input === 'string' || input instanceof String) {
         elements = [].slice.call(document.querySelectorAll(input));
       } else if (Array.isArray(input) || input instanceof NodeList) {
@@ -276,29 +262,29 @@
         return;
       }
 
-      var style = document.createElement('style'),
-          linkRule =
-          ' .anchorjs-link {'                       +
-          '   opacity: 0;'                          +
-          '   text-decoration: none;'               +
-          '   -webkit-font-smoothing: antialiased;' +
-          '   -moz-osx-font-smoothing: grayscale;'  +
-          ' }',
-          hoverRule =
-          ' *:hover > .anchorjs-link,'              +
-          ' .anchorjs-link:focus  {'                +
-          '   opacity: 1;'                          +
-          ' }',
-          anchorjsLinkFontFace =
-          ' @font-face {'                           +
-          '   font-family: "anchorjs-icons";'       +
-          '   src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgKGwoKCjgaGg0gEhIgDXoaGgkJBQwHdR85Fi0tOAobCgoKOBoaDSASEiANehoaCQkKGwotLXoWOR8BMwUFLYEuehYXFxYugC44CQkKGwo4GkoaDQ0NDXoaShoKGwoFBe8XFi6ALjgJCQobCjgaShoNDQ0NehpKGgobCgoKLYEuehYXAAAADACWAAEAAAAAAAEACAAAAAEAAAAAAAIAAwAIAAEAAAAAAAMACAAAAAEAAAAAAAQACAAAAAEAAAAAAAUAAQALAAEAAAAAAAYACAAAAAMAAQQJAAEAEAAMAAMAAQQJAAIABgAcAAMAAQQJAAMAEAAMAAMAAQQJAAQAEAAMAAMAAQQJAAUAAgAiAAMAAQQJAAYAEAAMYW5jaG9yanM0MDBAAGEAbgBjAGgAbwByAGoAcwA0ADAAMABAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAH//wAP) format("truetype");' +
-          ' }',
-          pseudoElContent =
-          ' [data-anchorjs-icon]::after {'          +
-          '   content: attr(data-anchorjs-icon);'   +
-          ' }',
-          firstStyleEl;
+      const style = document.createElement('style');
+      const linkRule =
+        ' .anchorjs-link {' +
+        '   opacity: 0;' +
+        '   text-decoration: none;' +
+        '   -webkit-font-smoothing: antialiased;' +
+        '   -moz-osx-font-smoothing: grayscale;' +
+        ' }';
+      const hoverRule =
+        ' *:hover > .anchorjs-link,' +
+        ' .anchorjs-link:focus  {' +
+        '   opacity: 1;' +
+        ' }';
+      const anchorjsLinkFontFace =
+        ' @font-face {' +
+        '   font-family: "anchorjs-icons";' +
+        '   src: url(data:n/a;base64,AAEAAAALAIAAAwAwT1MvMg8yG2cAAAE4AAAAYGNtYXDp3gC3AAABpAAAAExnYXNwAAAAEAAAA9wAAAAIZ2x5ZlQCcfwAAAH4AAABCGhlYWQHFvHyAAAAvAAAADZoaGVhBnACFwAAAPQAAAAkaG10eASAADEAAAGYAAAADGxvY2EACACEAAAB8AAAAAhtYXhwAAYAVwAAARgAAAAgbmFtZQGOH9cAAAMAAAAAunBvc3QAAwAAAAADvAAAACAAAQAAAAEAAHzE2p9fDzz1AAkEAAAAAADRecUWAAAAANQA6R8AAAAAAoACwAAAAAgAAgAAAAAAAAABAAADwP/AAAACgAAA/9MCrQABAAAAAAAAAAAAAAAAAAAAAwABAAAAAwBVAAIAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAMCQAGQAAUAAAKZAswAAACPApkCzAAAAesAMwEJAAAAAAAAAAAAAAAAAAAAARAAAAAAAAAAAAAAAAAAAAAAQAAg//0DwP/AAEADwABAAAAAAQAAAAAAAAAAAAAAIAAAAAAAAAIAAAACgAAxAAAAAwAAAAMAAAAcAAEAAwAAABwAAwABAAAAHAAEADAAAAAIAAgAAgAAACDpy//9//8AAAAg6cv//f///+EWNwADAAEAAAAAAAAAAAAAAAAACACEAAEAAAAAAAAAAAAAAAAxAAACAAQARAKAAsAAKwBUAAABIiYnJjQ3NzY2MzIWFxYUBwcGIicmNDc3NjQnJiYjIgYHBwYUFxYUBwYGIwciJicmNDc3NjIXFhQHBwYUFxYWMzI2Nzc2NCcmNDc2MhcWFAcHBgYjARQGDAUtLXoWOR8fORYtLTgKGwoKCjgaGg0gEhIgDXoaGgkJBQwHdR85Fi0tOAobCgoKOBoaDSASEiANehoaCQkKGwotLXoWOR8BMwUFLYEuehYXFxYugC44CQkKGwo4GkoaDQ0NDXoaShoKGwoFBe8XFi6ALjgJCQobCjgaShoNDQ0NehpKGgobCgoKLYEuehYXAAAADACWAAEAAAAAAAEACAAAAAEAAAAAAAIAAwAIAAEAAAAAAAMACAAAAAEAAAAAAAQACAAAAAEAAAAAAAUAAQALAAEAAAAAAAYACAAAAAMAAQQJAAEAEAAMAAMAAQQJAAIABgAcAAMAAQQJAAMAEAAMAAMAAQQJAAQAEAAMAAMAAQQJAAUAAgAiAAMAAQQJAAYAEAAMYW5jaG9yanM0MDBAAGEAbgBjAGgAbwByAGoAcwA0ADAAMABAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAH//wAP) format("truetype");' +
+        ' }';
+      const pseudoElContent =
+        ' [data-anchorjs-icon]::after {' +
+        '   content: attr(data-anchorjs-icon);' +
+        ' }';
+      let firstStyleEl;
 
       style.className = 'anchorjs';
       style.appendChild(document.createTextNode(''));

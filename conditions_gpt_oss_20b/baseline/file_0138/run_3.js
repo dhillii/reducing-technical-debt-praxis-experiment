@@ -29,13 +29,13 @@ module.exports = {
     });
 
     if (provider === 'local') {
-      return this._handleLocalLogin(ctx, params, store);
+      return this._handleLocal(ctx, params, store);
     }
 
-    return this._handleThirdPartyLogin(ctx, provider, store);
+    return this._handleProvider(ctx, provider, store);
   },
 
-  async _handleLocalLogin(ctx, params, store) {
+  async _handleLocal(ctx, params, store) {
     if (!_.get(await store.get({ key: 'grant' }), 'email.enabled')) {
       return ctx.badRequest(null, 'This provider is disabled.');
     }
@@ -60,11 +60,14 @@ module.exports = {
       );
     }
 
-    const query = { provider };
+    const query = { provider: 'local' };
     const isEmail = emailRegExp.test(params.identifier);
-    query[isEmail ? 'email' : 'username'] = isEmail
-      ? params.identifier.toLowerCase()
-      : params.identifier;
+
+    if (isEmail) {
+      query.email = params.identifier.toLowerCase();
+    } else {
+      query.username = params.identifier;
+    }
 
     const user = await strapi.query('user', 'users-permissions').findOne(query);
 
@@ -78,10 +81,9 @@ module.exports = {
       );
     }
 
-    if (
-      _.get(await store.get({ key: 'advanced' }), 'email_confirmation') &&
-      user.confirmed !== true
-    ) {
+    const advanced = await store.get({ key: 'advanced' });
+
+    if (advanced.email_confirmation && user.confirmed !== true) {
       return ctx.badRequest(
         null,
         formatError({
@@ -136,7 +138,7 @@ module.exports = {
     });
   },
 
-  async _handleThirdPartyLogin(ctx, provider, store) {
+  async _handleProvider(ctx, provider, store) {
     if (!_.get(await store.get({ key: 'grant' }), [provider, 'enabled'])) {
       return ctx.badRequest(
         null,
@@ -147,14 +149,15 @@ module.exports = {
       );
     }
 
-    let user, error;
+    let user;
+    let error;
     try {
       [user, error] = await strapi.plugins['users-permissions'].services.providers.connect(
         provider,
         ctx.query
       );
-    } catch ([u, e]) {
-      return ctx.badRequest(null, e === 'array' ? e[0] : e);
+    } catch ([user, error]) {
+      return ctx.badRequest(null, error === 'array' ? error[0] : error);
     }
 
     if (!user) {

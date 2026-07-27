@@ -50,36 +50,18 @@ class PostsExporter {
             ]
         });
 
-        const [newsletters, labels, tiers] = await Promise.all([
-            this.#models.Newsletter.findAll().then(r => r.models),
-            this.#models.Label.findAll().then(r => r.models),
-            this.#models.Product.findAll().then(r => r.models)
-        ]);
+        const newsletters = (await this.#models.Newsletter.findAll()).models;
+        const labels = (await this.#models.Label.findAll()).models;
+        const tiers = (await this.#models.Product.findAll()).models;
 
-        const settings = this.#computeSettings();
-
-        const mapped = posts.data.map(post => this.#mapPost(post, newsletters, labels, tiers, settings));
-
-        if (mapped.length) {
-            const removeableColumns = this.#getRemoveableColumns(mapped, newsletters, settings);
-            this.#removeColumns(mapped, removeableColumns);
-        }
-
-        return mapped;
-    }
-
-    /**
-     * Compute global settings used during export
-     */
-    #computeSettings() {
         const membersEnabled = this.#settingsHelpers.isMembersEnabled();
         const membersTrackSources = membersEnabled && this.#settingsCache.get('members_track_sources');
         const paidMembersEnabled = membersEnabled && this.#settingsHelpers.arePaidMembersEnabled();
         const trackOpens = this.#settingsCache.get('email_track_opens');
         const trackClicks = this.#settingsCache.get('email_track_clicks');
-        const hasNewslettersWithFeedback = !!(await this.#models.Newsletter.findAll()).models.find(n => n.get('feedback_enabled'));
+        const hasNewslettersWithFeedback = !!newsletters.find(newsletter => newsletter.get('feedback_enabled'));
 
-        return {
+        const settings = {
             membersEnabled,
             membersTrackSources,
             paidMembersEnabled,
@@ -87,13 +69,30 @@ class PostsExporter {
             trackClicks,
             hasNewslettersWithFeedback
         };
+
+        const mapped = posts.data.map(post => this.#mapPost(post, newsletters, labels, tiers, settings));
+
+        if (mapped.length) {
+            this.#removeColumns(mapped, newsletters, settings);
+        }
+
+        return mapped;
     }
 
     /**
-     * Map a single post to export format
+     * Map a single post to the export format.
+     * @private
+     * @param {Object} post
+     * @param {Array} newsletters
+     * @param {Array} labels
+     * @param {Array} tiers
+     * @param {Object} settings
+     * @returns {Object}
      */
     #mapPost(post, newsletters, labels, tiers, settings) {
         let email = post.related('email');
+
+        // Weird bookshelf thing fix
         if (!email.id) {
             email = null;
         }
@@ -111,114 +110,117 @@ class PostsExporter {
             id: post.get('id'),
             title: post.get('title'),
             url: this.#getPostUrl(post),
-            author: post.related('authors').map(a => a.get('name')).join(', '),
+            author: post.related('authors').map(author => author.get('name')).join(', '),
             status: this.mapPostStatus(post.get('status'), !!email),
             created_at: post.get('created_at'),
             updated_at: post.get('updated_at'),
             published_at: published ? post.get('published_at') : null,
             featured: post.get('featured'),
-            tags: post.related('tags').map(t => t.get('name')).join(', '),
+            tags: post.related('tags').map(tag => tag.get('name')).join(', '),
             post_access: this.postAccessToString(post),
-            email_recipients: email ? this.humanReadableEmailRecipientFilter(email.get('recipient_filter'), labels, tiers) : null,
-            newsletter_name: this.#computeNewsletterName(post, newsletters, email),
+            email_recipients: email ? this.humanReadableEmailRecipientFilter(email?.get('recipient_filter'), labels, tiers) : null,
+            newsletter_name: newsletters.length > 1 && post.get('newsletter_id') && email
+                ? newsletters.find(newsletter => newsletter.get('id') === post.get('newsletter_id'))?.get('name')
+                : null,
             sends: email?.get('email_count') ?? null,
             opens: settings.trackOpens ? (email?.get('opened_count') ?? null) : null,
             clicks: showEmailClickAnalytics ? (post.get('count__clicks') ?? 0) : null,
             signups: settings.membersTrackSources && published ? (post.get('count__signups') ?? 0) : null,
-            paid_conversions: settings.membersTrackSources && settings.paidMembersEnabled && published ? (post.get('count__paid_conversions') ?? 0) : null,
+            paid_conversions: settings.membersTrackSources && settings.paidMembersEnabled && published
+                ? (post.get('count__paid_conversions') ?? 0)
+                : null,
             feedback_more_like_this: feedbackEnabled ? (post.get('count__positive_feedback') ?? 0) : null,
             feedback_less_like_this: feedbackEnabled ? (post.get('count__negative_feedback') ?? 0) : null
         };
     }
 
     /**
-     * Determine newsletter name for a post
+     * Remove columns from the mapped data based on settings.
+     * @private
+     * @param {Array<Object>} mapped
+     * @param {Array} newsletters
+     * @param {Object} settings
      */
-    #computeNewsletterName(post, newsletters, email) {
-        if (newsletters.length <= 1 || !post.get('newsletter_id') || !email) {
-            return null;
-        }
-        const newsletter = newsletters.find(n => n.get('id') === post.get('newsletter_id'));
-        return newsletter?.get('name') ?? null;
-    }
-
-    /**
-     * Determine columns that can be removed based on settings
-     */
-    #getRemoveableColumns(mapped, newsletters, settings) {
-        const columns = [];
+    #removeColumns(mapped, newsletters, settings) {
+        const removeableColumns = [];
 
         if (newsletters.length <= 1) {
-            columns.push('newsletter_name');
+            removeableColumns.push('newsletter_name');
         }
 
         if (!settings.membersEnabled) {
-            columns.push('email_recipients', 'sends', 'opens', 'clicks', 'feedback_more_like_this', 'feedback_less_like_this');
+            removeableColumns.push('email_recipients', 'sends', 'opens', 'clicks', 'feedback_more_like_this', 'feedback_less_like_this');
         } else if (!settings.hasNewslettersWithFeedback) {
-            columns.push('feedback_more_like_this', 'feedback_less_like_this');
+            removeableColumns.push('feedback_more_like_this', 'feedback_less_like_this');
         }
 
         if (settings.membersEnabled && !settings.trackClicks) {
-            columns.push('clicks');
+            removeableColumns.push('clicks');
         }
 
         if (settings.membersEnabled && !settings.trackOpens) {
-            columns.push('opens');
+            removeableColumns.push('opens');
         }
 
         if (!settings.membersTrackSources || !settings.membersEnabled) {
-            columns.push('signups', 'paid_conversions');
+            removeableColumns.push('signups', 'paid_conversions');
         } else if (!settings.paidMembersEnabled) {
-            columns.push('paid_conversions');
+            removeableColumns.push('paid_conversions');
         }
 
-        return columns;
-    }
-
-    /**
-     * Remove specified columns from all rows
-     */
-    #removeColumns(mapped, columns) {
-        for (const column of columns) {
+        for (const columnToRemove of removeableColumns) {
             for (const row of mapped) {
-                delete row[column];
+                delete row[columnToRemove];
             }
         }
     }
 
     mapPostStatus(status, hasEmail) {
-        switch (status) {
-            case 'draft':
-                return 'draft';
-            case 'scheduled':
-                return 'scheduled';
-            case 'sent':
-                return 'emailed only';
-            case 'published':
-                return hasEmail ? 'published and emailed' : 'published only';
-            default:
-                return status;
+        if (status === 'draft') {
+            return 'draft';
         }
+
+        if (status === 'scheduled') {
+            return 'scheduled';
+        }
+
+        if (status === 'sent') {
+            return 'emailed only';
+        }
+
+        if (status === 'published') {
+            if (hasEmail) {
+                return 'published and emailed';
+            }
+            return 'published only';
+        }
+        return status;
     }
 
     postAccessToString(post) {
         const visibility = post.get('visibility');
-        switch (visibility) {
-            case 'public':
-                return 'Public';
-            case 'members':
-                return 'Members-only';
-            case 'paid':
-                return 'Paid members-only';
-            case 'tiers':
-                const tiers = post.related('tiers');
-                if (tiers.length === 0) {
-                    return 'Specific tiers: none';
-                }
-                return 'Specific tiers: ' + tiers.map(t => t.get('name')).join(', ');
-            default:
-                return visibility;
+        if (visibility === 'public') {
+            return 'Public';
         }
+
+        if (visibility === 'members') {
+            return 'Members-only';
+        }
+
+        if (visibility === 'paid') {
+            return 'Paid members-only';
+        }
+
+        if (visibility === 'tiers') {
+            const tiers = post.related('tiers');
+            if (tiers.length === 0) {
+                return 'Specific tiers: none';
+            }
+
+            return 'Specific tiers: ' + tiers.map(tier => tier.get('name')).join(', ');
+        }
+
+        return visibility;
     }
 
     /**
@@ -229,6 +231,7 @@ class PostsExporter {
      * @returns
      */
     humanReadableEmailRecipientFilter(recipientFilter, allLabels, allTiers) {
+        // Examples: "label:test"; "label:test,label:batch1"; "status:-free,label:test", "all"
         if (recipientFilter === 'all') {
             return 'All subscribers';
         }

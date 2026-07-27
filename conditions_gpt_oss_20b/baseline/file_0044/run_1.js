@@ -37,10 +37,9 @@ module.exports = class MemberBREADService {
         for (const product of member.products) {
             if (!subscriptionProducts.includes(product.id)) {
                 const productAddEvent = member.productEvents.find(event => event.product_id === product.id);
-                const startDate = productAddEvent && productAddEvent.action === 'added'
-                    ? moment(productAddEvent.created_at)
-                    : moment();
-
+                const startDate = !productAddEvent || productAddEvent.action !== 'added'
+                    ? moment()
+                    : moment(productAddEvent.created_at);
                 member.subscriptions.push({
                     id: '',
                     tier: product,
@@ -93,13 +92,17 @@ module.exports = class MemberBREADService {
         try {
             for (const subscriptionModel of subscriptions) {
                 const offerId = subscriptionModel.get('offer_id');
-                if (!offerId) continue;
+
+                if (!offerId) {
+                    continue;
+                }
 
                 let offer = fetchedOffers.get(offerId);
                 if (!offer) {
                     offer = await this.offersAPI.getOffer({id: offerId});
                     fetchedOffers.set(offerId, offer);
                 }
+
                 subscriptionOffers.set(subscriptionModel.get('subscription_id'), offer);
             }
         } catch (e) {
@@ -111,14 +114,15 @@ module.exports = class MemberBREADService {
     }
 
     attachOffersToSubscriptions(member, subscriptionOffers) {
-        member.subscriptions = member.subscriptions.map(subscription => {
-            subscription.offer = subscriptionOffers.get(subscription.id) || null;
+        member.subscriptions = member.subscriptions.map((subscription) => {
+            const offer = subscriptionOffers.get(subscription.id);
+            subscription.offer = offer || null;
             return subscription;
         });
     }
 
     attachNextPaymentToSubscriptions(member) {
-        member.subscriptions = member.subscriptions.map(subscription => {
+        member.subscriptions = member.subscriptions.map((subscription) => {
             subscription.next_payment = this.nextPaymentCalculator.calculate(subscription);
             return subscription;
         });
@@ -128,9 +132,14 @@ module.exports = class MemberBREADService {
         member.attribution = await this.memberAttributionService.getMemberCreatedAttribution(member.id);
 
         for (const subscription of member.subscriptions) {
-            if (!subscription.id) continue;
+            if (!subscription.id) {
+                continue;
+            }
+
             const id = subscriptionIdMap.get(subscription.id);
-            if (!id) continue;
+            if (!id) {
+                continue;
+            }
             subscription.attribution = await this.memberAttributionService.getSubscriptionCreatedAttribution(id);
         }
     }
@@ -185,12 +194,29 @@ module.exports = class MemberBREADService {
             info: suppressionData.info
         };
 
-        member.unsubscribe_url = this.settingsHelpers.createUnsubscribeUrl(member.uuid);
+        const unsubscribeUrl = this.settingsHelpers.createUnsubscribeUrl(member.uuid);
+        member.unsubscribe_url = unsubscribeUrl;
 
         return member;
     }
 
-    async _validateStripeConnection(data) {
+    async add(data, options) {
+        this.ensureStripeConfiguredForImport(data);
+
+        const model = await this.createMemberWithAttribution(data, options);
+
+        await this.linkStripeCustomerIfNeeded(data, model, options);
+
+        await this.sendEmailIfRequested(options, model);
+
+        if (data.comped) {
+            await this.memberRepository.setComplimentarySubscription(model, options);
+        }
+
+        return this.read({id: model.id}, options);
+    }
+
+    ensureStripeConfiguredForImport(data) {
         if (!this.stripeService.configured && (data.comped || data.stripe_customer_id)) {
             const property = data.comped ? 'comped' : 'stripe_customer_id';
             throw new errors.ValidationError({
@@ -202,7 +228,7 @@ module.exports = class MemberBREADService {
         }
     }
 
-    async _createMember(data, options) {
+    async createMemberWithAttribution(data, options) {
         try {
             const attribution = await this.memberAttributionService.getAttributionFromContext(options?.context);
             if (attribution) {
@@ -210,7 +236,7 @@ module.exports = class MemberBREADService {
             }
             return await this.memberRepository.create(data, options);
         } catch (error) {
-            if (error.code && error.message.toLowerCase().indexOf('unique') !== -1) {
+            if (error.code && error.message.toLowerCase().includes('unique')) {
                 throw new errors.ValidationError({
                     message: tpl(messages.memberAlreadyExists),
                     context: 'Attempting to add member with existing email address',
@@ -221,24 +247,23 @@ module.exports = class MemberBREADService {
         }
     }
 
-    _buildSharedOptions(options) {
-        return {
+    async linkStripeCustomerIfNeeded(data, model, options) {
+        if (!data.stripe_customer_id) return;
+
+        const sharedOptions = {
             ...(options.transacting && {transacting: options.transacting}),
             ...(options.context && {context: options.context})
         };
-    }
 
-    async _linkStripeCustomer(data, model, sharedOptions) {
-        if (!data.stripe_customer_id) return;
         try {
             await this.memberRepository.linkStripeCustomer({
                 customer_id: data.stripe_customer_id,
                 member_id: model.id
             }, sharedOptions);
         } catch (error) {
-            const isStripeLinkingError = error.message && (error.message.match(/customer|plan|subscription/g));
+            const isStripeLinkingError = error.message && /customer|plan|subscription/.test(error.message);
             if (isStripeLinkingError) {
-                if (error.message.indexOf('customer') && error.code === 'resource_missing') {
+                if (error.message.includes('customer') && error.code === 'resource_missing') {
                     error.message = `Member not imported. ${error.message}`;
                     error.context = 'Missing Stripe Customer';
                     error.help = 'Make sure you\'re connected to the correct Stripe Account';
@@ -249,39 +274,19 @@ module.exports = class MemberBREADService {
         }
     }
 
-    async _sendMagicLinkIfNeeded(model, options) {
-        if (options.send_email) {
-            await this.emailService.sendEmailWithMagicLink({
-                email: model.get('email'),
-                requestedType: options.email_type
-            });
-        }
-    }
-
-    async _setComplimentaryIfNeeded(data, model, options) {
-        if (data.comped) {
-            await this.memberRepository.setComplimentarySubscription(model, options);
-        }
-    }
-
-    async add(data, options) {
-        await this._validateStripeConnection(data);
-
-        const model = await this._createMember(data, options);
-
-        const sharedOptions = this._buildSharedOptions(options);
-
-        await this._linkStripeCustomer(data, model, sharedOptions);
-        await this._sendMagicLinkIfNeeded(model, options);
-        await this._setComplimentaryIfNeeded(data, model, options);
-
-        return this.read({id: model.id}, options);
+    async sendEmailIfRequested(options, model) {
+        if (!options.send_email) return;
+        await this.emailService.sendEmailWithMagicLink({
+            email: model.get('email'),
+            requestedType: options.email_type
+        });
     }
 
     async edit(data, options) {
         delete data.last_seen_at;
 
         let model;
+
         try {
             if (data.email) {
                 const isSuppressed = (await this.emailSuppressionList.getSuppressionData(data.email))?.suppressed;
@@ -290,13 +295,14 @@ module.exports = class MemberBREADService {
 
             model = await this.memberRepository.update(data, options);
         } catch (error) {
-            if (error.code && error.message.toLowerCase().indexOf('unique') !== -1) {
+            if (error.code && error.message.toLowerCase().includes('unique')) {
                 throw new errors.ValidationError({
                     message: tpl(messages.memberAlreadyExists),
                     context: 'Attempting to edit member with existing email address',
                     property: 'email'
                 });
             }
+
             throw error;
         }
 

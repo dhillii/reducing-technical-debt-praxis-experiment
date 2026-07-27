@@ -7,13 +7,13 @@
 var commander   = require('commander');
 var fs          = require('fs');
 var path        = require('path');
-var eachLimit   = require('async/eachLimit');
-var series      = require('async/series');
+var eachLimit       = require('async/eachLimit');
+var series       = require('async/series');
 var debug       = require('debug')('pm2:cli');
 var util        = require('util');
 var chalk       = require('ansis');
 var fclone      = require('fclone');
-let conf        = require('./config');
+var conf        = require('./conf');
 
 var IMMUTABLE_MSG = chalk.bold.blue('Use --update-env to update environment variables');
 
@@ -253,7 +253,7 @@ API.prototype.exitCli = function(code) {
       // Safe exits process after all streams are drained.
       // file descriptor flag.
       var fds = 0;
-      // exits process when stdout (1) and sdterr (2) are both drained.
+      // exits process when stdout (1) and sdterr(2) are both drained.
       function tryToExit() {
         if ((fds & 1) && (fds & 2)) {
           debug('This command took %ds to execute', (new Date() - that.start_timer) / 1000);
@@ -492,7 +492,7 @@ API.prototype.delete = function(process_name, jsonVia, cb) {
     cb = jsonVia;
     jsonVia = null;
   }
-  if (typeof(process_name) === 'number') {
+  if (typeof(process_name) === "number") {
     process_name = process_name.toString();
   }
 
@@ -1049,7 +1049,7 @@ API.prototype._startJson = function(file, opts, action, pipe, cb) {
  * @private
  * @method actionFromJson
  * @param {string} action RPC Method
- * @param {object} opts
+ * @param {object} options
  * @param {string|object} file file
  * @param {string} jsonVia action type (=only 'pipe' ?)
  * @param {Function}

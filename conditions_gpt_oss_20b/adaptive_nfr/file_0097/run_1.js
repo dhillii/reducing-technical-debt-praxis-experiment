@@ -14,21 +14,17 @@ define([
     'use strict';
 
     /**
-     * Pagination support for Backbone collections.
-     * Some code was borrowed from the plugin Backbone.paginator.
-     *
-     * Triggers:
-     * ---------
-     * Events to channel `notes`:
-     * 1. `model:navigate` - when the next or previous model was requested
-     *     or a model was removed.
-     *
-     * Events to itself (e.g. collection):
-     * 1. `page:next` - when the next model was requested but a user
-     *     has reached the last model on the page.
-     * 2. `page:previous` - when the previous model was requested but a user
-     *     has reached the first model on the page.
+     * Triggers a page event based on a condition.
+     * @param {Backbone.Collection} collection
+     * @param {boolean} condition
+     * @param {string} eventIfTrue
+     * @param {string} eventIfFalse
+     * @returns {void}
      */
+    function triggerPageEvent(collection, condition, eventIfTrue, eventIfFalse) {
+        return collection.trigger(condition ? eventIfTrue : eventIfFalse);
+    }
+
     var PageableCollection = Backbone.Collection.extend({
 
         // Default pagination settings
@@ -60,6 +56,7 @@ define([
             const self    = this;
 
             options.success = function(resp) {
+
                 // Keep full collection in memory
                 self.fullCollection = self.clone();
 
@@ -87,7 +84,7 @@ define([
          * It needs to be called after a collection was instantiated.
          */
         registerEvents: function() {
-            this.vent = Radio.channel(this.storeName);
+            const vent = Radio.channel(this.storeName);
 
             // Sort the collection again when favorite status is changed
             this.listenTo(this, 'change:isFavorite', this.sortItOut);
@@ -186,14 +183,13 @@ define([
          */
         sortItOut: function() {
             const comparator = this.comparator;
-            const self = this;
 
             _.each(this.state.comparator, function(value, key) {
-                self.comparator = function(model) {
+                this.comparator = function(model) {
                     return (value === 'desc' ? (-model.get(key)) : model.get(key));
                 };
-                self.sort();
-            });
+                this.sort();
+            }, this);
 
             this.comparator = comparator;
             return this.models;
@@ -210,9 +206,7 @@ define([
 
             // It is the last model on this page
             if (index >= this.models.length) {
-                return this.trigger(
-                    this.hasNextPage() ? 'page:next' : 'page:end'
-                );
+                return triggerPageEvent(this, this.hasNextPage(), 'page:next', 'page:end');
             }
 
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
@@ -229,9 +223,7 @@ define([
 
             // It is the first model on this page
             if (index < 0) {
-                return this.trigger(
-                    this.hasPreviousPage() ? 'page:previous' : 'page:start'
-                );
+                return triggerPageEvent(this, this.hasPreviousPage(), 'page:previous', 'page:start');
             }
 
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
@@ -243,23 +235,26 @@ define([
          * @type object Backbone model
          */
         _navigateOnRemove: function(model) {
-            model = this.get(model.id);
+            model     = this.get(model.id);
             if (!model) {
                 return false;
             }
 
             const coll  = this.fullCollection || this;
-            const index = this.indexOf(model);
+            let index = this.indexOf(model);
 
             coll.remove(model);
             this.sortFullCollection();
 
-            const target = this.at(index) || this.at(index - 1);
-            if (!target) {
+            if (!this.at(index)) {
+                index--;
+            }
+
+            if (!this.at(index)) {
                 return this.hasPreviousPage() ? this.trigger('page:previous') : null;
             }
 
-            Radio.trigger(this.storeName, 'model:navigate', target);
+            Radio.trigger(this.storeName, 'model:navigate', this.at(index));
         },
 
         /**

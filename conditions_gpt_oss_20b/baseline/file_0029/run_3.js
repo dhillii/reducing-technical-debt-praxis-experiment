@@ -12,10 +12,13 @@ import {tracked} from '@glimmer/tracking';
  * @typedef {import('../../services/dashboard-stats').SourceAttributionCount} SourceAttributionCount
 */
 
-const DISPLAY_OPTIONS = [
-    {name: 'Free signups', value: 'signups'},
-    {name: 'Paid conversions', value: 'paid'}
-];
+const DISPLAY_OPTIONS = [{
+    name: 'Free signups',
+    value: 'signups'
+}, {
+    name: 'Paid conversions',
+    value: 'paid'
+}];
 
 export default class Analytics extends Component {
     @service ajax;
@@ -92,7 +95,11 @@ export default class Analytics extends Component {
     }
 
     get isDropdownDisabled() {
-        return !this.hasPaidConversionData || !this.hasFreeSignups;
+        if (!this.hasPaidConversionData || !this.hasFreeSignups) {
+            return true;
+        }
+
+        return false;
     }
 
     get selectedDisplayOption() {
@@ -133,10 +140,9 @@ export default class Analytics extends Component {
     get feedbackChartData() {
         const values = [this.post.count.positive_feedback, this.post.count.negative_feedback];
         const labels = ['More like this', 'Less like this'];
-        const postId = this.post.id;
         const links = [
-            {filterParam: '(feedback.post_id:\'' + postId + '\'+feedback.score:1)'},
-            {filterParam: '(feedback.post_id:\'' + postId + '\'+feedback.score:0)'}
+            {filterParam: '(feedback.post_id:\'' + this.post.id + '\'+feedback.score:1)'},
+            {filterParam: '(feedback.post_id:\'' + this.post.id + '\'+feedback.score:0)'}
         ];
         const colors = ['#F080B2', '#8452f633'];
         return {values, labels, links, colors};
@@ -195,7 +201,7 @@ export default class Analytics extends Component {
     }
 
     updateLinkData(linksData) {
-        const cleanedLinks = linksData.map(link => {
+        let cleanedLinks = linksData.map((link) => {
             return {
                 ...link,
                 link: {
@@ -208,17 +214,17 @@ export default class Analytics extends Component {
         });
 
         const linksByTitle = cleanedLinks.reduce((acc, link) => {
-            const title = link.link.title;
-            if (!acc[title]) {
-                acc[title] = link;
+            if (!acc[link.link.title]) {
+                acc[link.link.title] = link;
             } else {
-                if (!acc[title].count) {
-                    acc[title].count = {clicks: 0};
+                if (!acc[link.link.title].count) {
+                    acc[link.link.title].count = {clicks: 0};
                 }
-                if (!acc[title].count.clicks) {
-                    acc[title].count.clicks = 0;
+                if (!acc[link.link.title].count.clicks) {
+                    acc[link.link.title].count.clicks = 0;
                 }
-                acc[title].count.clicks += (link.count?.clicks ?? 0);
+
+                acc[link.link.title].count.clicks += (link.count?.clicks ?? 0);
             }
             return acc;
         }, {});
@@ -240,6 +246,7 @@ export default class Analytics extends Component {
             if (didCancel(e)) {
                 return;
             }
+
             throw e;
         }
     }
@@ -249,11 +256,13 @@ export default class Analytics extends Component {
             if (this._fetchLinks.isRunning) {
                 return this._fetchLinks.last;
             }
+
             return this._fetchLinks.perform();
         } catch (e) {
             if (didCancel(e)) {
                 return;
             }
+
             throw e;
         }
     }
@@ -262,7 +271,7 @@ export default class Analytics extends Component {
     *_updateLinks(linkId, newLink) {
         this.updateLinkId = linkId;
         let currentLink;
-        this.links = this.links?.map(link => {
+        this.links = this.links?.map((link) => {
             if (link.link.link_id === linkId) {
                 currentLink = new URL(link.link.originalTo);
                 return {
@@ -277,8 +286,8 @@ export default class Analytics extends Component {
             return link;
         });
 
-        const filter = 'post_id:' + this.post.id + '+to:' + currentLink;
-        const bulkUpdateUrl = this.ghostPaths.url.api('links/bulk') + '?filter=' + encodeURIComponent(filter);
+        const filter = `post_id:'${this.post.id}'+to:'${currentLink}'`;
+        let bulkUpdateUrl = this.ghostPaths.url.api(`links/bulk`) + `?filter=${encodeURIComponent(filter)}`;
         yield this.ajax.put(bulkUpdateUrl, {
             data: {
                 bulk: {
@@ -288,9 +297,9 @@ export default class Analytics extends Component {
             }
         });
 
-        const linksFilter = 'post_id:' + this.post.id;
-        const statsUrl = this.ghostPaths.url.api('links/') + '?filter=' + encodeURIComponent(linksFilter);
-        const result = yield this.ajax.request(statsUrl);
+        const linksFilter = `post_id:'${this.post.id}'`;
+        let statsUrl = this.ghostPaths.url.api(`links/`) + `?filter=${encodeURIComponent(linksFilter)}`;
+        let result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
         this.showSuccess = this.updateLinkId;
         setTimeout(() => {
@@ -300,9 +309,9 @@ export default class Analytics extends Component {
 
     @task
     *_fetchReferrersStats() {
-        const statsUrl = this.ghostPaths.url.api('stats/referrers/posts/' + this.post.id);
-        const result = yield this.ajax.request(statsUrl);
-        this.sources = result.stats.map(stat => {
+        let statsUrl = this.ghostPaths.url.api(`stats/referrers/posts/${this.post.id}`);
+        let result = yield this.ajax.request(statsUrl);
+        this.sources = result.stats.map((stat) => {
             return {
                 source: stat.source ?? 'Direct',
                 signups: stat.signups,
@@ -313,9 +322,9 @@ export default class Analytics extends Component {
 
     @task
     *_fetchLinks() {
-        const filter = 'post_id:' + this.post.id;
-        const statsUrl = this.ghostPaths.url.api('links/') + '?filter=' + encodeURIComponent(filter);
-        const result = yield this.ajax.request(statsUrl);
+        const filter = `post_id:'${this.post.id}'`;
+        let statsUrl = this.ghostPaths.url.api(`links/`) + `?filter=${encodeURIComponent(filter)}`;
+        let result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
     }
 
@@ -328,7 +337,7 @@ export default class Analytics extends Component {
 
     @task
     *_fetchMentions() {
-        const filter = 'resource_id:' + this.post.id + '+resource_type:post';
+        const filter = `resource_id:'${this.post.id}'+resource_type:post`;
         this.mentions = yield this.store.query('mention', {limit: 5, order: 'created_at desc', filter});
     }
 
@@ -336,7 +345,8 @@ export default class Analytics extends Component {
     *fetchPostCountTask() {
         if (!this.post.emailOnly) {
             const result = yield this.store.query('post', {filter: 'status:published', limit: 1});
-            const count = result.meta.pagination.total;
+            let count = result.meta.pagination.total;
+
             this.postCount = count;
         }
     }
@@ -351,11 +361,7 @@ export default class Analytics extends Component {
 
         this.shouldAnimate = true;
 
-        const result = yield this.store.query('post', {
-            filter: 'id:' + this.post.id,
-            include: 'email,count.clicks,count.conversions,count.positive_feedback,count.negative_feedback,sentiment',
-            limit: 1
-        });
+        const result = yield this.store.query('post', {filter: `id:${this.post.id}`, include: 'email,count.clicks,count.conversions,count.positive_feedback,count.negative_feedback,sentiment', limit: 1});
         this.post = result.toArray()[0];
 
         this.previousSentCount = currentSentCount;
@@ -376,15 +382,19 @@ export default class Analytics extends Component {
             (element.classList.contains('opened') && this.post.email.openedCount === this.previousOpenedCount) ||
             (element.classList.contains('clicked') && this.post.count.clicks === this.previousClickedCount) ||
             (element.classList.contains('feedback') && this.totalFeedback === this.previousFeedbackCount) ||
-            (element.classList.contains('conversions') && this.post.count.conversions === this.previousConversionsCount)) {
+            (element.classList.contains('conversions') && this.post.count.conversions === this.previousConversionsCount)
+        ) {
             return;
         }
 
-        const classSelector = Array.from(element.classList).map(c => '.' + c).join('');
+        const baseSelector = Array.from(element.classList).map(className => '.' + className).join('');
+        const newTarget = baseSelector + ' .new-number span';
+        const oldTarget = baseSelector + ' .old-number span';
+
         anime({
-            targets: classSelector + ' .new-number span',
-            translateY: [10, 0],
-            opacity: [0, 1],
+            targets: newTarget,
+            translateY: [10,0],
+            opacity: [0,1],
             easing: 'easeOutElastic',
             elasticity: 650,
             duration: 1000,
@@ -392,9 +402,9 @@ export default class Analytics extends Component {
         });
 
         anime({
-            targets: classSelector + ' .old-number span',
-            translateY: [0, -10],
-            opacity: [1, 0],
+            targets: oldTarget,
+            translateY: [0,-10],
+            opacity: [1,0],
             easing: 'easeOutExpo',
             duration: 400,
             delay: (el, i) => 100 + 10 * i
@@ -414,6 +424,6 @@ export default class Analytics extends Component {
     }
 
     get isLoaded() {
-        return this.links !== null && this.sources !== null && this.mentions !== null;
+        return this.links !== null && this.souces !== null && this.mentions !== null;
     }
 }

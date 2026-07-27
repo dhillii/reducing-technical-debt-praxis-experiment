@@ -42,6 +42,7 @@ export function expectEqualItems(
   assert.notEqual(a, null)
   assert.equal(a.length, b.length)
 
+  // order isn't always guaranteed (we might use `where.id.in`)
   const sorteda = sort ? [...a].sort((x, y) => x.id.localeCompare(y.id)) : a
   const sortedb = sort ? [...b].sort((x, y) => x.id.localeCompare(y.id)) : b
 
@@ -123,7 +124,7 @@ export function makeFieldEntry({
     isFilterable: access.filterable ? allowAll : denyAll,
     isIndexed: unique ? 'unique' : false,
     validation: {
-      isRequired: unique,
+      isRequired: unique, // helps with debugging
     },
     defaultValue: unique ? null : `Value_${name}`,
   } as const
@@ -149,44 +150,23 @@ export type Field = ReturnType<typeof makeFieldEntry>
 export type List = ReturnType<typeof makeList> extends Generator<infer T, any, any> ? T : never
 
 /**
- * Predicate: checks if any of create, update, delete access flags are false.
- * @param access Access flags for a list.
- * @returns true if any flag is false.
+ * Returns true if any of create, update, delete access flags are false.
  */
-function hasAnyFalseCreateUpdateDelete(access: {
-  create: boolean
-  update: boolean
-  delete: boolean
-}): boolean {
+function hasAnyFalseCreateUpdateDelete(access: { create: boolean; update: boolean; delete: boolean }): boolean {
   return !access.create || !access.update || !access.delete
 }
 
 /**
- * Predicate: checks if any of query, update, delete access flags are false.
- * @param access Access flags for a list.
- * @returns true if any flag is false.
+ * Returns true if any of query, update, delete access flags are false.
  */
-function hasAnyFalseQueryUpdateDelete(access: {
-  query: boolean
-  update: boolean
-  delete: boolean
-}): boolean {
+function hasAnyFalseQueryUpdateDelete(access: { query: boolean; update: boolean; delete: boolean }): boolean {
   return !access.query || !access.update || !access.delete
 }
 
 /**
- * Creates the operation yield object for a list.
+ * Builds the operation yield object for a list.
  */
-function createOperationYield(
-  nameO: string,
-  access: {
-    query: boolean
-    create: boolean
-    update: boolean
-    delete: boolean
-  },
-  fields: Field[]
-) {
+function createOperationYield(nameO: string, access: { query: boolean; create: boolean; update: boolean; delete: boolean }, fields: Field[]): any {
   return {
     name: nameO,
     expect: { type: 'operation' as const, ...access },
@@ -216,18 +196,9 @@ function createOperationYield(
 }
 
 /**
- * Creates the item yield object for a list.
+ * Builds the item yield object for a list.
  */
-function createItemYield(
-  nameI: string,
-  access: {
-    query: boolean
-    create: boolean
-    update: boolean
-    delete: boolean
-  },
-  fields: Field[]
-) {
+function createItemYield(nameI: string, access: { query: boolean; create: boolean; update: boolean; delete: boolean }, fields: Field[]): any {
   return {
     name: nameI,
     expect: { type: 'item' as const, ...access },
@@ -257,18 +228,9 @@ function createItemYield(
 }
 
 /**
- * Creates the filter(b) yield object for a list.
+ * Builds the filter(b) yield object for a list.
  */
-function createFilterbYield(
-  nameFB: string,
-  access: {
-    query: boolean
-    create: boolean
-    update: boolean
-    delete: boolean
-  },
-  fields: Field[]
-) {
+function createFilterBYield(nameFB: string, access: { query: boolean; create: boolean; update: boolean; delete: boolean }, fields: Field[]): any {
   return {
     name: nameFB,
     expect: { type: 'filter(b)' as const, ...access },
@@ -298,18 +260,9 @@ function createFilterbYield(
 }
 
 /**
- * Creates the filter yield object for a list.
+ * Builds the filter yield object for a list.
  */
-function createFilterYield(
-  nameF: string,
-  access: {
-    query: boolean
-    create: boolean
-    update: boolean
-    delete: boolean
-  },
-  fields: Field[]
-) {
+function createFilterYield(nameF: string, access: { query: boolean; create: boolean; update: boolean; delete: boolean }, fields: Field[]): any {
   return {
     name: nameF,
     expect: { type: 'filter' as const, ...access },
@@ -364,7 +317,7 @@ export function* makeList({
 
   if (hasAnyFalseQueryUpdateDelete(access)) {
     const nameFB = `List_filterb_${suffix}`
-    yield createFilterbYield(nameFB, access, fields)
+    yield createFilterBYield(nameFB, access, fields)
 
     const nameF = `List_filter_${suffix}`
     yield createFilterYield(nameF, access, fields)
@@ -372,6 +325,7 @@ export function* makeList({
 }
 
 export function randomCount() {
+  // return 1 + randomInt()
   return 6
 }
 
@@ -382,6 +336,7 @@ export function randomString() {
 export async function seed(l: List, context: any) {
   const data = Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
 
+  // sudo required, as we might not have query/read access
   return (await context.sudo().db[l.name].createOne({ data })) as Record<string, any>
 }
 
@@ -390,6 +345,7 @@ export async function seedMany(l: List, context: any) {
     Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
   )
 
+  // sudo required, as we might not have query/read access
   return (await context.sudo().db[l.name].createMany({ data })) as Record<string, any>[]
 }
 
@@ -433,6 +389,7 @@ export const lists = [
       ...(function* () {
         for (const read of [false, true]) {
           for (const create of [/*false */ true]) {
+            // only TRUE, otherwise we need create hooks when uniquely constrained
             for (const update of [false, true]) {
               for (const filterable of [false, true]) {
                 yield makeFieldEntry({

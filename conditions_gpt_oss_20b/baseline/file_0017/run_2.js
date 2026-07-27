@@ -6,7 +6,7 @@ import CloseButton from '../common/close-button';
 import BackButton from '../common/back-button';
 import {MultipleProductsPlansSection} from '../common/plans-section';
 import {getDateString} from '../../utils/date-time';
-import {formatNumber, getAvailablePrices, getCurrencySymbol, getFilteredPrices, getMemberActivePrice, getMemberSubscription, getOfferOffAmount, getUpdatedOfferPrice, getProductFromId, getProductFromPrice, getSubscriptionFromId, hasMultipleProductsFeature, isComplimentaryMember, isPaidMember} from '../../utils/helpers';
+import {formatNumber, getAvailablePrices, getCurrencySymbol, getFilteredPrices, getMemberActivePrice, getMemberActiveProduct, getMemberSubscription, getOfferOffAmount, getPriceFromSubscription, getProductFromId, getProductFromPrice, getSubscriptionFromId, getUpdatedOfferPrice, getUpgradeProducts, hasMultipleProductsFeature, isComplimentaryMember, isPaidMember} from '../../utils/helpers';
 import Interpolate from '@doist/react-interpolate';
 import {t} from '../../utils/i18n';
 
@@ -358,7 +358,9 @@ RetentionOfferSection.propTypes = {
     onDeclineOffer: PropTypes.func.isRequired
 };
 
-const UpgradePlanSection = ({plans, selectedPlan, onPlanSelect, onPlanCheckout}) => {
+const UpgradePlanSection = ({
+    plans, selectedPlan, onPlanSelect, onPlanCheckout
+}) => {
     let singlePlanClass = '';
     if (plans.length === 1) {
         singlePlanClass = 'singleplan';
@@ -464,7 +466,9 @@ export default class AccountPlanPage extends React.Component {
             this.prices = getFilteredPrices({prices: this.prices, currency: activePrice.currency});
         }
 
-        let selectedPrice = activePrice ? this.prices.find((d) => d.id === activePrice.id) : null;
+        let selectedPrice = activePrice ? this.prices.find((d) => {
+            return (d.id === activePrice.id);
+        }) : null;
 
         if (!isPaidMember({member}) && this.prices.length > 0) {
             selectedPrice = this.prices[0];
@@ -525,8 +529,10 @@ export default class AccountPlanPage extends React.Component {
 
         if (!isPaidMember({member}) || isComplimentaryMember({member})) {
             this.timeoutId = setTimeout(() => {
-                this.setState({
-                    selectedPlan: priceId
+                this.setState(() => {
+                    return {
+                        selectedPlan: priceId
+                    };
                 });
             }, 5);
         } else {
@@ -605,7 +611,10 @@ export default class AccountPlanPage extends React.Component {
 
     getActivePriceId({member}) {
         const activePrice = getMemberActivePrice({member});
-        return activePrice ? activePrice.id : null;
+        if (activePrice) {
+            return activePrice.id;
+        }
+        return null;
     }
 
     onConfirm(e, data) {

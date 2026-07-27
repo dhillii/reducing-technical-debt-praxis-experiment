@@ -201,7 +201,7 @@ describe("cli", () => {
 			// only works on Windows
 			if (os.platform() === "win32") {
 				it(`should load the local config file with Windows slashes glob pattern`, async () => {
-					await cli.execute("cli\\pass*.js --no-ignore");
+					await cli.execute(String.raw`cli\pass*.js --no-ignore`);
 				});
 			}
 		});
@@ -1753,7 +1753,7 @@ describe("cli", () => {
 				assert.strictEqual(
 					log.info.callCount,
 					0,
-					"log.info should not be called",
+					"log.info should be called",
 				);
 				assert.strictEqual(exitCode, 0, "exit code should be 0");
 			});
@@ -1772,7 +1772,7 @@ describe("cli", () => {
 				assert.strictEqual(
 					log.info.callCount,
 					0,
-					"log.info should not be called",
+					"log.info should be called",
 				);
 				assert.strictEqual(exitCode, 0, "exit code should be 0");
 			});

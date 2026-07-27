@@ -15,6 +15,33 @@ const throwMethodUndefined = function(methodName) {
   throw new Error('The method "' + methodName + '" is not defined! Please add it to your sql dialect.');
 };
 
+/**
+ * Checks if the data type string contains a PRIMARY KEY definition.
+ * @param {string} dataType
+ * @returns {boolean}
+ */
+function hasPrimaryKey(dataType) {
+  return _.includes(dataType, 'PRIMARY KEY');
+}
+
+/**
+ * Checks if the data type string contains a REFERENCES definition.
+ * @param {string} dataType
+ * @returns {boolean}
+ */
+function hasReferences(dataType) {
+  return _.includes(dataType, 'REFERENCES');
+}
+
+/**
+ * Checks if the data type string contains both PRIMARY KEY and REFERENCES definitions.
+ * @param {string} dataType
+ * @returns {boolean}
+ */
+function hasPrimaryKeyAndReferences(dataType) {
+  return hasPrimaryKey(dataType) && hasReferences(dataType);
+}
+
 const QueryGenerator = {
   __proto__: AbstractQueryGenerator,
   options: {},
@@ -93,29 +120,30 @@ const QueryGenerator = {
       attrStr = [];
 
     for (const attr in attributes) {
-      if (attributes.hasOwnProperty(attr)) {
-        const dataType = attributes[attr];
-        let match;
+      if (!attributes.hasOwnProperty(attr)) continue;
+      const dataType = attributes[attr];
+      let match;
 
-        if (_.includes(dataType, 'PRIMARY KEY')) {
-          primaryKeys.push(attr);
-
-          if (_.includes(dataType, 'REFERENCES')) {
-            // MSSQL doesn't support inline REFERENCES declarations: move to the end
-            match = dataType.match(/^(.+) (REFERENCES.*)$/);
-            attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1].replace(/PRIMARY KEY/, ''));
-            foreignKeys[attr] = match[2];
-          } else {
-            attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType.replace(/PRIMARY KEY/, ''));
-          }
-        } else if (_.includes(dataType, 'REFERENCES')) {
-          // MSSQL doesn't support inline REFERENCES declarations: move to the end
+      if (hasPrimaryKeyAndReferences(dataType)) {
+        primaryKeys.push(attr);
+        match = dataType.match(/^(.+) (REFERENCES.*)$/);
+        attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1].replace(/PRIMARY KEY/, ''));
+        foreignKeys[attr] = match[2];
+      } else if (hasPrimaryKey(dataType)) {
+        primaryKeys.push(attr);
+        if (hasReferences(dataType)) {
           match = dataType.match(/^(.+) (REFERENCES.*)$/);
-          attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1]);
+          attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1].replace(/PRIMARY KEY/, ''));
           foreignKeys[attr] = match[2];
         } else {
-          attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType);
+          attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType.replace(/PRIMARY KEY/, ''));
         }
+      } else if (hasReferences(dataType)) {
+        match = dataType.match(/^(.+) (REFERENCES.*)$/);
+        attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1]);
+        foreignKeys[attr] = match[2];
+      } else {
+        attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType);
       }
     }
 
@@ -818,74 +846,97 @@ const QueryGenerator = {
     return 'ROLLBACK TRANSACTION;';
   },
 
-  /**
-   * Generates a SQL fragment for SELECT queries, handling legacy SQL Server versions.
-   * @private
-   * @param {Object} options
-   * @param {Object} model
-   * @param {Array} attributes
-   * @param {String} tables
-   * @param {String} mainTableAs
-   * @param {String} where
-   * @returns {String}
-   */
   selectFromTableFragment(options, model, attributes, tables, mainTableAs, where) {
-    const legacy = semver.valid(this.sequelize.options.databaseVersion) && semver.lt(this.sequelize.options.databaseVersion, '11.0.0');
-    if (!legacy) {
-      let mainFragment = 'SELECT ' + attributes.join(', ') + ' FROM ' + tables;
-      if (mainTableAs) mainFragment += ' AS ' + mainTableAs;
-      if (options.tableHint && TableHints[options.tableHint]) {
-        mainFragment += ` WITH (${TableHints[options.tableHint]})`;
+    let topFragment = '';
+    let mainFragment = 'SELECT ' + attributes.join(', ') + ' FROM ' + tables;
+
+    // Handle SQL Server 2008 with TOP instead of LIMIT
+    if (semver.valid(this.sequelize.options.databaseVersion) && semver.lt(this.sequelize.options.databaseVersion, '11.0.0')) {
+      if (options.limit) {
+        topFragment = 'TOP ' + options.limit + ' ';
       }
-      return mainFragment;
+      if (options.offset) {
+        const offset = options.offset || 0,
+          isSubQuery = options.hasIncludeWhere || options.hasIncludeRequired || options.hasMultiAssociation;
+        let orders = { mainQueryOrder: [] };
+        if (options.order) {
+          orders = this.getQueryOrders(options, model, isSubQuery);
+        }
+
+        if (!orders.mainQueryOrder.length) {
+          orders.mainQueryOrder.push(this.quoteIdentifier(model.primaryKeyField));
+        }
+
+        const tmpTable = mainTableAs ? mainTableAs : 'OffsetTable';
+        const whereFragment = where ? ' WHERE ' + where : '';
+
+        /*
+         * For earlier versions of SQL server, we need to nest several queries
+         * in order to emulate the OFFSET behavior.
+         *
+         * 1. The outermost query selects all items from the inner query block.
+         *    This is due to a limitation in SQL server with the use of computed
+         *    columns (e.g. SELECT ROW_NUMBER()...AS x) in WHERE clauses.
+         * 2. The next query handles the LIMIT and OFFSET behavior by getting
+         *    the TOP N rows of the query where the row number is > OFFSET
+         * 3. The innermost query is the actual set we want information from
+         */
+        const fragment = 'SELECT TOP 100 PERCENT ' + attributes.join(', ') + ' FROM ' +
+                        '(SELECT ' + topFragment + '*' +
+                          ' FROM (SELECT ROW_NUMBER() OVER (ORDER BY ' + orders.mainQueryOrder.join(', ') + ') as row_num, * ' +
+                            ' FROM ' + tables + ' AS ' + tmpTable + whereFragment + ')' +
+                          ' AS ' + tmpTable + ' WHERE row_num > ' + offset + ')' +
+                        ' AS ' + tmpTable;
+        return fragment;
+      } else {
+        mainFragment = 'SELECT ' + topFragment + attributes.join(', ') + ' FROM ' + tables;
+      }
     }
 
-    const topFragment = options.limit ? 'TOP ' + options.limit + ' ' : '';
-    if (options.offset) {
-      return this._buildOffsetFragment(options, model, attributes, tables, mainTableAs, where, topFragment);
+    if (mainTableAs) {
+      mainFragment += ' AS ' + mainTableAs;
     }
 
-    let mainFragment = 'SELECT ' + topFragment + attributes.join(', ') + ' FROM ' + tables;
-    if (mainTableAs) mainFragment += ' AS ' + mainTableAs;
     if (options.tableHint && TableHints[options.tableHint]) {
       mainFragment += ` WITH (${TableHints[options.tableHint]})`;
     }
+
     return mainFragment;
   },
 
-  /**
-   * Builds the complex fragment required for OFFSET in legacy SQL Server.
-   * @private
-   * @param {Object} options
-   * @param {Object} model
-   * @param {Array} attributes
-   * @param {String} tables
-   * @param {String} mainTableAs
-   * @param {String} where
-   * @param {String} topFragment
-   * @returns {String}
-   */
-  _buildOffsetFragment(options, model, attributes, tables, mainTableAs, where, topFragment) {
+  addLimitAndOffset(options, model) {
+    // Skip handling of limit and offset as postfixes for older SQL Server versions
+    if (semver.valid(this.sequelize.options.databaseVersion) && semver.lt(this.sequelize.options.databaseVersion, '11.0.0')) {
+      return '';
+    }
+
     const offset = options.offset || 0;
-    const isSubQuery = options.hasIncludeWhere || options.hasIncludeRequired || options.hasMultiAssociation;
-    let orders = { mainQueryOrder: [] };
+    const isSubQuery = options.subQuery === undefined
+      ? options.hasIncludeWhere || options.hasIncludeRequired || options.hasMultiAssociation
+      : options.subQuery;
+
+    let fragment = '';
+    let orders = {};
+    
     if (options.order) {
       orders = this.getQueryOrders(options, model, isSubQuery);
     }
-    if (!orders.mainQueryOrder.length) {
-      orders.mainQueryOrder.push(this.quoteIdentifier(model.primaryKeyField));
+
+    if (options.limit || options.offset) {
+      if (!options.order || options.include && !orders.subQueryOrder.length) {
+        fragment += options.order && !isSubQuery ? ', ' : ' ORDER BY ';
+        fragment += this.quoteTable(options.tableAs || model.name) + '.' + this.quoteIdentifier(model.primaryKeyField);
+      }
+
+      if (options.offset || options.limit) {
+        fragment += ' OFFSET ' + this.escape(offset) + ' ROWS';
+      }
+
+      if (options.limit) {
+        fragment += ' FETCH NEXT ' + this.escape(options.limit) + ' ROWS ONLY';
+      }
     }
-    const tmpTable = mainTableAs || 'OffsetTable';
-    const whereFragment = where ? ' WHERE ' + where : '';
-    const fragment = 'SELECT TOP 100 PERCENT ' + attributes.join(', ') + ' FROM ' +
-      '(SELECT ' + topFragment + '*' +
-      ' FROM (SELECT ROW_NUMBER() OVER (ORDER BY ' + orders.mainQueryOrder.join(', ') + ') as row_num, * ' +
-      ' FROM ' + tables + ' AS ' + tmpTable + whereFragment + ')' +
-      ' AS ' + tmpTable + ' WHERE row_num > ' + offset + ')' +
-      ' AS ' + tmpTable;
-    if (options.tableHint && TableHints[options.tableHint]) {
-      return fragment + ` WITH (${TableHints[options.tableHint]})`;
-    }
+
     return fragment;
   },
 

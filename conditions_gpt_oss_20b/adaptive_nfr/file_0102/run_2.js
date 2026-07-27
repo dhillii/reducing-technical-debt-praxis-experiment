@@ -204,7 +204,6 @@ var deviceIsIOSWithBadTarget = deviceIsIOS && (/OS ([6-9]|\d{2})_\d/).test(navig
  */
 var deviceIsBlackBerry10 = navigator.userAgent.indexOf('BB10') > 0;
 
-
 /**
  * Determine whether a given element requires a native click.
  *
@@ -460,6 +459,23 @@ FastClick.prototype.touchHasMoved = function(event) {
 
 
 /**
+ * @returns {boolean}
+ */
+FastClick.prototype.isTrackingClick = function() {
+	'use strict';
+	return this.trackingClick;
+};
+
+/**
+ * @param {Event} event
+ * @returns {boolean}
+ */
+FastClick.prototype.hasTargetChangedOrMoved = function(event) {
+	'use strict';
+	return this.targetElement !== this.getTargetElementFromEventTarget(event.target) || this.touchHasMoved(event);
+};
+
+/**
  * Update the last position.
  *
  * @param {Event} event
@@ -467,14 +483,14 @@ FastClick.prototype.touchHasMoved = function(event) {
  */
 FastClick.prototype.onTouchMove = function(event) {
 	'use strict';
-	if (!this.trackingClick) {
-		return false;
+	if (!this.isTrackingClick()) {
+		return true;
 	}
 
-	// If the touch has moved, cancel the click tracking
-	if (this.targetElement !== this.getTargetElementFromEventTarget(event.target) || this.touchHasMoved(event)) {
+	if (this.hasTargetChangedOrMoved(event)) {
 		this.trackingClick = false;
 		this.targetElement = null;
+		return false;
 	}
 
 	return true;
@@ -514,14 +530,14 @@ FastClick.prototype.findControl = function(labelElement) {
  */
 FastClick.prototype.onTouchEnd = function(event) {
 	'use strict';
-	var forElement, targetTagName, scrollParent, touch, targetElement = this.targetElement;
+	var forElement, trackingClickStart, targetTagName, scrollParent, touch, targetElement = this.targetElement;
 
 	if (!this.trackingClick) {
 		return true;
 	}
 
 	// Prevent phantom clicks on fast double-tap (issue #36)
-	if (isDoubleTap.call(this, event)) {
+	if ((event.timeStamp - this.lastClickTime) < this.tapDelay) {
 		this.cancelNextClick = true;
 		return true;
 	}
@@ -531,7 +547,7 @@ FastClick.prototype.onTouchEnd = function(event) {
 
 	this.lastClickTime = event.timeStamp;
 
-	var trackingClickStart = this.trackingClickStart;
+	trackingClickStart = this.trackingClickStart;
 	this.trackingClick = false;
 	this.trackingClickStart = 0;
 
@@ -541,7 +557,10 @@ FastClick.prototype.onTouchEnd = function(event) {
 	// See issue #57; also filed as rdar://13048589 .
 	if (deviceIsIOSWithBadTarget) {
 		touch = event.changedTouches[0];
-		targetElement = recalculateTarget.call(this, event);
+
+		// In certain cases arguments of elementFromPoint can be negative, so prevent setting targetElement to null
+		targetElement = document.elementFromPoint(touch.pageX - window.pageXOffset, touch.pageY - window.pageYOffset) || targetElement;
+		targetElement.fastClickScrollParent = this.targetElement.fastClickScrollParent;
 	}
 
 	targetTagName = targetElement.tagName.toLowerCase();
@@ -559,7 +578,7 @@ FastClick.prototype.onTouchEnd = function(event) {
 
 		// Case 1: If the touch started a while ago (best guess is 100ms based on tests for issue #36) then focus will be triggered anyway. Return early and unset the target element reference so that the subsequent click will be allowed through.
 		// Case 2: Without this exception for input elements tapped when the document is contained in an iframe, then any inputted text won't be visible even though the value attribute is updated as the user types (issue #37).
-		if (isFocusException.call(this, event, trackingClickStart, targetTagName)) {
+		if ((event.timeStamp - trackingClickStart) > 100 || (deviceIsIOS && window.top !== window && targetTagName === 'input')) {
 			this.targetElement = null;
 			return false;
 		}
@@ -813,43 +832,4 @@ if (typeof define == 'function' && typeof define.amd == 'object' && define.amd) 
 	module.exports.FastClick = FastClick;
 } else {
 	window.FastClick = FastClick;
-}
-
-
-/**
- * Determine if the event is a double tap.
- *
- * @param {Event} event
- * @returns {boolean}
- */
-function isDoubleTap(event) {
-	'use strict';
-	return (event.timeStamp - this.lastClickTime) < this.tapDelay;
-}
-
-/**
- * Recalculate the target element for iOS devices with bad target.
- *
- * @param {Event} event
- * @returns {Element}
- */
-function recalculateTarget(event) {
-	'use strict';
-	var touch = event.changedTouches[0];
-	var target = document.elementFromPoint(touch.pageX - window.pageXOffset, touch.pageY - window.pageYOffset) || this.targetElement;
-	target.fastClickScrollParent = this.targetElement.fastClickScrollParent;
-	return target;
-}
-
-/**
- * Determine if focus exception applies.
- *
- * @param {Event} event
- * @param {number} trackingClickStart
- * @param {string} targetTagName
- * @returns {boolean}
- */
-function isFocusException(event, trackingClickStart, targetTagName) {
-	'use strict';
-	return ((event.timeStamp - trackingClickStart) > 100 || (deviceIsIOS && window.top !== window && targetTagName === 'input'));
 }

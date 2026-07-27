@@ -181,7 +181,7 @@ const ModalStepper = ({
         message: errorMessage,
       });
     } finally {
-      setShowModalConfirmButtonLoading(false);
+      setShowModalConfirmButtonLoading(true);
       toggleModalWarning();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

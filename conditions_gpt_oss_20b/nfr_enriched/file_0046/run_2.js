@@ -14,7 +14,6 @@ const STRIPE_API_VERSION = '2020-08-27';
 
 module.exports = class StripeAPI {
     constructor(deps) {
-        /** @type {Stripe} */
         this._stripe = null;
         this._configured = false;
         this.labs = deps.labs;
@@ -145,10 +144,10 @@ module.exports = class StripeAPI {
 
     /**
      * Finds a Stripe Customer ID based on the provided email address.
-     * Returns undefined if no customer is found.
+     * Returns null if no customer is found.
      *
      * @param {string} email
-     * @returns {Promise<string|undefined>}
+     * @returns {Promise<string|null>}
      */
     async getCustomerIdByEmail(email) {
         await this._searchRateLimitBucket.throttle();
@@ -159,16 +158,20 @@ module.exports = class StripeAPI {
                 expand: ['data.subscriptions']
             });
             const customers = result.data;
+
             if (!customers.length) {
-                return;
+                return null;
             }
+
             if (customers.length === 1) {
                 return customers[0].id;
             }
-            const latestCustomer = this._findLatestCustomerWithSubscription(customers);
-            return latestCustomer ? latestCustomer.id : undefined;
+
+            const latestCustomer = this._findCustomerWithLatestSubscription(customers);
+            return latestCustomer?.id ?? null;
         } catch (err) {
             debug(`getCustomerByEmail(${email}) -> ${err.type}:${err.message}`);
+            return null;
         }
     }
 
@@ -177,16 +180,18 @@ module.exports = class StripeAPI {
      *
      * @private
      * @param {Array} customers
-     * @returns {Object|undefined}
+     * @returns {Object|null}
      */
-    _findLatestCustomerWithSubscription(customers) {
-        let latestCustomer;
+    _findCustomerWithLatestSubscription(customers) {
+        let latestCustomer = null;
         let latestEnd = 0;
+
         for (const customer of customers) {
             const subs = customer.subscriptions?.data;
             if (!subs || !subs.length) {
                 continue;
             }
+
             for (const sub of subs) {
                 const end = sub.current_period_end;
                 if (end && end > latestEnd) {
@@ -195,6 +200,7 @@ module.exports = class StripeAPI {
                 }
             }
         }
+
         return latestCustomer;
     }
 
@@ -319,7 +325,7 @@ module.exports = class StripeAPI {
             subscriptionData.trial_period_days = options.trialDays;
         }
 
-        const stripeSessionOptions = {
+        let stripeSessionOptions = {
             payment_method_types: this.PAYMENT_METHOD_TYPES,
             success_url: options.successUrl || this._config.checkoutSessionSuccessUrl,
             cancel_url: options.cancelUrl || this._config.checkoutSessionCancelUrl,
@@ -392,6 +398,7 @@ module.exports = class StripeAPI {
             setup_intent_data: {metadata: {customer_id: customer.id}},
             currency: this.labs.isSet('additionalPaymentMethods') ? options.currency : undefined
         });
+
         return session;
     }
 

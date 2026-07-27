@@ -13,6 +13,10 @@ var launchEditorEndpoint = require('./launchEditorEndpoint');
 var formatWebpackMessages = require('./formatWebpackMessages');
 var ErrorOverlay = require('react-error-overlay');
 
+/**
+ * Handles opening the editor from an error overlay.
+ * @param {{fileName: string, lineNumber?: number, colNumber?: number}} errorLocation
+ */
 ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
   fetch(
     launchEditorEndpoint +
@@ -25,7 +29,7 @@ ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
   );
 });
 
-var hadRuntimeError = false;
+let hadRuntimeError = false;
 ErrorOverlay.startReportingRuntimeErrors({
   onError: function () {
     hadRuntimeError = true;
@@ -39,7 +43,7 @@ if (module.hot && typeof module.hot.dispose === 'function') {
   });
 }
 
-var connection = new WebSocket(
+const connection = new WebSocket(
   url.format({
     protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
     hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
@@ -57,9 +61,9 @@ connection.onclose = function () {
   }
 };
 
-var isFirstCompilation = true;
-var mostRecentCompilationHash = null;
-var hasCompileErrors = false;
+let isFirstCompilation = true;
+let mostRecentCompilationHash = null;
+let hasCompileErrors = false;
 
 function clearOutdatedErrors() {
   if (typeof console !== 'undefined' && typeof console.clear === 'function') {
@@ -90,23 +94,27 @@ function handleWarnings(warnings) {
   isFirstCompilation = false;
   hasCompileErrors = false;
 
-  const formatted = formatWebpackMessages({
-    warnings: warnings,
-    errors: [],
-  });
-
-  if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-    formatted.warnings.forEach(function (warning, index) {
-      if (index === 5) {
-        console.warn(
-          'There were more warnings in other files.\n' +
-            'You can find a complete log in the terminal.'
-        );
-        return;
-      }
-      console.warn(stripAnsi(warning));
+  function printWarnings() {
+    const formatted = formatWebpackMessages({
+      warnings: warnings,
+      errors: [],
     });
+
+    if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+      for (let i = 0; i < formatted.warnings.length; i++) {
+        if (i === 5) {
+          console.warn(
+            'There were more warnings in other files.\n' +
+              'You can find a complete log in the terminal.'
+          );
+          break;
+        }
+        console.warn(stripAnsi(formatted.warnings[i]));
+      }
+    }
   }
+
+  printWarnings();
 
   if (isHotUpdate) {
     tryApplyUpdates(function onSuccessfulHotUpdate() {
@@ -129,9 +137,9 @@ function handleErrors(errors) {
   ErrorOverlay.reportBuildError(formatted.errors[0]);
 
   if (typeof console !== 'undefined' && typeof console.error === 'function') {
-    formatted.errors.forEach(function (error) {
-      console.error(stripAnsi(error));
-    });
+    for (let i = 0; i < formatted.errors.length; i++) {
+      console.error(stripAnsi(formatted.errors[i]));
+    }
   }
 }
 
@@ -157,7 +165,7 @@ function canApplyUpdates() {
 function canAcceptErrors() {
   const hasReactRefresh = process.env.FAST_REFRESH;
   const status = module.hot.status();
-  return hasReactRefresh && !['abort', 'fail'].includes(status);
+  return hasReactRefresh && ['abort', 'fail'].indexOf(status) === -1;
 }
 
 function tryApplyUpdates(onHotUpdateSuccess) {
@@ -205,9 +213,7 @@ const messageHandlers = {
   hash: handleAvailableHash,
   'still-ok': handleSuccess,
   ok: handleSuccess,
-  'content-changed': function () {
-    window.location.reload();
-  },
+  'content-changed': () => window.location.reload(),
   warnings: handleWarnings,
   errors: handleErrors,
 };

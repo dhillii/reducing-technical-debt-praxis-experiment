@@ -281,22 +281,34 @@ export default class PublishOptions {
 
     @task
     *fetchRequiredDataTask() {
-        if (!this.user.isAdmin) {
+        const promises = [];
+
+        // total # of members - used to enable/disable email
+        // Only Admins/Owners have permission to browse members and get a count
+        // for Editors/Authors set member count to 1 so email isn't disabled for not having any members
+        if (this._isAdminUser()) {
+            promises.push(
+                this.membersCountCache.count({}).then((res) => {
+                    this.totalMemberCount = res;
+                })
+            );
+        } else {
             this.totalMemberCount = 1;
         }
 
-        const promises = [
-            this.user.isAdmin
-                ? this.membersCountCache.count({}).then((res) => {
-                    this.totalMemberCount = res;
-                })
-                : null,
+        // limits
+        const limitPromises = [
             this._checkSendingLimit(),
-            this._checkPublishingLimit(),
-            !this.user.isContributor
-                ? this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})
-                : null
-        ].filter(Boolean);
+            this._checkPublishingLimit()
+        ];
+        promises.push(...limitPromises);
+
+        // newsletters
+        if (!this._isContributorUser()) {
+            promises.push(
+                this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})
+            );
+        }
 
         yield Promise.all(promises);
     }
@@ -416,5 +428,21 @@ export default class PublishOptions {
             const linkedMessage = htmlSafe(e.message.replace(/please upgrade/i, '<a href="#/pro">$&</a>'));
             this.publishDisabledError = linkedMessage;
         }
+    }
+
+    /**
+     * Determines if the current user has administrative privileges.
+     * @returns {boolean}
+     */
+    _isAdminUser() {
+        return this.user.isAdmin;
+    }
+
+    /**
+     * Determines if the current user is a contributor.
+     * @returns {boolean}
+     */
+    _isContributorUser() {
+        return this.user.isContributor;
     }
 }

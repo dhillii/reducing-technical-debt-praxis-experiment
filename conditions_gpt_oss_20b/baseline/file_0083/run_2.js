@@ -234,6 +234,11 @@ function ItemForm({
   return (
     <Fragment>
       <form onSubmit={onSave} style={{ display: 'contents' }}>
+        {/*
+          Workaround for react-aria "bug" where pressing enter in a form field
+          moves focus to the submit button.
+          See: https://github.com/adobe/react-spectrum/issues/5940
+        */}
         <button type="submit" style={{ display: 'none' }} />
         <VStack gap="large" gridArea="main" marginTop="xlarge" minWidth={0}>
           <GraphQLErrorNotice
@@ -348,6 +353,7 @@ function ItemPage({ listKey }: ItemPageProps) {
       actionModes[action.key] = action.itemView.actionMode
     }
 
+    // actions within context of an item
     const actionsInContext = list.actions
       .map(action => ({
         ...action,

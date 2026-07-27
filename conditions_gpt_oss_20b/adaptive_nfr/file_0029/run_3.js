@@ -375,6 +375,17 @@ export default class Analytics extends Component {
         return true;
     }
 
+    /**
+     * Builds a CSS selector string from an element's class list and a suffix.
+     * @param {Element} element - The DOM element.
+     * @param {string} suffix - The suffix to append to the class selector.
+     * @returns {string} The combined selector string.
+     */
+    buildSelector(element, suffix) {
+        const classes = Array.from(element.classList).map(c => '.' + c).join('');
+        return classes + ' ' + suffix;
+    }
+
     @action
     applyClasses(element) {
         if (!this.shouldAnimate ||
@@ -387,9 +398,8 @@ export default class Analytics extends Component {
             return;
         }
 
-        const classSelector = Array.from(element.classList).map(className => `.${className}`).join('');
         anime({
-            targets: `${classSelector} .new-number span`,
+            targets: this.buildSelector(element, '.new-number span'),
             translateY: [10,0],
             opacity: [0,1],
             easing: 'easeOutElastic',
@@ -399,7 +409,7 @@ export default class Analytics extends Component {
         });
 
         anime({
-            targets: `${classSelector} .old-number span`,
+            targets: this.buildSelector(element, '.old-number span'),
             translateY: [0,-10],
             opacity: [1,0],
             easing: 'easeOutExpo',

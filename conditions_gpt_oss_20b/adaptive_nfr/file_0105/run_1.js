@@ -193,15 +193,15 @@ exports.list = function (failures) {
       message = '';
     }
     let stack = err.stack || message;
-    let index = message ? stack.indexOf(message) : -1;
+    const index = message ? stack.indexOf(message) : -1;
 
     if (index === -1) {
       msg = message;
     } else {
-      index += message.length;
-      msg = stack.slice(0, index);
+      const newIndex = index + message.length;
+      msg = stack.slice(0, newIndex);
       // remove msg from stack
-      stack = stack.slice(index + 1);
+      stack = stack.slice(newIndex + 1);
     }
 
     // uncaught
@@ -432,8 +432,7 @@ function unifiedDiff (err) {
   const lines = msg.split('\n').splice(5);
   return '\n      ' +
     colorLines('diff added', '+ expected') + ' ' +
-    colorLines('diff removed', '- actual') +
-    '\n\n' +
+    colorLines('diff removed', '- actual') + '\n\n' +
     lines.map(cleanUp).filter(notBlank).join('\n');
 }
 

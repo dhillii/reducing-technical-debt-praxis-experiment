@@ -256,39 +256,24 @@ export default class PublishOptions {
     *setupTask() {
         yield this.fetchRequiredDataTask.perform();
 
+        // TODO: set up initial state / defaults
+
         this.newsletter = this.defaultNewsletter;
 
-        this._setPublishTypeBasedOnEmailAvailability();
-        this._setPublishTypeBasedOnDefaultRecipients();
-        this._setPublishTypeBasedOnPostSent();
-    }
-
-    /**
-     * Set publish type to 'publish' if email is unavailable or disabled.
-     */
-    _setPublishTypeBasedOnEmailAvailability() {
         if (this.emailUnavailable || this.emailDisabled) {
             this.publishType = 'publish';
         }
-    }
 
-    /**
-     * If default recipients is set to "Usually nobody", set publish type to
-     * "Publish" but keep email recipients matching post visibility.
-     */
-    _setPublishTypeBasedOnDefaultRecipients() {
+        // When default recipients is set to "Usually nobody":
+        // Set publish type to "Publish" but keep email recipients matching post visibility
+        // to avoid multiple clicks to turn on emailing
         if (
             this.settings.editorDefaultEmailRecipients === 'filter' &&
             this.settings.editorDefaultEmailRecipientsFilter === null
         ) {
             this.publishType = 'publish';
         }
-    }
 
-    /**
-     * If the post has already been sent, set publish type to 'send'.
-     */
-    _setPublishTypeBasedOnPostSent() {
         if (this.post.isSent) {
             this.publishType = 'send';
         }
@@ -296,24 +281,30 @@ export default class PublishOptions {
 
     @task
     *fetchRequiredDataTask() {
-        if (!this.user.isAdmin) {
-            this.totalMemberCount = 1;
-        }
+        const promises = [];
 
-        const promises = [
-            this._checkSendingLimit(),
-            this._checkPublishingLimit(),
-            ...(this.user.isContributor ? [] : [
-                this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})
-            ]),
-            ...(this.user.isAdmin ? [
+        // total # of members - used to enable/disable email
+        // Only Admins/Owners have permission to browse members and get a count
+        // for Editors/Authors set member count to 1 so email isn't disabled for not having any members
+        if (this.user.isAdmin) {
+            promises.push(
                 this.membersCountCache.count({}).then((res) => {
                     this.totalMemberCount = res;
                 })
-            ] : [])
-        ];
+            );
+        } else {
+            this.totalMemberCount = 1;
+        }
 
-        yield Promise.all(promises);
+        // limits
+        const limitPromises = [this._checkSendingLimit(), this._checkPublishingLimit()];
+
+        // newsletters
+        const newsletterPromise = !this.user.isContributor
+            ? this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})
+            : Promise.resolve();
+
+        yield Promise.all([...promises, ...limitPromises, newsletterPromise]);
     }
 
     // saving ------------------------------------------------------------------

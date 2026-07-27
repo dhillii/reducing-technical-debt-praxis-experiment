@@ -106,6 +106,47 @@ class QueryInterface {
   /**
    * Create a table with given set of attributes
    *
+   * ```js
+   * queryInterface.createTable(
+   *   'nameOfTheNewTable',
+   *   {
+   *     id: {
+   *       type: Sequelize.INTEGER,
+   *       primaryKey: true,
+   *       autoIncrement: true
+   *     },
+   *     createdAt: {
+   *       type: Sequelize.DATE
+   *     },
+   *     updatedAt: {
+   *       type: Sequelize.DATE
+   *     },
+   *     attr1: Sequelize.STRING,
+   *     attr2: Sequelize.INTEGER,
+   *     attr3: {
+   *       type: Sequelize.BOOLEAN,
+   *       defaultValue: false,
+   *       allowNull: false
+   *     },
+   *     //foreign key usage
+   *     attr4: {
+   *       type: Sequelize.INTEGER,
+   *       references: {
+   *         model: 'another_table_name',
+   *         key: 'id'
+   *       },
+   *       onUpdate: 'cascade',
+   *       onDelete: 'cascade'
+   *     }
+   *   },
+   *   {
+   *     engine: 'MYISAM',    // default: 'InnoDB'
+   *     charset: 'latin1',   // default: null
+   *     schema: 'public'     // default: public, PostgreSQL only.
+   *   }
+   * )
+   * ```
+   *
    * @param {String} tableName  Name of table to create
    * @param {Object} attributes Object representing a list of table attributes to create
    * @param {Object} [options]
@@ -290,56 +331,48 @@ class QueryInterface {
    *
    * @return {Promise}
    */
-  dropAllTables(options) {
+  async dropAllTables(options) {
     options = options || {};
     const skip = options.skip || [];
 
-    return this.showAllTables(options).then(tableNames => {
-      if (this.sequelize.options.dialect === 'sqlite') {
-        return this.sequelize.query('PRAGMA foreign_keys;', options).then(result => {
-          const foreignKeysAreEnabled = result.foreign_keys === 1;
+    const dropTablesSequentially = async (tableNames) => {
+      for (const tableName of tableNames) {
+        const name = tableName.tableName || tableName;
+        if (skip.indexOf(name) === -1) {
+          await this.dropTable(tableName, _.assign({}, options, { cascade: true }));
+        }
+      }
+    };
 
-          if (foreignKeysAreEnabled) {
-            return this.sequelize.query('PRAGMA foreign_keys = OFF', options)
-              .then(() => this._dropAllTables(tableNames, options))
-              .then(() => this.sequelize.query('PRAGMA foreign_keys = ON', options));
-          } else {
-            return this._dropAllTables(tableNames, options);
-          }
-        });
+    const tableNames = await this.showAllTables(options);
+
+    if (this.sequelize.options.dialect === 'sqlite') {
+      const result = await this.sequelize.query('PRAGMA foreign_keys;', options);
+      const foreignKeysAreEnabled = result.foreign_keys === 1;
+      if (foreignKeysAreEnabled) {
+        await this.sequelize.query('PRAGMA foreign_keys = OFF', options);
+        await dropTablesSequentially(tableNames);
+        await this.sequelize.query('PRAGMA foreign_keys = ON', options);
       } else {
-        return this.getForeignKeysForTables(tableNames, options).then(foreignKeys => {
-          const promises = [];
-
-          tableNames.forEach(tableName => {
-            let normalizedTableName = tableName;
-            if (_.isObject(tableName)) {
-              normalizedTableName = tableName.schema + '.' + tableName.tableName;
-            }
-
-            foreignKeys[normalizedTableName].forEach(foreignKey => {
-              const sql = this.QueryGenerator.dropForeignKeyQuery(tableName, foreignKey);
-              promises.push(this.sequelize.query(sql, options));
-            });
-          });
-
-          return Promise.all(promises).then(() => this._dropAllTables(tableNames, options));
-        });
+        await dropTablesSequentially(tableNames);
       }
-    });
-  }
-
-  /**
-   * Helper method to drop all tables without nested functions.
-   *
-   * @private
-   */
-  _dropAllTables(tableNames, options) {
-    return Promise.each(tableNames, tableName => {
-      if (skip.indexOf(tableName.tableName || tableName) === -1) {
-        return this.dropTable(tableName, _.assign({}, options, { cascade: true }) );
+    } else {
+      const foreignKeys = await this.getForeignKeysForTables(tableNames, options);
+      const foreignKeyPromises = [];
+      for (const tableName of tableNames) {
+        let normalizedTableName = tableName;
+        if (_.isObject(tableName)) {
+          normalizedTableName = tableName.schema + '.' + tableName.tableName;
+        }
+        const fks = foreignKeys[normalizedTableName] || [];
+        for (const foreignKey of fks) {
+          const sql = this.QueryGenerator.dropForeignKeyQuery(tableName, foreignKey);
+          foreignKeyPromises.push(this.sequelize.query(sql, options));
+        }
       }
-    });
+      await Promise.all(foreignKeyPromises);
+      await dropTablesSequentially(tableNames);
+    }
   }
 
   /**
@@ -382,7 +415,7 @@ class QueryInterface {
    * Renames a table
    *
    * @param {String} before    Current name of table
-   * @param {String} after     New column from table
+   * @param {String} after     New name from table
    * @param {Object} [options] Query options
    *
    * @return {Promise}
@@ -418,6 +451,20 @@ class QueryInterface {
    *
    * This method returns an array of hashes containing information about all attributes in the table.
    *
+   * ```js
+   * {
+   *    name: {
+   *      type:         'VARCHAR(255)', // this will be 'CHARACTER VARYING' for pg!
+   *      allowNull:    true,
+   *      defaultValue: null
+   *    },
+   *    isBetaMember: {
+   *      type:         'TINYINT(1)', // this will be 'BOOLEAN' for pg!
+   *      allowNull:    false,
+   *      defaultValue: false
+   *    }
+   * }
+   * ```
    * @param {String} tableName
    * @param {Object} [options] Query options
    *
@@ -634,14 +681,6 @@ class QueryInterface {
     return this.QueryGenerator.nameIndexes(indexes, rawTablename);
   }
 
-  /**
-   * Get foreign keys for tables
-   *
-   * @param {Array} tableNames
-   * @param {Object} options
-   *
-   * @return {Promise<Object>}
-   */
   getForeignKeysForTables(tableNames, options) {
     if (tableNames.length === 0) {
       return Promise.resolve({});
@@ -650,7 +689,7 @@ class QueryInterface {
     options = _.assign({}, options || {}, { type: QueryTypes.FOREIGNKEYS });
 
     return Promise.map(tableNames, tableName =>
-      this._queryForeignKeys(tableName, options)
+      this.sequelize.query(this.QueryGenerator.getForeignKeysQuery(tableName, this.sequelize.config.database), options)
     ).then(results => {
       const result = {};
 
@@ -668,15 +707,6 @@ class QueryInterface {
 
       return result;
     });
-  }
-
-  /**
-   * Helper method to query foreign keys for a single table.
-   *
-   * @private
-   */
-  _queryForeignKeys(tableName, options) {
-    return this.sequelize.query(this.QueryGenerator.getForeignKeysQuery(tableName, this.sequelize.config.database), options);
   }
 
   /**

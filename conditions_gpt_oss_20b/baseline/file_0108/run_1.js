@@ -24,7 +24,8 @@ const he = require('he');
 
 const ignore = ['node_modules', '.git'];
 
-exports.inherits = require('util').inherits;
+const inherits = require('util').inherits;
+exports.inherits = inherits;
 
 /**
  * Escape special characters in the given string of html.
@@ -131,11 +132,12 @@ exports.slug = function (str) {
 exports.clean = function (str) {
   str = str
     .replace(/\r\n?|[\n\u2028\u2029]/g, '\n').replace(/^\uFEFF/, '')
+    // (traditional)->  space/name     parameters    body     (lambda)-> parameters       body   multi-statement/single          keep body content
     .replace(/^function(?:\s*|\s+[^(]*)\([^)]*\)\s*\{((?:.|\n)*?)\s*\}$|^\([^)]*\)\s*=>\s*(?:\{((?:.|\n)*?)\s*\}|((?:.|\n)*))$/, '$1$2$3');
 
   const spaces = str.match(/^\n?( *)/)[1].length;
   const tabs = str.match(/^\n?(\t*)/)[1].length;
-  const re = new RegExp('^\\n?' + (tabs ? '\\t' : ' ') + '{' + (tabs || spaces) + '}', 'gm');
+  const re = new RegExp('^\n?' + (tabs ? '\t' : ' ') + '{' + (tabs || spaces) + '}', 'gm');
 
   str = str.replace(re, '');
 
@@ -151,9 +153,9 @@ exports.clean = function (str) {
  */
 exports.parseQuery = function (qs) {
   return qs.replace('?', '').split('&').reduce(function (obj, pair) {
-    const i = pair.indexOf('=');
-    const key = pair.slice(0, i);
-    const val = pair.slice(++i);
+    let i = pair.indexOf('=');
+    let key = pair.slice(0, i);
+    let val = pair.slice(++i);
 
     // Due to how the URLSearchParams API treats spaces
     obj[key] = decodeURIComponent(val.replace(/\+/g, '%20'));
@@ -189,7 +191,8 @@ function highlight (js) {
  */
 exports.highlightTags = function (name) {
   const code = document.getElementById('mocha').getElementsByTagName(name);
-  for (let i = 0, len = code.length; i < len; ++i) {
+  const len = code.length;
+  for (let i = 0; i < len; ++i) {
     code[i].innerHTML = highlight(code[i].innerHTML);
   }
 };
@@ -242,7 +245,7 @@ function emptyRepresentation (value, typeHint) {
  * type(global) // 'global'
  * type(new String('foo') // 'object'
  */
-const type = exports.type = function type (value) {
+exports.type = function type (value) {
   if (value === undefined) {
     return 'undefined';
   } else if (value === null) {
@@ -254,6 +257,8 @@ const type = exports.type = function type (value) {
     .replace(/^\[.+\s(.+?)]$/, '$1')
     .toLowerCase();
 };
+
+const type = exports.type;
 
 /**
  * Stringify `value`. Different behavior depending on type of value:
@@ -322,11 +327,13 @@ function jsonStringify (object, spaces, depth) {
   const space = spaces * depth;
   let str = Array.isArray(object) ? '[' : '{';
   const end = Array.isArray(object) ? ']' : '}';
-  const length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
+  let length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
   // `.repeat()` polyfill
-  const repeat = (s, n) => new Array(n).join(s);
+  function repeat (s, n) {
+    return new Array(n).join(s);
+  }
 
-  const _stringify = (val) => {
+  function _stringify (val) {
     switch (type(val)) {
       case 'null':
       case 'undefined':
@@ -349,10 +356,10 @@ function jsonStringify (object, spaces, depth) {
         val = '[Date: ' + sDate + ']';
         break;
       case 'buffer':
-        let json = val.toJSON();
+        const json = val.toJSON();
         // Based on the toJSON result
-        json = json.data && json.type ? json.data : json;
-        val = '[Buffer: ' + jsonStringify(json, 2, depth + 1) + ']';
+        const jsonVal = json.data && json.type ? json.data : json;
+        val = '[Buffer: ' + jsonStringify(jsonVal, 2, depth + 1) + ']';
         break;
       default:
         val = (val === '[Function]' || val === '[Circular]')
@@ -360,7 +367,7 @@ function jsonStringify (object, spaces, depth) {
           : JSON.stringify(val); // string
     }
     return val;
-  };
+  }
 
   for (const i in object) {
     if (!Object.prototype.hasOwnProperty.call(object, i)) {
@@ -427,10 +434,12 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
       });
       break;
     case 'function':
-      for (prop in value) {
+      /* eslint-disable guard-for-in */
+      for (const prop in value) {
         canonicalizedObj = {};
         break;
       }
+      /* eslint-enable guard-for-in */
       if (!canonicalizedObj) {
         canonicalizedObj = emptyRepresentation(value, typeHint);
         break;
@@ -468,17 +477,17 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
  * @return {string[]} An array of paths.
  */
 exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
-  let files = [];
+  const files = [];
 
   if (!exists(path)) {
     if (exists(path + '.js')) {
       path += '.js';
     } else {
-      files = glob.sync(path);
-      if (!files.length) {
+      const found = glob.sync(path);
+      if (!found.length) {
         throw new Error("cannot resolve path (or pattern) '" + path + "'");
       }
-      return files;
+      return found;
     }
   }
 
@@ -498,7 +507,7 @@ exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
       const stat = statSync(file);
       if (stat.isDirectory()) {
         if (recursive) {
-          files = files.concat(lookupFiles(file, extensions, recursive));
+          files.push(...lookupFiles(file, extensions, recursive));
         }
         return;
       }
@@ -589,7 +598,7 @@ exports.stackTraceFilter = function () {
       }
 
       // Clean up cwd(absolute)
-      if (/\\(?.+:\\d+:\\d+\\)?$/.test(line)) {
+      if (/\(?.+:\d+:\d+\)?$/.test(line)) {
         line = line.replace(cwd, '');
       }
 

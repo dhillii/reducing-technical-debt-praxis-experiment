@@ -30,6 +30,12 @@ type ProfileCardProps = {
     accentColor?: string
 }
 
+/**
+ * Convert a hex color to an rgba string with the given alpha.
+ * @param hex - Hex color string (e.g., "#ff0000").
+ * @param alpha - Alpha value between 0 and 1.
+ * @returns RGBA color string.
+ */
 const hexToRgba = (hex: string, alpha: number) => {
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
@@ -37,40 +43,119 @@ const hexToRgba = (hex: string, alpha: number) => {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
+/**
+ * Get the background color for the profile card based on the selected theme.
+ * @param backgroundColor - Theme key.
+ * @param accentColor - Optional accent color.
+ * @returns Hex color string.
+ */
 const getBackgroundColor = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
-    const map: Record<'light' | 'dark' | 'accent', string> = {
+    const map: Record<'light' | 'dark' | 'accent', string | ((accent?: string) => string)> = {
         light: '#fff',
         dark: '#15171a',
-        accent: accentColor || '#15171a'
+        accent: (accent?: string) => accent || '#15171a',
     };
-    return map[backgroundColor];
+    const value = map[backgroundColor];
+    return typeof value === 'function' ? value(accentColor) : value;
 };
 
+/**
+ * Get the text color for the profile card based on the selected theme.
+ * @param backgroundColor - Theme key.
+ * @returns Hex color string.
+ */
 const getTextColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
     const map: Record<'light' | 'dark' | 'accent', string> = {
         light: '#15171a',
         dark: '#fff',
-        accent: '#fff'
+        accent: '#fff',
     };
     return map[backgroundColor];
 };
 
-const getGradient = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string) => {
-    const map: Record<'light' | 'dark' | 'accent', string> = {
-        light: `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`,
-        dark: `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`,
-        accent: `linear-gradient(to bottom left, ${hexToRgba(accentColor || '#15171a', 0.08)}, ${hexToRgba(accentColor || '#15171a', 0.06)})`
-    };
-    return map[backgroundColor];
+/**
+ * Resolve the banner image source for the profile card.
+ * @param isScreenshot - Whether the card is rendered for a screenshot.
+ * @param bannerDataUrl - Data URL of the banner image (if available).
+ * @param account - Account data.
+ * @param coverImage - Cover image URL from the site.
+ * @returns Banner image source or undefined.
+ */
+const getBannerImageSrc = (
+    isScreenshot: boolean,
+    bannerDataUrl: string | null,
+    account?: Account,
+    coverImage?: string
+) => {
+    if (isScreenshot && bannerDataUrl) {
+        return bannerDataUrl;
+    }
+    return account?.bannerImageUrl ?? coverImage;
 };
 
-const getDotsPatternColor = (backgroundColor: 'light' | 'dark' | 'accent') => {
-    const map: Record<'light' | 'dark' | 'accent', string> = {
-        light: hexToRgba('#15171a', 0.025),
-        dark: hexToRgba('#15171a', 0.23),
-        accent: 'rgba(0, 0, 0, 0.02)'
+/**
+ * Resolve the avatar image source for the profile card.
+ * @param isScreenshot - Whether the card is rendered for a screenshot.
+ * @param avatarDataUrl - Data URL of the avatar image (if available).
+ * @param account - Account data.
+ * @param publicationIcon - Publication icon URL from the site.
+ * @returns Avatar image source or undefined.
+ */
+const getAvatarImageSrc = (
+    isScreenshot: boolean,
+    avatarDataUrl: string | null,
+    account?: Account,
+    publicationIcon?: string
+) => {
+    if (isScreenshot && avatarDataUrl) {
+        return avatarDataUrl;
+    }
+    return account?.avatarUrl ?? publicationIcon;
+};
+
+/**
+ * Compute the style for the banner placeholder when no banner image is available.
+ * @param backgroundColor - Theme key.
+ * @param accentColor - Optional accent color.
+ * @returns CSSProperties object for the placeholder.
+ */
+const getBannerPlaceholderStyle = (
+    backgroundColor: 'light' | 'dark' | 'accent',
+    accentColor?: string
+): React.CSSProperties => {
+    const baseColor = backgroundColor === 'accent' ? '#ffffff' : accentColor || '#15171a';
+    return {
+        background: `linear-gradient(to bottom, ${hexToRgba(baseColor, 1)}, ${hexToRgba(baseColor, 0.5)})`,
     };
-    return map[backgroundColor];
+};
+
+/**
+ * Compute the style for the handle button.
+ * @param backgroundColor - Theme key.
+ * @param accentColor - Optional accent color.
+ * @returns CSSProperties object for the button.
+ */
+const getHandleButtonStyle = (
+    backgroundColor: 'light' | 'dark' | 'accent',
+    accentColor?: string
+): React.CSSProperties => {
+    const color = backgroundColor !== 'light' ? '#fff' : accentColor || '#15171a';
+    const borderColor = accentColor
+        ? hexToRgba(
+              backgroundColor === 'accent' ? '#ffffff' : accentColor,
+              backgroundColor !== 'light' ? 0.7 : 0.2
+          )
+        : undefined;
+    const background = accentColor
+        ? `linear-gradient(to top right, ${hexToRgba(
+              backgroundColor === 'accent' ? '#ffffff' : accentColor,
+              backgroundColor === 'dark' ? 0.12 : 0.04
+          )}, ${hexToRgba(
+              backgroundColor === 'accent' ? '#ffffff' : accentColor,
+              backgroundColor === 'dark' ? 0.48 : 0.16
+          )})`
+        : undefined;
+    return {color, borderColor, background};
 };
 
 const ProfileCard: React.FC<ProfileCardProps> = memo(({
@@ -120,8 +205,10 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
     const borderClass = isScreenshot ? '' : 'shadow-xl';
     const cardWidth = format === 'square' ? 'w-[422px]' : 'w-[316px]';
     const cardHeight = 'h-[422px]';
-    const bannerImageSrc = isScreenshot && bannerDataUrl ? bannerDataUrl : (account?.bannerImageUrl || coverImage);
-    const avatarImageSrc = isScreenshot && avatarDataUrl ? avatarDataUrl : (account?.avatarUrl || publicationIcon);
+    const bannerImageSrc = getBannerImageSrc(isScreenshot, bannerDataUrl, account, coverImage);
+    const avatarImageSrc = getAvatarImageSrc(isScreenshot, avatarDataUrl, account, publicationIcon);
+    const bannerPlaceholderStyle = getBannerPlaceholderStyle(backgroundColor, accentColor);
+    const handleButtonStyle = getHandleButtonStyle(backgroundColor, accentColor);
 
     return (
         <div className={`relative z-20 flex flex-col ${margin} ${cardWidth} ${cardHeight} rounded-[32px] ${borderClass} ${format === 'square' ? 'flex flex-col' : ''}`} style={{backgroundColor: cardBackgroundColor}}>
@@ -133,8 +220,14 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
                         referrerPolicy='no-referrer'
                         src={bannerImageSrc}
                     /> :
-                    <div className='relative size-full overflow-hidden rounded-[26px] rounded-b-none' style={{background: `linear-gradient(to bottom, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor || '#15171a', 1)}, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor || '#15171a', 0.5)})`}}>
-                        <DotsPattern className='absolute' style={{color: backgroundColor === 'accent' ? hexToRgba(accentColor || '#15171a', 0.2) : 'rgba(255, 255, 255, 0.2)', top: isScreenshot ? '-42px' : '-84px', left: isScreenshot ? '-69px' : '-138px'}} />
+                    <div className='relative size-full overflow-hidden rounded-[26px] rounded-b-none' style={bannerPlaceholderStyle}>
+                        <DotsPattern className='absolute' style={{
+                            color: backgroundColor === 'accent'
+                                ? hexToRgba(accentColor || '#15171a', 0.2)
+                                : 'rgba(255, 255, 255, 0.2)',
+                            top: isScreenshot ? '-42px' : '-84px',
+                            left: isScreenshot ? '-69px' : '-138px'
+                        }} />
                     </div>
                 }
                 {avatarImageSrc &&
@@ -155,11 +248,7 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
                 <span className={`mt-1.5 leading-7 ${isScreenshot && 'tracking-normal'}`} style={{color: textColor}}>{!isLoading ? 'Available on Ghost, Flipboard, Threads, Bluesky, Mastodon, or wherever you get your social web feeds.' : <Skeleton className='w-28' />}</span>
                 <div
                     className={`mt-auto flex max-h-[60px] min-h-12 w-full items-center justify-center break-all rounded-full border px-4 py-2 font-medium leading-7 ${isScreenshot && 'tracking-normal'}`}
-                    style={{
-                        color: backgroundColor !== 'light' ? '#fff' : accentColor,
-                        borderColor: accentColor ? hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor !== 'light' ? 0.7 : 0.2) : undefined,
-                        background: accentColor ? `linear-gradient(to top right, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor === 'dark' ? 0.12 : 0.04)}, ${hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor === 'dark' ? 0.48 : 0.16)})` : undefined
-                    }}
+                    style={handleButtonStyle}
                 >
                     <div className='mb-0.5'>
                         {account?.handle}
@@ -186,79 +275,6 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
 
 ProfileCard.displayName = 'ProfileCard';
 
-const SocialLink = ({href, icon, title}: {href: string, icon: JSX.Element, title: string}) => (
-    <a className='flex h-[34px] w-10 items-center justify-center rounded-sm bg-white px-3 shadow-xs hover:bg-gray-50 [&_svg]:size-4' href={href} rel="noopener noreferrer" target='_blank' title={title}>
-        {icon}
-    </a>
-);
-
-const CopyButton = ({onClick, isProcessing, backgroundColor}: {onClick: () => void, isProcessing: boolean, backgroundColor: 'light' | 'dark' | 'accent'}) => (
-    <Button className={`min-w-[160px] dark:bg-black dark:text-white dark:hover:bg-black/90 ${backgroundColor === 'dark' && 'bg-white text-black hover:bg-gray-50 dark:bg-white dark:text-black dark:hover:bg-gray-50/90'}`} onClick={onClick}>
-        {isProcessing ? <LoadingIndicator color={`${backgroundColor === 'dark' ? 'dark' : 'light'}`} size='sm' /> : <LucideIcon.Copy />}
-        {!isProcessing && 'Copy image'}
-    </Button>
-);
-
-const useCopyImage = (profileCardRef: React.RefObject<HTMLDivElement>, backgroundColor: 'light' | 'dark' | 'accent') => {
-    const [isProcessing, setIsProcessing] = useState(false);
-
-    const handleCopy = useCallback(async () => {
-        if (!profileCardRef.current || isProcessing) {
-            return;
-        }
-
-        setIsProcessing(true);
-
-        await new Promise((resolve) => {
-            requestAnimationFrame(() => {
-                requestAnimationFrame(resolve);
-            });
-        });
-
-        try {
-            if (!navigator.clipboard || !('write' in navigator.clipboard) || typeof ClipboardItem === 'undefined') {
-                throw new Error('Clipboard API not supported in this browser');
-            }
-
-            const blobPromise = new Promise<Blob>(async (resolve, reject) => {
-                try {
-                    const canvas = await html2canvas(profileCardRef.current!, {
-                        backgroundColor: 'transparent',
-                        scale: 2,
-                        logging: false,
-                        useCORS: true,
-                        allowTaint: true,
-                        imageTimeout: 0
-                    });
-
-                    canvas.toBlob((blob) => {
-                        if (blob) {
-                            resolve(blob);
-                        } else {
-                            reject(new Error('Failed to create blob'));
-                        }
-                    }, 'image/png');
-                } catch (error) {
-                    reject(error);
-                }
-            });
-
-            const clipboardItem = new ClipboardItem({
-                'image/png': blobPromise
-            });
-
-            await navigator.clipboard.write([clipboardItem]);
-            toast.success('Image copied to clipboard');
-        } catch {
-            toast.error('Failed to copy image');
-        } finally {
-            setIsProcessing(false);
-        }
-    }, [profileCardRef, isProcessing, backgroundColor]);
-
-    return {handleCopy, isProcessing};
-};
-
 const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
     const {data: siteData} = useBrowseSite();
     const accentColor = siteData?.site?.accent_color;
@@ -267,6 +283,7 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
     const profileCardRef = useRef<HTMLDivElement>(null);
     const [backgroundColor, setBackgroundColor] = useState<'light' | 'dark' | 'accent'>('light');
     const [cardFormat, setCardFormat] = useState<'vertical' | 'square'>('vertical');
+    const [isProcessing, setIsProcessing] = useState(false);
     const [bannerDataUrl, setBannerDataUrl] = useState<string | null>(null);
     const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null);
     const shareText = `${account?.name} is now available across the social web, on ${account?.handle}`;
@@ -305,30 +322,81 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
         };
     }, [convertImagesToDataUrls]);
 
-    const {handleCopy, isProcessing} = useCopyImage(profileCardRef, backgroundColor);
+    const getGradient = () => {
+        const map: Record<'light' | 'dark' | 'accent', string> = {
+            light: `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`,
+            dark: `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`,
+            accent: `linear-gradient(to bottom left, ${hexToRgba(accentColor || '#15171a', 0.08)}, ${hexToRgba(accentColor || '#15171a', 0.06)})`,
+        };
+        return map[backgroundColor];
+    };
 
-    const socialLinks = [
-        {
-            href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`,
-            icon: <svg aria-hidden="true" viewBox="0 0 24 24"><path className="social-x_svg__x" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path></svg>,
-            title: 'Tweet'
-        },
-        {
-            href: `https://threads.net/intent/post?text=${encodeURIComponent(shareText)}`,
-            icon: <svg fill="none" viewBox="0 0 18 18"><g clipPath="url(#social-threads_svg__clip0_351_18008)"><path d="M13.033 8.38a5.924 5.924 0 00-.223-.102c-.13-2.418-1.452-3.802-3.67-3.816h-.03c-1.327 0-2.43.566-3.11 1.597l1.22.837c.507-.77 1.304-.934 1.89-.934h.02c.73.004 1.282.217 1.639.63.26.302.433.72.519 1.245a9.334 9.334 0 00-2.097-.101c-2.109.121-3.465 1.351-3.374 3.06.047.868.478 1.614 1.216 2.1.624.413 1.428.614 2.263.568 1.103-.06 1.969-.48 2.572-1.25.459-.585.749-1.342.877-2.296.526.317.915.735 1.13 1.236.366.854.387 2.255-.756 3.398-1.003 1.002-2.207 1.435-4.028 1.448-2.02-.015-3.547-.663-4.54-1.925-.93-1.182-1.41-2.89-1.428-5.075.018-2.185.498-3.893 1.428-5.075.993-1.262 2.52-1.91 4.54-1.925 2.034.015 3.588.666 4.62 1.934.505.622.886 1.405 1.137 2.317l1.43-.382c-.305-1.122-.784-2.09-1.436-2.892C13.52 1.35 11.587.517 9.096.5h-..."/></g><defs><clipPath id="social-threads_svg__clip0_351_18008"><path d="M0 0h17v17H0z" fill="#fff" transform="translate(.5 .5)"/></clipPath></defs></svg>,
-            title: 'Threads'
-        },
-        {
-            href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareText)}`,
-            icon: <svg fill="none" viewBox="0 0 40 40"><title>social-facebook</title><path className="social-facebook_svg__fb" d="M20 40.004c11.046 0 20-8.955 20-20 0-11.046-8.954-20-20-20s-20 8.954-20 20c0 11.045 8.954 20 20 20z" fill="#1977f3"></path><path d="M27.785 25.785l.886-5.782h-5.546V16.25c0-1.58.773-3.125 3.26-3.125h2.522V8.204s-2.29-.39-4.477-.39c-4.568 0-7.555 2.767-7.555 7.781v..."/></svg>,
-            title: 'Facebook'
-        },
-        {
-            href: `http://www.linkedin.com/shareArticle?mini=true&title=${encodeURIComponent(shareText)}`,
-            icon: <svg fill="none" viewBox="0 0 16 16"><g clipPath="url(#social-linkedin_svg__clip0_537_833)"><path className="social-linkedin_svg__linkedin" clipRule="evenodd" d="M1.778 16h12.444c.982 0 1.778-.796 1.778-1.778V1.778C16 .796 15.204 0 14.222 0H1.778C.796 0 0 .796 0 1.778v12.444C0 15.204.796 16 1.778 16z" fill="#007ebb" fillRule="evenodd"></path><path clipRule="evenodd" d="M13.778 13.778h-2.374V9.734c0-1.109-.421-1.729-1.299-1.729-.955 0-..."/></g><defs><clipPath id="social-linkedin_svg__clip0_537_833"><path d="M0 0h16v16H0z" fill="#fff"/></clipPath></defs></svg>,
-            title: 'LinkedIn'
+    const getDotsPatternColor = () => {
+        const map: Record<'light' | 'dark' | 'accent', string> = {
+            light: hexToRgba('#15171a', 0.025),
+            dark: hexToRgba('#15171a', 0.23),
+            accent: 'rgba(0, 0, 0, 0.02)',
+        };
+        return map[backgroundColor];
+    };
+
+    const handleCopy = async () => {
+        if (!profileCardRef.current || isProcessing) {
+            return;
         }
-    ];
+
+        setIsProcessing(true);
+
+        await new Promise((resolve) => {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(resolve);
+            });
+        });
+
+        try {
+            if (!navigator.clipboard || !('write' in navigator.clipboard) || typeof ClipboardItem === 'undefined') {
+                throw new Error('Clipboard API not supported in this browser');
+            }
+
+            try {
+                const blobPromise = new Promise<Blob>(async (resolve, reject) => {
+                    try {
+                        const canvas = await html2canvas(profileCardRef.current!, {
+                            backgroundColor: 'transparent',
+                            scale: 2,
+                            logging: false,
+                            useCORS: true,
+                            allowTaint: true,
+                            imageTimeout: 0
+                        });
+
+                        canvas.toBlob((blob) => {
+                            if (blob) {
+                                resolve(blob);
+                            } else {
+                                reject(new Error('Failed to create blob'));
+                            }
+                        }, 'image/png');
+                    } catch (error) {
+                        reject(error);
+                    }
+                });
+
+                const clipboardItem = new ClipboardItem({
+                    'image/png': blobPromise
+                });
+
+                await navigator.clipboard.write([clipboardItem]);
+                toast.success('Image copied to clipboard');
+            } catch {
+                toast.error('Failed to copy image');
+            }
+            setIsProcessing(false);
+        } catch {
+            toast.error('Failed to copy image');
+            setIsProcessing(false);
+        }
+    };
 
     return (
         <TooltipProvider delayDuration={0}>
@@ -405,16 +473,28 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                     />
                     <div className='relative z-20 flex w-full items-center justify-between gap-4 px-6 pb-6 max-sm:mt-4 max-sm:flex-col'>
                         <div className='flex items-center gap-2'>
-                            {socialLinks.map((link, idx) => (
-                                <SocialLink key={idx} href={link.href} icon={link.icon} title={link.title} />
-                            ))}
+                            <a className='flex h-[34px] w-10 items-center justify-center rounded-sm bg-white px-3 shadow-xs hover:bg-gray-50 [&_svg]:size-4' href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`} rel="noopener noreferrer" target='_blank'>
+                                <svg aria-hidden="true" viewBox="0 0 24 24"><path className="social-x_svg__x" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path></svg>
+                            </a>
+                            <a className='flex h-[34px] w-10 items-center justify-center rounded-sm bg-white px-3 shadow-xs hover:bg-gray-50 [&_svg]:size-4' href={`https://threads.net/intent/post?text=${encodeURIComponent(shareText)}`} rel="noopener noreferrer" target='_blank'>
+                                <svg fill="none" viewBox="0 0 18 18"><g clipPath="url(#social-threads_svg__clip0_351_18008)"><path d="M13.033 8.38a..."></path></g><defs><clipPath id="social-threads_svg__clip0_351_18008"><path d="M0 0h17v17H0z" fill="#fff" transform="translate(.5 .5)"></path></clipPath></defs></svg>
+                            </a>
+                            <a className='flex h-[34px] w-10 items-center justify-center rounded-sm bg-white px-3 shadow-xs hover:bg-gray-50 [&_svg]:size-4' href={`https://www.facebook.com/sharer/sharer.php?u=`} rel="noopener noreferrer" target='_blank'>
+                                <svg fill="none" viewBox="0 0 40 40"><title>social-facebook</title><path className="social-facebook_svg__fb" d="M20 40.004c11.046 0 20-8.955 20-20 0-11.046-8.954-20-20-20s-20 8.954-20 20c0 11.045 8.954 20 20 20z" fill="#1977f3"></path><path d="M27.785 25..."></path></svg>
+                            </a>
+                            <a className='flex h-[34px] w-10 items-center justify-center rounded-sm bg-white px-3 shadow-xs hover:bg-gray-50 [&_svg]:size-4' href={`http://www.linkedin.com/shareArticle?mini=true&title=${encodeURIComponent(shareText)}`} rel="noopener noreferrer" target='_blank'>
+                                <svg fill="none" viewBox="0 0 16 16"><g clipPath="url(#social-linkedin_svg__clip0_537_833)"><path className="social-linkedin_svg__linkedin" clipRule="evenodd" d="M1.778 16h12.444c..."></path></g><defs><clipPath id="social-linkedin_svg__clip0_537_833"><path d="M0 0h16v16H0z" fill="#fff"></path></clipPath></defs></svg>
+                            </a>
                         </div>
-                        <CopyButton onClick={handleCopy} isProcessing={isProcessing} backgroundColor={backgroundColor} />
+                        <Button className={`min-w-[160px] dark:bg-black dark:text-white dark:hover:bg-black/90 ${backgroundColor === 'dark' && 'bg-white text-black hover:bg-gray-50 dark:bg-white dark:text-black dark:hover:bg-gray-50/90'}`} onClick={handleCopy}>
+                            {isProcessing ? <LoadingIndicator color={`${backgroundColor === 'dark' ? 'dark' : 'light'}`} size='sm' /> : <LucideIcon.Copy />}
+                            {!isProcessing && 'Copy image'}
+                        </Button>
                     </div>
                     {(account?.bannerImageUrl || coverImage) &&
-                    <DotsPattern className={`absolute left-1/2 top-1/2 h-[600px] w-[598px] -translate-x-1/2 -translate-y-1/2 ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor(backgroundColor)}} />
+                    <DotsPattern className={`absolute left-1/2 top-1/2 h-[600px] w-[598px] -translate-x-1/2 -translate-y-1/2 ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor()}} />
                     }
-                    <div className='absolute inset-0' style={{background: getGradient(backgroundColor, accentColor)}} />
+                    <div className='absolute inset-0' style={{background: getGradient()}} />
                 </div>
 
                 {/* Hidden clone for screenshots */}
@@ -440,12 +520,12 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                         siteTitle={siteData?.site?.title}
                     />
                     {(account?.bannerImageUrl || coverImage) &&
-                    <DotsPattern className={`absolute left-[-62.5px] top-[-44px] h-[600px] w-[598px] ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor(backgroundColor)}} />
+                    <DotsPattern className={`absolute left-[-62.5px] top-[-44px] h-[600px] w-[598px] ${backgroundColor === 'dark' && 'z-10'}`} style={{color: getDotsPatternColor()}} />
                     }
                     <div
                         className='absolute left-0 top-0 size-full'
                         style={{
-                            background: getGradient(backgroundColor, accentColor)
+                            background: getGradient()
                         }}
                     />
                     <img className='absolute left-1/2 top-12 mt-0.5 max-w-none -translate-x-1/2' src={cardFormat === 'square' ? ProfileCardShadowSquare : ProfileCardShadow} style={{width: cardFormat === 'square' ? '572px' : '466px'}} />

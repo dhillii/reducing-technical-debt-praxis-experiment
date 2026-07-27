@@ -131,14 +131,14 @@ export default class GhPostSettingsMenu extends Component {
             try {
                 const canonicalUrl = new URL(this.post.canonicalUrl);
                 urlParts.push(canonicalUrl.host);
-                urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
+                urlParts.push(...canonicalUrl.pathname.split('/').filter(Boolean));
             } catch (e) {
-                // no-op, invalid URL
+                console.warn('Invalid canonical URL:', this.post.canonicalUrl, e);
             }
         } else {
             const blogUrl = new URL(this.config.blogUrl);
             urlParts.push(blogUrl.host);
-            urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
+            urlParts.push(...blogUrl.pathname.split('/').filter(Boolean));
             urlParts.push(this.post.slug);
         }
 
@@ -168,8 +168,8 @@ export default class GhPostSettingsMenu extends Component {
     willDestroyElement() {
         super.willDestroyElement(...arguments);
 
-        let post = this.post;
-        let errors = post.get('errors');
+        const post = this.post;
+        const errors = post.get('errors');
 
         if (errors.has('publishedAtBlogDate') || errors.has('publishedAtBlogTime')) {
             post.set('publishedAtBlogTZ', post.get('publishedAtUTC'));
@@ -199,26 +199,28 @@ export default class GhPostSettingsMenu extends Component {
     @action
     toggleFeatured() {
         this.post.featured = !this.post.featured;
+
         if (this.post.isNew) {
             return;
         }
+
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
-            throw error;
         });
     }
 
     @action
     toggleShowTitleAndFeatureImage(event) {
         this.post.showTitleAndFeatureImage = event.target.checked;
+
         if (this.post.isNew) {
             return;
         }
+
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
-            throw error;
         });
     }
 
@@ -239,14 +241,13 @@ export default class GhPostSettingsMenu extends Component {
             .catch((error) => {
                 this.showError(error);
                 this.post.rollbackAttributes();
-                throw error;
             });
     }
 
     @action
     setPublishedAtBlogDate(date) {
-        let post = this.post;
-        let dateString = moment.tz(date, this.settings.get('timezone')).format('YYYY-MM-DD');
+        const post = this.post;
+        const dateString = moment.tz(date, this.settings.get('timezone')).format('YYYY-MM-DD');
 
         post.get('errors').remove('publishedAtBlogDate');
 
@@ -261,16 +262,23 @@ export default class GhPostSettingsMenu extends Component {
     @action
     async setVisibility(segment) {
         this.post.set('tiers', segment);
-        await this.post.validate({property: 'visibility'});
-        await this.post.validate({property: 'tiers'});
-        if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
-            await this.savePostTask.perform();
+        try {
+            await this.post.validate({property: 'visibility'});
+            await this.post.validate({property: 'tiers'});
+            if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
+                await this.savePostTask.perform();
+            }
+        } catch (e) {
+            if (!e) {
+                return;
+            }
+            throw e;
         }
     }
 
     @action
     setPublishedAtBlogTime(time) {
-        let post = this.post;
+        const post = this.post;
 
         post.get('errors').remove('publishedAtBlogDate');
 
@@ -284,8 +292,8 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setCustomExcerpt(excerpt) {
-        let post = this.post;
-        let currentExcerpt = post.get('customExcerpt');
+        const post = this.post;
+        const currentExcerpt = post.get('customExcerpt');
 
         if (excerpt === currentExcerpt) {
             return;
@@ -298,8 +306,8 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setHeaderInjection(code) {
-        let post = this.post;
-        let currentCode = post.get('codeinjectionHead');
+        const post = this.post;
+        const currentCode = post.get('codeinjectionHead');
 
         if (code === currentCode) {
             return;
@@ -312,8 +320,8 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setFooterInjection(code) {
-        let post = this.post;
-        let currentCode = post.get('codeinjectionFoot');
+        const post = this.post;
+        const currentCode = post.get('codeinjectionFoot');
 
         if (code === currentCode) {
             return;
@@ -326,8 +334,8 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setMetaTitle(metaTitle) {
-        let post = this.post;
-        let currentTitle = post.get('metaTitle');
+        const post = this.post;
+        const currentTitle = post.get('metaTitle');
 
         if (currentTitle === metaTitle) {
             return;
@@ -339,15 +347,14 @@ export default class GhPostSettingsMenu extends Component {
             if (post.get('isNew')) {
                 return;
             }
-
             return this.savePostTask.perform();
         });
     }
 
     @action
     setMetaDescription(metaDescription) {
-        let post = this.post;
-        let currentDescription = post.get('metaDescription');
+        const post = this.post;
+        const currentDescription = post.get('metaDescription');
 
         if (currentDescription === metaDescription) {
             return;
@@ -359,15 +366,14 @@ export default class GhPostSettingsMenu extends Component {
             if (post.get('isNew')) {
                 return;
             }
-
             return this.savePostTask.perform();
         });
     }
 
     @action
     setCanonicalUrl(value) {
-        let post = this.post;
-        let currentCanonicalUrl = post.canonicalUrl;
+        const post = this.post;
+        const currentCanonicalUrl = post.canonicalUrl;
 
         if (currentCanonicalUrl === value) {
             return;
@@ -379,15 +385,14 @@ export default class GhPostSettingsMenu extends Component {
             if (post.get('isNew')) {
                 return;
             }
-
             return this.savePostTask.perform();
         });
     }
 
     @action
     setOgTitle(ogTitle) {
-        let post = this.post;
-        let currentTitle = post.get('ogTitle');
+        const post = this.post;
+        const currentTitle = post.get('ogTitle');
 
         if (currentTitle === ogTitle) {
             return;
@@ -399,15 +404,14 @@ export default class GhPostSettingsMenu extends Component {
             if (post.get('isNew')) {
                 return;
             }
-
             return this.savePostTask.perform();
         });
     }
 
     @action
     setOgDescription(ogDescription) {
-        let post = this.post;
-        let currentDescription = post.get('ogDescription');
+        const post = this.post;
+        const currentDescription = post.get('ogDescription');
 
         if (currentDescription === ogDescription) {
             return;
@@ -419,15 +423,14 @@ export default class GhPostSettingsMenu extends Component {
             if (post.get('isNew')) {
                 return;
             }
-
             return this.savePostTask.perform();
         });
     }
 
     @action
     setTwitterTitle(twitterTitle) {
-        let post = this.post;
-        let currentTitle = post.get('twitterTitle');
+        const post = this.post;
+        const currentTitle = post.get('twitterTitle');
 
         if (currentTitle === twitterTitle) {
             return;
@@ -439,15 +442,14 @@ export default class GhPostSettingsMenu extends Component {
             if (post.get('isNew')) {
                 return;
             }
-
             return this.savePostTask.perform();
         });
     }
 
     @action
     setTwitterDescription(twitterDescription) {
-        let post = this.post;
-        let currentDescription = post.get('twitterDescription');
+        const post = this.post;
+        const currentDescription = post.get('twitterDescription');
 
         if (currentDescription === twitterDescription) {
             return;
@@ -459,7 +461,6 @@ export default class GhPostSettingsMenu extends Component {
             if (post.get('isNew')) {
                 return;
             }
-
             return this.savePostTask.perform();
         });
     }
@@ -475,7 +476,6 @@ export default class GhPostSettingsMenu extends Component {
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
-            throw error;
         });
     }
 
@@ -490,7 +490,6 @@ export default class GhPostSettingsMenu extends Component {
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
-            throw error;
         });
     }
 
@@ -505,7 +504,6 @@ export default class GhPostSettingsMenu extends Component {
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
-            throw error;
         });
     }
 
@@ -520,7 +518,6 @@ export default class GhPostSettingsMenu extends Component {
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
-            throw error;
         });
     }
 
@@ -535,7 +532,6 @@ export default class GhPostSettingsMenu extends Component {
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
-            throw error;
         });
     }
 
@@ -550,13 +546,12 @@ export default class GhPostSettingsMenu extends Component {
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
-            throw error;
         });
     }
 
     @action
     changeAuthors(newAuthors) {
-        let post = this.post;
+        const post = this.post;
 
         if (newAuthors.mapBy('id').join() === post.get('authors').mapBy('id').join()) {
             return;
@@ -572,7 +567,6 @@ export default class GhPostSettingsMenu extends Component {
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
             post.rollbackAttributes();
-            throw error;
         });
     }
 
@@ -581,7 +575,6 @@ export default class GhPostSettingsMenu extends Component {
         this.savePostTask.perform().catch((error) => {
             this.showError(error);
             this.post.rollbackAttributes();
-            throw error;
         });
     }
 

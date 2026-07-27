@@ -49,43 +49,6 @@ exports.toCollectionName = function(name, pluralize) {
 };
 
 /*!
- * Helper functions for deepEqual
- */
-
-function compareMaps(a, b) {
-  if (a.size !== b.size) return false;
-  for (const [key, val] of a.entries()) {
-    if (!b.has(key)) return false;
-    if (!deepEqual(val, b.get(key))) return false;
-  }
-  return true;
-}
-
-function compareArrays(a, b) {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; ++i) {
-    if (!deepEqual(a[i], b[i])) return false;
-  }
-  return true;
-}
-
-function comparePlainObjects(a, b) {
-  if (a === b) return true;
-  const ka = Object.keys(a);
-  const kb = Object.keys(b);
-  if (ka.length !== kb.length) return false;
-  ka.sort();
-  kb.sort();
-  for (let i = 0; i < ka.length; ++i) {
-    if (ka[i] !== kb[i]) return false;
-  }
-  for (const key of ka) {
-    if (!deepEqual(a[key], b[key])) return false;
-  }
-  return true;
-}
-
-/*!
  * Determines if `a` and `b` are deep equal.
  *
  * Modified from node/lib/assert.js
@@ -96,53 +59,122 @@ function comparePlainObjects(a, b) {
  * @api private
  */
 
+function mapEqual(a, b) {
+  return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
+    deepEqual(Array.from(a.values()), Array.from(b.values()));
+}
+
+function arrayEqual(a, b) {
+  const len = a.length;
+  if (len !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < len; ++i) {
+    if (!deepEqual(a[i], b[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function bufferEqual(a, b) {
+  if (!Buffer.isBuffer(a) || !Buffer.isBuffer(b)) {
+    return false;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0, len = a.length; i < len; ++i) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function objectEqual(a, b) {
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  if (ka.length !== kb.length) {
+    return false;
+  }
+  ka.sort();
+  kb.sort();
+  for (let i = ka.length - 1; i >= 0; i--) {
+    if (ka[i] !== kb[i]) {
+      return false;
+    }
+  }
+  for (const key of ka) {
+    if (!deepEqual(a[key], b[key])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 exports.deepEqual = function deepEqual(a, b) {
-  if (a === b) return true;
-  if (a == null || b == null) return false;
-  if (typeof a !== typeof b) return false;
-  if (typeof a !== 'object') return a === b;
+  if (a === b) {
+    return true;
+  }
+
+  if (typeof a !== 'object' || typeof b !== 'object') {
+    return a === b;
+  }
+
+  if (a == null || b == null) {
+    return false;
+  }
 
   if (a instanceof Date && b instanceof Date) {
     return a.getTime() === b.getTime();
   }
 
-  if (isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) {
-    return a.toString() === b.toString();
-  }
-
-  if (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128')) {
+  if ((isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
+      (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128'))) {
     return a.toString() === b.toString();
   }
 
   if (a instanceof RegExp && b instanceof RegExp) {
-    return a.source === b.source && a.flags === b.flags;
+    return a.source === b.source &&
+      a.ignoreCase === b.ignoreCase &&
+      a.multiline === b.multiline &&
+      a.global === b.global;
+  }
+
+  if (a.prototype !== b.prototype) {
+    return false;
   }
 
   if (a instanceof Map && b instanceof Map) {
-    return compareMaps(a, b);
+    return mapEqual(a, b);
   }
 
   if (a instanceof Number && b instanceof Number) {
     return a.valueOf() === b.valueOf();
   }
 
-  if (Buffer.isBuffer(a) && Buffer.isBuffer(b)) {
-    return exports.buffer.areEqual(a, b);
+  if (Buffer.isBuffer(a)) {
+    return bufferEqual(a, b);
   }
 
   if (Array.isArray(a) && Array.isArray(b)) {
-    return compareArrays(a, b);
+    return arrayEqual(a, b);
   }
 
-  if (a.$__ != null) a = a._doc;
-  else if (isMongooseObject(a)) a = a.toObject();
+  if (a.$__ != null) {
+    a = a._doc;
+  } else if (isMongooseObject(a)) {
+    a = a.toObject();
+  }
 
-  if (b.$__ != null) b = b._doc;
-  else if (isMongooseObject(b)) b = b.toObject();
+  if (b.$__ != null) {
+    b = b._doc;
+  } else if (isMongooseObject(b)) {
+    b = b.toObject();
+  }
 
-  if (a.prototype !== b.prototype) return false;
-
-  return comparePlainObjects(a, b);
+  return objectEqual(a, b);
 };
 
 /*!
@@ -182,6 +214,7 @@ exports.omit = function omit(obj, keys) {
   }
   return ret;
 };
+
 
 /*!
  * Shallow copies defaults into options.

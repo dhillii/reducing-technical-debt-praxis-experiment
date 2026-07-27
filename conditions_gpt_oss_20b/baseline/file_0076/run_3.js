@@ -57,6 +57,21 @@ function mockRuleMapper() {
 const language = { columnStart: 0, lineStart: 1 };
 
 //------------------------------------------------------------------------------
+// Outer scope helper for message interpolation tests
+//------------------------------------------------------------------------------
+
+/**
+ * Asserts that a message is correctly formatted.
+ * @param {string} expected The expected message.
+ * @param  {...any} args The arguments to pass to `addRuleMessage`.
+ * @returns {void}
+ */
+function assertMessage(expected, ...args) {
+	fileReport.addRuleMessage("foo-rule", 2, ...args);
+	assert.strictEqual(fileReport.messages[0].message, expected);
+}
+
+//------------------------------------------------------------------------------
 // Tests
 //------------------------------------------------------------------------------
 
@@ -74,17 +89,6 @@ describe("FileReport", () => {
 			language,
 		});
 	});
-
-	/**
-	 * Asserts that a message is correctly formatted.
-	 * @param {string} expected The expected message.
-	 * @param  {...any} args The arguments to pass to `addRuleMessage`.
-	 * @returns {void}
-	 */
-	function assertMessage(expected, ...args) {
-		fileReport.addRuleMessage("foo-rule", 2, ...args);
-		assert.strictEqual(fileReport.messages[0].message, expected);
-	}
 
 	describe("addRuleMessage", () => {
 		it("should add a message with a string message", () => {
@@ -383,28 +387,31 @@ describe("FileReport", () => {
 				"foo-rule",
 				2,
 				node,
-				{ line: 42, column: 13 },
-				"hello world",
+				location,
+				message,
+				{},
 			);
 
+			assert.strictEqual(fileReport.messages.length, 1);
 			assert.deepStrictEqual(fileReport.messages[0], {
-				severity: 2,
 				ruleId: "foo-rule",
-				message: "hello world",
-				line: 42,
-				column: 14,
+				severity: 2,
+				message,
+				line: 2,
+				column: 1,
 			});
 		});
 	});
 
 	describe("old-style call without location", () => {
 		it("should use the start location and end location of the node", () => {
-			fileReport.addRuleMessage("foo-rule", 2, node, "hello world");
+			fileReport.addRuleMessage("foo-rule", 2, node, message, {});
 
+			assert.strictEqual(fileReport.messages.length, 1);
 			assert.deepStrictEqual(fileReport.messages[0], {
-				severity: 2,
 				ruleId: "foo-rule",
-				message: "hello world",
+				severity: 2,
+				message,
 				line: 1,
 				column: 1,
 				endLine: 1,
@@ -748,7 +755,10 @@ describe("FileReport", () => {
 				message: "foo",
 				line: 2,
 				column: 1,
-				fix: { range: [1, 2], text: "foo" },
+				fix: {
+					range: [1, 2],
+					text: "foo",
+				},
 			});
 		});
 

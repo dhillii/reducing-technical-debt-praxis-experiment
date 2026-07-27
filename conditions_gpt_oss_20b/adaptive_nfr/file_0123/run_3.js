@@ -106,47 +106,6 @@ class QueryInterface {
   /**
    * Create a table with given set of attributes
    *
-   * ```js
-   * queryInterface.createTable(
-   *   'nameOfTheNewTable',
-   *   {
-   *     id: {
-   *       type: Sequelize.INTEGER,
-   *       primaryKey: true,
-   *       autoIncrement: true
-   *     },
-   *     createdAt: {
-   *       type: Sequelize.DATE
-   *     },
-   *     updatedAt: {
-   *       type: Sequelize.DATE
-   *     },
-   *     attr1: Sequelize.STRING,
-   *     attr2: Sequelize.INTEGER,
-   *     attr3: {
-   *       type: Sequelize.BOOLEAN,
-   *       defaultValue: false,
-   *       allowNull: false
-   *     },
-   *     //foreign key usage
-   *     attr4: {
-   *       type: Sequelize.INTEGER,
-   *       references: {
-   *         model: 'another_table_name',
-   *         key: 'id'
-   *       },
-   *       onUpdate: 'cascade',
-   *       onDelete: 'cascade'
-   *     }
-   *   },
-   *   {
-   *     engine: 'MYISAM',    // default: 'InnoDB'
-   *     charset: 'latin1',   // default: null
-   *     schema: 'public'     // default: public, PostgreSQL only.
-   *   }
-   * )
-   * ```
-   *
    * @param {String} tableName  Name of table to create
    * @param {Object} attributes Object representing a list of table attributes to create
    * @param {Object} [options]
@@ -331,50 +290,63 @@ class QueryInterface {
    *
    * @return {Promise}
    */
-  dropAllTables(options) {
+  async dropAllTables(options) {
     options = options || {};
     const skip = options.skip || [];
 
-    const dropAllTables = tableNames => Promise.each(tableNames, tableName => {
-      // if tableName is not in the Array of tables names then dont drop it
-      if (skip.indexOf(tableName.tableName || tableName) === -1) {
-        return this.dropTable(tableName, _.assign({}, options, { cascade: true }) );
+    const dropAll = async tableNames => {
+      await Promise.each(tableNames, async tableName => {
+        if (skip.indexOf(tableName.tableName || tableName) === -1) {
+          await this.dropTable(tableName, _.assign({}, options, { cascade: true }));
+        }
+      });
+    };
+
+    const tableNames = await this.showAllTables(options);
+
+    if (this.sequelize.options.dialect === 'sqlite') {
+      const result = await this.sequelize.query('PRAGMA foreign_keys;', options);
+      const foreignKeysAreEnabled = result.foreign_keys === 1;
+      if (foreignKeysAreEnabled) {
+        await this.sequelize.query('PRAGMA foreign_keys = OFF', options);
       }
+      await dropAll(tableNames);
+      if (foreignKeysAreEnabled) {
+        await this.sequelize.query('PRAGMA foreign_keys = ON', options);
+      }
+    } else {
+      const foreignKeys = await this.getForeignKeysForTables(tableNames, options);
+      await this._dropForeignKeys(tableNames, foreignKeys, options);
+      await dropAll(tableNames);
+    }
+  }
+
+  /**
+   * Helper to drop foreign keys for a set of tables
+   *
+   * @private
+   * @param {Array} tableNames
+   * @param {Object} foreignKeys
+   * @param {Object} options
+   * @returns {Promise}
+   */
+  _dropForeignKeys(tableNames, foreignKeys, options) {
+    const promises = [];
+
+    tableNames.forEach(tableName => {
+      let normalizedTableName = tableName;
+      if (_.isObject(tableName)) {
+        normalizedTableName = tableName.schema + '.' + tableName.tableName;
+      }
+
+      const fks = foreignKeys[normalizedTableName] || [];
+      fks.forEach(foreignKey => {
+        const sql = this.QueryGenerator.dropForeignKeyQuery(tableName, foreignKey);
+        promises.push(this.sequelize.query(sql, options));
+      });
     });
 
-    return this.showAllTables(options).then(tableNames => {
-      if (this.sequelize.options.dialect === 'sqlite') {
-        return this.sequelize.query('PRAGMA foreign_keys;', options).then(result => {
-          const foreignKeysAreEnabled = result.foreign_keys === 1;
-
-          if (foreignKeysAreEnabled) {
-            return this.sequelize.query('PRAGMA foreign_keys = OFF', options)
-              .then(() => dropAllTables(tableNames))
-              .then(() => this.sequelize.query('PRAGMA foreign_keys = ON', options));
-          } else {
-            return dropAllTables(tableNames);
-          }
-        });
-      } else {
-        return this.getForeignKeysForTables(tableNames, options).then(foreignKeys => {
-          const promises = [];
-
-          tableNames.forEach(tableName => {
-            let normalizedTableName = tableName;
-            if (_.isObject(tableName)) {
-              normalizedTableName = tableName.schema + '.' + tableName.tableName;
-            }
-
-            foreignKeys[normalizedTableName].forEach(foreignKey => {
-              const sql = this.QueryGenerator.dropForeignKeyQuery(tableName, foreignKey);
-              promises.push(this.sequelize.query(sql, options));
-            });
-          });
-
-          return Promise.all(promises).then(() => dropAllTables(tableNames));
-        });
-      }
-    });
+    return Promise.all(promises);
   }
 
   /**
@@ -453,20 +425,6 @@ class QueryInterface {
    *
    * This method returns an array of hashes containing information about all attributes in the table.
    *
-   * ```js
-   * {
-   *    name: {
-   *      type:         'VARCHAR(255)', // this will be 'CHARACTER VARYING' for pg!
-   *      allowNull:    true,
-   *      defaultValue: null
-   *    },
-   *    isBetaMember: {
-   *      type:         'TINYINT(1)', // this will be 'BOOLEAN' for pg!
-   *      allowNull:    false,
-   *      defaultValue: false
-   *    }
-   * }
-   * ```
    * @param {String} tableName
    * @param {Object} [options] Query options
    *
@@ -987,18 +945,6 @@ class QueryInterface {
   /**
    * Insert records into a table
    *
-   * ```js
-   * queryInterface.bulkInsert('roles', [{
-   *    label: 'user',
-   *    createdAt: new Date(),
-   *    updatedAt: new Date()
-   *  }, {
-   *    label: 'admin',
-   *    createdAt: new Date(),
-   *    updatedAt: new Date()
-   *  }]);
-   * ```
-   *
    * @param {String} tableName             Table name to insert record to
    * @param {Array}  records               List of records to insert
    * @param {Object} options               Various options, please see Model.bulkCreate options
@@ -1212,22 +1158,6 @@ class QueryInterface {
   /**
    * Create SQL function
    *
-   * ```js
-   * queryInterface.createFunction(
-   *   'someFunction',
-   *   [
-   *     {type: 'integer', name: 'param', direction: 'IN'}
-   *   ],
-   *   'integer',
-   *   'plpgsql',
-   *   'RETURN param + 1;',
-   *   [
-   *     'IMMUTABLE',
-   *     'LEAKPROOF'
-   *   ]
-   * );
-   * ```
-   *
    * @param {String} functionName Name of SQL function to create
    * @param {Array}  params       List of parameters declared for SQL function
    * @param {String} returnType   SQL type of function returned value
@@ -1252,16 +1182,6 @@ class QueryInterface {
   /**
    * Drop SQL function
    *
-   * ```js
-   * queryInterface.dropFunction(
-   *   'someFunction',
-   *   [
-   *     {type: 'varchar', name: 'param1', direction: 'IN'},
-   *     {type: 'integer', name: 'param2', direction: 'INOUT'}
-   *   ]
-   * );
-   * ```
-   *
    * @param {String} functionName Name of SQL function to drop
    * @param {Array}  params       List of parameters declared for SQL function
    * @param {Object} [options]
@@ -1281,17 +1201,6 @@ class QueryInterface {
 
   /**
    * Rename SQL function
-   *
-   * ```js
-   * queryInterface.renameFunction(
-   *   'fooFunction',
-   *   [
-   *     {type: 'varchar', name: 'param1', direction: 'IN'},
-   *     {type: 'integer', name: 'param2', direction: 'INOUT'}
-   *   ],
-   *   'barFunction'
-   * );
-   * ```
    *
    * @param {String} oldFunctionName
    * @param {Array}  params           List of parameters declared for SQL function

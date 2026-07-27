@@ -28,13 +28,11 @@ const hasNumericSubpathRegex = /\.\d+(\.|$)/;
 
 let MongooseTypes;
 
-const queryHooks = require('./helpers/query/applyQueryMiddleware')
-  .middlewareFunctions;
+const queryHooks = require('./helpers/query/applyQueryMiddleware').
+  middlewareFunctions;
 const documentHooks = require('./helpers/model/applyHooks').middlewareFunctions;
-const hookNames = queryHooks.concat(documentHooks).reduce(
-  (s, hook) => s.add(hook),
-  new Set()
-);
+const hookNames = queryHooks.concat(documentHooks).
+  reduce((s, hook) => s.add(hook), new Set());
 
 let id = 0;
 
@@ -141,13 +139,115 @@ function Schema(obj, options) {
 
   // ensure the documents get an auto _id unless disabled
   const auto_id = !this.paths['_id'] &&
-    (!this.options.noId && this.options._id) && !_idSubDoc;
+      (!this.options.noId && this.options._id) && !_idSubDoc;
 
   if (auto_id) {
     addAutoId(this);
   }
 
   this.setupTimestamp(this.options.timestamps);
+}
+
+/**
+ * Checks if the given object is a Schema instance or has instanceOfSchema flag.
+ * @param {*} obj
+ * @returns {boolean}
+ */
+function isSchemaOrInstanceOfSchema(obj) {
+  return obj instanceof Schema || (obj != null && obj.instanceOfSchema);
+}
+
+/**
+ * Checks if the top-level `_id` is set to false and no prefix is provided.
+ * @param {Object} obj
+ * @param {string|null} prefix
+ * @returns {boolean}
+ */
+function isTopLevelIdFalse(obj, prefix) {
+  return obj._id === false && prefix == null;
+}
+
+/**
+ * Checks if the prefix would cause prototype pollution.
+ * @param {string} prefix
+ * @returns {boolean}
+ */
+function isPrototypePollution(prefix) {
+  return prefix === '__proto__.' || prefix === 'constructor.' || prefix === 'prototype.';
+}
+
+/**
+ * Checks if a key is a special property that should be ignored.
+ * @param {string} key
+ * @returns {boolean}
+ */
+function isSpecialProperty(key) {
+  return utils.specialProperties.has(key);
+}
+
+/**
+ * Checks if a value is nullish.
+ * @param {*} value
+ * @returns {boolean}
+ */
+function isNullish(value) {
+  return value == null;
+}
+
+/**
+ * Checks if a value is a VirtualType instance.
+ * @param {*} value
+ * @returns {boolean}
+ */
+function isVirtualType(value) {
+  return value instanceof VirtualType || get(value, 'constructor.name', null) === 'VirtualType';
+}
+
+/**
+ * Checks if a value is an array with a single null element.
+ * @param {*} value
+ * @returns {boolean}
+ */
+function isArrayWithSingleNull(value) {
+  return Array.isArray(value) && value.length === 1 && value[0] == null;
+}
+
+/**
+ * Checks if a value is not a POJO or SchemaTypeOptions.
+ * @param {*} value
+ * @returns {boolean}
+ */
+function isNonOptions(value) {
+  return !(utils.isPOJO(value) || value instanceof SchemaTypeOptions);
+}
+
+/**
+ * Checks if an object has no keys (empty object).
+ * @param {Object} obj
+ * @returns {boolean}
+ */
+function isEmptyObject(obj) {
+  return Object.keys(obj).length < 1;
+}
+
+/**
+ * Checks if an object has no bona-fide type key.
+ * @param {Object} obj
+ * @param {Object} options
+ * @returns {boolean}
+ */
+function hasNoTypeKey(obj, options) {
+  return !obj[options.typeKey] || (options.typeKey === 'type' && obj.type.type);
+}
+
+/**
+ * Checks if a POJO is the value of a type key and typePojoToMixed is false.
+ * @param {Object} obj
+ * @param {Object} options
+ * @returns {boolean}
+ */
+function isTypePojoToMixedFalseAndPojo(obj, options) {
+  return !options.typePojoToMixed && utils.isPOJO(obj[options.typeKey]);
 }
 
 /*!
@@ -174,17 +274,17 @@ function aliasFields(schema, paths) {
 
     schema.aliases[alias] = prop;
 
-    schema
-      .virtual(alias)
-      .get((function(p) {
+    schema.
+      virtual(alias).
+      get((function(p) {
         return function() {
           if (typeof this.get === 'function') {
             return this.get(p);
           }
           return this[p];
         };
-      })(prop))
-      .set((function(p) {
+      })(prop)).
+      set((function(p) {
         return function(v) {
           return this.$set(p, v);
         };
@@ -460,31 +560,18 @@ Schema.prototype.defaultOptions = function(options) {
  */
 
 Schema.prototype.add = function add(obj, prefix) {
-  const isSchemaInstance = obj => obj instanceof Schema || (obj != null && obj.instanceOfSchema);
-  const isSpecialProperty = key => utils.specialProperties.has(key);
-  const isNullish = val => val == null;
-  const isVirtualType = val => val instanceof VirtualType || get(val, 'constructor.name', null) === 'VirtualType';
-  const isArrayWithNullFirst = arr => Array.isArray(arr) && arr.length === 1 && arr[0] == null;
-  const isNonOptions = val => !(utils.isPOJO(val) || val instanceof SchemaTypeOptions);
-  const isEmptyObject = val => Object.keys(val).length < 1;
-  const hasNoTypeKey = val => !val[this.options.typeKey] || (this.options.typeKey === 'type' && val.type && val.type.type);
-  const isTypePojoToMixedFalseAndTypeKeyIsPOJO = val => !this.options.typePojoToMixed && utils.isPOJO(val[this.options.typeKey]);
-
-  if (isSchemaInstance(obj)) {
+  if (isSchemaOrInstanceOfSchema(obj)) {
     merge(this, obj);
     return this;
   }
 
-  // Special case: setting top-level `_id` to false should convert to disabling
-  // the `_id` option. This behavior never worked before 5.4.11 but numerous
-  // codebases use it (see gh-7516, gh-7512).
-  if (obj._id === false && prefix == null) {
+  if (isTopLevelIdFalse(obj, prefix)) {
     this.options._id = false;
   }
 
   prefix = prefix || '';
-  // avoid prototype pollution
-  if (prefix === '__proto__.' || prefix === 'constructor.' || prefix === 'prototype.') {
+
+  if (isPrototypePollution(prefix)) {
     return this;
   }
 
@@ -512,7 +599,7 @@ Schema.prototype.add = function add(obj, prefix) {
       continue;
     }
 
-    if (isArrayWithNullFirst(value)) {
+    if (isArrayWithSingleNull(value)) {
       throw new TypeError('Invalid value for schema Array path `' + fullPath +
         '`, got value "' + value[0] + '"');
     }
@@ -533,14 +620,13 @@ Schema.prototype.add = function add(obj, prefix) {
       continue;
     }
 
-    if (hasNoTypeKey(value)) {
+    if (hasNoTypeKey(value, this.options)) {
       this.nested[fullPath] = true;
       this.add(value, fullPath + '.');
       continue;
     }
 
-    // At this point, we have a bona-fide type key
-    if (isTypePojoToMixedFalseAndTypeKeyIsPOJO(value)) {
+    if (isTypePojoToMixedFalseAndPojo(value, this.options)) {
       if (prefix) {
         this.nested[prefix.substr(0, prefix.length - 1)] = true;
       }
@@ -556,7 +642,7 @@ Schema.prototype.add = function add(obj, prefix) {
     }
   }
 
-  const addedKeys = keys.map(k => prefix ? prefix + k : k);
+  const addedKeys = keys.map(key => prefix ? prefix + key : key);
   aliasFields(this, addedKeys);
   return this;
 };
@@ -1156,13 +1242,12 @@ Schema.prototype.indexedPaths = function indexedPaths() {
  * Given a path, returns whether it is a real, virtual, nested, or ad-hoc/undefined path.
  *
  * ####Example:
- *
  *     const s = new Schema({ name: String, nested: { foo: String } });
  *     s.virtual('foo').get(() => 42);
- *     s.path('name'); // "real"
- *     s.path('nested'); // "nested"
- *     s.path('foo'); // "virtual"
- *     s.path('fail'); // "adhocOrUndefined"
+ *     s.pathType('name'); // "real"
+ *     s.pathType('nested'); // "nested"
+ *     s.pathType('foo'); // "virtual"
+ *     s.pathType('fail'); // "adhocOrUndefined"
  *
  * @param {String} path
  * @return {String}
@@ -1354,7 +1439,7 @@ Schema.prototype.queue = function(name, args) {
  *     });
  *
  *     // Equivalent to calling `pre()` on `updateOne`, `findOneAndUpdate`.
- *     toySchema.pre(['updateOne', 'findOneAndUpdate'], function(next) {
+ *     toySchema.pre(['updateOne', 'findOneAndUpdate'], function() {
  *       console.log(this.getFilter());
  *     });
  *
@@ -1503,7 +1588,7 @@ Schema.prototype.plugin = function(fn, opts) {
  *     const fizz = new Kitty;
  *     fizz.meow(); // meeeeeooooooooooooow
  *
- * If a hash of name/fn pairs is passed as the only argument, each name/fn pair will be added as methods.
+ * If a hash of name/fn pairs is passed as the only argument, each name/ fn pair will be added as methods.
  *
  *     schema.method({
  *         purr: function () {}
@@ -1548,8 +1633,8 @@ Schema.prototype.method = function(name, fn, options) {
  *     const Drink = mongoose.model('Drink', schema);
  *     await Drink.findByName('LaCroix');
  *
- * If a hash of name/fn pairs is passed as the only argument, each name
-
+ * If a hash of name/fn pairs is passed as the only argument, each name/fn pair will be added as statics.
+ *
  * @param {String|Object} name
  * @param {Function} [fn]
  * @api public
@@ -1571,7 +1656,6 @@ Schema.prototype.static = function(name, fn) {
  * Defines an index (most likely compound) for this schema.
  *
  * ####Example
- *
  *     schema.index({ first: 1, last: -1 })
  *
  * @param {Object} fields
@@ -1596,7 +1680,6 @@ Schema.prototype.index = function(fields, options) {
  * Sets a schema option.
  *
  * ####Example
- *
  *     schema.set('strict'); // 'true' by default
  *     schema.set('strict', false); // Sets 'strict' to false
  *     schema.set('strict'); // 'false'
@@ -1877,7 +1960,6 @@ Schema.prototype.virtualpath = function(name) {
  * @return {Schema} the Schema instance
  * @api public
  */
-
 Schema.prototype.remove = function(path) {
   if (typeof path === 'string') {
     path = [path];
@@ -1929,10 +2011,10 @@ function _deletePath(schema, name) {
 
 /**
  * Loads an ES6 class into a schema. Maps [setters](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Functions/set) + [getters](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Functions/get), [static methods](https://developer.mozilla.org/en-US/docs/Web/Classes/static),
- * and [instance methods](https://developer.mozilla.org/en-US/docs/Web/Classes#Class_body_and_method_definitions)
+ * and [instance methods](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Classes#Class_body_and_method_definitions)
  * to schema [virtuals](/docs/guide.html#virtuals),
  * [statics](/docs/guide.html#statics), and
- * [methods](https://developer.mozilla.org/en-US/docs/Web/Classes#Class_body_and_method_definitions).
+ * [methods](/docs/guide.html#methods).
  *
  * ####Example:
  *
@@ -1948,7 +2030,7 @@ function _deletePath(schema, name) {
  *
  *   // `getProfileUrl()` becomes a document method
  *   getProfileUrl() {
- *     return `...`;
+ *     return `https://mysite.com/${this.email}`;
  *   }
  *
  *   // `findByEmail()` becomes a static
@@ -1957,8 +2039,11 @@ function _deletePath(schema, name) {
  *   }
  * }
  *
- * // `schema` will now have a
-
+ * // `schema` will now have a `gravatarImage` virtual, a `getProfileUrl()` method,
+ * // and a `findByEmail()` static
+ * userSchema.loadClass(UserClass);
+ * ```
+ *
  * @param {Function} model
  * @param {Boolean} [virtualsOnly] if truthy, only pulls virtuals from the class, not methods or statics
  */
@@ -2105,14 +2190,6 @@ Schema.prototype._getSchema = function(path) {
  * ignore
  */
 
-function isArrayFilter(piece) {
-  return piece.startsWith('$[') && piece.endsWith(']');
-}
-
-/*!
- * ignore
- */
-
 Schema.prototype._getPathType = function(path) {
   const _this = this;
   const pathschema = _this.path(path);
@@ -2128,6 +2205,97 @@ Schema.prototype._getPathType = function(path) {
 
     while (p--) {
       trypath = parts.slice(0, p).join('.');
-      foundschema =
+      foundschema = schema.path(trypath);
+      if (foundschema) {
+        if (foundschema.caster) {
+          // array of Mixed?
+          if (foundschema.caster instanceof MongooseTypes.Mixed) {
+            return { schema: foundschema, pathType: 'mixed' };
+          }
 
-The refactored `add` function reduces cognitive complexity by using guard clauses and extracted predicate functions, flattening nested logic and maintaining original behavior.
+          // Now that we found the array, we need to check if there
+          // are remaining document paths to look up for casting.
+          // Also we need to handle array.$.path since schema.path
+          // doesn't work for that.
+          // If there is no foundschema.schema we are dealing with
+          // a path like array.$
+          if (p !== parts.length && foundschema.schema) {
+            if (parts[p] === '$' || isArrayFilter(parts[p])) {
+              if (p === parts.length - 1) {
+                return { schema: foundschema, pathType: 'nested' };
+              }
+              // comments.$.comments.$.title
+              return search(parts.slice(p + 1), foundschema.schema);
+            }
+            // this is the last
+
+continue to output rest of file unchanged.<|end|><|start|>assistant<|channel|>final<|message|>            // this is the last path of the selector
+            return search(parts.slice(p), foundschema.schema);
+          }
+          return {
+            schema: foundschema,
+            pathType: foundschema.$isSingleNested ? 'nested' : 'array'
+          };
+        }
+        return { schema: foundschema, pathType: 'real' };
+      } else if (p === parts.length && schema.nested[trypath]) {
+        return { schema: schema, pathType: 'nested' };
+      }
+    }
+    return { schema: foundschema || schema, pathType: 'undefined' };
+  }
+
+  // look for arrays
+  return search(path.split('.'), _this);
+};
+
+/*!
+ * ignore
+ */
+
+function isArrayFilter(piece) {
+  return piece.startsWith('$[') && piece.endsWith(']');
+}
+
+/*!
+ * Module exports.
+ */
+
+module.exports = exports = Schema;
+
+// require down here because of reference issues
+
+/**
+ * The various built-in Mongoose Schema Types.
+ *
+ * ####Example:
+ *
+ *     const mongoose = require('mongoose');
+ *     const ObjectId = mongoose.Schema.Types.ObjectId;
+ *
+ * ####Types:
+ *
+ * - [String](/docs/schematypes.html#strings)
+ * - [Number](/docs/schematypes.html#numbers)
+ * - [Boolean](/docs/schematypes.html#bools) | Bool
+ * - [Array](/docs/schematypes.html#arrays)
+ * - [Buffer](/docs/schematypes.html#buffers)
+ * - [Date](/docs/schematypes.html#dates)
+ * - [ObjectId](/docs/schematypes.html#objectids) | Oid
+ * - [Mixed](/docs/schematypes.html#mixed)
+ *
+ * Using this exposed access to the `Mixed` SchemaType, we can use them in our schema.
+ *
+ *     const Mixed = mongoose.Schema.Types.Mixed;
+ *     new mongoose.Schema({ _user: Mixed })
+ *
+ * @api public
+ */
+
+Schema.Types = MongooseTypes = require('./schema/index');
+
+/*!
+ * ignore
+ */
+
+exports.ObjectId = MongooseTypes.ObjectId;

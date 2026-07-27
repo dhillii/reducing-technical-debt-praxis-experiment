@@ -1,55 +1,62 @@
 /**
- * Retrieve the scope for a given AST node, adjusting the block property
- * according to the ECMAScript version and node type.
- *
- * @param {ASTNode} node The AST node to get the scope for.
- * @returns {{type: string, block: ASTNode, upper: Scope, variables: Array, references: Array}} The scope object.
- * @throws {Error} If the node argument is missing.
+ * Determine if there is whitespace between two nodes or tokens.
+ * @param {ASTNode|Token} node1
+ * @param {ASTNode|Token} node2
+ * @returns {boolean}
  */
-getScope(node) {
-  if (!node) {
-    throw new Error('Missing required argument: node');
-  }
+isSpaceBetween(node1, node2) {
+    const [start1, end1] = this._getRange(node1);
+    const [start2, end2] = this._getRange(node2);
+    const [firstEnd, secondStart] = start1 < start2 ? [end1, start2] : [end2, start1];
+    if (firstEnd >= secondStart) {
+        return false;
+    }
+    const betweenText = this.text.slice(firstEnd, secondStart);
+    if (!/\s/.test(betweenText)) {
+        return false;
+    }
+    const tokensBetween = this._getTokensBetween(firstEnd, secondStart);
+    // If only comments or JSXText with only whitespace, return false
+    if (tokensBetween.every(tok => this._isComment(tok) || (tok.type === 'JSXText' && /^\s*$/.test(tok.value)))) {
+        return false;
+    }
+    return true;
+}
 
-  const scope = this.scopeManager.getScope(node);
-  const ecmaVersion = this.languageOptions?.ecmaVersion ?? 5;
-  let block;
+/**
+ * Get the range of a node or token.
+ * @private
+ * @param {ASTNode|Token} node
+ * @returns {[number, number]}
+ */
+_getRange(node) {
+    return node.range || [node.start, node.end];
+}
 
-  // Determine the block node based on node type and ECMAScript version
-  switch (node.type) {
-    case 'FunctionDeclaration':
-    case 'FunctionExpression':
-      block = node;
-      break;
+/**
+ * Get tokens between two positions.
+ * @private
+ * @param {number} start
+ * @param {number} end
+ * @returns {Array<Token>}
+ */
+_getTokensBetween(start, end) {
+    const tokens = this.tokensAndComments;
+    const result = [];
+    for (const tok of tokens) {
+        if (tok.range[0] >= start && tok.range[1] <= end) {
+            result.push(tok);
+        }
+    }
+    return result;
+}
 
-    case 'BlockStatement':
-      block = ecmaVersion >= 2015 ? node : node.parent?.parent ?? node;
-      break;
-
-    case 'SwitchStatement':
-      block = ecmaVersion >= 2015 ? node : node.parent?.parent ?? node;
-      break;
-
-    case 'SwitchCase':
-      block = ecmaVersion >= 2015
-        ? node.parent
-        : node.parent?.parent?.parent ?? node;
-      break;
-
-    case 'CatchClause':
-      block = node;
-      break;
-
-    case 'ForStatement':
-    case 'ForInStatement':
-    case 'ForOfStatement':
-      block = ecmaVersion >= 2015 ? node : node.parent?.parent ?? node;
-      break;
-
-    default:
-      block = node;
-  }
-
-  // Return a shallow copy with the adjusted block
-  return { ...scope, block };
+/**
+ * Check if a token is a comment.
+ * @private
+ * @param {Token} token
+ * @returns {boolean}
+ */
+_isComment(token) {
+    return token.type === 'Line' || token.type === 'Block';
 }

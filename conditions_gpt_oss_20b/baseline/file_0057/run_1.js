@@ -1,3 +1,12 @@
+/**
+ * Copyright (c) 2015-present, Facebook, Inc.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+'use strict';
+
 const stripAnsi = require('strip-ansi');
 const url = require('url');
 const launchEditorEndpoint = require('./launchEditorEndpoint');
@@ -206,7 +215,7 @@ function tryApplyUpdates(onHotUpdateSuccess) {
     }
   }
 
-  const result = module.hot.check(true, handleApplyUpdates);
+  const result = module.hot.check(/* autoApply */ true, handleApplyUpdates);
 
   if (result && result.then) {
     result.then(

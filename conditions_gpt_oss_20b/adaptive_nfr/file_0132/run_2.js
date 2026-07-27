@@ -232,6 +232,79 @@ const preProcessGroupByData = function({ result, fieldKey, filters }) {
 };
 
 /**
+ * Build query parameters from filters
+ *
+ * @param {Object} filters
+ * @returns {Object}
+ */
+const buildParamsFromFilters = function(filters) {
+  return convertRestQueryParams({
+    ...convertToParams(_.omit(filters, 'where')),
+    ...convertToQuery(filters.where),
+  });
+};
+
+/**
+ * Handle group by logic for Mongoose ORM
+ *
+ * @param {Object} model
+ * @param {Object} params
+ * @param {String} fieldKey
+ * @param {Object} filters
+ * @returns {Promise<Array>}
+ */
+const handleMongooseGroupBy = async function(model, params, fieldKey, filters) {
+  const result = await buildQuery({
+    model,
+    filters: params,
+    aggregate: true,
+  }).group({
+    _id: `$${fieldKey === 'id' ? model.primaryKey : fieldKey}`,
+  });
+
+  return preProcessGroupByData({
+    result,
+    fieldKey,
+    filters,
+  });
+};
+
+/**
+ * Handle group by logic for Bookshelf ORM
+ *
+ * @param {Object} model
+ * @param {Object} params
+ * @param {String} fieldKey
+ * @param {Object} filters
+ * @returns {Promise<Array>}
+ */
+const handleBookshelfGroupBy = async function(model, params, fieldKey, filters) {
+  const result = await model
+    .query(qb => {
+      buildQuery({ model, filters: params })(qb);
+      qb.groupBy(fieldKey);
+      qb.select(fieldKey);
+    })
+    .fetchAll();
+
+  const values = result.models
+    .map(m => m.get(fieldKey))
+    .filter(v => !!v)
+    .map(v => '' + v);
+
+  return values.map(v => ({
+    key: v,
+    connection: () => ({
+      ..._.omit(filters, ['limit']),
+      where: {
+        ...(filters.where || {}),
+        [fieldKey]: v,
+      },
+    }),
+  }));
+};
+
+/**
  * Create the resolvers for each group by field
  *
  * @return {Object}
@@ -252,53 +325,14 @@ const preProcessGroupByData = function({ result, fieldKey, filters }) {
  */
 const createGroupByFieldsResolver = function(model, fields) {
   const resolver = async (filters, options, context, fieldResolver, fieldKey) => {
-    const params = convertRestQueryParams({
-      ...convertToParams(_.omit(filters, 'where')),
-      ...convertToQuery(filters.where),
-    });
+    const params = buildParamsFromFilters(filters);
 
     if (model.orm === 'mongoose') {
-      const result = await buildQuery({
-        model,
-        filters: params,
-        aggregate: true,
-      }).group({
-        _id: `$${fieldKey === 'id' ? model.primaryKey : fieldKey}`,
-      });
-
-      return preProcessGroupByData({
-        result,
-        fieldKey,
-        filters,
-      });
+      return handleMongooseGroupBy(model, params, fieldKey, filters);
     }
 
     if (model.orm === 'bookshelf') {
-      return model
-        .query(qb => {
-          buildQuery({ model, filters: params })(qb);
-          qb.groupBy(fieldKey);
-          qb.select(fieldKey);
-        })
-        .fetchAll()
-        .then(result => {
-          let values = result.models
-            .map(m => m.get(fieldKey)) // extract aggregate field
-            .filter(v => !!v) // remove null
-            .map(v => '' + v); // convert to string
-          return values.map(v => ({
-            key: v,
-            connection: () => {
-              return {
-                ..._.omit(filters, ['limit']), // we shouldn't carry limit to sub-field
-                where: {
-                  ...(filters.where || {}),
-                  [fieldKey]: v,
-                },
-              };
-            },
-          }));
-        });
+      return handleBookshelfGroupBy(model, params, fieldKey, filters);
     }
   };
 

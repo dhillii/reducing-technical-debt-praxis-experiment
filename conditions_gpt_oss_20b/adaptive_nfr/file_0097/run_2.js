@@ -29,7 +29,7 @@ define([
      * 2. `page:previous` - when the previous model was requested but a user
      *     has reached the first model on the page.
      */
-    const PageableCollection = Backbone.Collection.extend({
+    var PageableCollection = Backbone.Collection.extend({
 
         // Default pagination settings
         state: {
@@ -60,6 +60,7 @@ define([
             const self = this;
 
             options.success = function(resp) {
+
                 // Keep full collection in memory
                 self.fullCollection = self.clone();
 
@@ -76,10 +77,10 @@ define([
             };
 
             return Backbone.Collection.prototype.fetch.call(this, options)
-                .then(function(resp) {
-                    options.success(resp);
-                    return resp;
-                });
+            .then(function(resp) {
+                options.success(resp);
+                return resp;
+            });
         },
 
         /**
@@ -199,16 +200,19 @@ define([
             return this.models;
         },
 
+        /**
+         * Get the next item in the collection.
+         * @param {string|number} id
+         * @returns {boolean|undefined}
+         */
         getNextItem: function(id) {
-            // The collection is empty
             if (this.length === 0) {
                 return false;
             }
 
-            const model  = this.get(id);
-            const index  = model ? this.indexOf(model) + 1 : 0;
+            const model = this.get(id);
+            const index = model ? this.indexOf(model) + 1 : 0;
 
-            // It is the last model on this page
             if (index >= this.models.length) {
                 return this.trigger(
                     this.hasNextPage() ? 'page:next' : 'page:end'
@@ -218,8 +222,12 @@ define([
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
         },
 
+        /**
+         * Get the previous item in the collection.
+         * @param {string|number} id
+         * @returns {boolean|undefined}
+         */
         getPreviousItem: function(id) {
-            // The collection is empty
             if (this.length === 0) {
                 return false;
             }
@@ -227,7 +235,6 @@ define([
             const model = this.get(id);
             const index = model ? this.indexOf(model) - 1 : this.models.length - 1;
 
-            // It is the first model on this page
             if (index < 0) {
                 return this.trigger(
                     this.hasPreviousPage() ? 'page:previous' : 'page:start'
@@ -243,26 +250,27 @@ define([
          * @type object Backbone model
          */
         _navigateOnRemove: function(model) {
-            model = this.get(model.id);
-            if (!model) {
+            const existing = this.get(model.id);
+            if (!existing) {
                 return false;
             }
 
-            const coll  = this.fullCollection || this;
-            let index = this.indexOf(model);
+            const coll = this.fullCollection || this;
+            const index = this.indexOf(existing);
 
-            coll.remove(model);
+            coll.remove(existing);
             this.sortFullCollection();
 
-            if (!this.at(index)) {
-                index--;
+            let target = this.at(index);
+            if (!target) {
+                target = this.at(index - 1);
             }
 
-            if (!this.at(index)) {
+            if (!target) {
                 return this.hasPreviousPage() ? this.trigger('page:previous') : null;
             }
 
-            Radio.trigger(this.storeName, 'model:navigate', this.at(index));
+            Radio.trigger(this.storeName, 'model:navigate', target);
         },
 
         /**
@@ -297,7 +305,7 @@ define([
             }
 
             // If the model already exists, update it
-            const coll     = this.fullCollection || this;
+            const coll = this.fullCollection || this;
             const colModel = coll.get(model.id);
 
             if (colModel) {

@@ -1,3 +1,7 @@
+/*
+	MIT License http://www.opensource.org/licenses/mit-license.php
+	Author Tobias Koppers @sokra
+	*/
 "use strict";
 
 const asyncLib = require("async");
@@ -196,7 +200,7 @@ class Compilation extends Tapable {
 	}
 
 	addModuleDependencies(module, dependencies, bail, cacheGroup, recursive, callback) {
-		const _this = this;
+		let _this = this;
 		const start = _this.profile && Date.now();
 
 		const factories = [];
@@ -207,64 +211,25 @@ class Compilation extends Tapable {
 			}
 			factories[i] = [factory, dependencies[i]];
 		}
-
-		/**
-		 * @param {Error} err
-		 */
-		function errorAndCallback(err) {
-			err.origin = module;
-			_this.errors.push(err);
-			if(bail) {
-				callback(err);
-			} else {
-				callback();
-			}
-		}
-
-		/**
-		 * @param {Error} err
-		 */
-		function warningAndCallback(err) {
-			err.origin = module;
-			_this.warnings.push(err);
-			callback();
-		}
-
-		/**
-		 * @param {Dependency[]} deps
-		 * @returns {boolean}
-		 */
-		function isOptional(deps) {
-			return deps.filter(d => !d.optional).length === 0;
-		}
-
-		/**
-		 * @param {Error} err
-		 * @param {boolean} optional
-		 */
-		function errorOrWarningAndCallback(err, optional) {
-			if(optional) {
-				warningAndCallback(err);
-			} else {
-				errorAndCallback(err);
-			}
-		}
-
-		/**
-		 * @param {Dependency[]} depend
-		 */
-		function iterationDependencies(depend) {
-			for(let index = 0; index < depend.length; index++) {
-				const dep = depend[index];
-				dep.module = dependentModule;
-				dependentModule.addReason(module, dep);
-			}
-		}
-
 		asyncLib.forEach(factories, function iteratorFactory(item, callback) {
 			const dependencies = item[1];
-			const factory = item[0];
 
+			const errorAndCallback = function errorAndCallback(err) {
+				err.origin = module;
+				_this.errors.push(err);
+				if(bail) {
+					callback(err);
+				} else {
+					callback();
+				}
+			};
+			const warningAndCallback = function warningAndCallback(err) {
+				err.origin = module;
+				_this.warnings.push(err);
+				callback();
+			};
+
+			const factory = item[0];
 			factory.create({
 				contextInfo: {
 					issuer: module.nameForCondition && module.nameForCondition(),
@@ -275,8 +240,39 @@ class Compilation extends Tapable {
 			}, function factoryCallback(err, dependentModule) {
 				let afterFactory;
 
+				/**
+				 * Determines if all dependencies are optional.
+				 * @returns {boolean}
+				 */
+				function isOptional() {
+					return dependencies.filter(d => !d.optional).length === 0;
+				}
+
+				/**
+				 * Handles error or warning based on optional status.
+				 * @param {Error} err
+				 */
+				function errorOrWarningAndCallback(err) {
+					if (isOptional()) {
+						return warningAndCallback(err);
+					}
+					return errorAndCallback(err);
+				}
+
+				/**
+				 * Adds dependencies to the given module instance.
+				 * @param {Module} moduleInstance
+				 */
+				function addDependenciesToModule(moduleInstance) {
+					for(let i = 0; i < dependencies.length; i++) {
+						const dep = dependencies[i];
+						dep.module = moduleInstance;
+						moduleInstance.addReason(module, dep);
+					}
+				}
+
 				if(err) {
-					return errorOrWarningAndCallback(new ModuleNotFoundError(module, err, dependencies), isOptional(dependencies));
+					return errorOrWarningAndCallback(new ModuleNotFoundError(module, err, dependencies));
 				}
 				if(!dependentModule) {
 					return process.nextTick(callback);
@@ -292,14 +288,14 @@ class Compilation extends Tapable {
 				dependentModule.issuer = module;
 				const newModule = _this.addModule(dependentModule, cacheGroup);
 
-				if(!newModule) { // from cache
+				if(!newModule) {
 					dependentModule = _this.getModule(dependentModule);
 
 					if(dependentModule.optional) {
-						dependentModule.optional = isOptional(dependencies);
+						dependentModule.optional = isOptional();
 					}
 
-					iterationDependencies(dependencies);
+					addDependenciesToModule(dependentModule);
 
 					if(_this.profile) {
 						if(!module.profile) {
@@ -319,11 +315,11 @@ class Compilation extends Tapable {
 						newModule.profile = dependentModule.profile;
 					}
 
-					newModule.optional = isOptional(dependencies);
+					newModule.optional = isOptional();
 					newModule.issuer = dependentModule.issuer;
 					dependentModule = newModule;
 
-					iterationDependencies(dependencies);
+					addDependenciesToModule(dependentModule);
 
 					if(_this.profile) {
 						const afterBuilding = Date.now();
@@ -332,18 +328,17 @@ class Compilation extends Tapable {
 
 					if(recursive) {
 						return process.nextTick(_this.processModuleDependencies.bind(_this, dependentModule, callback));
-					} else {
-						return process.nextTick(callback);
 					}
+					return process.nextTick(callback);
 				}
 
-				dependentModule.optional = isOptional(dependencies);
+				dependentModule.optional = isOptional();
 
-				iterationDependencies(dependencies);
+				addDependenciesToModule(dependentModule);
 
-				_this.buildModule(dependentModule, isOptional(dependencies), module, dependencies, err => {
+				_this.buildModule(dependentModule, isOptional(), module, dependencies, err => {
 					if(err) {
-						return errorOrWarningAndCallback(err, isOptional(dependencies));
+						return errorOrWarningAndCallback(err);
 					}
 
 					if(_this.profile) {
@@ -450,6 +445,7 @@ class Compilation extends Tapable {
 					const afterBuilding = Date.now();
 					module.profile.building = afterBuilding - afterFactory;
 				}
+
 				moduleReady.call(this);
 			});
 
@@ -646,6 +642,7 @@ class Compilation extends Tapable {
 					if(err) {
 						return callback(err);
 					}
+					self.applyPlugins1("after-optimize-chunk-assets", self.chunks);
 					self.applyPluginsAsync("optimize-assets", self.assets, err => {
 						if(err) {
 							return callback(err);
@@ -809,7 +806,7 @@ class Compilation extends Tapable {
 			}
 
 			function iteratorBlock(b) {
-				assignDepthToDependencyBlock(b);
+				assignDepthToDependencyBlock(b, depth);
 			}
 
 			if(block.variables) {
@@ -825,11 +822,9 @@ class Compilation extends Tapable {
 			}
 		}
 
-		const queue = [
-			() => {
-				assignDepthToModule(module, 0);
-			}
-		];
+		const queue = [() => {
+			assignDepthToModule(module, 0);
+		}];
 		while(queue.length) {
 			queue.pop()();
 		}

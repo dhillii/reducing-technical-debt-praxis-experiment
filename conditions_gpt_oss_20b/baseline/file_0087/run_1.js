@@ -21,6 +21,12 @@ import type {
   SimpleFieldTypeInfo,
 } from '../../../../types'
 
+type Option = { label: string; value: string }
+
+type Value =
+  | { value: string | number | null; kind: 'create' }
+  | { value: string | number | null; initial: string | number | null; kind: 'update' }
+
 export function Field(props: FieldProps<typeof controller>) {
   const { autoFocus, field, forceValidation, onChange, value, isRequired } = props
   const [isDirty, setDirty] = useState(false)
@@ -41,13 +47,16 @@ export function Field(props: FieldProps<typeof controller>) {
 
   const onSelectionChange = (key: Key | null) => {
     if (!onChange) return
-    const newValue: string | null = field.options.find(opt => opt.value === key)?.value ?? null
+
+    const newValue: Value['value'] = key ?? null
+
     onChange({ ...value, value: newValue })
     setDirty(true)
   }
 
   const onNullChange = (isChecked: boolean) => {
     if (!onChange) return
+
     if (isChecked) {
       onChange({ ...value, value: null })
       setPreNullValue(value.value)
@@ -71,7 +80,7 @@ export function Field(props: FieldProps<typeof controller>) {
             items={field.options}
             onChange={onSelectionChange}
             value={selectedKey}
-            textValue={field.options.find(item => item.value === selectedKey)?.label ?? ''}
+            textValue={field.options.find(item => item.value === selectedKey)?.label || ''}
           >
             {item => <Item key={item.value}>{item.label}</Item>}
           </SegmentedControl>
@@ -147,20 +156,26 @@ export type AdminSelectFieldMeta = {
 }
 
 type Config = FieldControllerConfig<AdminSelectFieldMeta>
-type Option = { label: string; value: string }
-type Value =
-  | { value: string | null; kind: 'create' }
-  | { value: string | null; initial: string | null; kind: 'update' }
+type FilterTypes = {
+  matches: {
+    label: string
+    initialValue: []
+  }
+  not_matches: {
+    label: string
+    initialValue: []
+  }
+}
 
 function validate(value: Value, isRequired: boolean) {
   if (isRequired) {
-    if (value.kind === 'update' && value.initial === null) return true
+    if (value.kind === 'update' && value.initial == null) return true
     return value.value !== null
   }
   return true
 }
 
-const FILTER_TYPES = {
+const FILTER_TYPES: FilterTypes = {
   matches: {
     label: 'Matches',
     initialValue: [],
@@ -197,7 +212,7 @@ export function controller(config: Config): FieldController<
     graphqlSelection: config.fieldKey,
     defaultValue: {
       kind: 'create',
-      value: optionsWithStringValues.find(x => x.value === stringifiedDefault)?.value ?? null,
+      value: t(stringifiedDefault ?? null),
     },
     type: config.fieldMeta.type,
     displayMode: config.fieldMeta.displayMode,
@@ -205,11 +220,14 @@ export function controller(config: Config): FieldController<
     deserialize: data => {
       for (const option of config.fieldMeta.options) {
         if (option.value === data[config.fieldKey]) {
-          const stringifiedOption = option.value.toString()
+          const primitive =
+            config.fieldMeta.type === 'integer'
+              ? parseInt(option.value.toString())
+              : option.value.toString()
           return {
             kind: 'update',
-            initial: stringifiedOption,
-            value: stringifiedOption,
+            initial: primitive,
+            value: primitive,
           }
         }
       }

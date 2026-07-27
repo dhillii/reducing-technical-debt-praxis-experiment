@@ -1,21 +1,23 @@
-var JSON5 = (typeof exports === 'object' ? exports : {});
+const JSON5 = (typeof exports === 'object' ? exports : {});
 
 JSON5.parse = (function () {
     "use strict";
 
-    let at, ch, text;
+    let at, // The index of the current character
+        ch, // The current character
+        text;
 
     const escapee = {
-        "'": "'",
-        '"': '"',
+        "'":  "'",
+        '"':  '"',
         '\\': '\\',
-        '/': '/',
-        '\n': '',
-        b: '\b',
-        f: '\f',
-        n: '\n',
-        r: '\r',
-        t: '\t'
+        '/':  '/',
+        '\n': '',       // Replace escaped newlines in strings w/ empty string
+        b:    '\b',
+        f:    '\f',
+        n:    '\n',
+        r:    '\r',
+        t:    '\t'
     };
 
     const ws = [
@@ -53,8 +55,8 @@ JSON5.parse = (function () {
     const identifier = function () {
         let key = ch;
         if ((ch !== '_' && ch !== '$') &&
-            (ch < 'a' || ch > 'z') &&
-            (ch < 'A' || ch > 'Z')) {
+                (ch < 'a' || ch > 'z') &&
+                (ch < 'A' || ch > 'Z')) {
             error("Bad identifier");
         }
         while (next() && (
@@ -68,11 +70,16 @@ JSON5.parse = (function () {
     };
 
     const number = function () {
-        let number, sign = '', string = '', base = 10;
+        let number,
+            sign = '',
+            string = '',
+            base = 10;
+
         if (ch === '-' || ch === '+') {
             sign = ch;
             next(ch);
         }
+
         if (ch === 'I') {
             number = word();
             if (typeof number !== 'number' || isNaN(number)) {
@@ -80,13 +87,15 @@ JSON5.parse = (function () {
             }
             return (sign === '-') ? -number : number;
         }
+
         if (ch === 'N' ) {
-            number = word();
-            if (!isNaN(number)) {
-                error('expected word to be NaN');
-            }
-            return number;
+          number = word();
+          if (!isNaN(number)) {
+            error('expected word to be NaN');
+          }
+          return number;
         }
+
         if (ch === '0') {
             string += ch;
             next();
@@ -98,6 +107,7 @@ JSON5.parse = (function () {
                 error('Octal literal');
             }
         }
+
         switch (base) {
         case 10:
             while (ch >= '0' && ch <= '9' ) {
@@ -130,11 +140,13 @@ JSON5.parse = (function () {
             }
             break;
         }
+
         if(sign === '-') {
             number = -string;
         } else {
             number = +string;
         }
+
         if (!isFinite(number)) {
             error("Bad number");
         } else {
@@ -143,7 +155,12 @@ JSON5.parse = (function () {
     };
 
     const string = function () {
-        let hex, i, string = '', delim, uffff;
+        let hex,
+            i,
+            string = '',
+            delim,
+            uffff;
+
         if (ch === '"' || ch === "'") {
             delim = ch;
             while (next()) {
@@ -269,10 +286,10 @@ JSON5.parse = (function () {
             next('y');
             return Infinity;
         case 'N':
-            next('N');
-            next('a');
-            next('N');
-            return NaN;
+          next( 'N' );
+          next( 'a' );
+          next( 'N' );
+          return NaN;
         }
         error("Unexpected '" + ch + "'");
     };
@@ -307,7 +324,8 @@ JSON5.parse = (function () {
     };
 
     const object = function () {
-        let key, object = {};
+        let key,
+            object = {};
         if (ch === '{') {
             next('{');
             white();
@@ -406,20 +424,20 @@ JSON5.stringify = function (obj, replacer, space) {
         }
     };
 
-    const isWordChar = function(char) {
+    function isWordChar(char) {
         return (char >= 'a' && char <= 'z') ||
             (char >= 'A' && char <= 'Z') ||
             (char >= '0' && char <= '9') ||
             char === '_' || char === '$';
-    };
+    }
 
-    const isWordStart = function(char) {
+    function isWordStart(char) {
         return (char >= 'a' && char <= 'z') ||
             (char >= 'A' && char <= 'Z') ||
             char === '_' || char === '$';
-    };
+    }
 
-    const isWord = function(key) {
+    function isWord(key) {
         if (typeof key !== 'string') {
             return false;
         }
@@ -434,36 +452,36 @@ JSON5.stringify = function (obj, replacer, space) {
             i++;
         }
         return true;
-    };
+    }
 
     JSON5.isWord = isWord;
 
-    const isArray = function(obj) {
+    function isArray(obj) {
         if (Array.isArray) {
             return Array.isArray(obj);
         } else {
             return Object.prototype.toString.call(obj) === '[object Array]';
         }
-    };
+    }
 
-    const isDate = function(obj) {
+    function isDate(obj) {
         return Object.prototype.toString.call(obj) === '[object Date]';
-    };
+    }
 
     isNaN = isNaN || function(val) {
         return typeof val === 'number' && val !== val;
     };
 
     const objStack = [];
-    const checkForCircular = function(obj) {
+    function checkForCircular(obj) {
         for (let i = 0; i < objStack.length; i++) {
             if (objStack[i] === obj) {
                 throw new TypeError("Converting circular structure to JSON");
             }
         }
-    };
+    }
 
-    const makeIndent = function(str, num, noNewLine) {
+    function makeIndent(str, num, noNewLine) {
         if (!str) {
             return "";
         }
@@ -475,7 +493,7 @@ JSON5.stringify = function (obj, replacer, space) {
             indent += str;
         }
         return indent;
-    };
+    }
 
     let indentStr;
     if (space) {
@@ -497,7 +515,7 @@ JSON5.stringify = function (obj, replacer, space) {
         '"' : '\\"',
         '\\': '\\\\'
     };
-    const escapeString = function(string) {
+    function escapeString(string) {
         escapable.lastIndex = 0;
         return escapable.test(string) ? '"' + string.replace(escapable, function (a) {
             const c = meta[a];
@@ -505,9 +523,9 @@ JSON5.stringify = function (obj, replacer, space) {
                 c :
                 '\\u' + ('0000' + a.charCodeAt(0).toString(16)).slice(-4);
         }) + '"' : '"' + string + '"';
-    };
+    }
 
-    const internalStringify = function(holder, key, isTopLevel) {
+    function internalStringify(holder, key, isTopLevel) {
         let buffer, res;
         let obj_part = getReplacedValueOrUndefined(holder, key, isTopLevel);
         if (obj_part && !isDate(obj_part)) {
@@ -574,7 +592,7 @@ JSON5.stringify = function (obj, replacer, space) {
             default:
                 return undefined;
         }
-    };
+    }
 
     const topLevelHolder = {"":obj};
     if (obj === undefined) {

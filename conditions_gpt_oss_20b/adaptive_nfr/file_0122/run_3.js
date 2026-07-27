@@ -102,22 +102,22 @@ const QueryGenerator = {
       schema = 'public';
     }
     return 'SELECT pk.constraint_type as "Constraint", c.column_name as "Field", ' +
-      'c.column_default as "Default", c.is_nullable as "Null", ' +
-      '(CASE WHEN c.udt_name = \'hstore\' THEN c.udt_name ELSE c.data_type END) || (CASE WHEN c.character_maximum_length IS NOT NULL THEN \'(\' || c.character_maximum_length || \')\' ELSE \'\' END) as "Type", ' +
-      '(SELECT array_agg(e.enumlabel) ' +
-      'FROM pg_catalog.pg_type t JOIN pg_catalog.pg_enum e ON t.oid=e.enumtypid ' +
-      'WHERE t.typname=c.udt_name) AS "special" ' +
-      'FROM information_schema.columns c ' +
-      'LEFT JOIN (SELECT tc.table_schema, tc.table_name, ' +
-      'cu.column_name, tc.constraint_type ' +
-      'FROM information_schema.TABLE_CONSTRAINTS tc ' +
-      'JOIN information_schema.KEY_COLUMN_USAGE  cu ' +
-      'ON tc.table_schema=cu.table_schema and tc.table_name=cu.table_name ' +
-        'and tc.constraint_name=cu.constraint_name ' +
-        'and tc.constraint_type=\'PRIMARY KEY\') pk ' +
-      'ON pk.table_schema=c.table_schema ' +
-      'AND pk.table_name=c.table_name ' +
-      'AND pk.column_name=c.column_name ' +
+              'c.column_default as "Default", c.is_nullable as "Null", ' +
+              '(CASE WHEN c.udt_name = \'hstore\' THEN c.udt_name ELSE c.data_type END) || (CASE WHEN c.character_maximum_length IS NOT NULL THEN \'(\' || c.character_maximum_length || \')\' ELSE \'\' END) as "Type", ' +
+              '(SELECT array_agg(e.enumlabel) ' +
+              'FROM pg_catalog.pg_type t JOIN pg_catalog.pg_enum e ON t.oid=e.enumtypid ' +
+              'WHERE t.typname=c.udt_name) AS "special" ' +
+            'FROM information_schema.columns c ' +
+            'LEFT JOIN (SELECT tc.table_schema, tc.table_name, ' +
+              'cu.column_name, tc.constraint_type ' +
+              'FROM information_schema.TABLE_CONSTRAINTS tc ' +
+              'JOIN information_schema.KEY_COLUMN_USAGE  cu ' +
+              'ON tc.table_schema=cu.table_schema and tc.table_name=cu.table_name ' +
+                'and tc.constraint_name=cu.constraint_name ' +
+                'and tc.constraint_type=\'PRIMARY KEY\') pk ' +
+            'ON pk.table_schema=c.table_schema ' +
+            'AND pk.table_name=c.table_name ' +
+            'AND pk.column_name=c.column_name ' +
       `WHERE c.table_name = ${this.escape(tableName)} AND c.table_schema = ${this.escape(schema)} `;
   },
 
@@ -319,15 +319,38 @@ const QueryGenerator = {
   },
 
   fn(fnName, tableName, parameters, body, returns, language) {
-    return this.fnWithParams({ fnName, tableName, parameters, body, returns, language });
+    fnName = fnName || 'testfunc';
+    language = language || 'plpgsql';
+    returns = returns ? `RETURNS ${returns}` : '';
+    parameters = parameters || '';
+
+    return `CREATE OR REPLACE FUNCTION pg_temp.${fnName}(${parameters}) ${returns} AS $func$ BEGIN ${body} END; $func$ LANGUAGE ${language}; SELECT * FROM pg_temp.${fnName}();`;
   },
 
   exceptionFn(fnName, tableName, parameters, main, then, when, returns, language) {
-    return this.exceptionFnWithParams({ fnName, tableName, parameters, main, then, when, returns, language });
+    when = when || 'unique_violation';
+
+    const body = `${main} EXCEPTION WHEN ${when} THEN ${then};`;
+
+    return this.fn(fnName, tableName, parameters, body, returns, language);
   },
 
   upsertQuery(tableName, insertValues, updateValues, where, model, options) {
-    return this.upsertQueryWithParams({ tableName, insertValues, updateValues, where, model, options });
+    const primaryField = this.quoteIdentifier(model.primaryKeyField);
+
+    let insert = this.insertQuery(tableName, insertValues, model.rawAttributes, options);
+    let update = this.updateQuery(tableName, updateValues, where, options, model.rawAttributes);
+
+    insert = insert.replace('RETURNING *', `RETURNING ${primaryField} INTO primary_key`);
+    update = update.replace('RETURNING *', `RETURNING ${primaryField} INTO primary_key`);
+
+    return this.exceptionFn(
+      'sequelize_upsert',
+      tableName,
+      'OUT created boolean, OUT primary_key text',
+      `${insert} created := true;`,
+      `${update}; created := false`
+    );
   },
 
   deleteQuery(tableName, where, options, model) {
@@ -397,7 +420,7 @@ const QueryGenerator = {
       `AS definition FROM pg_class t, pg_class i, pg_index ix, pg_attribute a${schemaJoin} ` +
       'WHERE t.oid = ix.indrelid AND i.oid = ix.indexrelid AND a.attrelid = t.oid AND ' +
       `t.relkind = 'r' and t.relname = '${tableName}'${schemaWhere} ` +
-      'GROUP BY i.relname, ix.indisprimary, ix.indisunique, ix.indkey ORDER BY i.relname;';
+      'GROUP BY i.relname, ix.indexrelid, ix.indisprimary, ix.indisunique, ix.indkey ORDER BY i.relname;';
   },
 
   showConstraintsQuery(tableName) {
@@ -440,14 +463,14 @@ const QueryGenerator = {
     return fragment;
   },
 
-  attributeToSQL(attribute) {
-    if (!_.isPlainObject(attribute)) {
-      attribute = {
-        type: attribute
-      };
-    }
-
-    let type;
+  /**
+   * Handles ENUM type conversion for attribute definitions.
+   *
+   * @private
+   * @param {Object} attribute - The attribute definition.
+   * @returns {String|null} The ENUM type string or null if not applicable.
+   */
+  _attributeToSQLEnum(attribute) {
     if (
       attribute.type instanceof DataTypes.ENUM ||
       (attribute.type instanceof DataTypes.ARRAY && attribute.type.type instanceof DataTypes.ENUM)
@@ -460,17 +483,67 @@ const QueryGenerator = {
       }
 
       if (Array.isArray(values) && values.length > 0) {
-        type = 'ENUM(' + _.map(values, value => this.escape(value)).join(', ') + ')';
+        let type = 'ENUM(' + _.map(values, value => this.escape(value)).join(', ') + ')';
 
         if (attribute.type instanceof DataTypes.ARRAY) {
           type += '[]';
         }
 
-      } else {
-        throw new Error("Values for ENUM haven't been defined.");
+        return type;
       }
+
+      throw new Error("Values for ENUM haven't been defined.");
     }
 
+    return null;
+  },
+
+  /**
+   * Handles REFERENCES clause for attribute definitions.
+   *
+   * @private
+   * @param {Object} attribute - The attribute definition.
+   * @returns {String|null} The REFERENCES clause string or null if not applicable.
+   */
+  _attributeToSQLReferences(attribute) {
+    if (!attribute.references) {
+      return null;
+    }
+
+    const referencesTable = this.quoteTable(attribute.references.model);
+    let referencesKey;
+
+    if (attribute.references.key) {
+      referencesKey = this.quoteIdentifiers(attribute.references.key);
+    } else {
+      referencesKey = this.quoteIdentifier('id');
+    }
+
+    let ref = ` REFERENCES ${referencesTable} (${referencesKey})`;
+
+    if (attribute.onDelete) {
+      ref += ' ON DELETE ' + attribute.onDelete.toUpperCase();
+    }
+
+    if (attribute.onUpdate) {
+      ref += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
+    }
+
+    if (attribute.references.deferrable) {
+      ref += ' ' + attribute.references.deferrable.toString(this);
+    }
+
+    return ref;
+  },
+
+  attributeToSQL(attribute) {
+    if (!_.isPlainObject(attribute)) {
+      attribute = {
+        type: attribute
+      };
+    }
+
+    let type = this._attributeToSQLEnum(attribute);
     if (!type) {
       type = attribute.type;
     }
@@ -497,29 +570,9 @@ const QueryGenerator = {
       sql += ' PRIMARY KEY';
     }
 
-    if (attribute.references) {
-      const referencesTable = this.quoteTable(attribute.references.model);
-      let referencesKey;
-
-      if (attribute.references.key) {
-        referencesKey = this.quoteIdentifiers(attribute.references.key);
-      } else {
-        referencesKey = this.quoteIdentifier('id');
-      }
-
-      sql += ` REFERENCES ${referencesTable} (${referencesKey})`;
-
-      if (attribute.onDelete) {
-        sql += ' ON DELETE ' + attribute.onDelete.toUpperCase();
-      }
-
-      if (attribute.onUpdate) {
-        sql += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
-      }
-
-      if (attribute.references.deferrable) {
-        sql += ' ' + attribute.references.deferrable.toString(this);
-      }
+    const ref = this._attributeToSQLReferences(attribute);
+    if (ref) {
+      sql += ref;
     }
 
     return sql;
@@ -559,7 +612,16 @@ const QueryGenerator = {
   },
 
   createTrigger(tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray) {
-    return this.createTriggerWithParams({ tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray });
+    const decodedEventType = this.decodeTriggerEventType(eventType);
+    const eventSpec = this.expandTriggerEventSpec(fireOnSpec);
+    const expandedOptions = this.expandOptions(optionsArray);
+    const paramList = this.expandFunctionParamList(functionParams);
+
+    return `CREATE ${this.triggerEventTypeIsConstraint(eventType)}TRIGGER ${triggerName}\n`
+      + `\t${decodedEventType} ${eventSpec}\n`
+      + `\tON ${tableName}\n`
+      + `\t${expandedOptions}\n`
+      + `\tEXECUTE PROCEDURE ${functionName}(${paramList});`;
   },
 
   dropTrigger(tableName, triggerName) {
@@ -571,7 +633,18 @@ const QueryGenerator = {
   },
 
   createFunction(functionName, params, returnType, language, body, options) {
-    return this.createFunctionWithParams({ functionName, params, returnType, language, body, options });
+    if (!functionName || !returnType || !language || !body) throw new Error('createFunction missing some parameters. Did you pass functionName, returnType, language and body?');
+
+    const paramList = this.expandFunctionParamList(params);
+    const indentedBody = body.replace('\n', '\n\t');
+    const expandedOptions = this.expandOptions(options);
+
+    return `CREATE FUNCTION ${functionName}(${paramList})\n`
+      + `RETURNS ${returnType} AS $func$\n`
+      + 'BEGIN\n'
+      + `\t${indentedBody}\n`
+      + 'END;\n'
+      + `$func$ language '${language}'${expandedOptions};`;
   },
 
   dropFunction(functionName, params) {
@@ -849,113 +922,6 @@ const QueryGenerator = {
     }
 
     return AbstractQueryGenerator.setAutocommitQuery.call(this, value, options);
-  },
-
-  // Parameter object methods
-
-  /**
-   * @param {Object} params
-   * @param {string} params.fnName
-   * @param {string} params.tableName
-   * @param {string} params.parameters
-   * @param {string} params.body
-   * @param {string} params.returns
-   * @param {string} params.language
-   */
-  fnWithParams({ fnName = 'testfunc', tableName, parameters = '', body, returns, language = 'plpgsql' }) {
-    return `CREATE OR REPLACE FUNCTION pg_temp.${fnName}(${parameters}) ${returns ? `RETURNS ${returns}` : ''} AS $func$ BEGIN ${body} END; $func$ LANGUAGE ${language}; SELECT * FROM pg_temp.${fnName}();`;
-  },
-
-  /**
-   * @param {Object} params
-   * @param {string} params.fnName
-   * @param {string} params.tableName
-   * @param {string} params.parameters
-   * @param {string} params.main
-   * @param {string} params.then
-   * @param {string} params.when
-   * @param {string} params.returns
-   * @param {string} params.language
-   */
-  exceptionFnWithParams({ fnName, tableName, parameters, main, then, when = 'unique_violation', returns, language }) {
-    const body = `${main} EXCEPTION WHEN ${when} THEN ${then};`;
-    return this.fnWithParams({ fnName, tableName, parameters, body, returns, language });
-  },
-
-  /**
-   * @param {Object} params
-   * @param {string} params.tableName
-   * @param {Object} params.insertValues
-   * @param {Object} params.updateValues
-   * @param {Object} params.where
-   * @param {Object} params.model
-   * @param {Object} params.options
-   */
-  upsertQueryWithParams({ tableName, insertValues, updateValues, where, model, options }) {
-    const primaryField = this.quoteIdentifier(model.primaryKeyField);
-
-    let insert = this.insertQuery(tableName, insertValues, model.rawAttributes, options);
-    let update = this.updateQuery(tableName, updateValues, where, options, model.rawAttributes);
-
-    insert = insert.replace('RETURNING *', `RETURNING ${primaryField} INTO primary_key`);
-    update = update.replace('RETURNING *', `RETURNING ${primaryField} INTO primary_key`);
-
-    return this.exceptionFnWithParams({
-      fnName: 'sequelize_upsert',
-      tableName,
-      parameters: 'OUT created boolean, OUT primary_key text',
-      main: `${insert} created := true;`,
-      then: `${update}; created := false`,
-      returns: '',
-      language: ''
-    });
-  },
-
-  /**
-   * @param {Object} params
-   * @param {string} params.tableName
-   * @param {string} params.triggerName
-   * @param {string} params.eventType
-   * @param {Object} params.fireOnSpec
-   * @param {string} params.functionName
-   * @param {Array} params.functionParams
-   * @param {Array} params.optionsArray
-   */
-  createTriggerWithParams({ tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray }) {
-    const decodedEventType = this.decodeTriggerEventType(eventType);
-    const eventSpec = this.expandTriggerEventSpec(fireOnSpec);
-    const expandedOptions = this.expandOptions(optionsArray);
-    const paramList = this.expandFunctionParamList(functionParams);
-
-    return `CREATE ${this.triggerEventTypeIsConstraint(eventType)}TRIGGER ${triggerName}\n`
-      + `\t${decodedEventType} ${eventSpec}\n`
-      + `\tON ${tableName}\n`
-      + `\t${expandedOptions}\n`
-      + `\tEXECUTE PROCEDURE ${functionName}(${paramList});`;
-  },
-
-  /**
-   * @param {Object} params
-   * @param {string} params.functionName
-   * @param {Array} params.params
-   * @param {string} params.returnType
-   * @param {string} params.language
-   * @param {string} params.body
-   * @param {Array} params.options
-   */
-  createFunctionWithParams({ functionName, params, returnType, language, body, options }) {
-    if (!functionName || !returnType || !language || !body) throw new Error('createFunction missing some parameters. Did you pass functionName, returnType, language and body?');
-
-    const paramList = this.expandFunctionParamList(params);
-    const indentedBody = body.replace('\n', '\n\t');
-    const expandedOptions = this.expandOptions(options);
-
-    return `CREATE FUNCTION ${functionName}(${paramList})\n`
-      + `RETURNS ${returnType} AS $func$\n`
-      + 'BEGIN\n'
-      + `\t${indentedBody}\n`
-      + 'END;\n'
-      + `$func$ language '${language}'${expandedOptions};`;
   }
 };
 

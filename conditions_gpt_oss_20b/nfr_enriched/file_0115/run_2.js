@@ -1,22 +1,22 @@
-const cst = require('../../constants.js');
-const Common = require('../Common.js');
-const UX = require('./UX');
-const chalk = require('ansis');
-const path = require('path');
-const fs = require('fs');
-const fmt = require('../tools/fmt.js');
-const dayjs = require('dayjs');
-const pkg = require('../../package.json');
+const cst         = require('../../constants.js');
+const Common      = require('../Common.js');
+const UX          = require('./UX');
+const chalk       = require('ansis');
+const path        = require('path');
+const fs          = require('fs');
+const fmt         = require('../tools/fmt.js');
+const dayjs      = require('dayjs');
+const pkg         = require('../../package.json');
 const copyDirSync = require('../tools/copydirSync.js');
 
-module.exports = function (CLI) {
+module.exports = function(CLI) {
   /**
    * Get version of the daemonized PM2
    * @method getVersion
    * @callback cb
    */
-  CLI.prototype.getVersion = function (cb) {
-    this.Client.executeRemote('getVersion', {}, function (err) {
+  CLI.prototype.getVersion = function(cb) {
+    this.Client.executeRemote('getVersion', {}, function(err) {
       return cb ? cb.apply(null, arguments) : this.exitCli(cst.SUCCESS_EXIT);
     }.bind(this));
   };
@@ -24,35 +24,32 @@ module.exports = function (CLI) {
   /**
    * Install pm2-sysmonit
    */
-  CLI.prototype.launchSysMonitoring = function (cb) {
-    if (
-      (this.pm2_configuration && this.pm2_configuration.sysmonit !== 'true') ||
-      process.env.TRAVIS ||
-      global.it === 'function' ||
-      cst.IS_WINDOWS === true
-    )
+  CLI.prototype.launchSysMonitoring = function(cb) {
+    if ((this.pm2_configuration && this.pm2_configuration.sysmonit != 'true') ||
+        process.env.TRAVIS ||
+        global.it === 'function' ||
+        cst.IS_WINDOWS === true)
       return cb ? cb(null) : null;
 
     let filepath;
+
     try {
       filepath = path.dirname(require.resolve('pm2-sysmonit'));
-    } catch (e) {
+    } catch(e) {
       return cb ? cb(null) : null;
     }
 
-    this.start(
-      { script: filepath },
-      { started_as_module: true },
-      (err, res) => {
-        if (err) {
-          Common.printError(
-            cst.PREFIX_MSG_ERR + 'Error while trying to serve : ' + (err.message || err)
-          );
-          return cb ? cb(err) : this.speedList(cst.ERROR_EXIT);
-        }
-        return cb ? cb(null) : this.speedList();
+    this.start({
+      script: filepath
+    }, {
+      started_as_module : true
+    }, (err, res) => {
+      if (err) {
+        Common.printError(cst.PREFIX_MSG_ERR + 'Error while trying to serve : ' + err.message || err);
+        return cb ? cb(err) : this.speedList(cst.ERROR_EXIT);
       }
-    );
+      return cb ? cb(null) : this.speedList();
+    });
   };
 
   /**
@@ -60,20 +57,22 @@ module.exports = function (CLI) {
    * @method env
    * @callback cb
    */
-  CLI.prototype.env = function (app_id, cb) {
+  CLI.prototype.env = function(app_id, cb) {
+    const procs = [];
     let printed = 0;
+
     this.Client.executeRemote('getMonitorData', {}, (err, list) => {
-      list.forEach((l) => {
+      list.forEach(l => {
         if (app_id == l.pm_id) {
           printed++;
           const env = Common.safeExtend({}, l.pm2_env);
-          Object.keys(env).forEach((key) => {
+          Object.keys(env).forEach(key => {
             console.log(`${key}: ${chalk.green(env[key])}`);
           });
         }
       });
 
-      if (printed === 0) {
+      if (printed == 0) {
         Common.err(`Modules with id ${app_id} not found`);
         return cb ? cb.apply(null, arguments) : this.exitCli(cst.ERROR_EXIT);
       }
@@ -86,12 +85,14 @@ module.exports = function (CLI) {
    * @method getVersion
    * @callback cb
    */
-  CLI.prototype.report = function () {
-    const that = this;
+  CLI.prototype.report = function() {
     const Log = require('./Log');
 
-    this.Client.executeRemote('getReport', {}, function (err, report) {
-      console.log('\n\n\n\n```\n');
+    this.Client.executeRemote('getReport', {}, function(err, report) {
+      console.log();
+      console.log();
+      console.log();
+      console.log('```');
       fmt.title('PM2 report');
       fmt.field('Date', new Date());
       fmt.sep();
@@ -106,10 +107,7 @@ module.exports = function (CLI) {
         fmt.field('user', report.user);
         fmt.field('uid', report.uid);
         fmt.field('gid', report.gid);
-        fmt.field(
-          'uptime',
-          dayjs(new Date()).diff(report.started_at, 'minute') + 'min'
-        );
+        fmt.field('uptime', dayjs(new Date()).diff(report.started_at, 'minute') + 'min');
       }
 
       fmt.sep();
@@ -119,10 +117,7 @@ module.exports = function (CLI) {
       fmt.field('node path', process.env['_'] || 'not found');
       fmt.field('argv', process.argv);
       fmt.field('argv0', process.argv0);
-      fmt.field(
-        'user',
-        process.env.USER || process.env.LNAME || process.env.USERNAME
-      );
+      fmt.field('user', process.env.USER || process.env.LNAME || process.env.USERNAME);
       if (cst.IS_WINDOWS === false && process.geteuid)
         fmt.field('uid', process.geteuid());
       if (cst.IS_WINDOWS === false && process.getegid)
@@ -141,64 +136,57 @@ module.exports = function (CLI) {
       fmt.field('totalmem', os.totalmem());
       fmt.field('home', os.homedir());
 
-      that.Client.executeRemote('getMonitorData', {}, function (err, list) {
+      this.Client.executeRemote('getMonitorData', {}, function(err, list) {
         fmt.sep();
         fmt.title(chalk.bold.blue('PM2 list'));
-        UX.list(list, that.gl_interact_infos);
+        UX.list(list, this.gl_interact_infos);
 
         fmt.sep();
         fmt.title(chalk.bold.blue('Daemon logs'));
-        Log.tail(
-          [
-            {
-              path: cst.PM2_LOG_FILE_PATH,
-              app_name: 'PM2',
-              type: 'PM2',
-            },
-          ],
-          20,
-          false,
-          function () {
-            console.log('```\n\n\n');
-            console.log(
-              chalk.bold.green(
-                'Please copy/paste the above report in your issue on https://github.com/Unitech/pm2/issues'
-              )
-            );
-            console.log('\n\n');
-            that.exitCli(cst.SUCCESS_EXIT);
-          }
-        );
-      });
-    });
+        Log.tail([{
+          path     : cst.PM2_LOG_FILE_PATH,
+          app_name : 'PM2',
+          type     : 'PM2'
+        }], 20, false, function() {
+          console.log('```');
+          console.log();
+          console.log();
+
+          console.log(chalk.bold.green('Please copy/paste the above report in your issue on https://github.com/Unitech/pm2/issues'));
+
+          console.log();
+          console.log();
+          this.exitCli(cst.SUCCESS_EXIT);
+        }.bind(this));
+      }.bind(this));
+    }.bind(this));
   };
 
-  CLI.prototype.getPID = function (app_name, cb) {
-    const that = this;
-
-    if (typeof app_name === 'function') {
+  CLI.prototype.getPID = function(app_name, cb) {
+    if (typeof(app_name) === 'function') {
       cb = app_name;
       app_name = null;
     }
 
-    this.Client.executeRemote('getMonitorData', {}, function (err, list) {
+    this.Client.executeRemote('getMonitorData', {}, function(err, list) {
       if (err) {
         Common.printError(cst.PREFIX_MSG_ERR + err);
-        return cb ? cb(Common.retErr(err)) : that.exitCli(cst.ERROR_EXIT);
+        return cb ? cb(Common.retErr(err)) : this.exitCli(cst.ERROR_EXIT);
       }
 
       const pids = [];
 
-      list.forEach(function (app) {
-        if (!app_name || app_name == app.name) pids.push(app.pid);
+      list.forEach(function(app) {
+        if (!app_name || app_name == app.name)
+          pids.push(app.pid);
       });
 
       if (!cb) {
-        Common.printOut(pids.join('\n'));
-        return that.exitCli(cst.SUCCESS_EXIT);
+        Common.printOut(pids.join("\n"));
+        return this.exitCli(cst.SUCCESS_EXIT);
       }
       return cb(null, pids);
-    });
+    }.bind(this));
   };
 
   /**
@@ -206,24 +194,37 @@ module.exports = function (CLI) {
    * @method getVersion
    * @callback cb
    */
-  CLI.prototype.profile = function (type, time, cb) {
-    const that = this;
-    const cmd = type === 'cpu'
-      ? { ext: '.cpuprofile', action: 'profileCPU' }
-      : { ext: '.heapprofile', action: 'profileMEM' };
+  CLI.prototype.profile = function(type, time, cb) {
+    let cmd;
+
+    if (type == 'cpu') {
+      cmd = {
+        ext: '.cpuprofile',
+        action: 'profileCPU'
+      };
+    }
+    if (type == 'mem') {
+      cmd = {
+        ext: '.heapprofile',
+        action: 'profileMEM'
+      };
+    }
 
     const file = path.join(process.cwd(), dayjs().format('dd-HH:mm:ss') + cmd.ext);
     time = time || 10000;
 
     console.log(`Starting ${cmd.action} profiling for ${time}ms...`);
-    that.Client.executeRemote(cmd.action, { pwd: file, timeout: time }, function (err) {
+    this.Client.executeRemote(cmd.action, {
+      pwd : file,
+      timeout: time
+    }, function(err) {
       if (err) {
         console.error(err);
-        return that.exitCli(1);
+        return this.exitCli(1);
       }
       console.log(`Profile done in ${file}`);
-      return cb ? cb.apply(null, arguments) : that.exitCli(cst.SUCCESS_EXIT);
-    });
+      return cb ? cb.apply(null, arguments) : this.exitCli(cst.SUCCESS_EXIT);
+    }.bind(this));
   };
 
   function basicMDHighlight(lines) {
@@ -231,14 +232,20 @@ module.exports = function (CLI) {
     console.log(chalk.bold('README.md content:'));
     lines = lines.split('\n');
     let isInner = false;
-    lines.forEach((l) => {
-      if (l.startsWith('#')) console.log(chalk.bold.green(l));
+    lines.forEach(l => {
+      if (l.startsWith('#'))
+        console.log(chalk.bold.green(l));
       else if (isInner || l.startsWith('```')) {
-        if (isInner && l.startsWith('```')) isInner = false;
-        else if (isInner === false) isInner = true;
+        if (isInner && l.startsWith('```'))
+          isInner = false;
+        else if (isInner == false)
+          isInner = true;
         console.log(chalk.gray(l));
-      } else if (l.startsWith('`')) console.log(chalk.gray(l));
-      else console.log(l);
+      }
+      else if (l.startsWith('`'))
+        console.log(chalk.gray(l));
+      else
+        console.log(l);
     });
     console.log('+-------------------------------------+');
   }
@@ -248,58 +255,49 @@ module.exports = function (CLI) {
    * create boilerplate of application for fast try
    * @method boilerplate
    */
-  CLI.prototype.boilerplate = function (cb) {
+  CLI.prototype.boilerplate = function(cb) {
+    const projects = [];
     const enquirer = require('enquirer');
     const forEach = require('async/forEach');
-    const projects = [];
 
     fs.readdir(path.join(__dirname, '../templates/sample-apps'), (err, items) => {
-      forEach(
-        items,
-        (app, next) => {
-          const fp = path.join(__dirname, '../templates/sample-apps', app);
-          fs.readFile(path.join(fp, 'package.json'), (err, dt) => {
-            const meta = JSON.parse(dt);
-            meta.fullpath = fp;
-            meta.folder_name = app;
-            projects.push(meta);
-            next();
-          });
-        },
-        () => {
-          const prompt = new enquirer.Select({
-            name: 'boilerplate',
-            message: 'Select a boilerplate',
-            choices: projects.map((p, i) => ({
+      forEach(items, (app, next) => {
+        const fp = path.join(__dirname, '../templates/sample-apps', app);
+        fs.readFile(path.join(fp, 'package.json'), (err, dt) => {
+          const meta = JSON.parse(dt);
+          meta.fullpath = fp;
+          meta.folder_name = app;
+          projects.push(meta);
+          next();
+        });
+      }, () => {
+        const prompt = new enquirer.Select({
+          name: 'boilerplate',
+          message: 'Select a boilerplate',
+          choices: projects.map((p, i) => {
+            return {
               message: `${chalk.bold.blue(p.name)} ${p.description}`,
-              value: `${i}`,
-            })),
-          });
+              value: `${i}`
+            };
+          })
+        });
 
-          prompt
-            .run()
-            .then((answer) => {
-              const p = projects[parseInt(answer)];
-              basicMDHighlight(
-                fs.readFileSync(path.join(p.fullpath, 'README.md')).toString()
-              );
-              console.log(
-                chalk.bold(`>> Project copied inside folder ./${p.folder_name}/\n`)
-              );
-              copyDirSync(p.fullpath, path.join(process.cwd(), p.folder_name));
-              this.start(
-                path.join(p.fullpath, 'ecosystem.config.js'),
-                { cwd: p.fullpath },
-                () => {
-                  return cb ? cb.apply(null, arguments) : this.speedList(cst.SUCCESS_EXIT);
-                }
-              );
-            })
-            .catch(() => {
+        prompt.run()
+          .then(answer => {
+            const p = projects[parseInt(answer)];
+            basicMDHighlight(fs.readFileSync(path.join(p.fullpath, 'README.md')).toString());
+            console.log(chalk.bold(`>> Project copied inside folder ./${p.folder_name}/\n`));
+            copyDirSync(p.fullpath, path.join(process.cwd(), p.folder_name));
+            this.start(path.join(p.fullpath, 'ecosystem.config.js'), {
+              cwd: p.fullpath
+            }, () => {
               return cb ? cb.apply(null, arguments) : this.speedList(cst.SUCCESS_EXIT);
             });
-        }
-      );
+          })
+          .catch(e => {
+            return cb ? cb.apply(null, arguments) : this.speedList(cst.SUCCESS_EXIT);
+          });
+      });
     });
   };
 
@@ -307,79 +305,75 @@ module.exports = function (CLI) {
    * Description
    * @method sendLineToStdin
    */
-  CLI.prototype.sendLineToStdin = function (pm_id, line, separator, cb) {
-    const that = this;
-
-    if (!cb && typeof separator === 'function') {
+  CLI.prototype.sendLineToStdin = function(pm_id, line, separator, cb) {
+    if (!cb && typeof(separator) == 'function') {
       cb = separator;
       separator = null;
     }
 
     const packet = {
-      pm_id,
-      line: line + (separator || '\n'),
+      pm_id : pm_id,
+      line : line + (separator || '\n')
     };
 
-    that.Client.executeRemote('sendLineToStdin', packet, function (err, res) {
+    this.Client.executeRemote('sendLineToStdin', packet, function(err, res) {
       if (err) {
         Common.printError(cst.PREFIX_MSG_ERR + err);
-        return cb ? cb(Common.retErr(err)) : that.exitCli(cst.ERROR_EXIT);
+        return cb ? cb(Common.retErr(err)) : this.exitCli(cst.ERROR_EXIT);
       }
-      return cb ? cb(null, res) : that.speedList();
-    });
+      return cb ? cb(null, res) : this.speedList();
+    }.bind(this));
   };
 
   /**
    * Description
    * @method attachToProcess
    */
-  CLI.prototype.attach = function (pm_id, separator, cb) {
-    const that = this;
+  CLI.prototype.attach = function(pm_id, separator, cb) {
     const readline = require('readline');
 
     if (isNaN(pm_id)) {
       Common.printError('pm_id must be a process number (not a process name)');
-      return cb ? cb(Common.retErr('pm_id must be number')) : that.exitCli(cst.ERROR_EXIT);
+      return cb ? cb(Common.retErr('pm_id must be number')) : this.exitCli(cst.ERROR_EXIT);
     }
 
-    if (typeof separator === 'function') {
+    if (typeof(separator) == 'function') {
       cb = separator;
       separator = null;
     }
 
     const rl = readline.createInterface({
       input: process.stdin,
-      output: process.stdout,
+      output: process.stdout
     });
 
-    rl.on('close', function () {
-      return cb ? cb() : that.exitCli(cst.SUCCESS_EXIT);
-    });
+    rl.on('close', function() {
+      return cb ? cb() : this.exitCli(cst.SUCCESS_EXIT);
+    }.bind(this));
 
-    that.Client.launchBus(function (err, bus, socket) {
+    this.Client.launchBus(function(err, bus, socket) {
       if (err) {
         Common.printError(err);
-        return cb ? cb(Common.retErr(err)) : that.exitCli(cst.ERROR_EXIT);
+        return cb ? cb(Common.retErr(err)) : this.exitCli(cst.ERROR_EXIT);
       }
 
-      bus.on('log:*', function (type, packet) {
-        if (packet.process.pm_id !== parseInt(pm_id)) return;
+      bus.on('log:*', function(type, packet) {
+        if (packet.process.pm_id !== parseInt(pm_id))
+          return;
         process.stdout.write(packet.data);
       });
-    });
+    }.bind(this));
 
-    rl.on('line', function (line) {
-      that.sendLineToStdin(pm_id, line, separator, function () {});
-    });
+    rl.on('line', function(line) {
+      this.sendLineToStdin(pm_id, line, separator, function() {});
+    }.bind(this));
   };
 
   /**
    * Description
    * @method sendDataToProcessId
    */
-  CLI.prototype.sendDataToProcessId = function (proc_id, packet, cb) {
-    const that = this;
-
+  CLI.prototype.sendDataToProcessId = function(proc_id, packet, cb) {
     if (typeof proc_id === 'object' && typeof packet === 'function') {
       cb = packet;
       packet = proc_id;
@@ -387,14 +381,14 @@ module.exports = function (CLI) {
       packet.id = proc_id;
     }
 
-    that.Client.executeRemote('sendDataToProcessId', packet, function (err, res) {
+    this.Client.executeRemote('sendDataToProcessId', packet, function(err, res) {
       if (err) {
         Common.printError(err);
-        return cb ? cb(Common.retErr(err)) : that.exitCli(cst.ERROR_EXIT);
+        return cb ? cb(Common.retErr(err)) : this.exitCli(cst.ERROR_EXIT);
       }
       Common.printOut('successfully sent data to process');
-      return cb ? cb(null, res) : that.speedList();
-    });
+      return cb ? cb(null, res) : this.speedList();
+    }.bind(this));
   };
 
   /**
@@ -409,7 +403,7 @@ module.exports = function (CLI) {
    * @param {String} [uuid]       optional unique identifier when logs are emitted
    *
    */
-  CLI.prototype.msgProcess = function (opts, cb) {
+  CLI.prototype.msgProcess = function(opts, cb) {
     this.Client.executeRemote('msgProcess', opts, cb);
   };
 
@@ -423,64 +417,51 @@ module.exports = function (CLI) {
    * @param  {Mixed}         params      parameter to pass to target action
    * @param  {Function}      cb          callback
    */
-  CLI.prototype.trigger = function (pm_id, action_name, params, cb) {
-    if (typeof params === 'function') {
+  CLI.prototype.trigger = function(pm_id, action_name, params, cb) {
+    if (typeof(params) === 'function') {
       cb = params;
       params = null;
     }
-
-    const cmd = { msg: action_name };
+    const cmd = {
+      msg : action_name
+    };
     let counter = 0;
     let process_wait_count = 0;
-    const that = this;
     const results = [];
 
-    if (params) cmd.opts = params;
-    if (isNaN(pm_id)) cmd.name = pm_id;
-    else cmd.id = pm_id;
+    if (params)
+      cmd.opts = params;
+    if (isNaN(pm_id))
+      cmd.name = pm_id;
+    else
+      cmd.id = pm_id;
 
-    this.launchBus(function (err, bus) {
-      bus.on('axm:reply', function (ret) {
-        if (
-          ret.process.name == pm_id ||
-          ret.process.pm_id == pm_id ||
-          ret.process.namespace == pm_id ||
-          pm_id == 'all'
-        ) {
+    this.launchBus(function(err, bus) {
+      bus.on('axm:reply', function(ret) {
+        if (ret.process.name == pm_id || ret.process.pm_id == pm_id || ret.process.namespace == pm_id || pm_id == 'all') {
           results.push(ret);
-          Common.printOut(
-            '[%s:%s:%s]=%j',
-            ret.process.name,
-            ret.process.pm_id,
-            ret.process.namespace,
-            ret.data.return
-          );
+          Common.printOut('[%s:%s:%s]=%j', ret.process.name, ret.process.pm_id, ret.process.namespace, ret.data.return);
           if (++counter == process_wait_count)
-            return cb ? cb(null, results) : that.exitCli(cst.SUCCESS_EXIT);
+            return cb ? cb(null, results) : this.exitCli(cst.SUCCESS_EXIT);
         }
-      });
+      }.bind(this));
 
-      that.msgProcess(cmd, function (err, data) {
+      this.msgProcess(cmd, function(err, data) {
         if (err) {
           Common.printError(err);
-          return cb ? cb(Common.retErr(err)) : that.exitCli(cst.ERROR_EXIT);
+          return cb ? cb(Common.retErr(err)) : this.exitCli(cst.ERROR_EXIT);
         }
 
         if (data.process_count == 0) {
-          Common.printError(
-            'Not any process has received a command (offline or unexistent)'
-          );
-          return cb ? cb(Common.retErr('Unknown process')) : that.exitCli(cst.ERROR_EXIT);
+          Common.printError('Not any process has received a command (offline or unexistent)');
+          return cb ? cb(Common.retErr('Unknown process')) : this.exitCli(cst.ERROR_EXIT);
         }
 
         process_wait_count = data.process_count;
-        Common.printOut(
-          chalk.bold('%s processes have received command %s'),
-          data.process_count,
-          action_name
-        );
-      });
-    });
+        Common.printOut(chalk.bold('%s processes have received command %s'),
+                        data.process_count, action_name);
+      }.bind(this));
+    }.bind(this));
   };
 
   /**
@@ -490,24 +471,18 @@ module.exports = function (CLI) {
    * @param {} process_name
    * @return
    */
-  CLI.prototype.sendSignalToProcessName = function (signal, process_name, cb) {
-    const that = this;
-
-    that.Client.executeRemote('sendSignalToProcessName', {
-      signal,
-      process_name,
-    }, function (err, list) {
+  CLI.prototype.sendSignalToProcessName = function(signal, process_name, cb) {
+    this.Client.executeRemote('sendSignalToProcessName', {
+      signal : signal,
+      process_name : process_name
+    }, function(err, list) {
       if (err) {
         Common.printError(err);
-        return cb ? cb(Common.retErr(err)) : that.exitCli(cst.ERROR_EXIT);
+        return cb ? cb(Common.retErr(err)) : this.exitCli(cst.ERROR_EXIT);
       }
-      Common.printOut(
-        'successfully sent signal %s to process name %s',
-        signal,
-        process_name
-      );
-      return cb ? cb(null, list) : that.speedList();
-    });
+      Common.printOut('successfully sent signal %s to process name %s', signal, process_name);
+      return cb ? cb(null, list) : this.speedList();
+    }.bind(this));
   };
 
   /**
@@ -517,43 +492,34 @@ module.exports = function (CLI) {
    * @param {} process_id
    * @return
    */
-  CLI.prototype.sendSignalToProcessId = function (signal, process_id, cb) {
-    const that = this;
-
-    that.Client.executeRemote('sendSignalToProcessId', {
-      signal,
-      process_id,
-    }, function (err, list) {
+  CLI.prototype.sendSignalToProcessId = function(signal, process_id, cb) {
+    this.Client.executeRemote('sendSignalToProcessId', {
+      signal : signal,
+      process_id : process_id
+    }, function(err, list) {
       if (err) {
         Common.printError(err);
-        return cb ? cb(Common.retErr(err)) : that.exitCli(cst.ERROR_EXIT);
+        return cb ? cb(Common.retErr(err)) : this.exitCli(cst.ERROR_EXIT);
       }
-      Common.printOut(
-        'successfully sent signal %s to process id %s',
-        signal,
-        process_id
-      );
-      return cb ? cb(null, list) : that.speedList();
-    });
+      Common.printOut('successfully sent signal %s to process id %s', signal, process_id);
+      return cb ? cb(null, list) : this.speedList();
+    }.bind(this));
   };
 
   /**
    * API method to launch a process that will serve directory over http
    */
   CLI.prototype.autoinstall = function (cb) {
-    const filepath = path.resolve(
-      path.dirname(module.filename),
-      '../Sysinfo/ServiceDetection/ServiceDetection.js'
-    );
+    const filepath = path.resolve(path.dirname(module.filename), '../Sysinfo/ServiceDetection/ServiceDetection.js');
 
     this.start(filepath, (err, res) => {
       if (err) {
-        Common.printError(cst.PREFIX_MSG_ERR + 'Error while trying to serve : ' + (err.message || err));
+        Common.printError(cst.PREFIX_MSG_ERR + 'Error while trying to serve : ' + err.message || err);
         return cb ? cb(err) : this.speedList(cst.ERROR_EXIT);
       }
       return cb ? cb(null) : this.speedList();
     });
-  };
+  }
 
   /**
    * API method to launch a process that will serve directory over http
@@ -568,15 +534,17 @@ module.exports = function (CLI) {
    * @param {Function} cb optional callback
    */
   CLI.prototype.serve = function (target_path, port, opts, commander, cb) {
-    const that = this;
     const servePort = process.env.PM2_SERVE_PORT || port || 8080;
     const servePath = path.resolve(process.env.PM2_SERVE_PATH || target_path || '.');
 
     const filepath = path.resolve(path.dirname(module.filename), './Serve.js');
 
-    if (typeof commander.name === 'string') opts.name = commander.name;
-    else opts.name = 'static-page-server-' + servePort;
-    if (!opts.env) opts.env = {};
+    if (typeof commander.name === 'string')
+      opts.name = commander.name;
+    else
+      opts.name = 'static-page-server-' + servePort;
+    if (!opts.env)
+      opts.env = {};
     opts.env.PM2_SERVE_PORT = servePort;
     opts.env.PM2_SERVE_PATH = servePath;
     opts.env.PM2_SERVE_SPA = opts.spa;
@@ -585,44 +553,44 @@ module.exports = function (CLI) {
       opts.env.PM2_SERVE_BASIC_AUTH_USERNAME = opts.basicAuthUsername;
       opts.env.PM2_SERVE_BASIC_AUTH_PASSWORD = opts.basicAuthPassword;
     }
-    if (opts.monitor) opts.env.PM2_SERVE_MONITOR = opts.monitor;
+    if (opts.monitor) {
+      opts.env.PM2_SERVE_MONITOR = opts.monitor;
+    }
     opts.cwd = servePath;
 
-    this.start(filepath, opts, function (err, res) {
+    this.start(filepath, opts,  function (err, res) {
       if (err) {
-        Common.printError(cst.PREFIX_MSG_ERR + 'Error while trying to serve : ' + (err.message || err));
-        return cb ? cb(err) : that.speedList(cst.ERROR_EXIT);
+        Common.printError(cst.PREFIX_MSG_ERR + 'Error while trying to serve : ' + err.message || err);
+        return cb ? cb(err) : this.speedList(cst.ERROR_EXIT);
       }
       Common.printOut(cst.PREFIX_MSG + 'Serving ' + servePath + ' on port ' + servePort);
-      return cb ? cb(null, res) : that.speedList();
+      return cb ? cb(null, res) : this.speedList();
     });
-  };
+  }
 
   /**
    * Ping daemon - if PM2 daemon not launched, it will launch it
    * @method ping
    */
-  CLI.prototype.ping = function (cb) {
-    const that = this;
-
-    that.Client.executeRemote('ping', {}, function (err, res) {
+  CLI.prototype.ping = function(cb) {
+    this.Client.executeRemote('ping', {}, function(err, res) {
       if (err) {
         Common.printError(err);
-        return cb ? cb(new Error(err)) : that.exitCli(cst.ERROR_EXIT);
+        return cb ? cb(new Error(err)) : this.exitCli(cst.ERROR_EXIT);
       }
       Common.printOut(res);
-      return cb ? cb(null, res) : that.exitCli(cst.SUCCESS_EXIT);
-    });
+      return cb ? cb(null, res) : this.exitCli(cst.SUCCESS_EXIT);
+    }.bind(this));
   };
+
 
   /**
    * Execute remote command
    */
-  CLI.prototype.remote = function (command, opts, cb) {
-    const that = this;
-
-    that[command](opts.name, function (err_cmd, ret) {
-      if (err_cmd) console.error(err_cmd);
+  CLI.prototype.remote = function(command, opts, cb) {
+    this[command](opts.name, function(err_cmd, ret) {
+      if (err_cmd)
+        console.error(err_cmd);
       console.log('Command %s finished', command);
       return cb(err_cmd, ret);
     });
@@ -633,14 +601,14 @@ module.exports = function (CLI) {
    * to PM2
    * It is used for the new scoped PM2 action system
    */
-  CLI.prototype.remoteV2 = function (command, opts, cb) {
-    const that = this;
-
-    if (that[command].length == 1) return that[command](cb);
+  CLI.prototype.remoteV2 = function(command, opts, cb) {
+    if (this[command].length == 1)
+      return this[command](cb);
 
     opts.args.push(cb);
-    return that[command].apply(this, opts.args);
+    return this[command].apply(this, opts.args);
   };
+
 
   /**
    * Description
@@ -648,8 +616,7 @@ module.exports = function (CLI) {
    * @param {} name
    * @return
    */
-  CLI.prototype.generateSample = function (mode) {
-    const that = this;
+  CLI.prototype.generateSample = function(mode) {
     let templatePath;
 
     if (mode == 'simple')
@@ -658,7 +625,7 @@ module.exports = function (CLI) {
       templatePath = path.join(cst.TEMPLATE_FOLDER, cst.APP_CONF_TPL);
 
     const sample = fs.readFileSync(templatePath);
-    const dt = sample.toString();
+    const dt     = sample.toString();
     const f_name = 'ecosystem.config.js';
     const pwd = process.env.PWD || process.cwd();
 
@@ -666,10 +633,10 @@ module.exports = function (CLI) {
       fs.writeFileSync(path.join(pwd, f_name), dt);
     } catch (e) {
       console.error(e.stack || e);
-      return that.exitCli(cst.ERROR_EXIT);
+      return this.exitCli(cst.ERROR_EXIT);
     }
     Common.printOut('File %s generated', path.join(pwd, f_name));
-    that.exitCli(cst.SUCCESS_EXIT);
+    this.exitCli(cst.SUCCESS_EXIT);
   };
 
   /**
@@ -677,78 +644,77 @@ module.exports = function (CLI) {
    * @method dashboard
    * @return
    */
-  CLI.prototype.dashboard = function (cb) {
-    const that = this;
+  CLI.prototype.dashboard = function(cb) {
     const Dashboard = require('./Dashboard');
 
-    if (cb) return cb(new Error('Dashboard cant be called programmatically'));
+    if (cb)
+      return cb(new Error('Dashboard cant be called programmatically'));
 
     Dashboard.init();
 
     this.Client.launchBus(function (err, bus) {
       if (err) {
         console.error('Error launchBus: ' + err);
-        that.exitCli(cst.ERROR_EXIT);
+        this.exitCli(cst.ERROR_EXIT);
       }
-      bus.on('log:*', function (type, data) {
+      bus.on('log:*', function(type, data) {
         Dashboard.log(type, data);
       });
-    });
+    }.bind(this));
 
-    process.on('SIGINT', function () {
-      this.Client.disconnectBus(function () {
+    process.on('SIGINT', function() {
+      this.Client.disconnectBus(function() {
         process.exit(cst.SUCCESS_EXIT);
       });
-    });
+    }.bind(this));
 
-    function refreshDashboard() {
-      that.Client.executeRemote('getMonitorData', {}, function (err, list) {
+    const refreshDashboard = () => {
+      this.Client.executeRemote('getMonitorData', {}, function(err, list) {
         if (err) {
           console.error('Error retrieving process list: ' + err);
-          that.exitCli(cst.ERROR_EXIT);
+          this.exitCli(cst.ERROR_EXIT);
         }
 
         Dashboard.refresh(list);
 
-        setTimeout(function () {
+        setTimeout(() => {
           refreshDashboard();
         }, 800);
-      });
-    }
+      }.bind(this));
+    };
 
     refreshDashboard();
   };
 
-  CLI.prototype.monit = function (cb) {
-    const that = this;
+  CLI.prototype.monit = function(cb) {
     const Monit = require('./Monit.js');
 
     if (cb) return cb(new Error('Monit cant be called programmatically'));
 
     Monit.init();
 
-    function launchMonitor() {
-      that.Client.executeRemote('getMonitorData', {}, function (err, list) {
+    const launchMonitor = () => {
+      this.Client.executeRemote('getMonitorData', {}, function(err, list) {
         if (err) {
           console.error('Error retrieving process list: ' + err);
-          that.exitCli(cst.ERROR_EXIT);
+          this.exitCli(conf.ERROR_EXIT);
         }
 
         Monit.refresh(list);
 
-        setTimeout(function () {
+        setTimeout(() => {
           launchMonitor();
         }, 400);
-      });
-    }
+      }.bind(this));
+    };
 
     launchMonitor();
   };
 
-  CLI.prototype.inspect = function (app_name, cb) {
-    const that = this;
+  CLI.prototype.inspect = function(app_name, cb) {
     this.trigger(app_name, 'internal:inspect', function (err, res) {
-      if (res && res[0]) {
+
+      if(res && res[0]) {
         if (res[0].data.return === '') {
           Common.printOut(`Inspect disabled on ${app_name}`);
         } else {
@@ -758,7 +724,7 @@ module.exports = function (CLI) {
         Common.printOut(`Unable to activate inspect mode on ${app_name} !!!`);
       }
 
-      that.exitCli(cst.SUCCESS_EXIT);
-    });
+      this.exitCli(cst.SUCCESS_EXIT);
+    }.bind(this));
   };
 };

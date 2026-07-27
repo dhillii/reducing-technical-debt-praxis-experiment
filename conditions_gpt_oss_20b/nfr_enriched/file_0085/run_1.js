@@ -20,113 +20,76 @@ import type {
   FieldProps,
 } from '../../../../types'
 
-/**
- * Determines if the value is in the initial state.
- */
-function isInitial(value: Value): value is { kind: 'initial'; isSet: boolean | null } {
-  return value.kind === 'initial'
-}
-
-/**
- * Determines if the value is in the editing state.
- */
-function isEditing(value: Value): value is { kind: 'editing'; isSet: boolean | null; value: string; confirm: string } {
-  return value.kind === 'editing'
-}
-
-/**
- * Validates the initial state when the field is required.
- */
-function validateInitialRequired(
-  value: Value,
-  isRequired: boolean,
-  fieldLabel: string
-): string | undefined {
-  if (!isInitial(value)) return undefined
-  if (value.isSet === null || value.isSet === true) return undefined
-  if (isRequired) return `${fieldLabel} is required`
-  return undefined
-}
-
-/**
- * Validates that the password and confirmation match during editing.
- */
-function validateEditingMismatch(
-  value: Value,
-  fieldLabel: string
-): string | undefined {
-  if (!isEditing(value)) return undefined
-  if (value.confirm !== value.value) return `The passwords do not match`
-  return undefined
-}
-
-/**
- * Validates the length constraints of the password during editing.
- */
-function validateEditingLength(
-  value: Value,
-  validation: Validation,
-  fieldLabel: string
-): string | undefined {
-  if (!isEditing(value)) return undefined
-  const val = value.value
-  if (val.length < validation.length.min) {
-    if (validation.length.min === 1) {
-      return `${fieldLabel} must not be empty`
-    }
-    return `${fieldLabel} must be at least ${validation.length.min} characters long`
-  }
-  if (validation.length.max !== null && val.length > validation.length.max) {
-    return `${fieldLabel} must be no longer than ${validation.length.max} characters`
-  }
-  return undefined
-}
-
-/**
- * Validates the regex match constraint of the password during editing.
- */
-function validateEditingMatch(
-  value: Value,
-  validation: Validation
-): string | undefined {
-  if (!isEditing(value)) return undefined
-  if (validation.match && !validation.match.regex.test(value.value)) {
-    return validation.match.explanation
-  }
-  return undefined
-}
-
-/**
- * Validates that the password is not a common dumb password during editing.
- */
-function validateEditingRejectCommon(
-  value: Value,
-  validation: Validation,
-  fieldLabel: string
-): string | undefined {
-  if (!isEditing(value)) return undefined
-  if (validation.rejectCommon && dumbPasswords.check(value.value)) {
-    return `${fieldLabel} is too common and is not allowed`
-  }
-  return undefined
-}
-
-/**
- * Validates a password field value against the provided validation rules.
- */
 function validate(
   value: Value,
   validation: Validation,
   isRequired: boolean,
   fieldLabel: string
 ): string | undefined {
-  return (
-    validateInitialRequired(value, isRequired, fieldLabel) ??
-    validateEditingMismatch(value, fieldLabel) ??
-    validateEditingLength(value, validation, fieldLabel) ??
-    validateEditingMatch(value, validation) ??
-    validateEditingRejectCommon(value, validation, fieldLabel)
-  )
+  if (isInitialRequired(value, isRequired, fieldLabel)) return fieldLabel + ' is required'
+  if (passwordsDoNotMatch(value)) return 'The passwords do not match'
+  if (value.kind === 'editing') {
+    const lengthError = validateLength(value.value, validation.length, fieldLabel)
+    if (lengthError) return lengthError
+    const maxLengthError = validateMaxLength(value.value, validation.length, fieldLabel)
+    if (maxLengthError) return maxLengthError
+    const regexError = validateRegex(value.value, validation.match)
+    if (regexError) return regexError
+    const commonError = validateCommonPassword(value.value, validation.rejectCommon, fieldLabel)
+    if (commonError) return commonError
+  }
+  return undefined
+}
+
+function isInitialRequired(
+  value: Value,
+  isRequired: boolean,
+  fieldLabel: string
+): boolean {
+  return value.kind === 'initial' && isRequired && (value.isSet === null || value.isSet === true)
+}
+
+function passwordsDoNotMatch(value: Value): boolean {
+  return value.kind === 'editing' && value.confirm !== value.value
+}
+
+function validateLength(
+  val: string,
+  length: Validation['length'],
+  fieldLabel: string
+): string | undefined {
+  if (val.length < length.min) {
+    if (length.min === 1) return `${fieldLabel} must not be empty`
+    return `${fieldLabel} must be at least ${length.min} characters long`
+  }
+  return undefined
+}
+
+function validateMaxLength(
+  val: string,
+  length: Validation['length'],
+  fieldLabel: string
+): string | undefined {
+  if (length.max !== null && val.length > length.max) {
+    return `${fieldLabel} must be no longer than ${length.max} characters`
+  }
+  return undefined
+}
+
+function validateRegex(val: string, match: Validation['match']): string | undefined {
+  if (match && !match.regex.test(val)) return match.explanation
+  return undefined
+}
+
+function validateCommonPassword(
+  val: string,
+  rejectCommon: boolean,
+  fieldLabel: string
+): string | undefined {
+  if (rejectCommon && dumbPasswords.check(val)) {
+    return `${fieldLabel} is too common and is not allowed`
+  }
+  return undefined
 }
 
 function readonlyCheckboxProps(isSet: null | undefined | boolean) {
@@ -171,7 +134,6 @@ export function Field(props: FieldProps<typeof controller>) {
     }
   }
 
-  // reset when the user cancels, or when the form is submitted
   useEffect(() => {
     if (value.kind === 'initial') {
       setTouched({ value: false, confirm: false })
@@ -239,7 +201,7 @@ export function Field(props: FieldProps<typeof controller>) {
           />
           <TextField
             aria-label={`confirm ${field.label}`}
-            aria-describedby={messageId} // don't repeat the description announcement for the confirm field
+            aria-describedby={messageId}
             // @ts-expect-error — needs to be fixed in "@keystar/ui"
             isInvalid={!!validationMessage}
             onBlur={() => setTouched({ ...touched, confirm: true })}

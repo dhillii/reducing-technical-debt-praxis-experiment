@@ -32,25 +32,29 @@ function validate(
     return undefined
   }
 
-  if (value.confirm !== value.value) return `The passwords do not match`
+  if (value.kind === 'editing') {
+    if (value.confirm !== value.value) return `The passwords do not match`
 
-  const val = value.value
-  const { length, match, rejectCommon } = validation
+    const val = value.value
+    const { min, max } = validation.length
 
-  if (val.length < length.min) {
-    return length.min === 1
-      ? `${fieldLabel} must not be empty`
-      : `${fieldLabel} must be at least ${length.min} characters long`
-  }
+    if (val.length < min) {
+      return min === 1
+        ? `${fieldLabel} must not be empty`
+        : `${fieldLabel} must be at least ${min} characters long`
+    }
 
-  if (length.max !== null && val.length > length.max) {
-    return `${fieldLabel} must be no longer than ${length.max} characters`
-  }
+    if (max !== null && val.length > max) {
+      return `${fieldLabel} must be no longer than ${max} characters`
+    }
 
-  if (match && !match.regex.test(val)) return match.explanation
+    if (validation.match && !validation.match.regex.test(val)) {
+      return validation.match.explanation
+    }
 
-  if (rejectCommon && dumbPasswords.check(val)) {
-    return `${fieldLabel} is too common and is not allowed`
+    if (validation.rejectCommon && dumbPasswords.check(val)) {
+      return `${fieldLabel} is too common and is not allowed`
+    }
   }
 
   return undefined

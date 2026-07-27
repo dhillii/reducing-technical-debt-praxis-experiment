@@ -50,6 +50,15 @@ describe("ast-utils", () => {
 		};
 	}
 
+	afterEach(() => {
+		callCounts.forEach((callCount, func) => {
+			assert(
+				callCount > 0,
+				`Expected ${func.toString()} to be called at least once but it was not called`,
+			);
+		});
+	});
+
 	/**
 	 * Asserts that the unique node of the given type in the code is either
 	 * in a loop or not in a loop.
@@ -83,15 +92,6 @@ describe("ast-utils", () => {
 		assert.lengthOf(results, 1);
 		assert.strictEqual(results[0], expectedInLoop);
 	}
-
-	afterEach(() => {
-		callCounts.forEach((callCount, func) => {
-			assert(
-				callCount > 0,
-				`Expected ${func.toString()} to be called at least once but it was not called`,
-			);
-		});
-	});
 
 	describe("ECMASCRIPT_GLOBALS", () => {
 		it("should contain es3 globals", () => {
@@ -1121,7 +1121,7 @@ describe("ast-utils", () => {
 			"class A { static *foo() {} }": "static generator method 'foo'",
 			"class A { static async foo() {} }": "static async method 'foo'",
 			"class A { static get foo() {} }": "static getter 'foo'",
-			"class A { static set foo() {} }": "static setter 'foo'",
+			"class A { static set foo(a) {} }": "static setter 'foo'",
 			"class A { foo = () => {}; }": "method 'foo'",
 			"class A { foo = function() {}; }": "method 'foo'",
 			"class A { foo = function bar() {}; }": "method 'foo'",
@@ -1204,7 +1204,7 @@ describe("ast-utils", () => {
 			"class A { static *foo() {} }": [10, 21],
 			"class A { static async foo() {} }": [10, 26],
 			"class A { static get foo() {} }": [10, 24],
-			"class A { static set foo() {} }": [10, 24],
+			"class A { static set foo(a) {} }": [10, 24],
 			"class A { foo = function() {}; }": [10, 24],
 			"class A { foo = function bar() {}; }": [10, 28],
 			"class A { static foo = function() {}; }": [10, 31],
@@ -1959,7 +1959,7 @@ describe("ast-utils", () => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
 						astUtils.isSemicolonToken(token),
-						expected[index],
+						expected[inde
 					);
 				});
 			});
@@ -1970,7 +1970,7 @@ describe("ast-utils", () => {
 				it(`should return ${expected[index]} for '${token.value}'.`, () => {
 					assert.strictEqual(
 						astUtils.isNotSemicolonToken(token),
-						!expected[index],
+						!expected[inde
 					);
 				});
 			});
@@ -2257,8 +2257,8 @@ describe("ast-utils", () => {
 				{
 					nodeA: {
 						type: "Literal",
-						value: 1n,
-						bigint: "1",
+						value: 2n,
+						bigint: "2",
 					},
 					nodeB: {
 						type: "Literal",

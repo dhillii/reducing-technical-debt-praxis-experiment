@@ -1,12 +1,12 @@
 'use strict';
 
-const util = require('crypto-lib').util;
+var util = require('crypto-lib').util;
 
 //
 // Controller
 //
 
-const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain, pgp, email, outbox, dialog, axe, status, invitation) {
+var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain, pgp, email, outbox, dialog, axe, status, invitation) {
 
     const str = appConfig.string;
     const cfg = appConfig.config;
@@ -180,7 +180,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
             body = '\n\n' +
                 '---------- Forwarded message ----------\n' +
                 'From: ' + re.from[0].name + ' <' + re.from[0].address + '>\n' +
-                'Date: ' + sentDate + '\n' +
+                'Date: ' + sentDate + ' ' +
                 'Subject: ' + re.subject + '\n' +
                 'To: ' + createString(re.to) + '\n' +
                 ((re.cc && re.cc.length > 0) ? 'Cc: ' + createString(re.cc) + '\n' : '') +
@@ -338,8 +338,8 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
      */
     $scope.invite = function() {
         const sender = auth.emailAddress;
-        const sendJobs = [];
-        const invitees = [];
+        let sendJobs = [];
+        let invitees = [];
 
         $scope.showInvite = false;
 

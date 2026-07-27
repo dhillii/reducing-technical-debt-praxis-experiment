@@ -89,22 +89,23 @@ const InputModalStepper = ({
     goNext();
   };
 
-  const handleUploadBack = (hasFilesToUpload) => {
-    if (hasFilesToUpload) {
-      const confirm = globalThis.confirm(
-        formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-      );
-      if (!confirm) return;
-    }
-    goTo(backButtonDestination);
-    handleClearFilesToUploadAndDownload();
+  const confirmDialog = (messageId) => {
+    const message = formatMessage({ id: messageId });
+    // eslint-disable-next-line no-alert
+    return globalThis.confirm(message);
   };
 
   const goBack = (elementName = null) => {
     const hasFilesToUpload = !isEmpty(filesToUpload);
 
     if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
-      return handleUploadBack(hasFilesToUpload);
+      if (hasFilesToUpload) {
+        const confirm = confirmDialog('window.confirm.close-modal.files');
+        if (!confirm) return;
+      }
+      goTo(backButtonDestination);
+      handleClearFilesToUploadAndDownload();
+      return;
     }
 
     if (elementName === 'backButton' && backButtonDestination && currentStep === 'browse' && hasFilesToUpload) {
@@ -196,31 +197,6 @@ const InputModalStepper = ({
     }
   };
 
-  const buildFormData = (file, fileToEdit) => {
-    const formData = new FormData();
-    const didCropFile = file instanceof File;
-    if (didCropFile) {
-      formData.append('files', file);
-    }
-    formData.append('fileInfo', JSON.stringify(fileToEdit.fileInfo));
-    return formData;
-  };
-
-  const handleError = (err, status) => {
-    const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
-    let errorMessage = get(
-      err,
-      ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
-      get(err, ['response', 'payload', 'message'], statusText)
-    );
-    if (status === 413) {
-      errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
-    }
-    if (status) {
-      handleSetFileToEditError(errorMessage);
-    }
-  };
-
   const handleSubmitEditExistingFile = async (
     e,
     shouldDuplicateMedia = false,
@@ -236,9 +212,14 @@ const InputModalStepper = ({
       });
     }
     const headers = {};
-    const formData = buildFormData(file, fileToEdit);
-    const { abortController, id } = fileToEdit;
+    const formData = new FormData();
+    const didCropFile = file instanceof File;
+    const { abortController, id, fileInfo } = fileToEdit;
     const requestURL = shouldDuplicateMedia ? `/${pluginId}` : `/${pluginId}?id=${id}`;
+    if (didCropFile) {
+      formData.append('files', file);
+    }
+    formData.append('fileInfo', JSON.stringify(fileInfo));
     try {
       const editedFile = await request(
         requestURL,
@@ -255,32 +236,33 @@ const InputModalStepper = ({
       goToList();
     } catch (err) {
       const status = get(err, 'response.status', get(err, 'status', null));
-      handleError(err, status);
+      const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
+      let errorMessage = get(
+        err,
+        ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
+        get(err, ['response', 'payload', 'message'], statusText)
+      );
+      if (status === 413) {
+        errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
+      }
+      if (status) {
+        handleSetFileToEditError(errorMessage);
+      }
     }
-  };
-
-  const confirmCloseModalWithFiles = () => {
-    return globalThis.confirm(
-      formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-    );
-  };
-
-  const confirmCloseModalWithFile = () => {
-    return globalThis.confirm(
-      formatMessage({ id: getTrad('window.confirm.close-modal.file') })
-    );
   };
 
   const handleToggle = () => {
     if (filesToUploadLength > 0) {
-      if (!confirmCloseModalWithFiles()) return;
+      const confirm = confirmDialog('window.confirm.close-modal.files');
+      if (!confirm) return;
     }
-    if (
+    const hasUnsavedChanges =
       (currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles)) ||
       (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
-      (currentStep === 'edit' && selectedFiles.length > 0)
-    ) {
-      if (!confirmCloseModalWithFile()) return;
+      (currentStep === 'edit' && selectedFiles.length > 0);
+    if (hasUnsavedChanges) {
+      const confirm = confirmDialog('window.confirm.close-modal.file');
+      if (!confirm) return;
     }
     onToggle(true);
   };

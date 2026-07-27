@@ -199,7 +199,7 @@ module.exports = {
     // Group by `type`.
     const permissions = role.permissions.reduce((acc, permission) => {
       _.set(acc, `${permission.type}.controllers.${permission.controller}.${permission.action}`, {
-        enabled: Boolean(permission.enabled),
+        enabled: _.toNumber(permission.enabled) === 1,
         policy: permission.policy,
       });
 

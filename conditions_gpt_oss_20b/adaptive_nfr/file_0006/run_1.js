@@ -7,575 +7,6 @@ import {GhostOrb, Icon} from '@tryghost/admin-x-design-system';
 import {isManagedEmail} from '@tryghost/admin-x-framework/api/config';
 import {useGlobalData} from '../../../providers/global-data-provider';
 
-/**
- * Returns the CSS classes for the excerpt paragraph based on font categories and alignment.
- * @param {string | undefined} titleFontCategory
- * @param {string | undefined} bodyFontCategory
- * @param {string | undefined} titleAlignment
- * @returns {string}
- */
-function getExcerptClasses(titleFontCategory, bodyFontCategory, titleAlignment) {
-    let classes = 'mb-5 text-pretty leading-[1.7] text-black';
-    if (titleFontCategory === 'serif' && bodyFontCategory === 'serif') {
-        classes = clsx(classes, 'mb-8 font-serif text-[2.0rem] leading-tight');
-    } else if (titleFontCategory !== 'serif' && bodyFontCategory === 'serif') {
-        classes = clsx(classes, 'mb-8 text-[1.7rem] leading-tight tracking-tight');
-    } else if (titleFontCategory === 'serif' && bodyFontCategory !== 'serif') {
-        classes = clsx(classes, 'mb-8 font-serif text-[2.0rem] leading-tight');
-    } else {
-        classes = clsx(classes, 'mb-8 text-[1.9rem] leading-tight tracking-tight');
-    }
-    if (titleAlignment === 'center') {
-        classes = clsx(classes, 'text-center');
-    }
-    return classes;
-}
-
-/**
- * Renders the email header based on whether the email is managed.
- * @param {object} props
- * @param {any} props.config
- * @param {string | undefined} props.senderName
- * @param {string | null} props.senderEmail
- * @param {string | null} props.senderReplyTo
- * @returns {JSX.Element}
- */
-function EmailHeader({config, senderName, senderEmail, senderReplyTo}) {
-    if (isManagedEmail(config)) {
-        return (
-            <>
-                <p className="leading-normal">
-                    <span className="font-semibold text-grey-900">From: </span>
-                    <span>{senderName} ({senderEmail})</span>
-                </p>
-                <p className="leading-normal">
-                    <span className="font-semibold text-grey-900">Reply-to: </span>
-                    {senderReplyTo ? senderReplyTo : senderEmail}
-                </p>
-            </>
-        );
-    }
-    return (
-        <>
-            <p className="leading-normal">
-                <span className="font-semibold text-grey-900">{senderName}</span>
-                <span> {senderEmail}</span>
-            </p>
-            <p className="leading-normal">
-                <span className="font-semibold text-grey-900">To:</span> Jamie Larson jamie@example.com
-            </p>
-        </>
-    );
-}
-
-/**
- * Renders the title section of the newsletter.
- * @param {object} props
- * @param {boolean} props.showPostTitleSection
- * @param {boolean} props.showExcerpt
- * @param {string} props.excerptClasses
- * @param {string | undefined} props.headerTextColor
- * @param {string | undefined} props.titleFontCategory
- * @param {string | undefined} props.titleFontWeight
- * @param {string | undefined} props.titleAlignment
- * @param {string | undefined} props.postTitleColor
- * @param {string | undefined} props.authorPlaceholder
- * @param {string} props.currentDate
- * @param {string | undefined} props.secondaryHeaderTextColor
- * @returns {JSX.Element | null}
- */
-function TitleSection({
-    showPostTitleSection,
-    showExcerpt,
-    excerptClasses,
-    headerTextColor,
-    titleFontCategory,
-    titleFontWeight,
-    titleAlignment,
-    postTitleColor,
-    authorPlaceholder,
-    currentDate,
-    secondaryHeaderTextColor
-}) {
-    if (!showPostTitleSection) return null;
-    return (
-        <div className={clsx('flex flex-col py-8', titleAlignment === 'center' ? 'items-center' : 'items-start')}>
-            <h2
-                className={clsx(
-                    'text-4xl font-bold leading-supertight text-black',
-                    titleFontCategory === 'serif' && 'font-serif',
-                    titleFontWeight === 'normal' && 'font-normal',
-                    titleFontWeight === 'medium' && 'font-medium',
-                    titleFontWeight === 'semibold' && 'font-semibold',
-                    titleFontWeight === 'bold' && 'font-bold',
-                    titleAlignment === 'center' ? 'text-center' : 'text-left',
-                    showExcerpt ? 'mb-2' : 'mb-8'
-                )}
-                style={{color: postTitleColor}}
-            >
-                Your email newsletter
-            </h2>
-            {showExcerpt && (
-                <p className={excerptClasses} style={{color: headerTextColor}}>
-                    A subtitle to highlight key points and engage your readers.
-                </p>
-            )}
-            <div
-                className={clsx(
-                    'flex w-full justify-between text-center text-md leading-none text-grey-700',
-                    titleAlignment === 'center' ? 'flex-col gap-1' : 'flex-row'
-                )}
-            >
-                <p className="pb-1 text-[1.3rem]" style={{color: secondaryHeaderTextColor}}>
-                    By {authorPlaceholder}
-                    <span className="before:pl-0.5 before:pr-1 before:content-['•']">{currentDate}</span>
-                </p>
-                <p className="pb-1 text-[1.3rem] underline" style={{color: secondaryHeaderTextColor}}>
-                    <span>View in browser</span>
-                </p>
-            </div>
-        </div>
-    );
-}
-
-/**
- * Renders the feature image section.
- * @param {object} props
- * @param {boolean} props.showFeatureImage
- * @param {string | undefined} props.imageCorners
- * @param {string | undefined} props.headerBackgroundColor
- * @param {boolean} props.showPostTitleSection
- * @returns {JSX.Element | null}
- */
-function FeatureImage({showFeatureImage, imageCorners, headerBackgroundColor, showPostTitleSection}) {
-    if (!showFeatureImage) return null;
-    return (
-        <>
-            <div
-                className={clsx(
-                    'h-[unset] w-full max-w-[600px] bg-cover bg-no-repeat',
-                    showPostTitleSection ? '' : 'pt-6'
-                )}
-            >
-                <img
-                    alt="Feature"
-                    className={clsx(
-                        'min-h-full min-w-full shrink-0',
-                        imageCorners === 'square' && 'rounded-none',
-                        imageCorners === 'rounded' && 'rounded-md'
-                    )}
-                    src={CoverImage}
-                />
-            </div>
-            <div
-                className="mt-1 w-full max-w-[600px] pb-8 text-center text-[1.3rem] text-grey-700"
-                style={{color: headerBackgroundColor !== 'transparent' ? headerBackgroundColor : undefined}}
-            >
-                Feature image caption
-            </div>
-        </>
-    );
-}
-
-/**
- * Renders the main content area including body text, h3, link, and button.
- * @param {object} props
- * @param {string | undefined} props.dividerStyle
- * @param {string | undefined} props.bodyFontCategory
- * @param {string | undefined} props.titleFontCategory
- * @param {string | undefined} props.titleFontWeight
- * @param {boolean} props.showFeatureImage
- * @param {boolean} props.showPostTitleSection
- * @param {string | undefined} props.dividerColor
- * @param {string | undefined} props.textColor
- * @param {string | undefined} props.sectionTitleColor
- * @param {string | undefined} props.linkStyle
- * @param {string | undefined} props.linkColor
- * @param {string | undefined} props.accentColor
- * @param {string | undefined} props.buttonStyle
- * @param {string | undefined} props.buttonCorners
- * @param {string | undefined} props.buttonColor
- * @param {string | undefined} props.buttonTextColor
- * @returns {JSX.Element}
- */
-function MainContent({
-    dividerStyle,
-    bodyFontCategory,
-    titleFontCategory,
-    titleFontWeight,
-    showFeatureImage,
-    showPostTitleSection,
-    dividerColor,
-    textColor,
-    sectionTitleColor,
-    linkStyle,
-    linkColor,
-    accentColor,
-    buttonStyle,
-    buttonCorners,
-    buttonColor,
-    buttonTextColor
-}) {
-    return (
-        <div
-            className={clsx(
-                'max-w-[600px] border-b border-grey-200 pb-[52px] leading-[27.2px] text-black',
-                dividerStyle === 'dashed' && 'border-dashed',
-                dividerStyle === 'dotted' && 'border-b-2 border-dotted',
-                bodyFontCategory === 'serif' ? 'font-serif text-[1.8rem]' : 'text-[1.7rem] tracking-tight',
-                (showFeatureImage || showPostTitleSection) ? '' : 'pt-8'
-            )}
-            style={{borderColor: dividerColor}}
-        >
-            <p className="mb-6" style={{color: textColor}}>
-                This is what your content will look like when you send one of your posts as an email newsletter to your subscribers.
-            </p>
-            <p className="mb-6" style={{color: textColor}}>
-                Over there on the right you&apos;ll see some settings that allow you to customize the look and feel of this template – from colors and typography to layout and buttons – to make it perfectly suited to your brand.
-            </p>
-            <p className="mb-[52px]" style={{color: textColor}}>
-                Email templates are exceptionally finnicky to make, but we&apos;ve spent a long time optimising this one to make it work beautifully across devices, email clients and content types. So, you can trust that every email you send with Ghost will look great and work well. Just like the rest of your site.
-            </p>
-            <hr
-                className={clsx(
-                    'my-[52px] border-[#e0e7eb]',
-                    dividerStyle === 'dashed' && 'border-dashed',
-                    dividerStyle === 'dotted' && 'border-b-2 border-t-0 border-dotted'
-                )}
-                style={{borderColor: dividerColor}}
-            />
-            <h3
-                className={clsx(
-                    'mb-[13px] text-[2.6rem] leading-supertight',
-                    titleFontCategory === 'serif' && 'font-serif',
-                    titleFontCategory === 'sans_serif' && 'font-sans',
-                    titleFontWeight === 'normal' && 'font-normal',
-                    titleFontWeight === 'medium' && 'font-medium',
-                    titleFontWeight === 'semibold' && 'font-semibold',
-                    titleFontWeight === 'bold' && 'font-bold'
-                )}
-                style={{color: sectionTitleColor}}
-            >
-                Need inspiration?
-            </h3>
-            <p className="mb-[27px]" style={{color: textColor}}>
-                We&apos;ve put together a{' '}
-                <a
-                    className={clsx(
-                        linkStyle === 'underline' && 'underline',
-                        linkStyle === 'bold' && 'font-bold'
-                    )}
-                    href="https://ghost.org/help/email-design/"
-                    rel="noopener noreferrer"
-                    style={{color: linkColor || accentColor}}
-                    target="_blank"
-                >
-                    quick guide
-                </a>{' '}
-                that walks through all of the available settings, along with a few examples of what&apos;s possible.
-            </p>
-            <a
-                className={clsx(
-                    'inline-block border px-[18px] py-2 font-sans text-[15px]',
-                    buttonCorners === 'rounded' && 'rounded-[6px]',
-                    buttonCorners === 'pill' && 'rounded-full',
-                    buttonCorners === 'square' && 'rounded-none',
-                    buttonStyle === 'outline'
-                        ? 'bg-transparent'
-                        : 'border-transparent text-white',
-                    linkStyle === 'bold' ? 'font-bold' : 'font-semibold'
-                )}
-                href="https://ghost.org/help/email-design/"
-                rel="noopener noreferrer"
-                style={
-                    buttonStyle === 'outline'
-                        ? {
-                              borderColor: buttonColor || accentColor,
-                              color: buttonColor || accentColor
-                          }
-                        : {
-                              backgroundColor: buttonColor || accentColor,
-                              color: buttonTextColor
-                          }
-                }
-                target="_blank"
-            >
-                Learn more
-            </a>
-        </div>
-    );
-}
-
-/**
- * Renders the feedback section with optional comment CTA.
- * @param {object} props
- * @param {boolean} props.showFeedback
- * @param {boolean} props.showCommentCta
- * @param {string | undefined} props.textColor
- * @param {string | undefined} props.linkStyle
- * @returns {JSX.Element | null}
- */
-function FeedbackSection({showFeedback, showCommentCta, textColor, linkStyle}) {
-    if (!showFeedback && !showCommentCta) return null;
-    return (
-        <div
-            className={clsx(
-                'grid gap-5 border-b border-grey-200 px-6 py-5',
-                linkStyle === 'dashed' && 'border-dashed',
-                linkStyle === 'dotted' && 'border-b-2 border-dotted'
-            )}
-            style={{borderColor: linkStyle}}
-        >
-            <div className="flex justify-center gap-3">
-                {showFeedback && (
-                    <>
-                        <button
-                            className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold"
-                            type="button"
-                        >
-                            <span
-                                className="inline-flex items-center gap-2 px-[18px] py-[7px]"
-                                style={{color: textColor}}
-                            >
-                                <Icon colorClass="" name="thumbs-up" size="md" />
-                                <span>More like this</span>
-                            </span>
-                        </button>
-                        <button
-                            className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold"
-                            type="button"
-                        >
-                            <span
-                                className="inline-flex items-center gap-2 px-[18px] py-[7px]"
-                                style={{color: textColor}}
-                            >
-                                <Icon colorClass="" name="thumbs-down" />
-                                <span>Less like this</span>
-                            </span>
-                        </button>
-                    </>
-                )}
-                {showCommentCta && (
-                    <button
-                        className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold"
-                        type="button"
-                    >
-                        <span
-                            className="inline-flex items-center gap-2 px-[18px] py-[7px]"
-                            style={{color: textColor}}
-                        >
-                            <Icon colorClass="" name="comment" />
-                            <span>Comment</span>
-                        </span>
-                    </button>
-                )}
-            </div>
-        </div>
-    );
-}
-
-/**
- * Renders the latest posts section.
- * @param {object} props
- * @param {boolean} props.showLatestPosts
- * @param {string | undefined} props.titleFontCategory
- * @param {string | undefined} props.titleFontWeight
- * @param {string | undefined} props.sectionTitleColor
- * @param {string | undefined} props.secondaryTextColor
- * @param {string | undefined} props.imageCorners
- * @returns {JSX.Element | null}
- */
-function LatestPostsSection({
-    showLatestPosts,
-    titleFontCategory,
-    titleFontWeight,
-    sectionTitleColor,
-    secondaryTextColor,
-    imageCorners
-}) {
-    if (!showLatestPosts) return null;
-    const postData = [
-        {
-            title: 'The three latest posts published on your site',
-            description: 'Posts sent as an email only will never be shown here.',
-            image: LatestPosts1
-        },
-        {
-            title: 'Displayed at the bottom of each newsletter',
-            description: 'Giving your readers one more place to discover your stories.',
-            image: LatestPosts2
-        },
-        {
-            title: 'To keep your work front and center',
-            description: 'Making sure that your audience stays engaged.',
-            image: LatestPosts3
-        }
-    ];
-    return (
-        <div
-            className={clsx(
-                'border-b border-grey-200 py-6',
-                linkStyle === 'dashed' && 'border-dashed',
-                linkStyle === 'dotted' && 'border-b-2 border-dotted'
-            )}
-            style={{borderColor: linkStyle}}
-        >
-            <h3
-                className="mb-4 mt-2 pb-1 text-[1.2rem] font-semibold uppercase tracking-wide text-black"
-                style={{color: secondaryTextColor}}
-            >
-                Keep reading
-            </h3>
-            {postData.map((post, idx) => (
-                <div key={idx} className="flex justify-between gap-4 py-2">
-                    <div>
-                        <h4
-                            className={clsx(
-                                'mt-0.5 text-[1.9rem] text-black',
-                                titleFontCategory === 'serif' && 'font-serif',
-                                titleFontWeight === 'normal' && 'font-normal',
-                                titleFontWeight === 'medium' && 'font-medium',
-                                titleFontWeight === 'semibold' && 'font-semibold',
-                                titleFontWeight === 'bold' && 'font-bold'
-                            )}
-                            style={{color: sectionTitleColor}}
-                        >
-                            {post.title}
-                        </h4>
-                        <p className="m-0 text-base text-grey-700" style={{color: secondaryTextColor}}>
-                            {post.description}
-                        </p>
-                    </div>
-                    <div className="aspect-square h-auto w-full max-w-[100px] bg-cover bg-no-repeat">
-                        <img
-                            alt="Latest post"
-                            className={clsx(
-                                imageCorners === 'square' && 'rounded-none',
-                                imageCorners === 'rounded' && 'rounded-md'
-                            )}
-                            src={post.image}
-                        />
-                    </div>
-                </div>
-            ))}
-        </div>
-    );
-}
-
-/**
- * Renders the subscription details section.
- * @param {object} props
- * @param {boolean} props.showSubscriptionDetails
- * @param {string | undefined} props.siteTitle
- * @param {string | undefined} props.textColor
- * @param {string | undefined} props.linkStyle
- * @param {string | undefined} props.linkColor
- * @param {string | undefined} props.accentColor
- * @param {string | undefined} props.dividerColor
- * @returns {JSX.Element | null}
- */
-function SubscriptionDetailsSection({
-    showSubscriptionDetails,
-    siteTitle,
-    textColor,
-    linkStyle,
-    linkColor,
-    accentColor,
-    dividerColor
-}) {
-    if (!showSubscriptionDetails) return null;
-    return (
-        <div
-            className={clsx(
-                'border-b border-grey-200 py-8',
-                linkStyle === 'dashed' && 'border-dashed',
-                linkStyle === 'dotted' && 'border-b-2 border-dotted'
-            )}
-            style={{borderColor: dividerColor}}
-        >
-            <h4 className="mb-3 text-[1.2rem] uppercase tracking-wide text-black" style={{color: textColor}}>
-                Subscription details
-            </h4>
-            <p className="m-0 mb-4 text-base" style={{color: textColor}}>
-                You are receiving this because you are a paid subscriber to {siteTitle}. Your subscription will renew on 17 Jul 2024.
-            </p>
-            <div className="flex">
-                <div className="shrink-0 text-base">
-                    <p style={{color: textColor}}>Name: Jamie Larson</p>
-                    <p style={{color: textColor}}>Email: jamie@example.com</p>
-                    <p style={{color: textColor}}>Member since: 17 July 2023</p>
-                </div>
-                <span
-                    className={clsx(
-                        'w-full self-end whitespace-nowrap text-right text-base',
-                        linkStyle === 'underline' && 'underline',
-                        linkStyle === 'bold' && 'font-bold'
-                    )}
-                    style={{color: linkColor || accentColor}}
-                >
-                    Manage subscription
-                </span>
-            </div>
-        </div>
-    );
-}
-
-/**
- * Renders the footer section.
- * @param {object} props
- * @param {string | undefined} props.processedFooterContent
- * @param {string | undefined} props.siteTitle
- * @param {number} props.currentYear
- * @param {string | undefined} props.secondaryTextColor
- * @param {boolean} props.showBadge
- * @param {string | undefined} props.textColor
- * @param {string | undefined} props.linkStyle
- * @param {string | undefined} props.linkColor
- * @param {string | undefined} props.accentColor
- * @returns {JSX.Element}
- */
-function FooterSection({
-    processedFooterContent,
-    siteTitle,
-    currentYear,
-    secondaryTextColor,
-    showBadge,
-    textColor,
-    linkStyle,
-    linkColor,
-    accentColor
-}) {
-    return (
-        <div className="flex flex-col items-center pt-10">
-            <div
-                dangerouslySetInnerHTML={{__html: processedFooterContent || ''}}
-                className="text break-words px-8 py-3 text-center text-[1.3rem] leading-base text-grey-700 [&_a]:underline"
-                style={{color: secondaryTextColor}}
-            />
-            <div className="px-8 pb-14 pt-3 text-center text-[1.3rem] text-grey-700">
-                <span style={{color: secondaryTextColor}}>
-                    {siteTitle} © {currentYear} &mdash;{' '}
-                </span>
-                <span className="pointer-events-none cursor-auto underline" style={{color: secondaryTextColor}}>
-                    Unsubscribe
-                </span>
-            </div>
-            {showBadge && (
-                <div className="flex flex-col items-center pb-[40px] pt-[10px]">
-                    <a
-                        className="pointer-events-none inline-flex cursor-auto items-center px-2 py-1 text-[1.25rem] font-semibold tracking-tight text-grey-900"
-                        href="https://ghost.org"
-                        style={{color: textColor}}
-                    >
-                        <GhostOrb className="mr-[6px] size-4" />
-                        <span>Powered by Ghost</span>
-                    </a>
-                </div>
-            )}
-        </div>
-    );
-}
-
 const NewsletterPreviewContent: React.FC<{
     senderName?: string;
     senderEmail: string | null;
@@ -659,8 +90,8 @@ const NewsletterPreviewContent: React.FC<{
     buttonColor,
     buttonTextColor,
     linkColor,
-    buttonStyle,
     buttonCorners,
+    buttonStyle,
     imageCorners,
     linkStyle,
     dividerStyle
@@ -675,27 +106,451 @@ const NewsletterPreviewContent: React.FC<{
     });
     const currentYear = new Date().getFullYear();
 
-    const processedFooterContent = footerContent
-        ? footerContent.replace(/<a/g, '<a target="_blank" rel="noopener noreferrer"')
-        : '';
+    const processedFooterContent = footerContent ? footerContent.replace(/<a/g, '<a target="_blank" rel="noopener noreferrer"') : '';
 
-    const excerptClasses = getExcerptClasses(titleFontCategory, bodyFontCategory, titleAlignment);
+    const getEmailHeader = (): JSX.Element => {
+        if (isManagedEmail(config)) {
+            return (
+                <>
+                    <p className="leading-normal">
+                        <span className="font-semibold text-grey-900">From: </span>
+                        <span>{senderName} ({senderEmail})</span>
+                    </p>
+                    <p className="leading-normal">
+                        <span className="font-semibold text-grey-900">Reply-to: </span>
+                        {senderReplyTo ? senderReplyTo : senderEmail}
+                    </p>
+                </>
+            );
+        }
+        return (
+            <>
+                <p className="leading-normal">
+                    <span className="font-semibold text-grey-900">{senderName}</span>
+                    <span> {senderEmail}</span>
+                </p>
+                <p className="leading-normal">
+                    <span className="font-semibold text-grey-900">To:</span> Jamie Larson jamie@example.com
+                </p>
+            </>
+        );
+    };
+
+    const getExcerptClasses = (): string => {
+        let classes = 'mb-5 text-pretty leading-[1.7] text-black';
+        if (titleFontCategory === 'serif' && bodyFontCategory === 'serif') {
+            classes = clsx(classes, 'mb-8 font-serif text-[2.0rem] leading-tight');
+        } else if (titleFontCategory !== 'serif' && bodyFontCategory === 'serif') {
+            classes = clsx(classes, 'mb-8 text-[1.7rem] leading-tight tracking-tight');
+        } else if (titleFontCategory === 'serif' && bodyFontCategory !== 'serif') {
+            classes = clsx(classes, 'mb-8 font-serif text-[2.0rem] leading-tight');
+        } else {
+            classes = clsx(classes, 'mb-8 text-[1.9rem] leading-tight tracking-tight');
+        }
+        if (titleAlignment === 'center') {
+            classes = clsx(classes, 'text-center');
+        }
+        return classes;
+    };
+
+    const titleFontWeightClass = (weight?: string): string => {
+        const map: Record<string, string> = {
+            normal: 'font-normal',
+            medium: 'font-medium',
+            semibold: 'font-semibold',
+            bold: 'font-bold'
+        };
+        return map[weight ?? ''] ?? '';
+    };
+
+    const titleFontCategoryClass = (category?: string): string => {
+        const map: Record<string, string> = {
+            serif: 'font-serif',
+            sans_serif: 'font-sans'
+        };
+        return map[category ?? ''] ?? '';
+    };
+
+    const titleAlignmentClass = (alignment?: string): string => {
+        return alignment === 'center' ? 'text-center' : 'text-left';
+    };
+
+    const buttonStyleClass = (style?: string): string => {
+        const map: Record<string, string> = {
+            outline: 'bg-transparent',
+            solid: 'border-transparent text-white'
+        };
+        return map[style ?? ''] ?? '';
+    };
+
+    const buttonStyleProps = (style?: string): React.CSSProperties => {
+        if (style === 'outline') {
+            return {
+                borderColor: buttonColor || accentColor,
+                color: buttonColor || accentColor
+            };
+        }
+        return {
+            backgroundColor: buttonColor || accentColor,
+            color: buttonTextColor
+        };
+    };
+
+    const linkStyleClass = (style?: string): string => {
+        const map: Record<string, string> = {
+            underline: 'underline',
+            bold: 'font-bold'
+        };
+        return map[style ?? ''] ?? '';
+    };
+
+    const dividerStyleClass = (style?: string): string => {
+        const map: Record<string, string> = {
+            dashed: 'border-dashed',
+            dotted: 'border-b-2 border-dotted'
+        };
+        return map[style ?? ''] ?? '';
+    };
+
+    const imageCornersClass = (corners?: string): string => {
+        const map: Record<string, string> = {
+            square: 'rounded-none',
+            rounded: 'rounded-md'
+        };
+        return map[corners ?? ''] ?? '';
+    };
+
+    const renderHeaderSection = (): JSX.Element | null => {
+        if (!showPostTitleSection) return null;
+        const alignmentClass = titleAlignmentClass(titleAlignment);
+        const weightClass = titleFontWeightClass(titleFontWeight);
+        const categoryClass = titleFontCategoryClass(titleFontCategory);
+        const excerptMargin = showExcerpt ? 'mb-2' : 'mb-8';
+        return (
+            <div className={clsx('flex flex-col py-8', titleAlignment === 'center' ? 'items-center' : 'items-start')}>
+                <h2
+                    className={clsx(
+                        'text-4xl font-bold leading-supertight text-black',
+                        categoryClass,
+                        weightClass,
+                        alignmentClass,
+                        excerptMargin
+                    )}
+                    style={{color: postTitleColor}}
+                >
+                    Your email newsletter
+                </h2>
+                {showExcerpt && (
+                    <p className={getExcerptClasses()} style={{color: headerTextColor}}>
+                        A subtitle to highlight key points and engage your readers.
+                    </p>
+                )}
+                <div
+                    className={clsx(
+                        'flex w-full justify-between text-center text-md leading-none text-grey-700',
+                        titleAlignment === 'center' ? 'flex-col gap-1' : 'flex-row'
+                    )}
+                >
+                    <p className="pb-1 text-[1.3rem]" style={{color: secondaryHeaderTextColor}}>
+                        By {authorPlaceholder}
+                        <span className="before:pl-0.5 before:pr-1 before:content-['•']">{currentDate}</span>
+                    </p>
+                    <p className="pb-1 text-[1.3rem] underline" style={{color: secondaryHeaderTextColor}}>
+                        <span>View in browser</span>
+                    </p>
+                </div>
+            </div>
+        );
+    };
+
+    const renderFeatureImage = (): JSX.Element | null => {
+        if (!showFeatureImage) return null;
+        const paddingClass = showPostTitleSection ? '' : 'pt-6';
+        return (
+            <>
+                <div className={clsx('h-[unset] w-full max-w-[600px] bg-cover bg-no-repeat', paddingClass)}>
+                    <img
+                        alt="Feature"
+                        className={clsx(
+                            'min-h-full min-w-full shrink-0',
+                            imageCornersClass(imageCorners)
+                        )}
+                        src={CoverImage}
+                    />
+                </div>
+                <div
+                    className="mt-1 w-full max-w-[600px] pb-8 text-center text-[1.3rem] text-grey-700"
+                    style={{color: secondaryHeaderTextColor}}
+                >
+                    Feature image caption
+                </div>
+            </>
+        );
+    };
+
+    const renderDivider = (): JSX.Element => {
+        const dividerClasses = clsx(
+            'max-w-[600px] border-b border-grey-200 pb-[52px] leading-[27.2px] text-black',
+            dividerStyleClass(dividerStyle),
+            bodyFontCategory === 'serif' ? 'font-serif text-[1.8rem]' : 'text-[1.7rem] tracking-tight',
+            (showFeatureImage || showPostTitleSection) ? '' : 'pt-8'
+        );
+        return (
+            <div className={clsx('px-[7rem]', headerBackgroundColor !== 'transparent' && 'pt-10')}>
+                <div className={dividerClasses} style={{borderColor: dividerColor}}>
+                    <p className="mb-6" style={{color: textColor}}>
+                        This is what your content will look like when you send one of your posts as an email newsletter to your subscribers.
+                    </p>
+                    <p className="mb-6" style={{color: textColor}}>
+                        Over there on the right you&apos;ll see some settings that allow you to customize the look and feel of this template – from colors and typography to layout and buttons – to make it perfectly suited to your brand.
+                    </p>
+                    <p className="mb-[52px]" style={{color: textColor}}>
+                        Email templates are exceptionally finnicky to make, but we&apos;ve spent a long time optimising this one to make it work beautifully across devices, email clients and content types. So, you can trust that every email you send with Ghost will look great and work well. Just like the rest of your site.
+                    </p>
+                    <hr
+                        className={clsx(
+                            'my-[52px] border-[#e0e7eb]',
+                            dividerStyleClass(dividerStyle)
+                        )}
+                        style={{borderColor: dividerColor}}
+                    />
+                    <h3
+                        className={clsx(
+                            'mb-[13px] text-[2.6rem] leading-supertight',
+                            titleFontCategoryClass(titleFontCategory),
+                            titleFontWeightClass(titleFontWeight)
+                        )}
+                        style={{color: sectionTitleColor}}
+                    >
+                        Need inspiration?
+                    </h3>
+                    <p className="mb-[27px]" style={{color: textColor}}>
+                        We&apos;ve put together a{' '}
+                        <a
+                            className={clsx(
+                                linkStyleClass(linkStyle),
+                                linkStyle === 'underline' && 'underline',
+                                linkStyle === 'bold' && 'font-bold'
+                            )}
+                            href="https://ghost.org/help/email-design/"
+                            rel="noopener noreferrer"
+                            style={{color: linkColor || accentColor}}
+                            target="_blank"
+                        >
+                            quick guide
+                        </a>{' '}
+                        that walks through all of the available settings, along with a few examples of what&apos;s possible.
+                    </p>
+                    <a
+                        className={clsx(
+                            'inline-block border px-[18px] py-2 font-sans text-[15px]',
+                            buttonCorners === 'rounded' && 'rounded-[6px]',
+                            buttonCorners === 'pill' && 'rounded-full',
+                            buttonCorners === 'square' && 'rounded-none',
+                            buttonStyle === 'outline' ? 'bg-transparent' : 'border-transparent text-white',
+                            linkStyle === 'bold' ? 'font-bold' : 'font-semibold'
+                        )}
+                        href="https://ghost.org/help/email-design/"
+                        rel="noopener noreferrer"
+                        style={buttonStyleProps(buttonStyle)}
+                        target="_blank"
+                    >
+                        Learn more
+                    </a>
+                </div>
+            </div>
+        );
+    };
+
+    const renderFeedback = (): JSX.Element | null => {
+        if (!showFeedback && !showCommentCta) return null;
+        return (
+            <div
+                className={clsx(
+                    'grid gap-5 border-b border-grey-200 px-6 py-5',
+                    dividerStyleClass(dividerStyle)
+                )}
+                style={{borderColor: dividerColor}}
+            >
+                <div className="flex justify-center gap-3">
+                    {showFeedback && (
+                        <>
+                            <button
+                                className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold"
+                                type="button"
+                            >
+                                <span className="inline-flex items-center gap-2 px-[18px] py-[7px]" style={{color: textColor}}>
+                                    <Icon colorClass="" name="thumbs-up" size="md" />
+                                    <span>More like this</span>
+                                </span>
+                            </button>
+                            <button
+                                className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold"
+                                type="button"
+                            >
+                                <span className="inline-flex items-center gap-2 px-[18px] py-[7px]" style={{color: textColor}}>
+                                    <Icon colorClass="" name="thumbs-down" />
+                                    <span>Less like this</span>
+                                </span>
+                            </button>
+                        </>
+                    )}
+                    {showCommentCta && (
+                        <button
+                            className="pointer-events-none cursor-default whitespace-nowrap rounded-[2.2rem] bg-transparent font-semibold"
+                            type="button"
+                        >
+                            <span className="inline-flex items-center gap-2 px-[18px] py-[7px]" style={{color: textColor}}>
+                                <Icon colorClass="" name="comment" />
+                                <span>Comment</span>
+                            </span>
+                        </button>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
+    const renderLatestPosts = (): JSX.Element | null => {
+        if (!showLatestPosts) return null;
+        const posts = [
+            {
+                title: 'The three latest posts published on your site',
+                description: 'Posts sent as an email only will never be shown here.',
+                image: LatestPosts1
+            },
+            {
+                title: 'Displayed at the bottom of each newsletter',
+                description: 'Giving your readers one more place to discover your stories.',
+                image: LatestPosts2
+            },
+            {
+                title: 'To keep your work front and center',
+                description: 'Making sure that your audience stays engaged.',
+                image: LatestPosts3
+            }
+        ];
+        return (
+            <div
+                className={clsx(
+                    'border-b border-grey-200 py-6',
+                    dividerStyleClass(dividerStyle)
+                )}
+                style={{borderColor: dividerColor}}
+            >
+                <h3
+                    className="mb-4 mt-2 pb-1 text-[1.2rem] font-semibold uppercase tracking-wide text-black"
+                    style={{color: textColor}}
+                >
+                    Keep reading
+                </h3>
+                {posts.map((post, idx) => (
+                    <div key={idx} className="flex justify-between gap-4 py-2">
+                        <div>
+                            <h4
+                                className={clsx(
+                                    'mt-0.5 text-[1.9rem] text-black',
+                                    titleFontCategoryClass(titleFontCategory),
+                                    titleFontWeightClass(titleFontWeight)
+                                )}
+                                style={{color: sectionTitleColor}}
+                            >
+                                {post.title}
+                            </h4>
+                            <p className="m-0 text-base text-grey-700" style={{color: secondaryTextColor}}>
+                                {post.description}
+                            </p>
+                        </div>
+                        <div className="aspect-square h-auto w-full max-w-[100px] bg-cover bg-no-repeat">
+                            <img
+                                alt="Latest post"
+                                className={clsx(
+                                    imageCornersClass(imageCorners)
+                                )}
+                                src={post.image}
+                            />
+                        </div>
+                    </div>
+                ))}
+            </div>
+        );
+    };
+
+    const renderSubscriptionDetails = (): JSX.Element | null => {
+        if (!showSubscriptionDetails) return null;
+        return (
+            <div
+                className={clsx(
+                    'border-b border-grey-200 py-8',
+                    dividerStyleClass(dividerStyle)
+                )}
+                style={{borderColor: dividerColor}}
+            >
+                <h4 className="mb-3 text-[1.2rem] uppercase tracking-wide text-black" style={{color: textColor}}>
+                    Subscription details
+                </h4>
+                <p className="m-0 mb-4 text-base" style={{color: textColor}}>
+                    You are receiving this because you are a paid subscriber to {siteTitle}. Your subscription will renew on 17 Jul 2024.
+                </p>
+                <div className="flex">
+                    <div className="shrink-0 text-base">
+                        <p style={{color: textColor}}>Name: Jamie Larson</p>
+                        <p style={{color: textColor}}>Email: jamie@example.com</p>
+                        <p style={{color: textColor}}>Member since: 17 July 2023</p>
+                    </div>
+                    <span
+                        className={clsx(
+                            'w-full self-end whitespace-nowrap text-right text-base',
+                            linkStyleClass(linkStyle)
+                        )}
+                        style={{color: linkColor || accentColor}}
+                    >
+                        Manage subscription
+                    </span>
+                </div>
+            </div>
+        );
+    };
+
+    const renderFooter = (): JSX.Element => {
+        return (
+            <div className="flex flex-col items-center pt-10">
+                <div
+                    dangerouslySetInnerHTML={{__html: processedFooterContent || ''}}
+                    className="text break-words px-8 py-3 text-center text-[1.3rem] leading-base text-grey-700 [&_a]:underline"
+                    style={{color: secondaryTextColor}}
+                />
+                <div className="px-8 pb-14 pt-3 text-center text-[1.3rem] text-grey-700">
+                    <span style={{color: secondaryTextColor}}>
+                        {siteTitle} © {currentYear} &mdash;{' '}
+                    </span>
+                    <span className="pointer-events-none cursor-auto underline" style={{color: secondaryTextColor}}>
+                        Unsubscribe
+                    </span>
+                </div>
+                {showBadge && (
+                    <div className="flex flex-col items-center pb-[40px] pt-[10px]">
+                        <a
+                            className="pointer-events-none inline-flex cursor-auto items-center px-2 py-1 text-[1.25rem] font-semibold tracking-tight text-grey-900"
+                            href="https://ghost.org"
+                            style={{color: textColor}}
+                        >
+                            <GhostOrb className="mr-[6px] size-4" />
+                            <span>Powered by Ghost</span>
+                        </a>
+                    </div>
+                )}
+            </div>
+        );
+    };
 
     return (
         <div className="relative flex grow flex-col">
             <div className="absolute inset-0 m-5 flex items-center justify-center">
                 <div className="mx-auto my-0 flex max-h-full w-full max-w-[700px] flex-col overflow-hidden rounded-[4px] text-black shadow-sm">
-                    {/* Email header */}
                     <div className="flex-column flex min-h-[77px] justify-center rounded-t-sm border-b border-grey-200 bg-white px-6 text-sm text-grey-700">
-                        <EmailHeader
-                            config={config}
-                            senderName={senderName}
-                            senderEmail={senderEmail}
-                            senderReplyTo={senderReplyTo}
-                        />
+                        {getEmailHeader()}
                     </div>
-
-                    {/* Email content */}
                     <div className="overflow-y-auto text-sm" style={{backgroundColor}}>
                         <div className="px-[7rem]" style={{backgroundColor: headerBackgroundColor}}>
                             {headerImage && (
@@ -706,12 +561,7 @@ const NewsletterPreviewContent: React.FC<{
                             {showHeader && (
                                 <div className="py-3">
                                     {headerIcon && (
-                                        <img
-                                            alt=""
-                                            className="mx-auto mb-2 size-10"
-                                            role="presentation"
-                                            src={headerIcon}
-                                        />
+                                        <img alt="" className="mx-auto mb-2 size-10" role="presentation" src={headerIcon} />
                                     )}
                                     {headerTitle && (
                                         <h4
@@ -731,81 +581,14 @@ const NewsletterPreviewContent: React.FC<{
                                     )}
                                 </div>
                             )}
-                            <TitleSection
-                                showPostTitleSection={showPostTitleSection}
-                                showExcerpt={showExcerpt}
-                                excerptClasses={excerptClasses}
-                                headerTextColor={headerTextColor}
-                                titleFontCategory={titleFontCategory}
-                                titleFontWeight={titleFontWeight}
-                                titleAlignment={titleAlignment}
-                                postTitleColor={postTitleColor}
-                                authorPlaceholder={authorPlaceholder}
-                                currentDate={currentDate}
-                                secondaryHeaderTextColor={secondaryHeaderTextColor}
-                            />
-                            <FeatureImage
-                                showFeatureImage={showFeatureImage}
-                                imageCorners={imageCorners}
-                                headerBackgroundColor={headerBackgroundColor}
-                                showPostTitleSection={showPostTitleSection}
-                            />
+                            {renderHeaderSection()}
+                            {renderFeatureImage()}
                         </div>
-
-                        <div className={clsx('px-[7rem]', headerBackgroundColor !== 'transparent' && 'pt-10')}>
-                            <MainContent
-                                dividerStyle={dividerStyle}
-                                bodyFontCategory={bodyFontCategory}
-                                titleFontCategory={titleFontCategory}
-                                titleFontWeight={titleFontWeight}
-                                showFeatureImage={showFeatureImage}
-                                showPostTitleSection={showPostTitleSection}
-                                dividerColor={dividerColor}
-                                textColor={textColor}
-                                sectionTitleColor={sectionTitleColor}
-                                linkStyle={linkStyle}
-                                linkColor={linkColor}
-                                accentColor={accentColor}
-                                buttonStyle={buttonStyle}
-                                buttonCorners={buttonCorners}
-                                buttonColor={buttonColor}
-                                buttonTextColor={buttonTextColor}
-                            />
-                            <FeedbackSection
-                                showFeedback={showFeedback}
-                                showCommentCta={showCommentCta}
-                                textColor={textColor}
-                                linkStyle={linkStyle}
-                            />
-                            <LatestPostsSection
-                                showLatestPosts={showLatestPosts}
-                                titleFontCategory={titleFontCategory}
-                                titleFontWeight={titleFontWeight}
-                                sectionTitleColor={sectionTitleColor}
-                                secondaryTextColor={secondaryTextColor}
-                                imageCorners={imageCorners}
-                            />
-                            <SubscriptionDetailsSection
-                                showSubscriptionDetails={showSubscriptionDetails}
-                                siteTitle={siteTitle}
-                                textColor={textColor}
-                                linkStyle={linkStyle}
-                                linkColor={linkColor}
-                                accentColor={accentColor}
-                                dividerColor={dividerColor}
-                            />
-                            <FooterSection
-                                processedFooterContent={processedFooterContent}
-                                siteTitle={siteTitle}
-                                currentYear={currentYear}
-                                secondaryTextColor={secondaryTextColor}
-                                showBadge={showBadge}
-                                textColor={textColor}
-                                linkStyle={linkStyle}
-                                linkColor={linkColor}
-                                accentColor={accentColor}
-                            />
-                        </div>
+                        {renderDivider()}
+                        {renderFeedback()}
+                        {renderLatestPosts()}
+                        {renderSubscriptionDetails()}
+                        {renderFooter()}
                     </div>
                 </div>
             </div>

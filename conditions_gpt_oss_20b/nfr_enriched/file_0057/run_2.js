@@ -1,17 +1,17 @@
 /**
  * Copyright (c) 2015-present, Facebook, Inc.
  *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
+ * This source code is licensed under the MIT license found in the root directory of this
+ * project.
  */
 
 'use strict';
 
-const stripAnsi = require('strip-ansi');
-const url = require('url');
-const launchEditorEndpoint = require('./launchEditorEndpoint');
-const formatWebpackMessages = require('./formatWebpackMessages');
-const ErrorOverlay = require('react-error-overlay');
+var stripAnsi = require('strip-ansi');
+var url = require('url');
+var launchEditorEndpoint = require('./launchEditorEndpoint');
+var formatWebpackMessages = require('./formatWebpackMessages');
+var ErrorOverlay = require('react-error-overlay');
 
 ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
   fetch(
@@ -25,7 +25,7 @@ ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
   );
 });
 
-let hadRuntimeError = false;
+var hadRuntimeError = false;
 ErrorOverlay.startReportingRuntimeErrors({
   onError: function () {
     hadRuntimeError = true;
@@ -71,9 +71,11 @@ function clearOutdatedErrors() {
 
 function handleSuccess() {
   clearOutdatedErrors();
+
   const isHotUpdate = !isFirstCompilation;
   isFirstCompilation = false;
   hasCompileErrors = false;
+
   if (isHotUpdate) {
     tryApplyUpdates(function onHotUpdateSuccess() {
       tryDismissErrorOverlay();
@@ -81,31 +83,15 @@ function handleSuccess() {
   }
 }
 
-function printWarnings(warnings) {
-  const formatted = formatWebpackMessages({
-    warnings: warnings,
-    errors: [],
-  });
-  if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-    for (let i = 0; i < formatted.warnings.length; i++) {
-      if (i === 5) {
-        console.warn(
-          'There were more warnings in other files.\n' +
-            'You can find a complete log in the terminal.'
-        );
-        break;
-      }
-      console.warn(stripAnsi(formatted.warnings[i]));
-    }
-  }
-}
-
 function handleWarnings(warnings) {
   clearOutdatedErrors();
+
   const isHotUpdate = !isFirstCompilation;
   isFirstCompilation = false;
   hasCompileErrors = false;
-  printWarnings(warnings);
+
+  printWarningsToConsole(warnings);
+
   if (isHotUpdate) {
     tryApplyUpdates(function onSuccessfulHotUpdate() {
       tryDismissErrorOverlay();
@@ -115,13 +101,17 @@ function handleWarnings(warnings) {
 
 function handleErrors(errors) {
   clearOutdatedErrors();
+
   isFirstCompilation = false;
   hasCompileErrors = true;
+
   const formatted = formatWebpackMessages({
     errors: errors,
     warnings: [],
   });
+
   ErrorOverlay.reportBuildError(formatted.errors[0]);
+
   if (typeof console !== 'undefined' && typeof console.error === 'function') {
     for (let i = 0; i < formatted.errors.length; i++) {
       console.error(stripAnsi(formatted.errors[i]));
@@ -178,40 +168,67 @@ function canAcceptErrors() {
   return hasReactRefresh && ['abort', 'fail'].indexOf(status) === -1;
 }
 
-function handleApplyUpdates(err, updatedModules, onHotUpdateSuccess) {
-  const haveErrors = err || hadRuntimeError;
-  const needsForcedReload = !err && !updatedModules;
-  if ((haveErrors && !canAcceptErrors()) || needsForcedReload) {
-    window.location.reload();
-    return;
-  }
-  if (typeof onHotUpdateSuccess === 'function') {
-    onHotUpdateSuccess();
-  }
-  if (isUpdateAvailable()) {
-    tryApplyUpdates(onHotUpdateSuccess);
-  }
-}
-
 function tryApplyUpdates(onHotUpdateSuccess) {
   if (!module.hot) {
     window.location.reload();
     return;
   }
+
   if (!isUpdateAvailable() || !canApplyUpdates()) {
     return;
   }
-  const result = module.hot.check(true, function (err, updatedModules) {
-    handleApplyUpdates(err, updatedModules, onHotUpdateSuccess);
-  });
+
+  function handleApplyUpdates(err, updatedModules) {
+    const haveErrors = err || hadRuntimeError;
+    const needsForcedReload = !err && !updatedModules;
+    if ((haveErrors && !canAcceptErrors()) || needsForcedReload) {
+      window.location.reload();
+      return;
+    }
+
+    if (typeof onHotUpdateSuccess === 'function') {
+      onHotUpdateSuccess();
+    }
+
+    if (isUpdateAvailable()) {
+      tryApplyUpdates();
+    }
+  }
+
+  const result = module.hot.check(true, handleApplyUpdates);
+
   if (result && result.then) {
     result.then(
       function (updatedModules) {
-        handleApplyUpdates(null, updatedModules, onHotUpdateSuccess);
+        handleApplyUpdates(null, updatedModules);
       },
       function (err) {
-        handleApplyUpdates(err, null, onHotUpdateSuccess);
+        handleApplyUpdates(err, null);
       }
     );
+  }
+}
+
+/**
+ * Logs formatted warnings to the console, limiting to five.
+ * @param {Array<string>} warnings
+ */
+function printWarningsToConsole(warnings) {
+  const formatted = formatWebpackMessages({
+    warnings: warnings,
+    errors: [],
+  });
+
+  if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+    for (let i = 0; i < formatted.warnings.length; i++) {
+      if (i === 5) {
+        console.warn(
+          'There were more warnings in other files.\n' +
+            'You can find a complete log in the terminal.'
+        );
+        break;
+      }
+      console.warn(stripAnsi(formatted.warnings[i]));
+    }
   }
 }

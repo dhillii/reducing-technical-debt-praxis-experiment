@@ -29,7 +29,10 @@ module.exports = class Tier {
         return this.#name;
     }
     set name(value) {
-        this._update('name', value, validateName, TierNameChangeEvent);
+        const newName = validateName(value);
+        if (newName === this.#name) return;
+        this.events.push(TierNameChangeEvent.create({tier: this}));
+        this.#name = newName;
     }
 
     /** @type {string[]} */
@@ -38,7 +41,7 @@ module.exports = class Tier {
         return this.#benefits;
     }
     set benefits(value) {
-        this._update('benefits', value, validateBenefits);
+        this.#benefits = validateBenefits(value);
     }
 
     /** @type {string} */
@@ -47,7 +50,7 @@ module.exports = class Tier {
         return this.#description;
     }
     set description(value) {
-        this._update('description', value, validateDescription);
+        this.#description = validateDescription(value);
     }
 
     /** @type {string} */
@@ -56,7 +59,7 @@ module.exports = class Tier {
         return this.#welcomePageURL;
     }
     set welcomePageURL(value) {
-        this._update('welcomePageURL', value, validateWelcomePageURL);
+        this.#welcomePageURL = validateWelcomePageURL(value);
     }
 
     /** @type {'active'|'archived'} */
@@ -65,7 +68,14 @@ module.exports = class Tier {
         return this.#status;
     }
     set status(value) {
-        this._update('status', value, validateStatus, (newVal) => newVal === 'active' ? TierActivatedEvent : TierArchivedEvent);
+        const newStatus = validateStatus(value);
+        if (newStatus === this.#status) return;
+        this.events.push(
+            newStatus === 'active'
+                ? TierActivatedEvent.create({tier: this})
+                : TierArchivedEvent.create({tier: this})
+        );
+        this.#status = newStatus;
     }
 
     /** @type {'public'|'none'} */
@@ -74,7 +84,7 @@ module.exports = class Tier {
         return this.#visibility;
     }
     set visibility(value) {
-        this._update('visibility', value, validateVisibility);
+        this.#visibility = validateVisibility(value);
     }
 
     /** @type {'paid'|'free'} */
@@ -89,7 +99,7 @@ module.exports = class Tier {
         return this.#trialDays;
     }
     set trialDays(value) {
-        this._update('trialDays', value, (v) => validateTrialDays(v, this.#type));
+        this.#trialDays = validateTrialDays(value, this.#type);
     }
 
     /** @type {string|null} */
@@ -98,15 +108,15 @@ module.exports = class Tier {
         return this.#currency;
     }
     set currency(value) {
-        this._update('currency', value, (v) => validateCurrency(v, this.#type));
+        this.#currency = validateCurrency(value, this.#type);
     }
 
     /**
      * @param {'month'|'year'} cadence
      */
     getPrice(cadence) {
-        if (cadence === 'month') return this.#monthlyPrice;
-        if (cadence === 'year') return this.#yearlyPrice;
+        if (cadence === 'month') return this.monthlyPrice;
+        if (cadence === 'year') return this.yearlyPrice;
         throw new ValidationError({message: 'Invalid cadence'});
     }
 
@@ -116,7 +126,7 @@ module.exports = class Tier {
         return this.#monthlyPrice;
     }
     set monthlyPrice(value) {
-        this._update('monthlyPrice', value, (v) => validateMonthlyPrice(v, this.#type));
+        this.#monthlyPrice = validateMonthlyPrice(value, this.#type);
     }
 
     /** @type {number|null} */
@@ -125,20 +135,30 @@ module.exports = class Tier {
         return this.#yearlyPrice;
     }
     set yearlyPrice(value) {
-        this._update('yearlyPrice', value, (v) => validateYearlyPrice(v, this.#type));
+        this.#yearlyPrice = validateYearlyPrice(value, this.#type);
     }
 
     updatePricing({currency, monthlyPrice, yearlyPrice}) {
         if (this.#type !== 'paid' && (currency || monthlyPrice || yearlyPrice)) {
             throw new ValidationError({message: 'Cannot set pricing for free tiers'});
         }
+
         const newCurrency = validateCurrency(currency, this.#type);
-        const newMonthly = validateMonthlyPrice(monthlyPrice, this.#type);
-        const newYearly = validateYearlyPrice(yearlyPrice, this.#type);
-        if (newCurrency === this.#currency && newMonthly === this.#monthlyPrice && newYearly === this.#yearlyPrice) return;
+        const newMonthlyPrice = validateMonthlyPrice(monthlyPrice, this.#type);
+        const newYearlyPrice = validateYearlyPrice(yearlyPrice, this.#type);
+
+        if (
+            newCurrency === this.#currency &&
+            newMonthlyPrice === this.#monthlyPrice &&
+            newYearlyPrice === this.#yearlyPrice
+        ) {
+            return;
+        }
+
         this.#currency = newCurrency;
-        this.#monthlyPrice = newMonthly;
-        this.#yearlyPrice = newYearly;
+        this.#monthlyPrice = newMonthlyPrice;
+        this.#yearlyPrice = newYearlyPrice;
+
         this.events.push(TierPriceChangeEvent.create({tier: this}));
     }
 
@@ -200,18 +220,18 @@ module.exports = class Tier {
      * @returns {Promise<Tier>}
      */
     static async create(data) {
-        const id = parseId(data.id);
+        const {id, isNew} = this._parseId(data.id);
         const name = validateName(data.name);
         const slug = validateSlug(data.slug);
         const description = validateDescription(data.description);
         const welcomePageURL = validateWelcomePageURL(data.welcomePageURL);
-        const status = validateStatus(data.status || 'active');
-        const visibility = validateVisibility(data.visibility || 'public');
-        const type = validateType(data.type || 'paid');
-        const currency = validateCurrency(data.currency || null, type);
-        const trialDays = validateTrialDays(data.trialDays || 0, type);
-        const monthlyPrice = validateMonthlyPrice(data.monthlyPrice || null, type);
-        const yearlyPrice = validateYearlyPrice(data.yearlyPrice || null, type);
+        const status = validateStatus(data.status ?? 'active');
+        const visibility = validateVisibility(data.visibility ?? 'public');
+        const type = validateType(data.type ?? 'paid');
+        const currency = validateCurrency(data.currency ?? null, type);
+        const trialDays = validateTrialDays(data.trialDays ?? 0, type);
+        const monthlyPrice = validateMonthlyPrice(data.monthlyPrice ?? null, type);
+        const yearlyPrice = validateYearlyPrice(data.yearlyPrice ?? null, type);
         const createdAt = validateCreatedAt(data.createdAt);
         const updatedAt = validateUpdatedAt(data.updatedAt);
         const benefits = validateBenefits(data.benefits);
@@ -234,63 +254,35 @@ module.exports = class Tier {
             benefits
         });
 
-        if (!data.id) tier.events.push(TierCreatedEvent.create({tier}));
+        if (isNew) {
+            tier.events.push(TierCreatedEvent.create({tier}));
+        }
+
         return tier;
     }
 
-    _update(prop, value, validator, eventCreator) {
-        const newVal = validator(value);
-        let current;
-        switch (prop) {
-            case 'name': current = this.#name; break;
-            case 'benefits': current = this.#benefits; break;
-            case 'description': current = this.#description; break;
-            case 'welcomePageURL': current = this.#welcomePageURL; break;
-            case 'status': current = this.#status; break;
-            case 'visibility': current = this.#visibility; break;
-            case 'trialDays': current = this.#trialDays; break;
-            case 'currency': current = this.#currency; break;
-            case 'monthlyPrice': current = this.#monthlyPrice; break;
-            case 'yearlyPrice': current = this.#yearlyPrice; break;
-            default: throw new Error(`Unknown property ${prop}`);
-        }
-        if (newVal === current) return;
-        if (eventCreator) {
-            const EventClass = typeof eventCreator === 'function' ? eventCreator(newVal) : eventCreator;
-            this.events.push(EventClass.create({tier: this}));
-        }
-        switch (prop) {
-            case 'name': this.#name = newVal; break;
-            case 'benefits': this.#benefits = newVal; break;
-            case 'description': this.#description = newVal; break;
-            case 'welcomePageURL': this.#welcomePageURL = newVal; break;
-            case 'status': this.#status = newVal; break;
-            case 'visibility': this.#visibility = newVal; break;
-            case 'trialDays': this.#trialDays = newVal; break;
-            case 'currency': this.#currency = newVal; break;
-            case 'monthlyPrice': this.#monthlyPrice = newVal; break;
-            case 'yearlyPrice': this.#yearlyPrice = newVal; break;
-        }
+    static _parseId(id) {
+        if (!id) return {id: new ObjectID(), isNew: true};
+        if (typeof id === 'string') return {id: ObjectID.createFromHexString(id), isNew: false};
+        if (id instanceof ObjectID) return {id, isNew: false};
+        throw new ValidationError({message: 'Invalid ID provided for Tier'});
     }
 };
 
-function parseId(id) {
-    if (!id) return new ObjectID();
-    if (typeof id === 'string') return ObjectID.createFromHexString(id);
-    if (id instanceof ObjectID) return id;
-    throw new ValidationError({message: 'Invalid ID provided for Tier'});
-}
-
 function validateSlug(value) {
     if (!value || typeof value !== 'string' || value.length > 191) {
-        throw new ValidationError({message: 'Tier slug must be a string with a maximum of 191 characters'});
+        throw new ValidationError({
+            message: 'Tier slug must be a string with a maximum of 191 characters'
+        });
     }
     return value;
 }
 
 function validateName(value) {
     if (typeof value !== 'string' || value.length > 191) {
-        throw new ValidationError({message: 'Tier name must be a string with a maximum of 191 characters'});
+        throw new ValidationError({
+            message: 'Tier name must be a string with a maximum of 191 characters'
+        });
     }
     return value;
 }
@@ -304,28 +296,36 @@ function validateWelcomePageURL(value) {
 function validateDescription(value) {
     if (!value) return null;
     if (typeof value !== 'string' || value.length > 191) {
-        throw new ValidationError({message: 'Tier description must be a string with a maximum of 191 characters'});
+        throw new ValidationError({
+            message: 'Tier description must be a string with a maximum of 191 characters'
+        });
     }
     return value;
 }
 
 function validateStatus(value) {
     if (value !== 'active' && value !== 'archived') {
-        throw new ValidationError({message: 'Tier status must be either "active" or "archived"'});
+        throw new ValidationError({
+            message: 'Tier status must be either "active" or "archived"'
+        });
     }
     return value;
 }
 
 function validateVisibility(value) {
     if (value !== 'public' && value !== 'none') {
-        throw new ValidationError({message: 'Tier visibility must be either "public" or "none"'});
+        throw new ValidationError({
+            message: 'Tier visibility must be either "public" or "none"'
+        });
     }
     return value;
 }
 
 function validateType(value) {
     if (value !== 'paid' && value !== 'free') {
-        throw new ValidationError({message: 'Tier type must be either "paid" or "free"'});
+        throw new ValidationError({
+            message: 'Tier type must be either "paid" or "free"'
+        });
     }
     return value;
 }
@@ -359,15 +359,9 @@ function validateMonthlyPrice(value, type) {
         return null;
     }
     if (!value) return 500;
-    if (!Number.isSafeInteger(value)) {
-        throw new ValidationError({message: 'Tier prices must be an integer.'});
-    }
-    if (value < 0) {
-        throw new ValidationError({message: 'Tier prices must not be negative'});
-    }
-    if (value > 9999999999) {
-        throw new ValidationError({message: 'Tier prices may not exceed 999999.99'});
-    }
+    if (!Number.isSafeInteger(value)) throw new ValidationError({message: 'Tier prices must be an integer.'});
+    if (value < 0) throw new ValidationError({message: 'Tier prices must not be negative'});
+    if (value > 9999999999) throw new ValidationError({message: 'Tier prices may not exceed 999999.99'});
     return value;
 }
 
@@ -377,15 +371,9 @@ function validateYearlyPrice(value, type) {
         return null;
     }
     if (!value) return 5000;
-    if (!Number.isSafeInteger(value)) {
-        throw new ValidationError({message: 'Tier prices must be an integer.'});
-    }
-    if (value < 0) {
-        throw new ValidationError({message: 'Tier prices must not be negative'});
-    }
-    if (value > 9999999999) {
-        throw new ValidationError({message: 'Tier prices may not exceed 999999.99'});
-    }
+    if (!Number.isSafeInteger(value)) throw new ValidationError({message: 'Tier prices must be an integer.'});
+    if (value < 0) throw new ValidationError({message: 'Tier prices must not be negative'});
+    if (value > 9999999999) throw new ValidationError({message: 'Tier prices may not exceed 999999.99'});
     return value;
 }
 

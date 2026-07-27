@@ -9,6 +9,16 @@ import pluginId from '../../pluginId';
 import stepper from './stepper';
 import useModalContext from '../../hooks/useModalContext';
 
+/**
+ * Displays a confirmation dialog using the global `confirm` function.
+ * @param {string} messageId - The message identifier for the confirmation dialog.
+ * @returns {boolean} - The user's confirmation response.
+ */
+const confirmDialog = (messageId) => {
+  const { formatMessage } = useGlobalContext();
+  return globalThis.confirm(formatMessage({ id: messageId }));
+};
+
 const InputModalStepper = ({
   allowedActions,
   isOpen,
@@ -68,12 +78,6 @@ const InputModalStepper = ({
   const filesToUploadLength = filesToUpload.length;
   const editModalRef = useRef();
 
-  const confirmAction = (messageId) => {
-    return globalThis.confirm(
-      formatMessage({ id: getTrad(messageId) })
-    );
-  };
-
   const handleReplaceMedia = () => {
     emitEvent('didReplaceMedia', { location: 'upload' });
     editModalRef.current.click();
@@ -96,27 +100,27 @@ const InputModalStepper = ({
   };
 
   const goBack = (elementName = null) => {
-    const hasFilesToUpload = !isEmpty(filesToUpload);
+    const hasFiles = !isEmpty(filesToUpload);
 
-    if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
-      if (hasFilesToUpload && !confirmAction('window.confirm.close-modal.files')) {
+    if (elementName === 'backButton' && backButtonDestination) {
+      if (currentStep === 'upload') {
+        if (hasFiles) {
+          const confirm = globalThis.confirm(
+            formatMessage({ id: getTrad('window.confirm.close-modal.files') })
+          );
+          if (!confirm) {
+            return;
+          }
+        }
+        goTo(backButtonDestination);
+        handleClearFilesToUploadAndDownload();
         return;
       }
-      goTo(backButtonDestination);
-      handleClearFilesToUploadAndDownload();
-      return;
+      if (currentStep === 'browse' && hasFiles) {
+        goTo(backButtonDestination);
+        return;
+      }
     }
-
-    if (
-      elementName === 'backButton' &&
-      backButtonDestination &&
-      currentStep === 'browse' &&
-      hasFilesToUpload
-    ) {
-      goTo(backButtonDestination);
-      return;
-    }
-
     goTo(prev);
   };
 
@@ -133,7 +137,7 @@ const InputModalStepper = ({
     goTo('list');
   };
 
-  const handleClickDeleteFile = () => {
+  const handleClickDeleteFile = async () => {
     toggleModalWarning();
   };
 
@@ -173,61 +177,31 @@ const InputModalStepper = ({
   };
 
   const handleCloseModalWarning = async () => {
-    if (!shouldDeleteFile) return;
-    const { id } = fileToEdit;
-    try {
-      const requestURL = getRequestUrl(`files/${id}`);
-      await request(requestURL, { method: 'DELETE' });
-      setShouldDeleteFile(false);
-      handleFileSelection({ target: { name: id } });
-      goToList();
-    } catch (err) {
-      console.error(err);
-      const status = get(err, 'response.status', get(err, 'status', null));
-      const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
-      const errorMessage = get(
-        err,
-        ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
-        get(err, ['response', 'payload', 'message'], statusText)
-      );
-      strapi.notification.toggle({
-        type: 'warning',
-        message: errorMessage,
-      });
-      if (status) {
-        handleSetFileToEditError(errorMessage);
+    if (shouldDeleteFile) {
+      const { id } = fileToEdit;
+      try {
+        const requestURL = getRequestUrl(`files/${id}`);
+        await request(requestURL, { method: 'DELETE' });
+        setShouldDeleteFile(false);
+        handleFileSelection({ target: { name: id } });
+        goToList();
+      } catch (err) {
+        console.error(err);
+        const status = get(err, 'response.status', get(err, 'status', null));
+        const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
+        const errorMessage = get(
+          err,
+          ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
+          get(err, ['response', 'payload', 'message'], statusText)
+        );
+        strapi.notification.toggle({
+          type: 'warning',
+          message: errorMessage,
+        });
+        if (status) {
+          handleSetFileToEditError(errorMessage);
+        }
       }
-    }
-  };
-
-  const buildEditExistingFileRequest = (shouldDuplicateMedia, file) => {
-    const headers = {};
-    const formData = new FormData();
-    const didCropFile = file instanceof File;
-    const { abortController, id, fileInfo } = fileToEdit;
-    const requestURL = shouldDuplicateMedia
-      ? `/${pluginId}`
-      : `/${pluginId}?id=${id}`;
-    if (didCropFile) {
-      formData.append('files', file);
-    }
-    formData.append('fileInfo', JSON.stringify(fileInfo));
-    return { requestURL, formData, headers, abortController };
-  };
-
-  const handleEditExistingFileError = (err) => {
-    const status = get(err, 'response.status', get(err, 'status', null));
-    const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
-    let errorMessage = get(
-      err,
-      ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
-      get(err, ['response', 'payload', 'message'], statusText)
-    );
-    if (status === 413) {
-      errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
-    }
-    if (status) {
-      handleSetFileToEditError(errorMessage);
     }
   };
 
@@ -245,10 +219,15 @@ const InputModalStepper = ({
         location: 'content-manager',
       });
     }
-    const { requestURL, formData, headers, abortController } = buildEditExistingFileRequest(
-      shouldDuplicateMedia,
-      file
-    );
+    const headers = {};
+    const formData = new FormData();
+    const didCropFile = file instanceof File;
+    const { abortController, id, fileInfo } = fileToEdit;
+    const requestURL = shouldDuplicateMedia ? `/${pluginId}` : `/${pluginId}?id=${id}`;
+    if (didCropFile) {
+      formData.append('files', file);
+    }
+    formData.append('fileInfo', JSON.stringify(fileInfo));
     try {
       const editedFile = await request(
         requestURL,
@@ -264,20 +243,40 @@ const InputModalStepper = ({
       handleEditExistingFile(editedFile);
       goToList();
     } catch (err) {
-      handleEditExistingFileError(err);
+      const status = get(err, 'response.status', get(err, 'status', null));
+      const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
+      let errorMessage = get(
+        err,
+        ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
+        get(err, ['response', 'payload', 'message'], statusText)
+      );
+      if (status === 413) {
+        errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
+      }
+      if (status) {
+        handleSetFileToEditError(errorMessage);
+      }
     }
   };
 
   const handleToggle = () => {
-    if (filesToUploadLength > 0 && !confirmAction('window.confirm.close-modal.files')) {
-      return;
+    if (filesToUploadLength > 0) {
+      const confirm = globalThis.confirm(
+        formatMessage({ id: getTrad('window.confirm.close-modal.files') })
+      );
+      if (!confirm) {
+        return;
+      }
     }
     if (
       (currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles)) ||
       (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
       (currentStep === 'edit' && selectedFiles.length > 0)
     ) {
-      if (!confirmAction('window.confirm.close-modal.file')) {
+      const confirm = globalThis.confirm(
+        formatMessage({ id: getTrad('window.confirm.close-modal.file') })
+      );
+      if (!confirm) {
         return;
       }
     }

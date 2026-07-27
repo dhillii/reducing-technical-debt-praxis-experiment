@@ -81,10 +81,13 @@ describe("bin/eslint.js", () => {
 	 * @returns {ChildProcess} The resulting child process
 	 */
 	function runESLint(args, options) {
+		// Merge default options with any user-provided options using object spread.
+		const forkOptions = options ? { silent: true, ...options } : { silent: true };
+
 		const newProcess = childProcess.fork(
 			EXECUTABLE_PATH,
 			args,
-			{ silent: true, ...options },
+			forkOptions,
 		);
 
 		forkedProcesses.add(newProcess);
@@ -369,7 +372,6 @@ describe("bin/eslint.js", () => {
 
 			return Promise.all([exitCodeAssertion, outputFileAssertion]);
 		});
-
 		afterEach(() => {
 			fs.unlinkSync(tempFilePath);
 		});
@@ -465,8 +467,7 @@ describe("bin/eslint.js", () => {
 
 				// Sanity check
 				assert.throws(
-					() =>
-						JSON.parse(fs.readFileSync(CACHE_PATH, "utf8")),
+					() => JSON.parse(fs.readFileSync(CACHE_PATH, "utf8")),
 					SyntaxError,
 					/Unexpected token/u,
 					"Cache file should not contain valid JSON at the start",

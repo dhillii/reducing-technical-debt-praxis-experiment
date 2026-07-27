@@ -10,8 +10,8 @@ import {
 } from './utils'
 
 function getAlignmentFromElement(element: globalThis.Element): 'center' | 'end' | undefined {
-  const parent = element.parentElement as HTMLElement | null
-  const attribute = parent?.dataset.align
+  const parent = element.parentElement
+  const attribute = (parent as HTMLElement)?.dataset.align
   if (attribute === 'center' || attribute === 'end') {
     return attribute
   }

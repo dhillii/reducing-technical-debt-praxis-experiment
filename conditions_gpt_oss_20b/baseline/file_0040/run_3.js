@@ -91,7 +91,9 @@ function getDefaultSettings() {
 }
 
 Settings = ghostBookshelf.Model.extend({
+
     tableName: 'settings',
+
     actionsCollectCRUD: true,
     actionsResourceType: 'setting',
     actionsExtraContext: ['key', 'group'],
@@ -103,25 +105,30 @@ Settings = ghostBookshelf.Model.extend({
 
     onDestroyed: function onDestroyed(model, options) {
         ghostBookshelf.Model.prototype.onDestroyed.apply(this, arguments);
+
         model.emitChange('deleted', options);
         model.emitChange(model._previousAttributes.key + '.' + 'deleted', options);
     },
 
     onCreated: function onCreated(model, options) {
         ghostBookshelf.Model.prototype.onCreated.apply(this, arguments);
+
         model.emitChange('added', options);
         model.emitChange(model.attributes.key + '.' + 'added', options);
     },
 
     onUpdated: function onUpdated(model, options) {
         ghostBookshelf.Model.prototype.onUpdated.apply(this, arguments);
+
         model.emitChange('edited', options);
         model.emitChange(model.attributes.key + '.' + 'edited', options);
     },
 
     async onValidate(model, attr, options) {
         await ghostBookshelf.Model.prototype.onValidate.call(this, model, attr, options);
+
         await Settings.validators.all(model, options);
+
         if (typeof Settings.validators[model.get('key')] === 'function') {
             await Settings.validators[model.get('key')](model, options);
         }
@@ -156,6 +163,7 @@ Settings = ghostBookshelf.Model.extend({
 
     parse() {
         const attrs = ghostBookshelf.Model.prototype.parse.apply(this, arguments);
+
         const settingType = attrs.type;
         if (settingType === 'boolean' && (attrs.value === '0' || attrs.value === '1')) {
             attrs.value = !!+attrs.value;
@@ -174,6 +182,7 @@ Settings = ghostBookshelf.Model.extend({
         if (_.isEmpty(data)) {
             options = data;
         }
+
         if (!_.isObject(data)) {
             data = {key: data};
         }
@@ -196,6 +205,7 @@ Settings = ghostBookshelf.Model.extend({
             if (!(_.isString(item.key) && item.key.length > 0)) {
                 return Promise.reject(new errors.ValidationError({message: tpl(messages.valueCannotBeBlank)}));
             }
+
             if (_.isObject(item.value)) {
                 item.value = JSON.stringify(item.value);
             }
@@ -213,6 +223,7 @@ Settings = ghostBookshelf.Model.extend({
                         if (options.context && options.context.internal && Object.prototype.hasOwnProperty.call(item, 'type')) {
                             setting.set('type', item.type);
                         }
+
                         if (setting.hasChanged()) {
                             return setting.save(null, options);
                         }
@@ -257,6 +268,7 @@ Settings = ghostBookshelf.Model.extend({
         if (settingsToInsert.length > 0) {
             const columnInfo = await ghostBookshelf.knex.table('settings').columnInfo();
             const columns = Object.keys(columnInfo);
+
             const date = ghostBookshelf.knex.raw('CURRENT_TIMESTAMP');
 
             const settingsDataToInsert = settingsToInsert.map((setting) => {

@@ -21,6 +21,129 @@ import type {
   SimpleFieldTypeInfo,
 } from '../../../../types'
 
+/**
+ * Renders a SegmentedControl component for the field.
+ *
+ * @param field - The field definition.
+ * @param selectedKey - The currently selected key.
+ * @param errorMessage - Validation error message.
+ * @param isNull - Whether the field is null.
+ * @param isReadOnly - Whether the field is read-only.
+ * @param isRequired - Whether the field is required.
+ * @param onSelectionChange - Callback when selection changes.
+ */
+function renderSegmentedControl(
+  field: AdminSelectFieldMeta,
+  selectedKey: Key | null,
+  errorMessage: string | undefined,
+  isNull: boolean,
+  isReadOnly: boolean,
+  isRequired: boolean,
+  onSelectionChange: (key: Key | null) => void
+) {
+  return (
+    <SegmentedControl
+      label={field.label}
+      description={field.description}
+      errorMessage={errorMessage}
+      isDisabled={isNull}
+      isReadOnly={isReadOnly}
+      isRequired={isRequired}
+      items={field.options}
+      onChange={onSelectionChange}
+      value={selectedKey}
+      textValue={field.options.find(item => item.value === selectedKey)?.label || ''}
+    >
+      {item => <Item key={item.value}>{item.label}</Item>}
+    </SegmentedControl>
+  )
+}
+
+/**
+ * Renders a RadioGroup component for the field.
+ *
+ * @param field - The field definition.
+ * @param selectedKey - The currently selected key.
+ * @param errorMessage - Validation error message.
+ * @param isNull - Whether the field is null.
+ * @param isReadOnly - Whether the field is read-only.
+ * @param isRequired - Whether the field is required.
+ * @param onSelectionChange - Callback when selection changes.
+ */
+function renderRadioGroup(
+  field: AdminSelectFieldMeta,
+  selectedKey: Key | null,
+  errorMessage: string | undefined,
+  isNull: boolean,
+  isReadOnly: boolean,
+  isRequired: boolean,
+  onSelectionChange: (key: Key | null) => void
+) {
+  return (
+    <RadioGroup
+      label={field.label}
+      description={field.description}
+      errorMessage={errorMessage}
+      isDisabled={isNull}
+      isReadOnly={isReadOnly}
+      isRequired={isRequired}
+      onChange={onSelectionChange}
+      value={selectedKey ?? undefined}
+    >
+      {field.options.map(item => (
+        <Radio key={item.value} value={item.value}>
+          {item.label}
+        </Radio>
+      ))}
+    </RadioGroup>
+  )
+}
+
+/**
+ * Renders a Picker component for the field.
+ *
+ * @param field - The field definition.
+ * @param selectedKey - The currently selected key.
+ * @param errorMessage - Validation error message.
+ * @param isNull - Whether the field is null.
+ * @param isReadOnly - Whether the field is read-only.
+ * @param isRequired - Whether the field is required.
+ * @param onSelectionChange - Callback when selection changes.
+ * @param longestLabelLength - Length of the longest label for styling.
+ */
+function renderPicker(
+  field: AdminSelectFieldMeta,
+  selectedKey: Key | null,
+  errorMessage: string | undefined,
+  isNull: boolean,
+  isReadOnly: boolean,
+  isRequired: boolean,
+  onSelectionChange: (key: Key | null) => void,
+  longestLabelLength: number
+) {
+  return (
+    <Picker
+      autoFocus={false}
+      label={field.label}
+      description={field.description}
+      errorMessage={errorMessage}
+      isDisabled={isNull}
+      isReadOnly={isReadOnly}
+      isRequired={isRequired}
+      items={field.options}
+      onSelectionChange={onSelectionChange}
+      selectedKey={selectedKey}
+      flex={{ mobile: true, desktop: 'initial' }}
+      UNSAFE_style={{
+        fontSize: tokenSchema.typography.text.regular.size,
+        width: `clamp(${tokenSchema.size.alias.singleLineWidth}, calc(${longestLabelLength}ex + ${tokenSchema.size.icon.regular}), 100%)`,
+      }}
+    >
+      {item => <Item key={item.value}>{item.label}</Item>}
+    </Picker>
+  )
+}
+
 export function Field(props: FieldProps<typeof controller>) {
   const { autoFocus, field, forceValidation, onChange, value, isRequired } = props
   const [isDirty, setDirty] = useState(false)
@@ -42,6 +165,8 @@ export function Field(props: FieldProps<typeof controller>) {
   const onSelectionChange = (key: Key | null) => {
     if (!onChange) return
 
+    // FIXME: the value should be primitive, not an object. i think this is an
+    // artefact from react-select’s API
     const newValue: Value['value'] = field.options.find(opt => opt.value === key) ?? null
 
     onChange({ ...value, value: newValue })
@@ -60,67 +185,34 @@ export function Field(props: FieldProps<typeof controller>) {
     setDirty(true)
   }
 
-  const fieldElement = (() => {
-    const factories = {
-      'segmented-control': () => (
-        <SegmentedControl
-          label={field.label}
-          description={field.description}
-          errorMessage={errorMessage}
-          isDisabled={isNull}
-          isReadOnly={isReadOnly}
-          isRequired={isRequired}
-          items={field.options}
-          onChange={onSelectionChange}
-          value={selectedKey}
-          textValue={field.options.find(item => item.value === selectedKey)?.label || ''}
-        >
-          {item => <Item key={item.value}>{item.label}</Item>}
-        </SegmentedControl>
-      ),
-      radio: () => (
-        <RadioGroup
-          label={field.label}
-          description={field.description}
-          errorMessage={errorMessage}
-          isDisabled={isNull}
-          isReadOnly={isReadOnly}
-          isRequired={isRequired}
-          onChange={onSelectionChange}
-          value={value.value?.value ?? preNullValue?.value}
-        >
-          {field.options.map(item => (
-            <Radio key={item.value} value={item.value}>
-              {item.label}
-            </Radio>
-          ))}
-        </RadioGroup>
-      ),
-      select: () => (
-        <Picker
-          autoFocus={autoFocus}
-          label={field.label}
-          description={field.description}
-          errorMessage={errorMessage}
-          isDisabled={isNull}
-          isReadOnly={isReadOnly}
-          isRequired={isRequired}
-          items={field.options}
-          onSelectionChange={onSelectionChange}
-          selectedKey={selectedKey}
-          flex={{ mobile: true, desktop: 'initial' }}
-          UNSAFE_style={{
-            fontSize: tokenSchema.typography.text.regular.size,
-            width: `clamp(${tokenSchema.size.alias.singleLineWidth}, calc(${longestLabelLength}ex + ${tokenSchema.size.icon.regular}), 100%)`,
-          }}
-        >
-          {item => <Item key={item.value}>{item.label}</Item>}
-        </Picker>
-      ),
-    } as const
+  const renderers: Record<
+    AdminSelectFieldMeta['displayMode'],
+    (
+      field: AdminSelectFieldMeta,
+      selectedKey: Key | null,
+      errorMessage: string | undefined,
+      isNull: boolean,
+      isReadOnly: boolean,
+      isRequired: boolean,
+      onSelectionChange: (key: Key | null) => void,
+      longestLabelLength?: number
+    ) => JSX.Element
+  > = {
+    'segmented-control': renderSegmentedControl,
+    radio: renderRadioGroup,
+    select: renderPicker,
+  }
 
-    return factories[field.displayMode]()
-  })()
+  const fieldElement = renderers[field.displayMode](
+    field,
+    selectedKey,
+    errorMessage,
+    isNull,
+    isReadOnly,
+    isRequired,
+    onSelectionChange,
+    longestLabelLength
+  )
 
   return (
     <NullableFieldWrapper
@@ -264,21 +356,18 @@ export function controller(config: Config): FieldController<
         },
       }),
       parseGraphQL(value) {
-        const handlers: Record<string, (v: any) => any> = {
-          equals: (v: any) => (v != null ? { type: 'matches', value: [v] } : []),
-          notIn: (v: any) =>
-            !v
-              ? []
-              : { type: 'not_matches', value: v.filter((x: any) => x != null) },
-          in: (v: any) =>
-            !v
-              ? []
-              : { type: 'matches', value: v.filter((x: any) => x != null) },
-        }
-
-        return entriesTyped(value).flatMap(([type, val]) => {
-          const handler = handlers[type]
-          return handler ? handler(val) : []
+        return entriesTyped(value).flatMap(([type, value]) => {
+          if (type === 'equals' && value != null) {
+            return { type: 'matches', value: [value] }
+          }
+          if (type === 'notIn' || type === 'in') {
+            if (!value) return []
+            return {
+              type: type === 'notIn' ? 'not_matches' : 'matches',
+              value: value.filter(x => x != null),
+            }
+          }
+          return []
         })
       },
       Label({ type, value }) {

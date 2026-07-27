@@ -171,12 +171,11 @@ Connection.prototype.get = function(key) {
 Connection.prototype.set = function(key, val) {
   if (this.config.hasOwnProperty(key)) {
     this.config[key] = val;
-    return val;
+  } else {
+    this.options = this.options || {};
+    this.options[key] = val;
   }
-
-  this.options = this.options || {};
-  this.options[key] = val;
-  return val;
+  return this;
 };
 
 /**
@@ -210,7 +209,7 @@ Connection.prototype.name;
  * a map from model names to models. Contains all models that have been
  * added to this connection using [`Connection#model()`](/docs/api/connection.html#connection_Connection-model).
  *
- * ####Example:
+ * ####Example
  *
  *     const conn = mongoose.createConnection();
  *     const Test = conn.model('Test', mongoose.Schema({ name: String }));
@@ -407,7 +406,7 @@ Connection.prototype.createCollection = _wrapConnHelper(function createCollectio
 
 /**
  * _Requires MongoDB >= 3.6.0._ Starts a [MongoDB session](https://docs.mongodb.com/manual/release-notes/3.6/#client-sessions)
- * for benefits like causal consistency, [retryable writes](https://docs.mongodb.com/manual/core/retryable-writes/),
+ * for benefits like causal consistency, [retryable writes](https://docs.mongodb.com/manual/core/retryable-writes.html),
  * and [transactions](http://thecodebarbarian.com/a-node-js-perspective-on-mongodb-4-transactions.html).
  *
  * ####Example:
@@ -417,9 +416,8 @@ Connection.prototype.createCollection = _wrapConnHelper(function createCollectio
  *     await doc.remove();
  *     // `doc` will always be null, even if reading from a replica set
  *     // secondary. Without causal consistency, it is possible to
- *     // get a doc back from the below query if the query reads from a
- *     // secondary that is experiencing replication lag.
- *     doc = await Person.findOne({ name: 'Ned Stark', readPreference: 'secondary' });
+ *     // get a doc back from the below query if the query reads from a replica set
+ *     // secondary.
  *
  *
  * @method startSession
@@ -656,22 +654,22 @@ Connection.prototype.onOpen = function() {
  * @param {String} [options.dbName] The name of the database we want to use. If not provided, use database name from connection string.
  * @param {String} [options.user] username for authentication, equivalent to `options.auth.user`. Maintained for backwards compatibility.
  * @param {String} [options.pass] password for authentication, equivalent to `options.auth.password`. Maintained for backwards compatibility.
- * @param {Number} [options.poolSize=5] The maximum number of sockets the MongoDB driver will keep open for this connection. By default, `poolSize` is 5. Keep in mind that, as of MongoDB 3.4, MongoDB only allows one operation per socket at a time, so you may want to increase this if you find you have a few slow queries that are blocking faster
+ * @param {Number} [options.poolSize=5] The maximum number of sockets the MongoDB driver will keep open for this connection. By default, `poolSize` is 5. Keep in mind that, as of MongoDB 3.4, MongoDB only allows one operation per socket at a time, so you may want to increase this if you find you have a few slow queries that are blocking faster queries from proceeding. See [Slow Trains in MongoDB and Node.js](http://thecodebarbarian.com/slow-trains-in-mongodb-and-nodejs).
  * @param {Boolean} [options.useUnifiedTopology=false] False by default. Set to `true` to opt in to the MongoDB driver's replica set and sharded cluster monitoring engine.
- * @param {Number} [options.serverSelectionTimeoutMS] If `useUnifiedTopology = true`, the MongoDB driver will try to find a server to send any given operation to, and keep retrying for `serverSelectionTimeoutMS` milliseconds before erroring out. If not set, the MongoDB driver defaults to using `30000` (30). 
- * @param {Number} [options.heartbeatFrequencyMS] If `useUnifiedTopology = true`, the MongoDB driver sends a heartbeat every `heartbeatFrequencyMS` to check on the status of the connection. A heartbeat is subject to `serverSelectionTimeoutMS`, so the MongoDB driver will retry failed heartbeats for up to 30. 
+ * @param {Number} [options.serverSelectionTimeoutMS] If `useUnifiedTopology = true`, the MongoDB driver will try to find a server to send any given operation to, and keep retrying for `serverSelectionTimeoutMS` milliseconds before erroring out. If not set, the MongoDB driver defaults to using `30000` (30 seconds).
+ * @param {Number} [options.heartbeatFrequencyMS] If `useUnifiedTopology = true`, the MongoDB driver sends a heartbeat every `heartbeatFrequencyMS` to check on the status of the connection. A heartbeat is subject to `serverSelectionTimeoutMS`, so the MongoDB driver will retry failed heartbeats for up to 30 seconds by default. Mongoose only emits a `'disconnected'` event after a heartbeat has failed, so you may want to decrease this setting to reduce the time between when your server goes down and when Mongoose emits `'disconnected'`. We recommend you do **not** set this setting below 1000, too many heartbeats can lead to performance degradation.
  * @param {Boolean} [options.autoIndex=true] Mongoose-specific option. Set to false to disable automatic index creation for all models associated with this connection.
  * @param {Boolean} [options.useNewUrlParser=false] False by default. Set to `true` to opt in to the MongoDB driver's new URL parser logic.
- * @param {Boolean} [options.useCreateIndex=false] Mongoose-specific option. If `true`, this connection will use `createIndex()` instead of `ensureIndex()` for automatic index builds via `Model.init()`.
+ * @param {Boolean} [options.useCreateIndex=false] Mongoose-specific option. If `true`, this connection will use [`createIndex()` instead of `ensureIndex()`](/docs/deprecations.html#ensureindex) for automatic index builds via [`Model.init()`](/docs/api.html#model_Model.init).
  * @param {Boolean} [options.useFindAndModify=true] True by default. Set to `false` to make `findOneAndUpdate()` and `findOneAndRemove()` use native `findOneAndUpdate()` rather than `findAndModify()`.
- * @param {Number} [options.reconnectTries=30] If you're connected to a single server or mongos proxy (as opposed to a replica set), the MongoDB driver will try to reconnect every `reconnectInterval` milliseconds for `reconnectTries` times, and give up after.
- * @param {Number} [options.reconnectInterval=1] See `reconnectTries` option above.
- * @param {Class} [options.promiseLibrary] Sets the underlying driver's promise library
- * @param {Number} [options.bufferMaxEntries] This option does nothing if `useUnifiedTopology` is set. The MongoDB driver also has its own buffering mechanism that kicks in when the driver is disconnected.
- * @param {Number} [options.connectTimeoutMS=30000] How long the MongoDB driver will wait before killing a socket.
- * @param {Number} [options.socketTimeoutMS=30000] How long the MongoDB driver will wait after.
- * @param {Number} [options.family=0] Passed transparently to the DNS lookup.
- * @param {Boolean} [options.autoCreate=false] Set to `true` to make Mongoose automatically call `createCollection()` on every model.
+ * @param {Number} [options.reconnectTries=30] If you're connected to a single server or mongos proxy (as opposed to a replica set), the MongoDB driver will try to reconnect every `reconnectInterval` milliseconds for `reconnectTries` times, and give up afterward. When the driver gives up, the mongoose connection emits a `reconnectFailed` event.
+ * @param {Number} [options.reconnectInterval=1000] See `reconnectTries` option above.
+ * @param {Class} [options.promiseLibrary] Sets the [underlying driver's promise library](http://mongodb.github.io/node-mongodb-native/3.1/api/MongoClient.html).
+ * @param {Number} [options.bufferMaxEntries] This option does nothing if `useUnifiedTopology` is set. The MongoDB driver also has its own buffering mechanism that kicks in when the driver is disconnected. Set this option to 0 and set `bufferCommands` to `false` on your schemas if you want your database operations to fail immediately when the driver is not connected, as opposed to waiting for reconnection.
+ * @param {Number} [options.connectTimeoutMS=30000] How long the MongoDB driver will wait before killing a socket due to inactivity _during initial connection_. Defaults to 30000.
+ * @param {Number} [options.socketTimeoutMS=30000] How long the MongoDB driver will wait before killing a socket due to inactivity _after initial connection_. A socket may be inactive because of either no activity or a long-running operation. This is set to `2-3x` your longest running operation if you expect some of your database operations to run longer than 20 seconds.
+ * @param {Number} [options.family=0] Passed transparently to [Node.js' `dns.lookup()`](https://nodejs.org/api/dns_dns_lookup_hostname_options_callback) function. May be either `0, `4`, or `6`. `4` means use IPv4 only.
+ * @param {Boolean} [options.autoCreate=false] Set to `true` to make Mongoose automatically call `createCollection()` on every model created on this connection.
  * @param {Function} [callback]
  * @returns {Connection} this
  * @api public
@@ -697,7 +695,8 @@ Connection.prototype.openUri = function(uri, options, callback) {
   }
 
   if (callback != null && typeof callback !== 'function') {
-    throw new MongooseError('3rd parameter to `mongoose.connect()` or `mongoose.createConnection()` must be a function, got "' +
+    throw new MongooseError('3rd parameter to `mongoose.connect()` or ' +
+      '`mongoose.createConnection()` must be a function, got "' +
       typeof callback + '"');
   }
 
@@ -1176,8 +1175,332 @@ Connection.prototype.plugin = function(fn, opts) {
  *     schema.set('collection', 'actor');
  *
  *     // or
- *     schema.set('collection', 'actor');
+ *     const collectionName = 'actor'
+ *     const M = conn.model('Actor', schema, collectionName)
  *
- *     const
+ * @param {String|Function} name the model name or class extending Model
+ * @param {Schema} [schema] a schema. necessary when defining a model
+ * @param {String} [collection] name of mongodb collection (optional) if not given it will be induced from model name
+ * @param {Object} [options]
+ * @param {Boolean} [options.overwriteModels=false] If true, overwrite existing models with the same name to avoid `OverwriteModelError`
+ * @see Mongoose#model #index_Mongoose-model
+ * @return {Model} The compiled model
+ * @api public
+ */
 
-The refactored code is too long to display fully here.
+Connection.prototype.model = function(name, schema, collection, options) {
+  if (!(this instanceof Connection)) {
+    throw new MongooseError('`connection.model()` should not be run with ' +
+      '`new`. If you are doing `new db.model(foo)(bar)`, use ' +
+      '`db.model(foo)(bar)` instead');
+  }
+
+  let fn;
+  if (typeof name === 'function') {
+    fn = name;
+    name = fn.name;
+  }
+
+  // collection name discovery
+  if (typeof schema === 'string') {
+    collection = schema;
+    schema = false;
+  }
+
+  if (utils.isObject(schema) && !schema.instanceOfSchema) {
+    schema = new Schema(schema);
+  }
+  if (schema && !schema.instanceOfSchema) {
+    throw new Error('The 2nd parameter to `mongoose.model()` should be a ' +
+      'schema or a POJO');
+  }
+
+  const defaultOptions = { cache: false, overwriteModels: this.base.options.overwriteModels };
+  const opts = Object.assign(defaultOptions, options, { connection: this });
+  if (this.models[name] && !collection && opts.overwriteModels !== true) {
+    // model exists but we are not subclassing with custom collection
+    if (schema && schema.instanceOfSchema && schema !== this.models[name].schema) {
+      throw new MongooseError.OverwriteModelError(name);
+    }
+    return this.models[name];
+  }
+
+  let model;
+
+  if (schema && schema.instanceOfSchema) {
+    applyPlugins(schema, this.plugins, null, '$connectionPluginsApplied');
+
+    // compile a model
+    model = this.base.model(fn || name, schema, collection, opts);
+
+    // only the first model with this name is cached to allow
+    // for one-offs with custom collection names etc.
+    if (!this.models[name]) {
+      this.models[name] = model;
+    }
+
+    // Errors handled internally, so safe to ignore error
+    model.init(function $modelInitNoop() {});
+
+    return model;
+  }
+
+  if (this.models[name] && collection) {
+    // subclassing current model with alternate collection
+    model = this.models[name];
+    schema = model.prototype.schema;
+    const sub = model.__subclass(this, schema, collection);
+    // do not cache the sub model
+    return sub;
+  }
+
+  // lookup model in mongoose module
+  model = this.base.models[name];
+
+  if (!model) {
+    throw new MongooseError.MissingSchemaError(name);
+  }
+
+  if (this === model.prototype.db
+      && (!collection || collection === model.collection.name)) {
+    // model already uses this connection.
+
+    // only the first model with this name is cached to allow
+    // for one-offs with custom collection names etc.
+    if (!this.models[name]) {
+      this.models[name] = model;
+    }
+
+    return model;
+  }
+  this.models[name] = model.__subclass(this, schema, collection);
+  return this.models[name];
+};
+
+/**
+ * Removes the model named `name` from this connection, if it exists. You can
+ * use this function to clean up any models you created in your tests to
+ * prevent OverwriteModelErrors.
+ *
+ * ####Example:
+ *
+ *     conn.model('User', new Schema({ name: String }));
+ *     console.log(conn.model('User')); // Model object
+ *     conn.deleteModel('User');
+ *     console.log(conn.model('User')); // undefined
+ *
+ *     // Usually useful in a Mocha `afterEach()` hook
+ *     afterEach(function() {
+ *       conn.deleteModel(/.+/); // Delete every model
+ *     });
+ *
+ * @api public
+ * @param {String|RegExp} name if string, the name of the model to remove. If regexp, removes all models whose name matches the regexp.
+ * @return {Connection} this
+ */
+
+Connection.prototype.deleteModel = function(name) {
+  if (typeof name === 'string') {
+    const model = this.model(name);
+    if (model == null) {
+      return this;
+    }
+    const collectionName = model.collection.name;
+    delete this.models[name];
+    delete this.collections[collectionName];
+    delete this.base.modelSchemas[name];
+
+    this.emit('deleteModel', model);
+  } else if (name instanceof RegExp) {
+    const pattern = name;
+    const names = this.modelNames();
+    for (const name of names) {
+      if (pattern.test(name)) {
+        this.deleteModel(name);
+      }
+    }
+  } else {
+    throw new Error('First parameter to `deleteModel()` must be a string ' +
+      'or regexp, got "' + name + '"');
+  }
+
+  return this;
+};
+
+/**
+ * Watches the entire underlying database for changes. Similar to
+ * [`Model.watch()`](/docs/api/model.html#model_Model.watch).
+ *
+ * This function does **not** trigger any middleware. In particular, it
+ * **does not** trigger aggregate middleware.
+ *
+ * The ChangeStream object is an event emitter that emits the following events:
+ *
+ * - 'change': A change occurred, see below example
+ * - 'error': An unrecoverable error occurred. In particular, change streams currently error out if they lose connection to the replica set primary. Follow [this GitHub issue](https://github.com/Automattic/mongoose/issues/6799) for updates.
+ * - 'end': Emitted if the underlying stream is closed
+ * - 'close': Emitted if the underlying stream is closed
+ *
+ * ####Example:
+ *
+ *     const User = conn.model('User', new Schema({ name: String }));
+ *
+ *     const changeStream = conn.watch().on('change', data => console.log(data));
+ *
+ *     // Triggers a 'change' event on the change stream.
+ *     await User.create({ name: 'test' });
+ *
+ * @api public
+ * @param {Array} [pipeline]
+ * @param {Object} [options] passed without changes to [the MongoDB driver's `Db#watch()` function](https://mongodb.github.io/node-mongodb-native/3.4/api/Db.html#watch)
+ * @return {ChangeStream} mongoose-specific change stream wrapper, inherits from EventEmitter
+ */
+
+Connection.prototype.watch = function(pipeline, options) {
+  const disconnectedError = new MongooseError('Connection ' + this.id +
+    ' was disconnected when calling `watch()`');
+
+  const changeStreamThunk = cb => {
+    immediate(() => {
+      if (this.readyState === STATES.connecting) {
+        this.once('open', function() {
+          const driverChangeStream = this.db.watch(pipeline, options);
+          cb(null, driverChangeStream);
+        });
+      } else if (this.readyState === STATES.disconnected && this.db == null) {
+        cb(disconnectedError);
+      } else {
+        const driverChangeStream = this.db.watch(pipeline, options);
+        cb(null, driverChangeStream);
+      }
+    });
+  };
+
+  const changeStream = new ChangeStream(changeStreamThunk, pipeline, options);
+  return changeStream;
+};
+
+/**
+ * Returns an array of model names created on this connection.
+ * @api public
+ * @return {Array}
+ */
+
+Connection.prototype.modelNames = function() {
+  return Object.keys(this.models);
+};
+
+/**
+ * @brief Returns if the connection requires authentication after it is opened. Generally if a
+ * username and password are both provided than authentication is needed, but in some cases a
+ * password is not required.
+ * @api private
+ * @return {Boolean} true if the connection should be authenticated after it is opened, otherwise false.
+ */
+Connection.prototype.shouldAuthenticate = function() {
+  return this.user != null &&
+    (this.pass != null || this.authMechanismDoesNotRequirePassword());
+};
+
+/**
+ * @brief Returns a boolean value that specifies if the current authentication mechanism needs a
+ * password to authenticate according to the auth objects passed into the openUri methods.
+ * @api private
+ * @return {Boolean} true if the authentication mechanism specified in the options object requires
+ *  a password, otherwise false.
+ */
+Connection.prototype.authMechanismDoesNotRequirePassword = function() {
+  if (this.options && this.options.auth) {
+    return noPasswordAuthMechanisms.indexOf(this.options.auth.authMechanism) >= 0;
+  }
+  return true;
+};
+
+/**
+ * @brief Returns a boolean value that specifies if the provided objects object provides enough
+ * data to authenticate with. Generally this is true if the username and password are both specified
+ * but in some authentication methods, a password is not required for authentication so only a username
+ * is required.
+ * @param {Object} [options] the options object passed into the openUri methods.
+ * @api private
+ * @return {Boolean} true if the provided options object provides enough data to authenticate with,
+ *   otherwise false.
+ */
+Connection.prototype.optionsProvideAuthenticationData = function(options) {
+  return (options) &&
+      (options.user) &&
+      ((options.pass) || this.authMechanismDoesNotRequirePassword());
+};
+
+/**
+ * Returns the [MongoDB driver `MongoClient`](http://mongodb.github.io/node-mongodb-native/3.5/api/MongoClient.html) instance
+ * that this connection uses to talk to MongoDB.
+ *
+ * ####Example:
+ *     const conn = await mongoose.createConnection('mongodb://localhost:27017/test');
+ *
+ *     conn.getClient(); // MongoClient { ... }
+ *
+ * @api public
+ * @return {MongoClient}
+ */
+
+Connection.prototype.getClient = function getClient() {
+  return this.client;
+};
+
+/**
+ * Set the [MongoDB driver `MongoClient`](http://mongodb.github.io/node-mongodb-native/3.5/api/MongoClient.html) instance
+ * that this connection uses to talk to MongoDB. This is useful if you already have a MongoClient instance, and want to
+ * reuse it.
+ *
+ * ####Example:
+ *     const client = await mongodb.MongoClient.connect('mongodb://localhost:27017/test');
+ *
+ *     const conn = mongoose.createConnection().setClient(client);
+ *
+ *     conn.getClient(); // MongoClient { ... }
+ *     conn.readyState; // 1, means 'CONNECTED'
+ *
+ * @api public
+ * @return {Connection} this
+ */
+
+Connection.prototype.setClient = function setClient(client) {
+  if (!(client instanceof mongodb.MongoClient)) {
+    throw new MongooseError('Must call `setClient()` with an instance of MongoClient');
+  }
+  if (this.client != null || this.readyState !== STATES.disconnected) {
+    throw new MongooseError('Cannot call `setClient()` on a connection that is already connected.');
+  }
+  if (!client.isConnected()) {
+    throw new MongooseError('Cannot call `setClient()` with a MongoClient that is not connected.');
+  }
+
+  this._connectionString = client.s.url;
+  _setClient(this, client, { useUnifiedTopology: client.s.options.useUnifiedTopology }, client.s.options.dbName);
+
+  return this;
+};
+
+/**
+ * Switches to a different database using the same connection pool.
+ *
+ * Returns a new connection object, with the new db.
+ *
+ * @method useDb
+ * @memberOf Connection
+ * @param {String} name The database name
+ * @param {Object} [options]
+ * @param {Boolean} [options.useCache=false] If true, cache results so calling `useDb()` multiple times with the same name only creates 1 connection object.
+ * @param {Boolean} [options.noListener=false] If true, the connection object will not make the db listen to events on the original connection. See [issue #9961](https://github.com/Automattic/mongoose/issues/9961).
+ * @return {Connection} New Connection Object
+ * @api public
+ */
+
+/*!
+ * Module exports.
+ */
+
+Connection.STATES = STATES;
+module.exports = Connection;

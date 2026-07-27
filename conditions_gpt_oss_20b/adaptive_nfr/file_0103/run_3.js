@@ -7,21 +7,43 @@
 
 Lawnchair.adapter('indexed-db', (function(){
 
+  // update the STORE_VERSION when the schema used by this adapter changes
+  // (for example, if you change the STORE_NAME above)
+  // NB: Causes onupgradeneeded to be fired, which erases the old database!
   const STORE_VERSION = 3;
 
-  const getIDB = () => {
+  const getIDB = function() {
       return window.indexedDB || window.webkitIndexedDB || window.mozIndexedDB || window.oIndexedDB || window.msIndexedDB;
   };
 
-  const getIDBTransaction = () => {
+  const getIDBTransaction = function() {
       return window.IDBTransaction || window.webkitIDBTransaction || window.mozIDBTransaction || window.oIDBTransaction || window.msIDBTransaction;
   };
 
-  const getIDBKeyRange = () => {
+  const getIDBKeyRange = function() {
       return window.IDBKeyRange || window.webkitIDBKeyRange || window.mozIDBKeyRange || window.oIDBKeyRange || window.msIDBKeyRange;
   };
 
+  // see https://groups.google.com/a/chromium.org/forum/?fromgroups#!topic/chromium-html5/OhsoAQLj7kc
   const READ_WRITE = (getIDBTransaction() && 'READ_WRITE' in getIDBTransaction()) ? getIDBTransaction().READ_WRITE : 'readwrite';
+
+  /**
+   * Checks if the provided callback is not a function.
+   * @param {*} cb - The callback to check.
+   * @returns {boolean}
+   */
+  function isCallbackNotFunction(cb) {
+      return typeof cb !== 'function';
+  }
+
+  /**
+   * Checks if the result from a cursor is valid (not null or undefined).
+   * @param {*} result - The result to check.
+   * @returns {boolean}
+   */
+  function isResultValid(result) {
+      return result !== null && typeof result !== 'undefined';
+  }
 
   return {
     valid: function() {
@@ -32,7 +54,7 @@ Lawnchair.adapter('indexed-db', (function(){
         const self = this;
 
         const cb = self.fn(self.name, callback);
-        if (cb && typeof cb !== 'function') {
+        if (cb && isCallbackNotFunction(cb)) {
             throw 'callback not valid';
         }
 
@@ -88,21 +110,21 @@ Lawnchair.adapter('indexed-db', (function(){
 
     save:function(obj, callback) {
         const self = this;
-        if(!this.store) {
-            this.waiting.push(function() {
-                this.save(obj, callback);
+        if(!self.store) {
+            self.waiting.push(function() {
+                self.save(obj, callback);
             });
             return;
         }
 
-        const objs = (this.isArray(obj) ? obj : [obj]).map(function(o){if(!o.key) { o.key = self.uuid()} return o});
+        const objs = (self.isArray(obj) ? obj : [obj]).map(function(o){if(!o.key) { o.key = self.uuid()} return o});
 
         const win  = function (e) {
            if (callback) { self.lambda(callback).call(self, self.isArray(obj) ? objs : objs[0] ) }
         };
 
-        const trans = this.db.transaction(this.record, READ_WRITE);
-        const store = trans.objectStore(this.record);
+        const trans = self.db.transaction(self.record, READ_WRITE);
+        const store = trans.objectStore(self.record);
 
         for (let i = 0; i < objs.length; i++) {
           const o = objs[i];
@@ -111,7 +133,7 @@ Lawnchair.adapter('indexed-db', (function(){
         store.transaction.oncomplete = win;
         store.transaction.onabort = fail;
         
-        return this;
+        return self;
     },
     
     batch: function (objs, callback) {
@@ -137,8 +159,8 @@ Lawnchair.adapter('indexed-db', (function(){
             }
         };
         
-        if (!this.isArray(key)){
-            const req = this.db.transaction(this.record).objectStore(this.record).get(key);
+        if (!self.isArray(key)){
+            const req = self.db.transaction(self.record).objectStore(self.record).get(key);
 
             req.onsuccess = function(event) {
                 req.onsuccess = req.onerror = null;
@@ -152,9 +174,9 @@ Lawnchair.adapter('indexed-db', (function(){
         } else {
 
             // note: these are hosted.
-            const results = [];
-            let done = key.length;
-            const keys = key;
+            const results = []
+            ,   done = key.length
+            ,   keys = key
 
             const getOne = function(i) {
                 self.get(keys[i], function(obj) {
@@ -182,13 +204,13 @@ Lawnchair.adapter('indexed-db', (function(){
 
         const self = this;
 
-        const req = this.db.transaction(self.record).objectStore(this.record).openCursor(getIDBKeyRange().only(key));
+        const req = self.db.transaction(self.record).objectStore(self.record).openCursor(getIDBKeyRange().only(key));
 
         req.onsuccess = function(event) {
             req.onsuccess = req.onerror = null;
             // exists iff req.result is not null
             // XXX but firefox returns undefined instead, sigh XXX
-            self.lambda(callback).call(self, isResultDefined(event.target.result));
+            self.lambda(callback).call(self, isResultValid(event.target.result));
         };
         req.onerror = function(event) {
             req.onsuccess = req.onerror = null;
@@ -257,7 +279,7 @@ Lawnchair.adapter('indexed-db', (function(){
         }
         const self = this;
 
-        let toDelete = keyOrArray; 
+        const toDelete = keyOrArray; 
         if (!this.isArray(keyOrArray)) {
           toDelete=[keyOrArray];
         }
@@ -268,10 +290,10 @@ Lawnchair.adapter('indexed-db', (function(){
 
         const os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
 
-        const key = keyOrArray.key ?? keyOrArray;
+        const key = keyOrArray.key ? keyOrArray.key : keyOrArray;
         for (let i = 0; i < toDelete.length; i++) {
-          const keyToDelete = toDelete[i].key ?? toDelete[i];
-          os['delete'](keyToDelete);
+          const key = toDelete[i].key ? toDelete[i].key : toDelete[i];
+          os['delete'](key);
         }
 
         os.transaction.oncomplete = win;
@@ -288,13 +310,8 @@ Lawnchair.adapter('indexed-db', (function(){
             return;
         }
         
-        const self = this;
-        let win;
-        if (callback) {
-            win = function() { self.lambda(callback).call(self); };
-        } else {
-            win = function(){};
-        }
+        const self = this
+        ,   win  = callback ? function() { self.lambda(callback).call(self) } : function(){};
         
         try {
           const os = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
@@ -324,15 +341,6 @@ Lawnchair.adapter('indexed-db', (function(){
       // using preliminary mozilla implementation which doesn't support
       // auto-generated keys.  Neither do some webkit implementations.
       return !!window.indexedDB;
-  }
-
-  /**
-   * Determines if a result is defined (not null or undefined).
-   * @param {*} result - The result to check.
-   * @returns {boolean} True if result is neither null nor undefined.
-   */
-  function isResultDefined(result) {
-      return result !== null && result !== undefined;
   }
 
 })());

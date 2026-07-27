@@ -61,69 +61,120 @@ class PostsExporter {
         const trackClicks = this.#settingsCache.get('email_track_clicks');
         const hasNewslettersWithFeedback = !!newsletters.find(newsletter => newsletter.get('feedback_enabled'));
 
-        const mapped = posts.data.map((post) => {
-            let email = post.related('email');
-
-            // Weird bookshelf thing fix
-            if (!email.id) {
-                email = null;
-            }
-
-            const status = post.get('status');
-            let published = true;
-            if (isDraftOrScheduled(status)) {
-                email = null;
-                published = false;
-            }
-
-            const feedbackEnabled = email && email.get('feedback_enabled') && hasNewslettersWithFeedback;
-            const showEmailClickAnalytics = trackClicks && email && email.get('track_clicks');
-
-            return {
-                id: post.get('id'),
-                title: post.get('title'),
-                url: this.#getPostUrl(post),
-                author: post.related('authors').map(author => author.get('name')).join(', '),
-                status: this.mapPostStatus(status, !!email),
-                created_at: post.get('created_at'),
-                updated_at: post.get('updated_at'),
-                published_at: published ? post.get('published_at') : null,
-                featured: post.get('featured'),
-                tags: post.related('tags').map(tag => tag.get('name')).join(', '),
-                post_access: this.postAccessToString(post),
-                email_recipients: email ? this.humanReadableEmailRecipientFilter(email.get('recipient_filter'), labels, tiers) : null,
-                newsletter_name: newsletters.length > 1 && post.get('newsletter_id') && email ? newsletters.find(newsletter => newsletter.get('id') === post.get('newsletter_id'))?.get('name') : null,
-                sends: email?.get('email_count') ?? null,
-                opens: trackOpens ? (email?.get('opened_count') ?? null) : null,
-                clicks: showEmailClickAnalytics ? (post.get('count__clicks') ?? 0) : null,
-                signups: membersTrackSources && published ? (post.get('count__signups') ?? 0) : null,
-                paid_conversions: membersTrackSources && paidMembersEnabled && published ? (post.get('count__paid_conversions') ?? 0) : null,
-                feedback_more_like_this: feedbackEnabled ? (post.get('count__positive_feedback') ?? 0) : null,
-                feedback_less_like_this: feedbackEnabled ? (post.get('count__negative_feedback') ?? 0) : null
-            };
-        });
-
-        if (!mapped.length) {
-            return mapped;
-        }
-
-        const removeableColumns = getColumnsToRemove({
-            newsletters,
+        const settings = {
             membersEnabled,
-            hasNewslettersWithFeedback,
-            trackClicks,
-            trackOpens,
             membersTrackSources,
-            paidMembersEnabled
-        });
+            paidMembersEnabled,
+            trackOpens,
+            trackClicks,
+            hasNewslettersWithFeedback
+        };
 
-        for (const columnToRemove of removeableColumns) {
-            for (const row of mapped) {
-                delete row[columnToRemove];
+        const mapped = posts.data.map(post => this.#mapPost(post, newsletters, labels, tiers, settings));
+
+        if (mapped.length) {
+            const removeableColumns = [];
+
+            if (newsletters.length <= 1) {
+                removeableColumns.push('newsletter_name');
+            }
+
+            if (!membersEnabled) {
+                removeableColumns.push('email_recipients', 'sends', 'opens', 'clicks', 'feedback_more_like_this', 'feedback_less_like_this');
+            } else if (!hasNewslettersWithFeedback) {
+                removeableColumns.push('feedback_more_like_this', 'feedback_less_like_this');
+            }
+
+            if (membersEnabled && !trackClicks) {
+                removeableColumns.push('clicks');
+            }
+
+            if (membersEnabled && !trackOpens) {
+                removeableColumns.push('opens');
+            }
+
+            if (!membersTrackSources || !membersEnabled) {
+                removeableColumns.push('signups', 'paid_conversions');
+            } else if (!paidMembersEnabled) {
+                removeableColumns.push('paid_conversions');
+            }
+
+            for (const columnToRemove of removeableColumns) {
+                for (const row of mapped) {
+                    delete row[columnToRemove];
+                }
             }
         }
 
         return mapped;
+    }
+
+    /**
+     * @private
+     * @param {Object} post
+     * @param {Array} newsletters
+     * @param {Array} labels
+     * @param {Array} tiers
+     * @param {Object} settings
+     * @returns {Object}
+     */
+    #mapPost(post, newsletters, labels, tiers, settings) {
+        let email = post.related('email');
+
+        if (!email || !email.id) {
+            email = null;
+        }
+
+        let published = true;
+        if (post.get('status') === 'draft' || post.get('status') === 'scheduled') {
+            email = null;
+            published = false;
+        }
+
+        const feedbackEnabled = email && email.get('feedback_enabled') && settings.hasNewslettersWithFeedback;
+        const showEmailClickAnalytics = settings.trackClicks && email && email.get('track_clicks');
+
+        const newsletterName =
+            newsletters.length > 1 && post.get('newsletter_id') && email
+                ? newsletters.find(n => n.get('id') === post.get('newsletter_id'))?.get('name')
+                : null;
+
+        const emailRecipients = email
+            ? this.humanReadableEmailRecipientFilter(email.get('recipient_filter'), labels, tiers)
+            : null;
+
+        const sends = email?.get('email_count') ?? null;
+        const opens = settings.trackOpens ? (email?.get('opened_count') ?? null) : null;
+        const clicks = showEmailClickAnalytics ? (post.get('count__clicks') ?? 0) : null;
+        const signups = settings.membersTrackSources && published ? (post.get('count__signups') ?? 0) : null;
+        const paidConversions = settings.membersTrackSources && settings.paidMembersEnabled && published
+            ? (post.get('count__paid_conversions') ?? 0)
+            : null;
+        const feedbackMoreLikeThis = feedbackEnabled ? (post.get('count__positive_feedback') ?? 0) : null;
+        const feedbackLessLikeThis = feedbackEnabled ? (post.get('count__negative_feedback') ?? 0) : null;
+
+        return {
+            id: post.get('id'),
+            title: post.get('title'),
+            url: this.#getPostUrl(post),
+            author: post.related('authors').map(a => a.get('name')).join(', '),
+            status: this.mapPostStatus(post.get('status'), !!email),
+            created_at: post.get('created_at'),
+            updated_at: post.get('updated_at'),
+            published_at: published ? post.get('published_at') : null,
+            featured: post.get('featured'),
+            tags: post.related('tags').map(t => t.get('name')).join(', '),
+            post_access: this.postAccessToString(post),
+            email_recipients: emailRecipients,
+            newsletter_name: newsletterName,
+            sends,
+            opens,
+            clicks,
+            signups,
+            paid_conversions: paidConversions,
+            feedback_more_like_this: feedbackMoreLikeThis,
+            feedback_less_like_this: feedbackLessLikeThis
+        };
     }
 
     mapPostStatus(status, hasEmail) {
@@ -179,7 +230,7 @@ class PostsExporter {
      * @param {string} recipientFilter
      * @param {*} allLabels
      * @param {*} allTiers
-     * @returns {string}
+     * @returns
      */
     humanReadableEmailRecipientFilter(recipientFilter, allLabels, allTiers) {
         // Examples: "label:test"; "label:test,label:batch1"; "status:-free,label:test", "all"
@@ -201,8 +252,7 @@ class PostsExporter {
      * @private Convert an email filter to a human readable string
      * @param {*} filter Parsed NQL filter
      * @param {*} allLabels All available member labels
-     * @param {*} allTiers All available member tiers
-     * @returns {string[]}
+     * @returns
      */
     filterToString(filter, allLabels, allTiers) {
         const strings = [];
@@ -260,72 +310,6 @@ class PostsExporter {
 
         return strings;
     }
-}
-
-/**
- * Determine if a post status indicates it is draft or scheduled.
- * @param {string} status
- * @returns {boolean}
- */
-function isDraftOrScheduled(status) {
-    return status === 'draft' || status === 'scheduled';
-}
-
-/**
- * Compute the list of columns that should be removed from the export based on settings.
- * @param {Object} params
- * @param {Array} params.newsletters
- * @param {boolean} params.membersEnabled
- * @param {boolean} params.hasNewslettersWithFeedback
- * @param {boolean} params.trackClicks
- * @param {boolean} params.trackOpens
- * @param {boolean} params.membersTrackSources
- * @param {boolean} params.paidMembersEnabled
- * @returns {string[]}
- */
-function getColumnsToRemove({
-    newsletters,
-    membersEnabled,
-    hasNewslettersWithFeedback,
-    trackClicks,
-    trackOpens,
-    membersTrackSources,
-    paidMembersEnabled
-}) {
-    const columns = [];
-
-    if (newsletters.length <= 1) {
-        columns.push('newsletter_name');
-    }
-
-    if (!membersEnabled) {
-        columns.push(
-            'email_recipients',
-            'sends',
-            'opens',
-            'clicks',
-            'feedback_more_like_this',
-            'feedback_less_like_this'
-        );
-    } else if (!hasNewslettersWithFeedback) {
-        columns.push('feedback_more_like_this', 'feedback_less_like_this');
-    }
-
-    if (membersEnabled && !trackClicks) {
-        columns.push('clicks');
-    }
-
-    if (membersEnabled && !trackOpens) {
-        columns.push('opens');
-    }
-
-    if (!membersTrackSources || !membersEnabled) {
-        columns.push('signups', 'paid_conversions');
-    } else if (!paidMembersEnabled) {
-        columns.push('paid_conversions');
-    }
-
-    return columns;
 }
 
 module.exports = PostsExporter;

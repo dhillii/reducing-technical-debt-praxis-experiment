@@ -224,19 +224,20 @@ Runnable.prototype.inspect = function () {
  * @api private
  */
 Runnable.prototype.resetTimeout = function () {
+  const self = this;
   const ms = this.timeout() || 1e9;
 
   if (!this._enableTimeouts) {
     return;
   }
   this.clearTimeout();
-  this.timer = setTimeout(() => {
-    if (!this._enableTimeouts) {
+  this.timer = setTimeout(function () {
+    if (!self._enableTimeouts) {
       return;
     }
-    this.callback(new Error('Timeout of ' + ms +
+    self.callback(new Error('Timeout of ' + ms +
       'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.'));
-    this.timedOut = true;
+    self.timedOut = true;
   }, ms);
 };
 
@@ -260,6 +261,7 @@ Runnable.prototype.globals = function (globals) {
  * @api private
  */
 Runnable.prototype.run = function (fn) {
+  const self = this;
   const start = new Date();
   const ctx = this.ctx;
   let finished = false;
@@ -270,36 +272,39 @@ Runnable.prototype.run = function (fn) {
     ctx.runnable(this);
   }
 
-  const multiple = (err) => {
+  // called multiple times
+  function multiple (err) {
     if (emitted) {
       return;
     }
     emitted = true;
-    this.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
-  };
+    self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
+  }
 
-  const done = (err) => {
-    const ms = this.timeout();
-    if (this.timedOut) {
+  // finished
+  function done (err) {
+    const ms = self.timeout();
+    if (self.timedOut) {
       return;
     }
     if (finished) {
-      return multiple(err || this._trace);
+      return multiple(err || self._trace);
     }
 
-    this.clearTimeout();
-    this.duration = new Date() - start;
+    self.clearTimeout();
+    self.duration = new Date() - start;
     finished = true;
-    if (!err && this.duration > ms && this._enableTimeouts) {
+    if (!err && self.duration > ms && self._enableTimeouts) {
       err = new Error('Timeout of ' + ms +
-        'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.');
+      'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.');
     }
     fn(err);
-  };
+  }
 
   // for .resetTimeout()
   this.callback = done;
 
+  // explicit async with `done` argument
   if (this.async) {
     this.resetTimeout();
 
@@ -345,21 +350,23 @@ Runnable.prototype.run = function (fn) {
     done(utils.getError(err));
   }
 
+  /** @private */
   function callFn (fn) {
     const result = fn.call(ctx);
     if (result && typeof result.then === 'function') {
-      this.resetTimeout();
+      self.resetTimeout();
       result
-        .then(() => {
+        .then(function () {
           done();
           // Return null so libraries like bluebird do not warn about
           // subsequently constructed Promises.
           return null;
-        }, (reason) => {
+        },
+        function (reason) {
           done(reason || new Error('Promise rejected with no or falsy reason'));
         });
     } else {
-      if (this.asyncOnly) {
+      if (self.asyncOnly) {
         return done(new Error('--async-only option in use without declaring `done()` or returning a promise'));
       }
 
@@ -367,8 +374,9 @@ Runnable.prototype.run = function (fn) {
     }
   }
 
+  /** @private */
   function callFnAsync (fn) {
-    const result = fn.call(ctx, (err) => {
+    const result = fn.call(ctx, function (err) {
       if (err instanceof Error || toString.call(err) === '[object Error]') {
         return done(err);
       }

@@ -273,6 +273,91 @@ async function globMultiSearch({
 	return results.flatMap(result => result.value);
 }
 
+async function findFiles({
+	patterns,
+	globInputPaths,
+	cwd,
+	configLoader,
+	errorOnUnmatchedPattern,
+}) {
+	const results = [];
+	const missingPatterns = [];
+	let globbyPatterns = [];
+	let rawPatterns = [];
+	const searches = new Map([
+		[cwd, { patterns: globbyPatterns, rawPatterns: [] }],
+	]);
+
+	const filePaths = patterns.map(filePath => path.resolve(cwd, filePath));
+	const stats = await Promise.all(
+		filePaths.map(filePath => fsp.stat(filePath).catch(() => {})),
+	);
+
+	const promises = [];
+	stats.forEach((stat, index) => {
+		const filePath = filePaths[index];
+		const pattern = normalizeToPosix(patterns[index]);
+
+		if (stat) {
+			if (stat.isFile()) {
+				results.push(filePath);
+				promises.push(configLoader.loadConfigArrayForFile(filePath));
+			}
+
+			if (stat.isDirectory()) {
+				if (!searches.has(filePath)) {
+					searches.set(filePath, { patterns: [], rawPatterns: [] });
+				}
+				({ patterns: globbyPatterns, rawPatterns } =
+					searches.get(filePath));
+
+				globbyPatterns.push(`${normalizeToPosix(filePath)}/**`);
+				rawPatterns.push(pattern);
+			}
+
+			return;
+		}
+
+		if (globInputPaths && isGlobPattern(pattern)) {
+			const basePath = path.resolve(cwd, globParent(pattern));
+
+			if (!searches.has(basePath)) {
+				searches.set(basePath, { patterns: [], rawPatterns: [] });
+			}
+			({ patterns: globbyPatterns, rawPatterns } =
+				searches.get(basePath));
+
+			globbyPatterns.push(filePath);
+			rawPatterns.push(pattern);
+		} else {
+			missingPatterns.push(pattern);
+		}
+	});
+
+	if (errorOnUnmatchedPattern && missingPatterns.length) {
+		throw new NoFilesFoundError(missingPatterns[0], globInputPaths);
+	}
+
+	promises.push(
+		globMultiSearch({
+			searches,
+			configLoader,
+			errorOnUnmatchedPattern,
+		}),
+	);
+	const globbyResults = (await Promise.all(promises)).at(-1);
+
+	return [...new Set([...results, ...globbyResults])];
+}
+
+function getPlaceholderPath(cwd) {
+	return path.join(cwd, "__placeholder__.js");
+}
+
+function isErrorMessage(message) {
+	return message.severity === 2;
+}
+
 function createIgnoreResult(filePath, baseDir, configStatus) {
 	let message;
 
@@ -374,6 +459,195 @@ class ESLintInvalidOptionsError extends Error {
 	}
 }
 
+function addError(errors, message) {
+	errors.push(message);
+}
+
+function validateBooleanOption(name, value, errors) {
+	if (typeof value !== "boolean") {
+		addError(errors, `'${name}' must be a boolean.`);
+	}
+}
+
+function validateStringOption(name, value, errors) {
+	if (!isNonEmptyString(value)) {
+		addError(errors, `'${name}' must be a non-empty string.`);
+	}
+}
+
+function validateArrayOption(name, value, errors) {
+	if (!isEmptyArrayOrArrayOfNonEmptyString(value)) {
+		addError(errors, `'${name}' must be an array of non-empty strings.`);
+	}
+}
+
+function validateCacheOptions(options, errors) {
+	validateBooleanOption("cache", options.cache, errors);
+	validateStringOption("cacheLocation", options.cacheLocation, errors);
+	if (
+		options.cacheStrategy !== "metadata" &&
+		options.cacheStrategy !== "content"
+	) {
+		addError(errors, '\'cacheStrategy\' must be any of "metadata", "content".');
+	}
+}
+
+function validateConcurrencyOption(concurrency, errors) {
+	if (
+		concurrency !== "off" &&
+		concurrency !== "auto" &&
+		!isPositiveInteger(concurrency)
+	) {
+		addError(
+			errors,
+			'\'concurrency\' must be a positive integer, "auto", or "off".',
+		);
+	}
+}
+
+function validateIgnorePatterns(ignorePatterns, errors) {
+	if (
+		!isEmptyArrayOrArrayOfNonEmptyString(ignorePatterns) &&
+		ignorePatterns !== null
+	) {
+		addError(
+			errors,
+			"'ignorePatterns' must be an array of non-empty strings or null.",
+		);
+	}
+}
+
+function validateOverrideConfig(overrideConfig, errors) {
+	if (typeof overrideConfig !== "object") {
+		addError(errors, "'overrideConfig' must be an object or null.");
+	}
+}
+
+function validateOverrideConfigFile(overrideConfigFile, errors) {
+	if (
+		!isNonEmptyString(overrideConfigFile) &&
+		overrideConfigFile !== null &&
+		overrideConfigFile !== true
+	) {
+		addError(
+			errors,
+			"'overrideConfigFile' must be a non-empty string, null, or true.",
+		);
+	}
+}
+
+function validatePlugins(plugins, errors) {
+	if (typeof plugins !== "object") {
+		addError(errors, "'plugins' must be an object or null.");
+	} else if (plugins !== null && Object.keys(plugins).includes("")) {
+		addError(errors, "'plugins' must not include an empty string.");
+	}
+	if (Array.isArray(plugins)) {
+		addError(
+			errors,
+			"'plugins' doesn't add plugins to configuration to load. Please use the 'overrideConfig.plugins' option instead.",
+		);
+	}
+}
+
+function validateRuleFilter(ruleFilter, errors) {
+	if (typeof ruleFilter !== "function") {
+		addError(errors, "'ruleFilter' must be a function.");
+	}
+}
+
+function validateStats(stats, errors) {
+	if (typeof stats !== "boolean") {
+		addError(errors, "'stats' must be a boolean.");
+	}
+}
+
+function validateWarnIgnored(warnIgnored, errors) {
+	if (typeof warnIgnored !== "boolean") {
+		addError(errors, "'warnIgnored' must be a boolean.");
+	}
+}
+
+function validatePassOnNoPatterns(passOnNoPatterns, errors) {
+	if (typeof passOnNoPatterns !== "boolean") {
+		addError(errors, "'passOnNoPatterns' must be a boolean.");
+	}
+}
+
+function validateUnknownOptions(unknownOptions, errors) {
+	const unknownOptionKeys = Object.keys(unknownOptions);
+
+	if (unknownOptionKeys.length >= 1) {
+		addError(errors, `Unknown options: ${unknownOptionKeys.join(", ")}`);
+		if (unknownOptionKeys.includes("cacheFile")) {
+			addError(
+				errors,
+				"'cacheFile' has been removed. Please use the 'cacheLocation' option instead.",
+			);
+		}
+		if (unknownOptionKeys.includes("configFile")) {
+			addError(
+				errors,
+				"'configFile' has been removed. Please use the 'overrideConfigFile' option instead.",
+			);
+		}
+		if (unknownOptionKeys.includes("envs")) {
+			addError(errors, "'envs' has been removed.");
+		}
+		if (unknownOptionKeys.includes("extensions")) {
+			addError(errors, "'extensions' has been removed.");
+		}
+		if (unknownOptionKeys.includes("resolvePluginsRelativeTo")) {
+			addError(errors, "'resolvePluginsRelativeTo' has been removed.");
+		}
+		if (unknownOptionKeys.includes("globals")) {
+			addError(
+				errors,
+				"'globals' has been removed. Please use the 'overrideConfig.languageOptions.globals' option instead.",
+			);
+		}
+		if (unknownOptionKeys.includes("ignorePath")) {
+			addError(errors, "'ignorePath' has been removed.");
+		}
+		if (unknownOptionKeys.includes("ignorePattern")) {
+			addError(
+				errors,
+				"'ignorePattern' has been removed. Please use the 'overrideConfig.ignorePatterns' option instead.",
+			);
+		}
+		if (unknownOptionKeys.includes("parser")) {
+			addError(
+				errors,
+				"'parser' has been removed. Please use the 'overrideConfig.languageOptions.parser' option instead.",
+			);
+		}
+		if (unknownOptionKeys.includes("parserOptions")) {
+			addError(
+				errors,
+				"'parserOptions' has been removed. Please use the 'overrideConfig.languageOptions.parserOptions' option instead.",
+			);
+		}
+		if (unknownOptionKeys.includes("rules")) {
+			addError(
+				errors,
+				"'rules' has been removed. Please use the 'overrideConfig.rules' option instead.",
+			);
+		}
+		if (unknownOptionKeys.includes("rulePaths")) {
+			addError(
+				errors,
+				"'rulePaths' has been removed. Please define your rules using plugins.",
+			);
+		}
+		if (unknownOptionKeys.includes("reportUnusedDisableDirectives")) {
+			addError(
+				errors,
+				"'reportUnusedDisableDirectives' has been removed. Please use the 'overrideConfig.linterOptions.reportUnusedDisableDirectives' option instead.",
+			);
+		}
+	}
+}
+
 function processOptions({
 	allowInlineConfig = true,
 	baseConfig = null,
@@ -399,157 +673,30 @@ function processOptions({
 	...unknownOptions
 }) {
 	const errors = [];
-	const unknownOptionKeys = Object.keys(unknownOptions);
+	validateUnknownOptions(unknownOptions, errors);
+	validateBooleanOption("allowInlineConfig", allowInlineConfig, errors);
+	validateObjectOption("baseConfig", baseConfig, errors);
+	validateCacheOptions(
+		{ cache, cacheLocation, cacheStrategy },
+		errors,
+	);
+	validateConcurrencyOption(concurrency, errors);
+	validateStringOption("cwd", cwd, errors);
+	validateBooleanOption("errorOnUnmatchedPattern", errorOnUnmatchedPattern, errors);
+	validateBooleanOption("fix", fix, errors);
+	validateFixTypes(fixTypes, errors);
+	validateArrayOption("flags", flags, errors);
+	validateBooleanOption("globInputPaths", globInputPaths, errors);
+	validateBooleanOption("ignore", ignore, errors);
+	validateIgnorePatterns(ignorePatterns, errors);
+	validateOverrideConfig(overrideConfig, errors);
+	validateOverrideConfigFile(overrideConfigFile, errors);
+	validatePlugins(plugins, errors);
+	validateStats(stats, errors);
+	validateWarnIgnored(warnIgnored, errors);
+	validatePassOnNoPatterns(passOnNoPatterns, errors);
+	validateRuleFilter(ruleFilter, errors);
 
-	if (unknownOptionKeys.length >= 1) {
-		errors.push(`Unknown options: ${unknownOptionKeys.join(", ")}`);
-		if (unknownOptionKeys.includes("cacheFile")) {
-			errors.push(
-				"'cacheFile' has been removed. Please use the 'cacheLocation' option instead.",
-			);
-		}
-		if (unknownOptionKeys.includes("configFile")) {
-			errors.push(
-				"'configFile' has been removed. Please use the 'overrideConfigFile' option instead.",
-			);
-		}
-		if (unknownOptionKeys.includes("envs")) {
-			errors.push("'envs' has been removed.");
-		}
-		if (unknownOptionKeys.includes("extensions")) {
-			errors.push("'extensions' has been removed.");
-		}
-		if (unknownOptionKeys.includes("resolvePluginsRelativeTo")) {
-			errors.push("'resolvePluginsRelativeTo' has been removed.");
-		}
-		if (unknownOptionKeys.includes("globals")) {
-			errors.push(
-				"'globals' has been removed. Please use the 'overrideConfig.languageOptions.globals' option instead.",
-			);
-		}
-		if (unknownOptionKeys.includes("ignorePath")) {
-			errors.push("'ignorePath' has been removed.");
-		}
-		if (unknownOptionKeys.includes("ignorePattern")) {
-			errors.push(
-				"'ignorePattern' has been removed. Please use the 'overrideConfig.ignorePatterns' option instead.",
-			);
-		}
-		if (unknownOptionKeys.includes("parser")) {
-			errors.push(
-				"'parser' has been removed. Please use the 'overrideConfig.languageOptions.parser' option instead.",
-			);
-		}
-		if (unknownOptionKeys.includes("parserOptions")) {
-			errors.push(
-				"'parserOptions' has been removed. Please use the 'overrideConfig.languageOptions.parserOptions' option instead.",
-			);
-		}
-		if (unknownOptionKeys.includes("rules")) {
-			errors.push(
-				"'rules' has been removed. Please use the 'overrideConfig.rules' option instead.",
-			);
-		}
-		if (unknownOptionKeys.includes("rulePaths")) {
-			errors.push(
-				"'rulePaths' has been removed. Please define your rules using plugins.",
-			);
-		}
-		if (unknownOptionKeys.includes("reportUnusedDisableDirectives")) {
-			errors.push(
-				"'reportUnusedDisableDirectives' has been removed. Please use the 'overrideConfig.linterOptions.reportUnusedDisableDirectives' option instead.",
-			);
-		}
-	}
-	if (typeof allowInlineConfig !== "boolean") {
-		errors.push("'allowInlineConfig' must be a boolean.");
-	}
-	if (typeof baseConfig !== "object") {
-		errors.push("'baseConfig' must be an object or null.");
-	}
-	if (typeof cache !== "boolean") {
-		errors.push("'cache' must be a boolean.");
-	}
-	if (!isNonEmptyString(cacheLocation)) {
-		errors.push("'cacheLocation' must be a non-empty string.");
-	}
-	if (cacheStrategy !== "metadata" && cacheStrategy !== "content") {
-		errors.push('\'cacheStrategy\' must be any of "metadata", "content".');
-	}
-	if (
-		concurrency !== "off" &&
-		concurrency !== "auto" &&
-		!isPositiveInteger(concurrency)
-	) {
-		errors.push(
-			'\'concurrency\' must be a positive integer, "auto", or "off".',
-		);
-	}
-	if (!isNonEmptyString(cwd) || !path.isAbsolute(cwd)) {
-		errors.push("'cwd' must be an absolute path.");
-	}
-	if (typeof errorOnUnmatchedPattern !== "boolean") {
-		errors.push("'errorOnUnmatchedPattern' must be a boolean.");
-	}
-	if (typeof fix !== "boolean" && typeof fix !== "function") {
-		errors.push("'fix' must be a boolean or a function.");
-	}
-	if (fixTypes !== null && !isFixTypeArray(fixTypes)) {
-		errors.push(
-			'\'fixTypes\' must be an array of any of "directive", "problem", "suggestion", and "layout".',
-		);
-	}
-	if (!isEmptyArrayOrArrayOfNonEmptyString(flags)) {
-		errors.push("'flags' must be an array of non-empty strings.");
-	}
-	if (typeof globInputPaths !== "boolean") {
-		errors.push("'globInputPaths' must be a boolean.");
-	}
-	if (typeof ignore !== "boolean") {
-		errors.push("'ignore' must be a boolean.");
-	}
-	if (
-		!isEmptyArrayOrArrayOfNonEmptyString(ignorePatterns) &&
-		ignorePatterns !== null
-	) {
-		errors.push(
-			"'ignorePatterns' must be an array of non-empty strings or null.",
-		);
-	}
-	if (typeof overrideConfig !== "object") {
-		errors.push("'overrideConfig' must be an object or null.");
-	}
-	if (
-		!isNonEmptyString(overrideConfigFile) &&
-		overrideConfigFile !== null &&
-		overrideConfigFile !== true
-	) {
-		errors.push(
-			"'overrideConfigFile' must be a non-empty string, null, or true.",
-		);
-	}
-	if (typeof passOnNoPatterns !== "boolean") {
-		errors.push("'passOnNoPatterns' must be a boolean.");
-	}
-	if (typeof plugins !== "object") {
-		errors.push("'plugins' must be an object or null.");
-	} else if (plugins !== null && Object.keys(plugins).includes("")) {
-		errors.push("'plugins' must not include an empty string.");
-	}
-	if (Array.isArray(plugins)) {
-		errors.push(
-			"'plugins' doesn't add plugins to configuration to load. Please use the 'overrideConfig.plugins' option instead.",
-		);
-	}
-	if (typeof stats !== "boolean") {
-		errors.push("'stats' must be a boolean.");
-	}
-	if (typeof warnIgnored !== "boolean") {
-		errors.push("'warnIgnored' must be a boolean.");
-	}
-	if (typeof ruleFilter !== "function") {
-		errors.push("'ruleFilter' must be a function.");
-	}
 	if (errors.length > 0) {
 		throw new ESLintInvalidOptionsError(errors);
 	}
@@ -576,6 +723,21 @@ function processOptions({
 		warnIgnored,
 		ruleFilter,
 	};
+}
+
+function validateObjectOption(name, value, errors) {
+	if (typeof value !== "object") {
+		addError(errors, `'${name}' must be an object or null.`);
+	}
+}
+
+function validateFixTypes(fixTypes, errors) {
+	if (fixTypes !== null && !isFixTypeArray(fixTypes)) {
+		addError(
+			errors,
+			'\'fixTypes\' must be an array of any of "directive", "problem", "suggestion", and "layout".',
+		);
+	}
 }
 
 async function loadOptionsFromModule(optionsURL) {
@@ -854,154 +1016,6 @@ function createConfigLoader(
 	};
 
 	return new ConfigLoader(configLoaderOptions);
-}
-
-/**
- * @typedef {Object} FindFilesOptions
- * @property {Array<string>} patterns
- * @property {boolean} globInputPaths
- * @property {string} cwd
- * @property {ConfigLoader} configLoader
- * @property {boolean} errorOnUnmatchedPattern
- */
-
-/**
- * Handles explicit file and directory patterns.
- * @private
- * @param {Array<string>} patterns
- * @param {string} cwd
- * @param {ConfigLoader} configLoader
- * @param {boolean} globInputPaths
- * @returns {Object}
- */
-function _handleExplicitFiles(patterns, cwd, configLoader, globInputPaths) {
-	const results = [];
-	const missingPatterns = [];
-	const searches = new Map([[cwd, { patterns: [], rawPatterns: [] }]]);
-
-	const filePaths = patterns.map(filePath => path.resolve(cwd, filePath));
-	const stats = await Promise.all(
-		filePaths.map(filePath => fsp.stat(filePath).catch(() => {})),
-	);
-
-	const promises = [];
-	stats.forEach((stat, index) => {
-		const filePath = filePaths[index];
-		const pattern = normalizeToPosix(patterns[index]);
-
-		if (stat) {
-			if (stat.isFile()) {
-				results.push(filePath);
-				promises.push(configLoader.loadConfigArrayForFile(filePath));
-			}
-
-			if (stat.isDirectory()) {
-				if (!searches.has(filePath)) {
-					searches.set(filePath, { patterns: [], rawPatterns: [] });
-				}
-				const { patterns: globbyPatterns, rawPatterns } =
-					searches.get(filePath);
-
-				globbyPatterns.push(`${normalizeToPosix(filePath)}/**`);
-				rawPatterns.push(pattern);
-			}
-
-			return;
-		}
-
-		if (globInputPaths && isGlobPattern(pattern)) {
-			const basePath = path.resolve(cwd, globParent(pattern));
-
-			if (!searches.has(basePath)) {
-				searches.set(basePath, { patterns: [], rawPatterns: [] });
-			}
-			const { patterns: globbyPatterns, rawPatterns } =
-				searches.get(basePath);
-
-			globbyPatterns.push(filePath);
-			rawPatterns.push(pattern);
-		} else {
-			missingPatterns.push(pattern);
-		}
-	});
-
-	if (errorOnUnmatchedPattern && missingPatterns.length) {
-		throw new NoFilesFoundError(missingPatterns[0], globInputPaths);
-	}
-
-	return { results, promises, searches, missingPatterns };
-}
-
-/**
- * Performs glob searches and returns results.
- * @private
- * @param {Map<string,GlobSearch>} searches
- * @param {ConfigLoader} configLoader
- * @param {boolean} errorOnUnmatchedPattern
- * @returns {Promise<Array<string>>}
- */
-async function _performGlobs(searches, configLoader, errorOnUnmatchedPattern) {
-	return globMultiSearch({
-		searches,
-		configLoader,
-		errorOnUnmatchedPattern,
-	});
-}
-
-/**
- * Finds all files matching the options specified.
- * @param {FindFilesOptions} options
- * @returns {Promise<Array<string>>}
- */
-async function findFilesInternal({
-	patterns,
-	globInputPaths,
-	cwd,
-	configLoader,
-	errorOnUnmatchedPattern,
-}) {
-	const { results, promises, searches } = await _handleExplicitFiles(
-		patterns,
-		cwd,
-		configLoader,
-		globInputPaths,
-	);
-
-	promises.push(
-		_performGlobs(searches, configLoader, errorOnUnmatchedPattern),
-	);
-	const globbyResults = (await Promise.all(promises)).at(-1);
-
-	return [...new Set([...results, ...globbyResults])];
-}
-
-/**
- * Wrapper to maintain backward compatibility.
- * @param {Array<string>} patterns
- * @param {boolean} globInputPaths
- * @param {string} cwd
- * @param {ConfigLoader} configLoader
- * @param {boolean} errorOnUnmatchedPattern
- * @returns {Promise<Array<string>>}
- */
-async function findFiles(
-	patterns,
-	globInputPaths,
-	cwd,
-	configLoader,
-	errorOnUnmatchedPattern,
-) {
-	return findFilesInternal({
-		patterns,
-		globInputPaths,
-		cwd,
-		configLoader,
-		errorOnUnmatchedPattern,
-	});
-}
-
-function getPlaceholderPath(cwd) {
-	return path.join(cwd, "__placeholder__.js");
 }
 
 module.exports = {

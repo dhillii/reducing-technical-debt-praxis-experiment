@@ -126,28 +126,45 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
         }
     };
 
-    /**
-     * Uploads a theme file and handles success or error states.
-     * @param file - The theme zip file to upload.
-     * @returns The upload response or undefined on failure.
-     */
-    const uploadThemeFile = async (file: File): Promise<ThemesInstallResponseType | undefined> => {
-        try {
-            setUploading(true);
-            const data = await uploadTheme({file});
-            return data;
-        } catch (e) {
-            handleError(e);
-            return undefined;
-        } finally {
-            setUploading(false);
+    const handleUpload = () => {
+        if (!uploadConfig) {
+            return;
+        }
+
+        if (uploadConfig.enabled) {
+            NiceModal.show(ConfirmationModal, {
+                title: 'Upload theme',
+                prompt: <UploadModalContent onUpload={onThemeUpload} />,
+                okLabel: '',
+                formSheet: false
+            });
+        } else {
+            NiceModal.show(LimitModal, {
+                title: 'Upgrade to enable custom themes',
+                prompt: uploadConfig.error || <>Your current plan only supports official themes. You can install them from the <a href="https://ghost.org/marketplace/">Ghost theme marketplace</a>.</>,
+                onOk: () => updateRoute({route: '/pro', isExternal: true})
+            });
         }
     };
 
-    /**
-     * Displays the modal for an invalid theme with retry capability.
-     * @param fatalErrors - Errors returned from the server.
-     */
+    const uploadThemeAndHandleErrors = async (file: File) => {
+        let data: ThemesInstallResponseType | undefined;
+        let fatalErrors: FatalErrors | null = null;
+        try {
+            setUploading(true);
+            data = await uploadTheme({file});
+        } catch (e) {
+            if (e instanceof JSONError && e.response?.status === 422 && e.data?.errors) {
+                fatalErrors = e.data.errors as FatalErrors;
+            } else {
+                handleError(e);
+            }
+        } finally {
+            setUploading(false);
+        }
+        return {data, fatalErrors};
+    };
+
     const showInvalidThemeModal = (fatalErrors: FatalErrors) => {
         NiceModal.show(InvalidThemeModal, {
             title: 'Invalid Theme',
@@ -160,12 +177,7 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
         });
     };
 
-    /**
-     * Displays the modal after a successful upload.
-     * @param uploadedTheme - The theme that was uploaded.
-     * @param onActivate - Callback to activate the theme.
-     */
-    const showUploadSuccessModal = (uploadedTheme: Theme, onActivate?: () => void) => {
+    const buildSuccessPrompt = (uploadedTheme: Theme | InstalledTheme) => {
         let title = 'Upload successful';
         let prompt = <><strong>{uploadedTheme.name}</strong> uploaded</>;
 
@@ -191,6 +203,11 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
             }
         }
 
+        return {title, prompt};
+    };
+
+    const showSuccessModal = (uploadedTheme: Theme | InstalledTheme, onActivate?: () => void) => {
+        const {title, prompt} = buildSuccessPrompt(uploadedTheme);
         NiceModal.show(ThemeInstalledModal, {
             title,
             prompt,
@@ -199,10 +216,6 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
         });
     };
 
-    /**
-     * Handles the upload process, including error handling and modal presentation.
-     * @param params - File to upload and optional activation callback.
-     */
     const handleThemeUpload = async ({
         file,
         onActivate
@@ -210,19 +223,19 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
         file: File;
         onActivate?: () => void
     }) => {
-        const data = await uploadThemeFile(file);
+        const {data, fatalErrors} = await uploadThemeAndHandleErrors(file);
+
+        if (fatalErrors && !data) {
+            showInvalidThemeModal(fatalErrors);
+            return;
+        }
+
         if (!data) {
             return;
         }
 
         const uploadedTheme = data.themes[0];
-
-        if (data.errors?.length) {
-            showInvalidThemeModal(data.errors as FatalErrors);
-            return;
-        }
-
-        showUploadSuccessModal(uploadedTheme, onActivate);
+        showSuccessModal(uploadedTheme, onActivate);
     };
 
     const left =
@@ -238,27 +251,6 @@ const ThemeToolbar: React.FC<ThemeToolbarProps> = ({
                 setCurrentTab(id);
             }} />
     </div>;
-
-    const handleUpload = () => {
-        if (!uploadConfig) {
-            return;
-        }
-
-        if (uploadConfig.enabled) {
-            NiceModal.show(ConfirmationModal, {
-                title: 'Upload theme',
-                prompt: <UploadModalContent onUpload={onThemeUpload} />,
-                okLabel: '',
-                formSheet: false
-            });
-        } else {
-            NiceModal.show(LimitModal, {
-                title: 'Upgrade to enable custom themes',
-                prompt: uploadConfig.error || <>Your current plan only supports official themes. You can install them from the <a href="https://ghost.org/marketplace/">Ghost theme marketplace</a>.</>,
-                onOk: () => updateRoute({route: '/pro', isExternal: true})
-            });
-        }
-    };
 
     const right =
         <div className='flex items-center gap-14'>
@@ -345,11 +337,12 @@ const ChangeThemeModal: React.FC<ChangeThemeModalProps> = ({source, themeRef}) =
                     return;
                 }
 
+                let titleText = 'Install Theme';
                 const existingThemeNames = themes?.map(t => t.name) || [];
-                const willOverwrite = existingThemeNames.includes(themeName.toLowerCase());
+                let willOverwrite = existingThemeNames.includes(themeName.toLowerCase());
                 const index = existingThemeNames.indexOf(themeName.toLowerCase());
                 const themeToOverwrite = themes?.[index];
-                const prompt = <>By clicking below, <strong>{themeName}</strong> will automatically be activated as the theme for your site.
+                let prompt = <>By clicking below, <strong>{themeName}</strong> will automatically be activated as the theme for your site.
                     {willOverwrite &&
                     <>
                         <br/>
@@ -359,7 +352,7 @@ const ChangeThemeModal: React.FC<ChangeThemeModalProps> = ({source, themeRef}) =
                     }
                 </>;
                 NiceModal.show(ConfirmationModal, {
-                    title: 'Install Theme',
+                    title: titleText,
                     prompt,
                     okLabel: 'Install',
                     cancelLabel: 'Cancel',
@@ -369,8 +362,10 @@ const ChangeThemeModal: React.FC<ChangeThemeModalProps> = ({source, themeRef}) =
                         let data: ThemesInstallResponseType | undefined;
                         setInstalledFromMarketplace(true);
                         try {
-                            if (willOverwrite && themes) {
-                                themes.splice(index, 1);
+                            if (willOverwrite) {
+                                if (themes) {
+                                    themes.splice(index, 1);
+                                }
                             }
                             data = await installTheme(themeRef);
                             if (data?.themes[0]) {
@@ -385,6 +380,9 @@ const ChangeThemeModal: React.FC<ChangeThemeModalProps> = ({source, themeRef}) =
                             updateRoute('');
                         } catch (e) {
                             handleError(e);
+                        }
+                        if (!data) {
+                            return;
                         }
                     }
                 });

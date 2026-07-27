@@ -7,15 +7,12 @@
 
 'use strict';
 
-const stripAnsi = require('strip-ansi');
-const url = require('url');
-const launchEditorEndpoint = require('./launchEditorEndpoint');
-const formatWebpackMessages = require('./formatWebpackMessages');
-const ErrorOverlay = require('react-error-overlay');
+var stripAnsi = require('strip-ansi');
+var url = require('url');
+var launchEditorEndpoint = require('./launchEditorEndpoint');
+var formatWebpackMessages = require('./formatWebpackMessages');
+var ErrorOverlay = require('react-error-overlay');
 
-/**
- * Editor handler for error overlay.
- */
 ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
   fetch(
     launchEditorEndpoint +
@@ -28,21 +25,21 @@ ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
   );
 });
 
-let hadRuntimeError = false;
+var hadRuntimeError = false;
 ErrorOverlay.startReportingRuntimeErrors({
-  onError: () => {
+  onError: function () {
     hadRuntimeError = true;
   },
   filename: '/static/js/bundle.js',
 });
 
 if (module.hot && typeof module.hot.dispose === 'function') {
-  module.hot.dispose(() => {
+  module.hot.dispose(function () {
     ErrorOverlay.stopReportingRuntimeErrors();
   });
 }
 
-const connection = new WebSocket(
+var connection = new WebSocket(
   url.format({
     protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
     hostname: process.env.WDS_SOCKET_HOST || window.location.hostname,
@@ -52,7 +49,7 @@ const connection = new WebSocket(
   })
 );
 
-connection.onclose = () => {
+connection.onclose = function () {
   if (typeof console !== 'undefined' && typeof console.info === 'function') {
     console.info(
       'The development server has disconnected.\nRefresh the page if necessary.'
@@ -60,13 +57,10 @@ connection.onclose = () => {
   }
 };
 
-let isFirstCompilation = true;
-let mostRecentCompilationHash = null;
-let hasCompileErrors = false;
+var isFirstCompilation = true;
+var mostRecentCompilationHash = null;
+var hasCompileErrors = false;
 
-/**
- * Clears outdated compile errors from the console.
- */
 function clearOutdatedErrors() {
   if (typeof console !== 'undefined' && typeof console.clear === 'function') {
     if (hasCompileErrors) {
@@ -75,9 +69,6 @@ function clearOutdatedErrors() {
   }
 }
 
-/**
- * Handles a successful compilation.
- */
 function handleSuccess() {
   clearOutdatedErrors();
 
@@ -86,15 +77,32 @@ function handleSuccess() {
   hasCompileErrors = false;
 
   if (isHotUpdate) {
-    tryApplyUpdates(() => {
+    tryApplyUpdates(function onHotUpdateSuccess() {
       tryDismissErrorOverlay();
     });
   }
 }
 
-/**
- * Handles compilation warnings.
- */
+function printWarnings(warnings) {
+  const formatted = formatWebpackMessages({
+    warnings: warnings,
+    errors: [],
+  });
+
+  if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+    for (let i = 0; i < formatted.warnings.length; i++) {
+      if (i === 5) {
+        console.warn(
+          'There were more warnings in other files.\n' +
+            'You can find a complete log in the terminal.'
+        );
+        break;
+      }
+      console.warn(stripAnsi(formatted.warnings[i]));
+    }
+  }
+}
+
 function handleWarnings(warnings) {
   clearOutdatedErrors();
 
@@ -102,41 +110,15 @@ function handleWarnings(warnings) {
   isFirstCompilation = false;
   hasCompileErrors = false;
 
-  printWarnings();
+  printWarnings(warnings);
 
   if (isHotUpdate) {
-    tryApplyUpdates(() => {
+    tryApplyUpdates(function onSuccessfulHotUpdate() {
       tryDismissErrorOverlay();
     });
   }
-
-  /**
-   * Prints warnings to the console.
-   */
-  function printWarnings() {
-    const formatted = formatWebpackMessages({
-      warnings,
-      errors: [],
-    });
-
-    if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-      for (let i = 0; i < formatted.warnings.length; i++) {
-        if (i === 5) {
-          console.warn(
-            'There were more warnings in other files.\n' +
-              'You can find a complete log in the terminal.'
-          );
-          break;
-        }
-        console.warn(stripAnsi(formatted.warnings[i]));
-      }
-    }
-  }
 }
 
-/**
- * Handles compilation errors.
- */
 function handleErrors(errors) {
   clearOutdatedErrors();
 
@@ -144,7 +126,7 @@ function handleErrors(errors) {
   hasCompileErrors = true;
 
   const formatted = formatWebpackMessages({
-    errors,
+    errors: errors,
     warnings: [],
   });
 
@@ -157,88 +139,17 @@ function handleErrors(errors) {
   }
 }
 
-/**
- * Dismisses the error overlay if there are no compile errors.
- */
 function tryDismissErrorOverlay() {
   if (!hasCompileErrors) {
     ErrorOverlay.dismissBuildError();
   }
 }
 
-/**
- * Updates the most recent compilation hash.
- */
 function handleAvailableHash(hash) {
   mostRecentCompilationHash = hash;
 }
 
-/**
- * Determines if a newer compilation hash is available.
- */
-function isUpdateAvailable() {
-  /* globals __webpack_hash__ */
-  return mostRecentCompilationHash !== __webpack_hash__;
-}
-
-/**
- * Checks if Webpack HMR is idle and ready to apply updates.
- */
-function canApplyUpdates() {
-  return module.hot.status() === 'idle';
-}
-
-/**
- * Determines if hot updates can be accepted when errors occur.
- */
-function canAcceptErrors() {
-  const hasReactRefresh = process.env.FAST_REFRESH;
-  const status = module.hot.status();
-  return hasReactRefresh && ['abort', 'fail'].indexOf(status) === -1;
-}
-
-/**
- * Attempts to apply hot updates, falling back to a full reload.
- */
-function tryApplyUpdates(onHotUpdateSuccess) {
-  if (!module.hot) {
-    window.location.reload();
-    return;
-  }
-
-  if (!isUpdateAvailable() || !canApplyUpdates()) {
-    return;
-  }
-
-  function handleApplyUpdates(err, updatedModules) {
-    const haveErrors = err || hadRuntimeError;
-    const needsForcedReload = !err && !updatedModules;
-
-    if ((haveErrors && !canAcceptErrors()) || needsForcedReload) {
-      window.location.reload();
-      return;
-    }
-
-    if (typeof onHotUpdateSuccess === 'function') {
-      onHotUpdateSuccess();
-    }
-
-    if (isUpdateAvailable()) {
-      tryApplyUpdates();
-    }
-  }
-
-  const result = module.hot.check(true, handleApplyUpdates);
-
-  if (result && typeof result.then === 'function') {
-    result.then(
-      updatedModules => handleApplyUpdates(null, updatedModules),
-      err => handleApplyUpdates(err, null)
-    );
-  }
-}
-
-connection.onmessage = e => {
+connection.onmessage = function (e) {
   const message = JSON.parse(e.data);
   switch (message.type) {
     case 'hash':
@@ -259,6 +170,61 @@ connection.onmessage = e => {
       break;
     default:
       // Do nothing.
-      break;
   }
 };
+
+function isUpdateAvailable() {
+  /* globals __webpack_hash__ */
+  return mostRecentCompilationHash !== __webpack_hash__;
+}
+
+function canApplyUpdates() {
+  return module.hot.status() === 'idle';
+}
+
+function canAcceptErrors() {
+  const hasReactRefresh = process.env.FAST_REFRESH;
+  const status = module.hot.status();
+  return hasReactRefresh && ['abort', 'fail'].indexOf(status) === -1;
+}
+
+function tryApplyUpdates(onHotUpdateSuccess) {
+  if (!module.hot) {
+    window.location.reload();
+    return;
+  }
+
+  if (!isUpdateAvailable() || !canApplyUpdates()) {
+    return;
+  }
+
+  function handleApplyUpdates(err, updatedModules) {
+    const haveErrors = err || hadRuntimeError;
+    const needsForcedReload = !err && !updatedModules;
+    if ((haveErrors && !canAcceptErrors()) || needsForcedReload) {
+      window.location.reload();
+      return;
+    }
+
+    if (typeof onHotUpdateSuccess === 'function') {
+      onHotUpdateSuccess();
+    }
+
+    if (isUpdateAvailable()) {
+      tryApplyUpdates();
+    }
+  }
+
+  const result = module.hot.check(true, handleApplyUpdates);
+
+  if (result && result.then) {
+    result.then(
+      function (updatedModules) {
+        handleApplyUpdates(null, updatedModules);
+      },
+      function (err) {
+        handleApplyUpdates(err, null);
+      }
+    );
+  }
+}

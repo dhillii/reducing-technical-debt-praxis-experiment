@@ -15,6 +15,21 @@ import {renderReplyToEmail, renderSenderEmail} from '../../../../utils/newslette
 import {textColorForBackgroundColor} from '@tryghost/color-utils';
 import {useGlobalData} from '../../../providers/global-data-provider';
 
+/**
+ * Returns a toast message component if the email verification type matches known values.
+ * @param emailToVerify - The email verification type returned from the API.
+ * @returns A React node containing the toast message or undefined if no match.
+ */
+function getEmailVerificationToast(emailToVerify: string | undefined): React.ReactNode | undefined {
+    if (!emailToVerify) {
+        return undefined;
+    }
+    if (emailToVerify === 'sender_email' || emailToVerify === 'sender_reply_to') {
+        return <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
+    }
+    return undefined;
+}
+
 const ReplyToEmailField: React.FC<{
     newsletter: Newsletter;
     updateNewsletter: (fields: Partial<Newsletter>) => void;
@@ -25,24 +40,30 @@ const ReplyToEmailField: React.FC<{
     const {settings, config} = useGlobalData();
     const [defaultEmailAddress, supportEmailAddress] = getSettingValues<string>(settings, ['default_email_address', 'support_email_address']);
 
+    // When editing the senderReplyTo, we use a state, so we don't cause jumps when the 'rendering' method decides to change the value
+    // Because 'newsletter' 'support' or an empty value can be mapped to a default value, we don't want those changes to happen when entering text
     const [senderReplyTo, setSenderReplyTo] = useState(renderReplyToEmail(newsletter, config, supportEmailAddress, defaultEmailAddress) || '');
+
+    let newsletterAddress = renderSenderEmail(newsletter, config, defaultEmailAddress);
 
     const onChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         setSenderReplyTo(e.target.value);
         updateNewsletter({sender_reply_to: e.target.value || 'newsletter'});
-    }, [updateNewsletter]);
+    }, [updateNewsletter, setSenderReplyTo]);
 
     const onBlur = () => {
+        // Update the senderReplyTo to the rendered value again
         const rendered = renderReplyToEmail(newsletter, config, supportEmailAddress, defaultEmailAddress) || '';
         setSenderReplyTo(rendered);
     };
 
+    // Pro users without custom sending domains
     return (
         <TextField
             error={Boolean(errors.sender_reply_to)}
             hint={errors.sender_reply_to}
             maxLength={191}
-            placeholder={renderSenderEmail(newsletter, config, defaultEmailAddress) || ''}
+            placeholder={newsletterAddress || ''}
             title="Reply-to email"
             value={senderReplyTo}
             onBlur={onBlur}
@@ -73,6 +94,7 @@ const Sidebar: React.FC<{
     const {data: {newsletters: apiNewsletters} = {}} = useBrowseNewsletters();
     const commentsEnabled = ['all', 'paid'].includes(getSettingValue(settings, 'comments_enabled') || '');
 
+    let newsletterAddress = renderSenderEmail(newsletter, config, defaultEmailAddress);
     const [newsletters, setNewsletters] = useState<Newsletter[]>(apiNewsletters || []);
     const activeNewsletters = newsletters.filter(n => n.status === 'active');
 
@@ -113,99 +135,70 @@ const Sidebar: React.FC<{
         return textColorForBackgroundColor(newsletter.background_color).hex().toLowerCase() === '#ffffff';
     };
 
-    /**
-     * Shows a confirmation modal to archive a newsletter.
-     */
-    const archiveNewsletter = async (
-        newsletter: Newsletter,
-        editNewsletter: (data: Newsletter) => Promise<void>,
-        showToast: typeof showToast,
-        handleError: (e: unknown) => void
-    ) => {
-        NiceModal.show(ConfirmationModal, {
-            title: 'Archive newsletter',
-            prompt: (
-                <>
+    const confirmStatusChange = async () => {
+        if (newsletter.status === 'active') {
+            NiceModal.show(ConfirmationModal, {
+                title: 'Archive newsletter',
+                prompt: <>
                     <div className="mb-6">Your newsletter <strong>{newsletter.name}</strong> will no longer be visible to members or available as an option when publishing new posts.</div>
                     <div>Existing posts previously sent as this newsletter will remain unchanged.</div>
-                </>
-            ),
-            okLabel: 'Archive',
-            okColor: 'red',
-            onOk: async (modal) => {
-                try {
-                    await editNewsletter({ ...newsletter, status: 'archived' });
+                </>,
+                okLabel: 'Archive',
+                okColor: 'red',
+                onOk: async (modal) => {
+                    try {
+                        await editNewsletter({...newsletter, status: 'archived'});
+                        modal?.remove();
+                        showToast({
+                            type: 'success',
+                            message: 'Newsletter archived'
+                        });
+                    } catch (e) {
+                        handleError(e);
+                    }
+                }
+            });
+        } else {
+            try {
+                await limiter?.errorIfWouldGoOverLimit('newsletters');
+            } catch (error) {
+                if (error instanceof HostLimitError) {
+                    NiceModal.show(LimitModal, {
+                        prompt: error.message || `Your current plan doesn't support more newsletters.`,
+                        onOk: () => updateRoute({route: '/pro', isExternal: true})
+                    });
+                    return;
+                } else {
+                    throw error;
+                }
+            }
+
+            NiceModal.show(ConfirmationModal, {
+                title: 'Reactivate newsletter',
+                prompt: <>
+                        Reactivating <strong>{newsletter.name}</strong> will immediately make it visible to members and re-enable it as an option when publishing new posts.
+                </>,
+                okLabel: 'Reactivate',
+                onOk: async (modal) => {
+                    await editNewsletter({...newsletter, status: 'active'});
                     modal?.remove();
                     showToast({
                         type: 'success',
-                        message: 'Newsletter archived'
+                        message: 'Newsletter reactivated'
                     });
-                } catch (e) {
-                    handleError(e);
                 }
-            }
-        });
-    };
-
-    /**
-     * Shows a confirmation modal to reactivate a newsletter, handling host limits.
-     */
-    const reactivateNewsletter = async (
-        newsletter: Newsletter,
-        editNewsletter: (data: Newsletter) => Promise<void>,
-        limiter: ReturnType<typeof useLimiter>,
-        updateRoute: (args: any) => void,
-        showToast: typeof showToast,
-        handleError: (e: unknown) => void
-    ) => {
-        try {
-            await limiter?.errorIfWouldGoOverLimit('newsletters');
-        } catch (error) {
-            if (error instanceof HostLimitError) {
-                NiceModal.show(LimitModal, {
-                    prompt: error.message || `Your current plan doesn't support more newsletters.`,
-                    onOk: () => updateRoute({ route: '/pro', isExternal: true })
-                });
-                return;
-            } else {
-                throw error;
-            }
-        }
-
-        NiceModal.show(ConfirmationModal, {
-            title: 'Reactivate newsletter',
-            prompt: (
-                <>
-                    Reactivating <strong>{newsletter.name}</strong> will immediately make it visible to members and re-enable it as an option when publishing new posts.
-                </>
-            ),
-            okLabel: 'Reactivate',
-            onOk: async (modal) => {
-                await editNewsletter({ ...newsletter, status: 'active' });
-                modal?.remove();
-                showToast({
-                    type: 'success',
-                    message: 'Newsletter reactivated'
-                });
-            }
-        });
-    };
-
-    const confirmStatusChange = async () => {
-        if (newsletter.status === 'active') {
-            await archiveNewsletter(newsletter, editNewsletter, showToast, handleError);
-        } else {
-            await reactivateNewsletter(newsletter, editNewsletter, limiter, updateRoute, showToast, handleError);
+            });
         }
     };
 
     const renderSenderEmailField = () => {
+        // Self-hosters
         if (!isManagedEmail(config)) {
             return (
                 <TextField
                     error={Boolean(errors.sender_email)}
                     hint={errors.sender_email}
-                    placeholder={renderSenderEmail(newsletter, config, defaultEmailAddress) || ''}
+                    placeholder={newsletterAddress || ''}
                     title="Sender email address"
                     value={newsletter.sender_email || ''}
                     onChange={e => updateNewsletter({sender_email: e.target.value})}
@@ -214,6 +207,7 @@ const Sidebar: React.FC<{
             );
         }
 
+        // Pro users with custom sending domains
         if (hasSendingDomain(config)) {
             return (
                 <TextField
@@ -230,10 +224,14 @@ const Sidebar: React.FC<{
                 />
             );
         }
+
+        // Pro users without custom sending domains
+        // We're not showing the field since it's not editable
     };
 
     const headingFontWeightOptions = fontWeightOptions[newsletter.title_font_category || 'sans_serif'].options;
 
+    // not all weights will be available for all fonts, if it doesn't exist find the closest match
     const getSelectedFontWeightOption = () => {
         const category = newsletter.title_font_category || 'sans_serif';
         const fontWeight = newsletter.title_font_weight;
@@ -242,9 +240,11 @@ const Sidebar: React.FC<{
         const option = headingFontWeightOptions.find(o => o.value === mappedWeight);
         return option || headingFontWeightOptions[0];
     };
-
+    // changing font category changes available weights so we may need to map to the closest match
     const changeSelectedTitleFont = (option: SelectOption | null) => {
         const categoryValue = option?.value || 'sans_serif';
+
+        // ensure the weight is valid for the new font by switching to closest match
         const currentWeight = newsletter.title_font_weight;
         let newWeight = currentWeight;
         if (!fontWeightOptions[categoryValue].options.find(o => o.value === currentWeight)) {
@@ -489,8 +489,8 @@ const Sidebar: React.FC<{
                             eyedropper={true}
                             swatches={[
                                 {
-                                    value: 'transparent',
-                                    title: 'Transparent',
+                                    value: null,
+                                    title: 'Auto',
                                     hex: '#00000000'
                                 }
                             ]}
@@ -794,14 +794,9 @@ const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: b
         initialState: newsletter,
         savingDelay: 500,
         onSave: async () => {
+            // eslint-disable-next-line @typescript-eslint/no-unused-expressions
             const {meta: {sent_email_verification: [emailToVerify] = []} = {}} = await editNewsletter(formState);
-            let toastMessage;
-
-            if (emailToVerify && emailToVerify === 'sender_email') {
-                toastMessage = <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
-            } else if (emailToVerify && emailToVerify === 'sender_reply_to') {
-                toastMessage = <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
-            }
+            const toastMessage = getEmailVerificationToast(emailToVerify);
 
             if (toastMessage) {
                 showToast({

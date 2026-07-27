@@ -17,116 +17,100 @@ const jwt = require('jsonwebtoken');
 /**
  * Connect thanks to a third-party provider.
  *
- * @param {String} provider
- * @param {Object} query
- * @return {Promise}
+ *
+ * @param {String}    provider
+ * @param {String}    access_token
+ *
+ * @return  {*}
  */
-const connect = async (provider, query) => {
+
+const connect = (provider, query) => {
   const access_token = query.access_token || query.code || query.oauth_token;
 
-  if (!access_token) {
-    throw [null, { message: 'No access_token.' }];
-  }
+  return new Promise((resolve, reject) => {
+    if (!access_token) {
+      return reject([null, { message: 'No access_token.' }]);
+    }
 
-  const profile = await new Promise((resolve, reject) => {
-    getProfile(provider, query, (err, profile) => {
+    // Get the profile.
+    getProfile(provider, query, async (err, profile) => {
       if (err) {
+        return reject([null, err]);
+      }
+
+      // We need at least the mail.
+      if (!profile.email) {
+        return reject([null, { message: 'Email was not available.' }]);
+      }
+
+      try {
+        const users = await strapi.query('user', 'users-permissions').find({
+          email: profile.email,
+        });
+
+        const advanced = await strapi
+          .store({
+            environment: '',
+            type: 'plugin',
+            name: 'users-permissions',
+            key: 'advanced',
+          })
+          .get();
+
+        const user = _.find(users, { provider });
+
+        if (_.isEmpty(user) && !advanced.allow_register) {
+          return resolve([
+            null,
+            [{ messages: [{ id: 'Auth.advanced.allow_register' }] }],
+            'Register action is actually not available.',
+          ]);
+        }
+
+        if (!_.isEmpty(user)) {
+          return resolve([user, null]);
+        }
+
+        if (
+          !_.isEmpty(_.find(users, user => user.provider !== provider)) &&
+          advanced.unique_email
+        ) {
+          return resolve([
+            null,
+            [{ messages: [{ id: 'Auth.form.error.email.taken' }] }],
+            'Email is already taken.',
+          ]);
+        }
+
+        // Retrieve default role.
+        const defaultRole = await strapi
+          .query('role', 'users-permissions')
+          .findOne({ type: advanced.default_role }, []);
+
+        // Create the new user.
+        const params = _.assign(profile, {
+          provider: provider,
+          role: defaultRole.id,
+          confirmed: true,
+        });
+
+        const createdUser = await strapi.query('user', 'users-permissions').create(params);
+
+        return resolve([createdUser, null]);
+      } catch (err) {
         reject([null, err]);
-      } else {
-        resolve(profile);
       }
     });
   });
-
-  if (!profile.email) {
-    throw [null, { message: 'Email was not available.' }];
-  }
-
-  try {
-    const users = await strapi
-      .query('user', 'users-permissions')
-      .find({ email: profile.email });
-
-    const advanced = await strapi
-      .store({
-        environment: '',
-        type: 'plugin',
-        name: 'users-permissions',
-        key: 'advanced',
-      })
-      .get();
-
-    const user = _.find(users, { provider });
-
-    if (!_.isEmpty(user)) {
-      return [user, null];
-    }
-
-    if (_.isEmpty(user) && !advanced.allow_register) {
-      return [
-        null,
-        [{ messages: [{ id: 'Auth.advanced.allow_register' }] }],
-        'Register action is actually not available.',
-      ];
-    }
-
-    if (isEmailTaken(users, provider, advanced)) {
-      return [
-        null,
-        [{ messages: [{ id: 'Auth.form.error.email.taken' }] }],
-        'Email is already taken.',
-      ];
-    }
-
-    const defaultRole = await getDefaultRole(advanced);
-
-    const params = _.assign(profile, {
-      provider,
-      role: defaultRole.id,
-      confirmed: true,
-    });
-
-    const createdUser = await strapi
-      .query('user', 'users-permissions')
-      .create(params);
-
-    return [createdUser, null];
-  } catch (err) {
-    throw [null, err];
-  }
-};
-
-/**
- * Determine if the email is already taken by a different provider.
- *
- * @param {Array} users
- * @param {String} provider
- * @param {Object} advanced
- * @return {Boolean}
- */
-const isEmailTaken = (users, provider, advanced) => {
-  return !_.isEmpty(_.find(users, u => u.provider !== provider)) && advanced.unique_email;
-};
-
-/**
- * Retrieve the default role based on advanced configuration.
- *
- * @param {Object} advanced
- * @return {Promise<Object>}
- */
-const getDefaultRole = async advanced => {
-  return strapi
-    .query('role', 'users-permissions')
-    .findOne({ type: advanced.default_role }, []);
 };
 
 /**
  * Helper to get profiles
  *
- * @param {String} provider
- * @param {Object} query
+ * @param {String}   provider
  * @param {Function} callback
  */
+
 const getProfile = async (provider, query, callback) => {
   const access_token = query.access_token || query.code || query.oauth_token;
 
@@ -166,19 +150,20 @@ const getProfile = async (provider, query, callback) => {
         .auth(access_token)
         .request((err, res, body) => {
           if (err) {
-            callback(err);
-          } else {
-            const username = `${body.username}#${body.discriminator}`;
-            callback(null, {
-              username,
-              email: body.email,
-            });
+            return callback(err);
           }
+          const username = `${body.username}#${body.discriminator}`;
+          callback(null, {
+            username,
+            email: body.email,
+          });
         });
       break;
     }
     case 'cognito': {
+      // get the id_token
       const idToken = query.id_token;
+      // decode the jwt token
       const tokenPayload = jwt.decode(idToken);
       if (!tokenPayload) {
         callback(new Error('unable to decode jwt token'));
@@ -251,6 +236,7 @@ const getProfile = async (provider, query, callback) => {
             return callback(err);
           }
 
+          // This is the public email on the github profile
           if (userbody.email) {
             return callback(null, {
               username: userbody.login,
@@ -258,6 +244,7 @@ const getProfile = async (provider, query, callback) => {
             });
           }
 
+          // Get the email with Github's user/emails API
           github
             .query()
             .get('user/emails')
@@ -342,7 +329,7 @@ const getProfile = async (provider, query, callback) => {
           } else {
             callback(null, {
               username: body.username,
-              email: `${body.username}@strapi.io`,
+              email: `${body.username}@strapi.io`, // dummy email as Instagram does not provide user email
             });
           }
         });
@@ -497,7 +484,7 @@ const getProfile = async (provider, query, callback) => {
           } else {
             callback(null, {
               username: body.name,
-              email: `${body.name}@strapi.io`,
+              email: `${body.name}@strapi.io`, // dummy email as Reddit does not provide user email
             });
           }
         });
@@ -532,13 +519,8 @@ const getProfile = async (provider, query, callback) => {
             callback(err);
           } else {
             const username =
-              body.username ||
-              body.nickname ||
-              body.name ||
-              body.email.split('@')[0];
-            const email =
-              body.email ||
-              `${username.replace(/\s+/g, '.')}@strapi.io`;
+              body.username || body.nickname || body.name || body.email.split('@')[0];
+            const email = body.email || `${username.replace(/\s+/g, '.')}@strapi.io`;
 
             callback(null, {
               username,
@@ -577,6 +559,7 @@ const getProfile = async (provider, query, callback) => {
           if (err) {
             callback(err);
           } else {
+            // CAS attribute may be in body.attributes or "FLAT", depending on CAS config
             const username = body.attributes
               ? body.attributes.strapiusername || body.id || body.sub
               : body.strapiusername || body.id || body.sub;
@@ -585,8 +568,7 @@ const getProfile = async (provider, query, callback) => {
               : body.strapiemail || body.email;
             if (!username || !email) {
               strapi.log.warn(
-                'CAS Response Body did not contain required attributes: ' +
-                  JSON.stringify(body)
+                'CAS Response Body did not contain required attributes: ' + JSON.stringify(body)
               );
             }
             callback(null, {
@@ -603,13 +585,8 @@ const getProfile = async (provider, query, callback) => {
   }
 };
 
-/**
- * Build redirect URI for provider callback.
- *
- * @param {String} provider
- * @return {String}
- */
-const buildRedirectUri = provider => `${getAbsoluteServerUrl(strapi.config)}/connect/${provider}/callback`;
+const buildRedirectUri = (provider = '') =>
+  `${getAbsoluteServerUrl(strapi.config)}/connect/${provider}/callback`;
 
 module.exports = {
   connect,

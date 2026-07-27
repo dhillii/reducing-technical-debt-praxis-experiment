@@ -184,15 +184,6 @@ module.exports = {
 		 * @returns {VariableType} a simple name for the types of variables that this rule supports
 		 */
 		function defToVariableType(def) {
-			/*
-			 * This `destructuredArrayIgnorePattern` error report works differently from the catch
-			 * clause and parameter error reports. _Both_ the `varsIgnorePattern` and the
-			 * `destructuredArrayIgnorePattern` will be checked for array destructuring. However,
-			 * for the purposes of the report, the currently defined behavior is to only inform the
-			 * user of the `destructuredArrayIgnorePattern` if it's present (regardless of the fact
-			 * that the `varsIgnorePattern` would also apply). If it's not present, the user will be
-			 * informed of the `varsIgnorePattern`, assuming that's present.
-			 */
 			if (
 				config.destructuredArrayIgnorePattern &&
 				def.name.parent.type === "ArrayPattern"
@@ -630,7 +621,188 @@ module.exports = {
 		}
 
 		/**
-		 * Checks whether a reference is a read to update itself or not.
+		 * Checks whether a given reference is a read to update itself or not.
+		 * @param {eslint-scope.Reference} ref A reference to check.
+		 * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+		 * @returns {boolean} The reference is a read to update itself.
+		 * @private
+		 */
+		function isReadForItself(ref, rhsNode) {
+			const id = ref.identifier;
+			const parent = id.parent;
+
+			return (
+				ref.isRead() &&
+				// self update. e.g. `a += 1`, `a++`
+				((parent.type === "AssignmentExpression" &&
+					parent.left === id &&
+					isUnusedExpression(parent) &&
+					!astUtils.isLogicalAssignmentOperator(parent.operator)) ||
+					(parent.type === "UpdateExpression" &&
+						isUnusedExpression(parent)) ||
+					// in RHS of an assignment for itself. e.g. `a = a + 1`
+					(rhsNode &&
+						isInside(id, rhsNode) &&
+						!isInsideOfStorableFunction(id, rhsNode)))
+			);
+		}
+
+		/**
+		 * Determine if an identifier is used either in for-in or for-of loops.
+		 * @param {Reference} ref The reference to check.
+		 * @returns {boolean} whether reference is used in the for-in loops
+		 * @private
+		 */
+		function isForInOfRef(ref) {
+			let target = ref.identifier.parent;
+
+			// "for (var ...) { return; }"
+			if (target.type === "VariableDeclarator") {
+				target = target.parent.parent;
+			}
+
+			if (
+				target.type !== "ForInStatement" &&
+				target.type !== "ForOfStatement"
+			) {
+				return false;
+			}
+
+			// "for (...) { return; }"
+			if (target.body.type === "BlockStatement") {
+				target = target.body.body[0];
+
+				// "for (...) return;"
+			} else {
+				target = target.body;
+			}
+
+			// For empty loop body
+			if (!target) {
+				return false;
+			}
+
+			return target.type === "ReturnStatement";
+		}
+
+		/**
+		 * Determines if the variable is used.
+		 * @param {Variable} variable The variable to check.
+		 * @returns {boolean} True if the variable is used
+		 * @private
+		 */
+		function isUsedVariable(variable) {
+			if (variable.eslintUsed) {
+				return true;
+			}
+
+			const functionNodes = getFunctionDefinitions(variable);
+			const isFunctionDefinition = functionNodes.length > 0;
+
+			let rhsNode = null;
+
+			return variable.references.some(ref => {
+				if (isForInOfRef(ref)) {
+					return true;
+				}
+
+				const forItself = isReadForItself(ref, rhsNode);
+
+				rhsNode = getRhsNode(ref, rhsNode);
+
+				return (
+					isReadRef(ref) &&
+					!forItself &&
+					!(
+						isFunctionDefinition &&
+						isSelfReference(ref, functionNodes)
+					)
+				);
+			});
+		}
+
+		/**
+		 * Checks whether the given variable is after the last used parameter.
+		 * @param {eslint-scope.Variable} variable The variable to check.
+		 * @returns {boolean} `true` if the variable is defined after the last
+		 * used parameter.
+		 */
+		function isAfterLastUsedArg(variable) {
+			const def = variable.defs[0];
+			const params = sourceCode.getDeclaredVariables(def.node);
+			const posteriorParams = params.slice(params.indexOf(variable) + 1);
+
+			// If any used parameters occur after this parameter, do not report.
+			return !posteriorParams.some(
+				v => v.references.length > 0 || v.eslintUsed,
+			);
+		}
+
+		/**
+		 * Determines if a given variable is being exported from a module.
+		 * @param {Variable} variable eslint-scope variable object.
+		 * @returns {boolean} True if the variable is exported, false if not.
+		 * @private
+		 */
+		function isExported(variable) {
+			const definition = variable.defs[0];
+
+			if (definition) {
+				let node = definition.node;
+
+				if (node.type === "VariableDeclarator") {
+					node = node.parent;
+				} else if (definition.type === "Parameter") {
+					return false;
+				}
+
+				return node.parent.type.indexOf("Export") === 0;
+			}
+			return false;
+		}
+
+		/**
+		 * Determines if a given variable uses the explicit resource management protocol.
+		 * @param {Variable} variable eslint-scope variable object.
+		 * @returns {boolean} True if the variable is declared with "using" or "await using"
+		 * @private
+		 */
+		function usesExplicitResourceManagement(variable) {
+			const [definition] = variable.defs;
+
+			return (
+				definition?.type === "Variable" &&
+				(definition.parent.kind === "using" ||
+					definition.parent.kind === "await using")
+			);
+		}
+
+		/**
+		 * Checks whether a given Identifier node exists inside of a function node which can be used later.
+		 *
+		 * "can be used later" means:
+		 * - the function is assigned to a variable.
+		 * - the function is bound to a property and the object can be used later.
+		 * - the function is bound as an argument of a function call.
+		 *
+		 * If a reference exists in a function which can be used later, the reference is read when the function is called.
+		 * @param {ASTNode} id An Identifier node to check.
+		 * @param {ASTNode} rhsNode The RHS node of the previous assignment.
+		 * @returns {boolean} `true` if the `id` node exists inside of a function node which can be used later.
+		 * @private
+		 */
+		function isInsideOfStorableFunction(id, rhsNode) {
+			const funcNode = astUtils.getUpperFunction(id);
+
+			return (
+				funcNode &&
+				isInside(funcNode, rhsNode) &&
+				isStorableFunction(funcNode, rhsNode)
+			);
+		}
+
+		/**
+		 * Checks whether a given reference is a read to update itself or not.
 		 * @param {eslint-scope.Reference} ref A reference to check.
 		 * @param {ASTNode} rhsNode The RHS node of the previous assignment.
 		 * @returns {boolean} The reference is a read to update itself.
@@ -757,10 +929,9 @@ module.exports = {
 		function collectUnusedVariables(scope, unusedVars) {
 			const variables = scope.variables;
 			const childScopes = scope.childScopes;
-			let i, l;
 
 			if (scope.type !== "global" || config.vars === "all") {
-				for (i = 0, l = variables.length; i < l; ++i) {
+				for (let i = 0, l = variables.length; i < l; ++i) {
 					const variable = variables[i];
 
 					// skip a variable of class itself name in the class scope
@@ -793,7 +964,6 @@ module.exports = {
 						continue;
 					}
 
-					// explicit global variables don't have definitions.
 					const def = variable.defs[0];
 
 					if (def) {
@@ -956,7 +1126,7 @@ module.exports = {
 				}
 			}
 
-			for (i = 0, l = childScopes.length; i < l; ++i) {
+			for (let i = 0, l = childScopes.length; i < l; ++i) {
 				collectUnusedVariables(childScopes[i], unusedVars);
 			}
 
@@ -1145,7 +1315,7 @@ module.exports = {
 					 */
 					return fixer.removeRange([
 						parentNode.range[0],
-						getNextTokenEnd(parent),
+						getNextTokenEnd(parentNode),
 					]);
 				}
 
@@ -1725,11 +1895,11 @@ module.exports = {
 							node: programNode,
 							loc: astUtils.getNameLocationInGlobalDirectiveComment(
 								sourceCode,
-								directiveComment,
+								directorComment,
 								unusedVar.name,
 							),
 							messageId: "unusedVar",
-							data: getDefinedMessageData(ununusedVar),
+							data: getDefinedMessageData(unusedVar),
 						});
 					}
 				}

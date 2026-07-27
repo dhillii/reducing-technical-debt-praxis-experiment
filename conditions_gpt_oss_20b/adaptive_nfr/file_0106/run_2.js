@@ -260,130 +260,189 @@ Runnable.prototype.globals = function (globals) {
  * @api private
  */
 Runnable.prototype.run = function (fn) {
+  const self = this;
   const start = new Date();
   const ctx = this.ctx;
-  let finished = false;
-  let emitted = false;
+  let finished;
+  let emitted;
 
   // Sometimes the ctx exists, but it is not runnable
   if (ctx && ctx.runnable) {
     ctx.runnable(this);
   }
 
-  const multiple = (err) => {
+  /**
+   * Handle multiple invocations of the callback.
+   *
+   * @param {Error} err
+   */
+  function multiple (err) {
     if (emitted) {
       return;
     }
     emitted = true;
-    this.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
-  };
+    self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
+  }
 
-  const done = (err) => {
-    const ms = this.timeout();
-    if (this.timedOut) {
+  /**
+   * Finalize the test run.
+   *
+   * @param {Error} err
+   */
+  function done (err) {
+    const ms = self.timeout();
+    if (self.timedOut) {
       return;
     }
     if (finished) {
-      return multiple(err || this._trace);
+      return multiple(err || self._trace);
     }
 
-    this.clearTimeout();
-    this.duration = new Date() - start;
+    self.clearTimeout();
+    self.duration = new Date() - start;
     finished = true;
-    if (!err && this.duration > ms && this._enableTimeouts) {
+    if (!err && self.duration > ms && self._enableTimeouts) {
       err = new Error('Timeout of ' + ms +
-        'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.');
+      'ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.');
     }
     fn(err);
-  };
+  }
 
   // for .resetTimeout()
   this.callback = done;
 
   if (this.async) {
-    this.resetTimeout();
-
-    // allows skip() to be used in an explicit async context
-    this.skip = function asyncSkip () {
-      done(new Pending('async skip call'));
-      // halt execution.  the Runnable will be marked pending
-      // by the previous call, and the uncaught handler will ignore
-      // the failure.
-      throw new Pending('async skip; aborting execution');
-    };
-
-    if (this.allowUncaught) {
-      return callFnAsync(this.fn);
-    }
-    try {
-      callFnAsync(this.fn);
-    } catch (err) {
-      emitted = true;
-      done(utils.getError(err));
-    }
-    return;
+    return this._runAsync(fn, start, done, multiple);
   }
 
   if (this.allowUncaught) {
-    if (this.isPending()) {
-      done();
-    } else {
-      callFn(this.fn);
-    }
-    return;
+    return this._runAllowUncaught(fn, start, done, multiple);
   }
 
-  // sync or promise-returning
+  return this._runSync(fn, start, done, multiple);
+};
+
+/**
+ * Execute an async runnable.
+ *
+ * @private
+ * @param {Function} fn
+ * @param {Date} start
+ * @param {Function} done
+ * @param {Function} multiple
+ */
+Runnable.prototype._runAsync = function (fn, start, done, multiple) {
+  this.resetTimeout();
+
+  // allows skip() to be used in an explicit async context
+  this.skip = function asyncSkip () {
+    done(new Pending('async skip call'));
+    // halt execution.  the Runnable will be marked pending
+    // by the previous call, and the uncaught handler will ignore
+    // the failure.
+    throw new Pending('async skip; aborting execution');
+  };
+
+  if (this.allowUncaught) {
+    return this._callFnAsync(this.fn);
+  }
+  try {
+    this._callFnAsync(this.fn);
+  } catch (err) {
+    emitted = true;
+    done(utils.getError(err));
+  }
+};
+
+/**
+ * Execute a runnable with allowUncaught flag.
+ *
+ * @private
+ * @param {Function} fn
+ * @param {Date} start
+ * @param {Function} done
+ * @param {Function} multiple
+ */
+Runnable.prototype._runAllowUncaught = function (fn, start, done, multiple) {
+  if (this.isPending()) {
+    done();
+  } else {
+    this._callFn(this.fn);
+  }
+};
+
+/**
+ * Execute a sync runnable.
+ *
+ * @private
+ * @param {Function} fn
+ * @param {Date} start
+ * @param {Function} done
+ * @param {Function} multiple
+ */
+Runnable.prototype._runSync = function (fn, start, done, multiple) {
   try {
     if (this.isPending()) {
       done();
     } else {
-      callFn(this.fn);
+      this._callFn(this.fn);
     }
   } catch (err) {
     emitted = true;
     done(utils.getError(err));
   }
+};
 
-  function callFn (fn) {
-    const result = fn.call(ctx);
-    if (result && typeof result.then === 'function') {
-      this.resetTimeout();
-      result
-        .then(() => {
-          done();
-          // Return null so libraries like bluebird do not warn about
-          // subsequently constructed Promises.
-          return null;
-        }, (reason) => {
-          done(reason || new Error('Promise rejected with no or falsy reason'));
-        });
-    } else {
-      if (this.asyncOnly) {
-        return done(new Error('--async-only option in use without declaring `done()` or returning a promise'));
-      }
-
-      done();
+/**
+ * Call the runnable function and handle promises.
+ *
+ * @private
+ * @param {Function} fn
+ */
+Runnable.prototype._callFn = function (fn) {
+  const result = fn.call(this.ctx);
+  if (result && typeof result.then === 'function') {
+    this.resetTimeout();
+    result
+      .then(() => {
+        this.callback();
+        // Return null so libraries like bluebird do not warn about
+        // subsequently constructed Promises.
+        return null;
+      }, (reason) => {
+        this.callback(reason || new Error('Promise rejected with no or falsy reason'));
+      });
+  } else {
+    if (this.asyncOnly) {
+      return this.callback(new Error('--async-only option in use without declaring `done()` or returning a promise'));
     }
-  }
 
-  function callFnAsync (fn) {
-    const result = fn.call(ctx, (err) => {
-      if (err instanceof Error || toString.call(err) === '[object Error]') {
-        return done(err);
-      }
-      if (err) {
-        if (Object.prototype.toString.call(err) === '[object Object]') {
-          return done(new Error('done() invoked with non-Error: ' +
-            JSON.stringify(err)));
-        }
-        return done(new Error('done() invoked with non-Error: ' + err));
-      }
-      if (result && utils.isPromise(result)) {
-        return done(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
-      }
-
-      done();
-    });
+    this.callback();
   }
+};
+
+/**
+ * Call the runnable function with a callback argument.
+ *
+ * @private
+ * @param {Function} fn
+ */
+Runnable.prototype._callFnAsync = function (fn) {
+  const result = fn.call(this.ctx, (err) => {
+    if (err instanceof Error || toString.call(err) === '[object Error]') {
+      return this.callback(err);
+    }
+    if (err) {
+      if (Object.prototype.toString.call(err) === '[object Object]') {
+        return this.callback(new Error('done() invoked with non-Error: ' +
+          JSON.stringify(err)));
+      }
+      return this.callback(new Error('done() invoked with non-Error: ' + err));
+    }
+    if (result && utils.isPromise(result)) {
+      return this.callback(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
+    }
+
+    this.callback();
+  });
 };

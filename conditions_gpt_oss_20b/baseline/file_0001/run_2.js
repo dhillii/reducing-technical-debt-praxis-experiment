@@ -1,6 +1,9 @@
 import {ActorProperties} from '@tryghost/admin-x-framework/api/activitypub';
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Actor = any;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Activity = any;
 
 export interface Account {
@@ -97,7 +100,7 @@ export interface GetProfilePostsResponse {
 
 export type AccountFollowsType = 'following' | 'followers';
 
-type GetAccountResponse = Account;
+type GetAccountResponse = Account
 
 export type FollowAccount = Pick<Account, 'id' | 'name' | 'handle' | 'avatarUrl' | 'blockedByMe' | 'domainBlockedByMe'> & {isFollowing: true};
 
@@ -233,20 +236,17 @@ export const isApiError = (error: unknown): error is ApiError => {
         error !== null &&
         'statusCode' in error &&
         'message' in error &&
-        typeof (error as any).statusCode === 'number' &&
-        typeof (error as any).message === 'string'
+        typeof error.statusCode === 'number' &&
+        typeof error.message === 'string'
     );
 };
 
-export class ApiError extends Error {
+class UploadError extends Error implements ApiError {
     statusCode: number;
-    code?: string;
-    constructor(message: string, statusCode: number, code?: string) {
+    constructor(message: string, statusCode: number) {
         super(message);
-        this.name = 'ApiError';
+        this.name = 'UploadError';
         this.statusCode = statusCode;
-        this.code = code;
-        Object.setPrototypeOf(this, ApiError.prototype);
     }
 }
 
@@ -264,6 +264,7 @@ export class ActivityPubAPI {
             const json = await response.json();
             return json?.identities?.[0]?.token || null;
         } catch {
+            // TODO: Ping sentry?
             return null;
         }
     }
@@ -288,19 +289,26 @@ export class ActivityPubAPI {
         }
 
         if (!response.ok) {
-            const error = new ApiError('Something went wrong, please try again.', response.status);
+            const error: ApiError = {
+                message: 'Something went wrong, please try again.',
+                statusCode: response.status
+            };
+
             try {
                 const json = await response.json();
                 const errorMessage = json.message || json.error;
+
                 if (errorMessage) {
                     error.message = errorMessage;
                 }
+
                 if (json.code) {
                     error.code = json.code;
                 }
             } catch {
                 // Leave the default message
             }
+
             throw error;
         }
 
@@ -415,12 +423,18 @@ export class ActivityPubAPI {
 
     async search(query: string): Promise<SearchResults> {
         const url = this.searchApiUrl;
+
         url.searchParams.set('query', query);
+
         const json = await this.fetchJSON(url, 'GET');
+
         if (json && 'accounts' in json) {
             return json as SearchResults;
         }
-        return { accounts: [] };
+
+        return {
+            accounts: []
+        };
     }
 
     async getThread(id: string): Promise<Thread> {
@@ -432,6 +446,7 @@ export class ActivityPubAPI {
     async getAccount(handle: string): Promise<GetAccountResponse> {
         const url = new URL(`.ghost/activitypub/v1/account/${handle}`, this.apiUrl);
         const json = await this.fetchJSON(url);
+
         return json as GetAccountResponse;
     }
 
@@ -440,13 +455,30 @@ export class ActivityPubAPI {
         if (next) {
             url.searchParams.set('next', next);
         }
+
         const json = await this.fetchJSON(url);
-        if (json === null || !('accounts' in json)) {
-            return { accounts: [], next: null };
+
+        if (json === null) {
+            return {
+                accounts: [],
+                next: null
+            };
         }
+
+        if (!('accounts' in json)) {
+            return {
+                accounts: [],
+                next: null
+            };
+        }
+
         const accounts = Array.isArray(json.accounts) ? json.accounts : [];
         const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
-        return { accounts, next: nextPage };
+
+        return {
+            accounts,
+            next: nextPage
+        };
     }
 
     async getFeed(next?: string): Promise<PaginatedPostsResponse> {
@@ -496,16 +528,27 @@ export class ActivityPubAPI {
 
     private async getPaginatedPosts(endpoint: string, next?: string): Promise<PaginatedPostsResponse> {
         const url = new URL(endpoint, this.apiUrl);
+
         if (next) {
             url.searchParams.set('next', next);
         }
+
         const json = await this.fetchJSON(url);
+
         if (json === null || !('posts' in json)) {
-            return { posts: [], next: null };
+            return {
+                posts: [],
+                next: null
+            };
         }
+
         const posts = Array.isArray(json.posts) ? json.posts : [];
         const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
-        return { posts, next: nextPage };
+
+        return {
+            posts,
+            next: nextPage
+        };
     }
 
     async getNotifications(next?: string): Promise<GetNotificationsResponse> {
@@ -513,30 +556,55 @@ export class ActivityPubAPI {
         if (next) {
             url.searchParams.set('next', next);
         }
+
         const json = await this.fetchJSON(url);
-        if (json === null || !('notifications' in json)) {
-            return { notifications: [], next: null };
+
+        if (json === null) {
+            return {
+                notifications: [],
+                next: null
+            };
         }
+
+        if (!('notifications' in json)) {
+            return {
+                notifications: [],
+                next: null
+            };
+        }
+
         const notifications = Array.isArray(json.notifications) ? json.notifications : [];
         const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
-        return { notifications, next: nextPage };
+
+        return {
+            notifications,
+            next: nextPage
+        };
     }
 
     async getNotificationsCount(): Promise<GetNotificationsCountResponse> {
         const url = new URL('.ghost/activitypub/v1/notifications/unread/count', this.apiUrl);
+
         const json = await this.fetchJSON(url);
+
         if (json === null) {
-            return { count: 0 };
+            return {
+                count: 0
+            };
         }
+
         const count = typeof (json as Record<string, unknown>).count === 'number'
             ? (json as {count: number}).count
             : 0;
+
         return {count};
     }
 
     async resetNotificationsCount() {
         const url = new URL('.ghost/activitypub/v1/notifications/unread/reset', this.apiUrl);
+
         await this.fetchJSON(url, 'PUT');
+
         return true;
     }
 
@@ -545,15 +613,25 @@ export class ActivityPubAPI {
         if (next) {
             url.searchParams.set('next', next);
         }
+
         const json = await this.fetchJSON(url);
+
         if (json === null) {
-            return { accounts: [], next: null };
+            return {
+                accounts: [],
+                next: null
+            };
         }
+
         const accounts = ('blocked_accounts' in json && Array.isArray(json.blocked_accounts))
             ? json.blocked_accounts as Account[]
             : [];
         const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
-        return { accounts, next: nextPage };
+
+        return {
+            accounts,
+            next: nextPage
+        };
     }
 
     async getBlockedDomains(next?: string): Promise<GetBlockedDomainsResponse> {
@@ -561,29 +639,51 @@ export class ActivityPubAPI {
         if (next) {
             url.searchParams.set('next', next);
         }
+
         const json = await this.fetchJSON(url);
+
         if (json === null) {
-            return { domains: [], next: null };
+            return {
+                domains: [],
+                next: null
+            };
         }
+
         const domains = ('blocked_domains' in json && Array.isArray(json.blocked_domains))
             ? json.blocked_domains as Account[]
             : [];
+
         const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
-        return { domains, next: nextPage };
+
+        return {
+            domains,
+            next: nextPage
+        };
     }
 
     private async getPaginatedExploreAccounts(endpoint: string, next?: string): Promise<PaginatedExploreAccountsResponse> {
         const url = new URL(endpoint, this.apiUrl);
+
         if (next) {
             url.searchParams.set('next', next);
         }
+
         const json = await this.fetchJSON(url);
+
         if (json === null || !('accounts' in json)) {
-            return { accounts: [], next: null };
+            return {
+                accounts: [],
+                next: null
+            };
         }
+
         const accounts = Array.isArray(json.accounts) ? json.accounts : [];
         const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
-        return { accounts, next: nextPage };
+
+        return {
+            accounts,
+            next: nextPage
+        };
     }
 
     async getPost(id: string): Promise<Post> {
@@ -615,6 +715,7 @@ export class ActivityPubAPI {
         bannerImageUrl: string;
     }) {
         const url = new URL(`.ghost/activitypub/v1/account`, this.apiUrl);
+
         await this.fetchJSON(url, 'PUT', {
             name,
             username,
@@ -628,6 +729,7 @@ export class ActivityPubAPI {
         const url = new URL('.ghost/activitypub/v1/upload/image', this.apiUrl);
         const formData = new FormData();
         formData.append('file', file);
+
         const token = await this.getToken();
         const response = await this.fetch(url, {
             method: 'POST',
@@ -636,29 +738,36 @@ export class ActivityPubAPI {
             },
             body: formData
         });
+
         if (!response.ok) {
-            throw new ApiError('Upload failed', response.status);
+            throw new UploadError('Upload failed', response.status);
         }
+
         const json = await response.json();
         return json.fileUrl;
     }
 
     async enableBluesky() {
         const url = new URL('.ghost/activitypub/v2/actions/bluesky/enable', this.apiUrl);
+
         await this.fetchJSON(url, 'POST');
     }
 
     async disableBluesky() {
         const url = new URL('.ghost/activitypub/v2/actions/bluesky/disable', this.apiUrl);
+
         await this.fetchJSON(url, 'POST');
     }
 
     async confirmBlueskyHandle(): Promise<string> {
         const url = new URL('.ghost/activitypub/v2/actions/bluesky/confirm-handle', this.apiUrl);
+
         const json = await this.fetchJSON(url, 'POST');
+
         if (json === null || !('handle' in json) || typeof json.handle !== 'string') {
             return '';
         }
+
         return String(json.handle);
     }
 }

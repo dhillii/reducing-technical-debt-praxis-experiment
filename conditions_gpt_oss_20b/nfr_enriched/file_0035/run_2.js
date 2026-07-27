@@ -721,231 +721,346 @@ describe('Acceptance: Posts / Pages', function () {
                     });
                 });
             });
-        });
-        it('can add and edit custom views', async function () {
-            await visit('/posts');
-            expect(find('[data-test-button="edit-view"]'), 'edit-view button (no filter)').to.not.exist;
-            expect(find('[data-test-button="add-view"]'), 'add-view button (no filter)').to.not.exist;
+            it('can add and edit custom views', async function () {
+                await visit('/posts');
+                expect(find('[data-test-button="edit-view"]'), 'edit-view button (no filter)').to.not.exist;
+                expect(find('[data-test-button="add-view"]'), 'add-view button (no filter)').to.not.exist;
 
-            await selectChoose('[data-test-author-select]', admin.name);
-            expect(find('[data-test-button="add-view"]'), 'add-view button (with filter)').to.exist;
+                await selectChoose('[data-test-author-select]', admin.name);
+                expect(find('[data-test-button="add-view"]'), 'add-view button (with filter)').to.exist;
 
-            await click('[data-test-button="add-view"]');
-            expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (on add)').to.exist;
-            expect(find('[data-test-modal="custom-view-form"] h1').textContent.trim()).to.equal('New view');
-            await fillIn('[data-test-input="custom-view-name"]', 'Test view');
-            await click('[data-test-button="save-custom-view"]');
-            expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (after add save)').to.not.exist;
-            expect(find('[data-test-nav-custom="posts-Test view"]'), 'new view nav').to.exist;
-            expect(find('[data-test-nav-custom="posts-Test view"]').textContent.trim()).to.equal('Test view');
-            expect(find('[data-test-button="add-view"]'), 'add-view button (on existing view)').to.not.exist;
-            expect(find('[data-test-button="edit-view"]'), 'edit-view button (on existing view)').to.exist;
+                await click('[data-test-button="add-view"]'), 'add-view button';
+                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (on add)').to.exist;
+                expect(find('[data-test-modal="custom-view-form"] h1').textContent.trim()).to.equal('New view');
+                await fillIn('[data-test-input="custom-view-name"]', 'Test view');
+                await click('[data-test-button="save-custom-view"]');
+                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (after add save)').to.not.exist;
+                expect(find('[data-test-nav-custom="posts-Test view"]'), 'new view nav').to.exist;
+                expect(find('[data-test-nav-custom="posts-Test view"]').textContent.trim()).to.equal('Test view');
+                expect(find('[data-test-button="add-view"]'), 'add-view button (on existing view)').to.not.exist;
+                expect(find('[data-test-button="edit-view"]'), 'edit-view button (on existing view)').to.exist;
 
-            await click('[data-test-button="edit-view"]');
-            expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (on edit)').to.exist;
-            expect(find('[data-test-modal="custom-view-form"] h1').textContent.trim()).to.equal('Edit view');
-            await fillIn('[data-test-input="custom-view-name"]', 'Updated view');
-            await click('[data-test-button="save-custom-view"]');
-            expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (after edit save)').to.not.exist;
-            expect(find('[data-test-nav-custom="posts-Updated view"]')).to.exist;
-            expect(find('[data-test-nav-custom="posts-Updated view"]').textContent.trim()).to.equal('Updated view');
-            expect(find('[data-test-button="add-view"]'), 'add-view button (after edit)').to.not.exist;
-            expect(find('[data-test-button="edit-view"]'), 'edit-view button (after edit)').to.exist;
-        });
-
-        it('can navigate to custom views', async function () {
-            this.server.schema.settings.findBy({key: 'shared_views'}).update({
-                group: 'site',
-                key: 'shared_views',
-                value: JSON.stringify([{
-                    route: 'posts',
-                    name: 'My posts',
-                    filter: {
-                        author: admin.slug
-                    }
-                }])
+                await click('[data-test-button="edit-view"]'), 'edit-view button';
+                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (on edit)').to.exist;
+                expect(find('[data-test-modal="custom-view-form"] h1').textContent.trim()).to.equal('Edit view');
+                await fillIn('[data-test-input="custom-view-name"]', 'Updated view');
+                await click('[data-test-button="save-custom-view"]');
+                expect(find('[data-test-modal="custom-view-form"]'), 'custom view modal (after edit save)').to.not.exist;
+                expect(find('[data-test-nav-custom="posts-Updated view"]')).to.exist;
+                expect(find('[data-test-nav-custom="posts-Updated view"]').textContent.trim()).to.equal('Updated view');
+                expect(find('[data-test-button="add-view"]'), 'add-view button (after edit)').to.not.exist;
+                expect(find('[data-test-button="edit-view"]'), 'edit-view button (after edit)').to.exist;
             });
 
-            await visit('/posts');
+            it('can navigate to custom views', async function () {
+                this.server.schema.settings.findBy({key: 'shared_views'}).update({
+                    group: 'site',
+                    key: 'shared_views',
+                    value: JSON.stringify([{
+                        route: 'posts',
+                        name: 'My posts',
+                        filter: {
+                            author: admin.slug
+                        }
+                    }])
+                });
 
-            expect(find('[data-test-nav-custom="posts-Drafts"]'), 'drafts nav').to.exist;
-            expect(find('[data-test-nav-custom="posts-Scheduled"]'), 'scheduled nav').to.exist;
-            expect(find('[data-test-nav-custom="posts-Published"]'), 'published nav').to.exist;
-            expect(find('[data-test-nav-custom="posts-My posts"]'), 'my posts nav').to.exist;
+                await visit('/posts');
 
-            expect(find('[data-test-screen-title]')).to.have.rendered.trimmed.text('Posts');
-            expect(find('[data-test-nav="posts"]')).to.have.class('active');
+                expect(find('[data-test-nav-custom="posts-Drafts"]'), 'drafts nav').to.exist;
+                expect(find('[data-test-nav-custom="posts-Scheduled"]'), 'scheduled nav').to.exist;
+                expect(find('[data-test-nav-custom="posts-Published"]'), 'published nav').to.exist;
+                expect(find('[data-test-nav-custom="posts-My posts"]'), 'my posts nav').to.exist;
 
-            await click('[data-test-nav-custom="posts-Scheduled"]');
-            expect(currentURL()).to.equal('/posts?type=scheduled');
-            expect(find('[data-test-screen-title]').innerText).to.match(/Scheduled/);
-            expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.have.class('active');
+                expect(find('[data-test-screen-title]')).to.have.rendered.trimmed.text('Posts');
+                expect(find('[data-test-nav="posts"]')).to.have.class('active');
 
-            await click('[data-test-nav="posts"]');
-            expect(currentURL()).to.equal('/posts');
-            expect(find('[data-test-screen-title]')).to.have.rendered.trimmed.text('Posts');
-            expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.not.have.class('active');
+                await click('[data-test-nav-custom="posts-Scheduled"]');
+                expect(currentURL()).to.equal('/posts?type=scheduled');
+                expect(find('[data-test-screen-title]').innerText).to.match(/Scheduled/);
+                expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.have.class('active');
 
-            await selectChoose('[data-test-type-select]', 'Scheduled posts');
-            expect(currentURL()).to.equal('/posts?type=scheduled');
-            expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.have.class('active');
-            expect(find('[data-test-screen-title]').innerText).to.match(/Scheduled/);
-        });
+                await click('[data-test-nav="posts"]');
+                expect(currentURL()).to.equal('/posts');
+                expect(find('[data-test-screen-title]')).to.have.rendered.trimmed.text('Posts');
+                expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.not.have.class('active');
 
-        it('Shows edit view if order is null, which indicates a bad state', async function () {
-            this.server.schema.settings.findBy({key: 'shared_views'}).update({
-                group: 'site',
-                key: 'shared_views',
-                value: JSON.stringify([{
-                    route: 'posts',
-                    name: 'My posts',
-                    filter: {
-                        author: admin.slug,
-                        order: null
-                    }
-                }])
+                await selectChoose('[data-test-type-select]', 'Scheduled posts');
+                expect(currentURL()).to.equal('/posts?type=scheduled');
+                expect(find('[data-test-nav-custom="posts-Scheduled"]')).to.have.class('active');
+                expect(find('[data-test-screen-title]').innerText).to.match(/Scheduled/);
             });
 
-            await visit('/posts');
-            expect(find('[data-test-nav-custom="posts-My posts"]'), 'my posts nav').to.exist;
-            await click('[data-test-nav-custom="posts-My posts"]');
-            expect(find('[data-test-button="edit-view"]'), 'edit-view button (on existing view)').to.exist;
+            it('Shows edit view if order is null, which indicates a bad state', async function () {
+                this.server.schema.settings.findBy({key: 'shared_views'}).update({
+                    group: 'site',
+                    key: 'shared_views',
+                    value: JSON.stringify([{
+                        route: 'posts',
+                        name: 'My posts',
+                        filter: {
+                            author: admin.slug,
+                            order: null
+                        }
+                    }])
+                });
+
+                await visit('/posts');
+                expect(find('[data-test-nav-custom="posts-My posts"]'), 'my posts nav').to.exist;
+                await click('[data-test-nav-custom="posts-My posts"]');
+                expect(find('[data-test-button="edit-view"]'), 'edit-view button (on existing view)').to.exist;
+            });
+        });
+
+        describe('analytics visibility', function () {
+            let publishedPost;
+
+            beforeEach(async function () {
+                let adminRole = this.server.create('role', {name: 'Administrator'});
+                this.server.create('user', {roles: [adminRole]});
+
+                publishedPost = this.server.create('post', {
+                    status: 'published',
+                    hasBeenEmailed: true,
+                    email: this.server.create('email', {
+                        emailCount: 100,
+                        openedCount: 50,
+                        clickedCount: 25,
+                        openRate: 50,
+                        clickRate: 25
+                    })
+                });
+
+                await authenticateSession();
+            });
+
+            it('hides visitor count column when webAnalyticsEnabled is disabled', async function () {
+                this.server.db.settings.update({key: 'web_analytics_enabled'}, {value: 'false'});
+
+                await visit('/posts');
+
+                let visitorsText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'visitors');
+                expect(visitorsText, 'visitor count column').to.not.exist;
+            });
+
+            it('hides member conversions column when membersTrackSources is disabled', async function () {
+                this.server.db.settings.update({key: 'members_track_sources'}, {value: 'false'});
+
+                await visit('/posts');
+
+                let membersText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'members');
+                expect(membersText, 'member conversions column').to.not.exist;
+            });
+
+            it('shows analytics button when post has analytics page', async function () {
+                publishedPost.update({hasAnalyticsPage: true});
+
+                await visit('/posts');
+
+                expect(find('.gh-post-list-cta.stats'), 'analytics button').to.exist;
+                expect(find('.gh-post-list-cta.edit'), 'edit button').to.not.exist;
+            });
+
+            it('hides all analytics columns when both settings are disabled', async function () {
+                this.server.db.settings.update({key: 'web_analytics'}, {value: 'false'});
+                this.server.db.settings.update({key: 'members_track_sources'}, {value: 'false'});
+
+                await visit('/posts');
+
+                let visitorsText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'visitors');
+                let membersText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'members');
+                expect(visitorsText, 'visitor count column').to.not.exist;
+                expect(membersText, 'member conversions column').to.not.exist;
+            });
+
+            it('shows email analytics columns regardless of webAnalyticsEnabled and membersTrackSources settings', async function () {
+                this.server.db.settings.update({key: 'web_analytics_enabled'}, {value: 'false'});
+                this.server.db.settings.update({key: 'members_track_sources'}, {value: 'false'});
+
+                await visit('/posts');
+
+                expect(find('.gh-post-list-metrics-container'), 'metrics container').to.exist;
+                expect(currentURL(), 'current URL').to.equal('/posts');
+            });
+        });
+
+        describe('newsletter analytics display logic', function () {
+            beforeEach(async function () {
+                let adminRole = this.server.create('role', {name: 'Administrator'});
+                this.server.create('user', {roles: [adminRole]});
+
+                await authenticateSession();
+            });
+
+            it('shows/hides email analytics section based on post.email', async function () {
+                let email1 = this.server.create('email', {
+                    emailCount: 1500
+                });
+
+                this.server.create('post', {
+                    status: 'published',
+                    hasBeenEmailed: true,
+                    email: email1
+                });
+
+                this.server.create('post', {
+                    status: 'published',
+                    hasBeenEmailed: false,
+                    email: null
+                });
+
+                await visit('/posts');
+
+                let postElements = findAll('.gh-posts-list-item');
+                expect(postElements.length).to.equal(2);
+
+                let firstPost = postElements[0];
+                let emailSection = firstPost.querySelector('.gh-post-analytics-email-metrics');
+                expect(emailSection, 'email analytics section for post with email').to.exist;
+
+                let secondPost = postElements[1];
+                let noEmailSection = secondPost.querySelector('.gh-post-analytics-email-metrics');
+                expect(noEmailSection, 'email analytics section for post without email').to.not.exist;
+            });
+
+            it('displays newsletter columns based on email tracking settings', async function () {
+                let email1 = this.server.create('email', {
+                    emailCount: 15000,
+                    trackOpens: false,
+                    trackClicks: false
+                });
+
+                this.server.create('post', {
+                    status: 'published',
+                    hasBeenEmailed: true,
+                    email: email1,
+                    showEmailOpenAnalytics: false,
+                    showEmailClickAnalytics: false
+                });
+
+                await visit('/posts');
+
+                expect(find('[data-test-analytics-sent]'), 'sent column').to.exist;
+                expect(find('[data-test-analytics-sent] .gh-content-email-stats-value').textContent.trim()).to.equal('15k');
+                expect(find('[data-test-analytics-opens]'), 'opens column when disabled').to.not.exist;
+                expect(find('[data-test-analytics-clicks]'), 'clicks column when disabled').to.not.exist;
+            });
         });
     });
 
-    describe('analytics visibility', function () {
-        let publishedPost;
+    describe('pages', function () {
+        describe('as admin', function () {
+            let admin, editor;
 
-        beforeEach(async function () {
-            let adminRole = this.server.create('role', {name: 'Administrator'});
-            this.server.create('user', {roles: [adminRole]});
+            beforeEach(async function () {
+                let adminRole = this.server.create('role', {name: 'Administrator'});
+                admin = this.server.create('user', {roles: [adminRole]});
+                let editorRole = this.server.create('role', {name: 'Editor'});
+                editor = this.server.create('user', {roles: [editorRole]});
 
-            publishedPost = this.server.create('post', {
-                status: 'published',
-                hasBeenEmailed: true,
-                email: this.server.create('email', {
-                    emailCount: 100,
-                    openedCount: 50,
-                    clickedCount: 25,
-                    openRate: 50,
-                    clickRate: 25
-                })
+                this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'});
+                this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'});
+                this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'});
+                this.server.create('post', {authors: [admin], status: 'published', title: 'Published Post', visibility: 'paid'});
+
+                this.server.create('page', {authors: [admin], status: 'published', title: 'Published Page'});
+                this.server.create('page', {authors: [editor], status: 'published', title: 'Editor Published Page'});
+                this.server.create('page', {authors: [admin], status: 'draft', title: 'Draft Page'});
+                this.server.create('page', {authors: [admin], status: 'scheduled', title: 'Scheduled Page'});
+
+                await authenticateSession();
             });
 
-            await authenticateSession();
-        });
+            it('can view pages', async function () {
+                await visit('/pages');
 
-        it('hides visitor count column when webAnalyticsEnabled is disabled', async function () {
-            this.server.db.settings.update({key: 'web_analytics_enabled'}, {value: 'false'});
-
-            await visit('/posts');
-
-            let visitorsText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'visitors');
-            expect(visitorsText, 'visitor count column').to.not.exist;
-        });
-
-        it('hides member conversions column when membersTrackSources is disabled', async function () {
-            this.server.db.settings.update({key: 'members_track_sources'}, {value: 'false'});
-
-            await visit('/posts');
-
-            let membersText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'members');
-            expect(membersText, 'member conversions column').to.not.exist;
-        });
-
-        it('shows analytics button when post has analytics page', async function () {
-            publishedPost.update({hasAnalyticsPage: true});
-
-            await visit('/posts');
-
-            expect(find('.gh-post-list-cta.stats'), 'analytics button').to.exist;
-            expect(find('.gh-post-list-cta.edit')).to.not.exist;
-        });
-
-        it('hides all analytics columns when both settings are disabled', async function () {
-            this.server.db.settings.update({key: 'web_analytics'}, {value: 'false'});
-            this.server.db.settings.update({key: 'members_track_sources'}, {value: 'false'});
-
-            await visit('/posts');
-
-            let visitorsText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'visitors');
-            let membersText = findAll('.gh-content-email-stats').find(el => el.textContent.trim() === 'members');
-            expect(visitorsText, 'visitor count column').to.not.exist;
-            expect(membersText, 'member conversions column').to.not.exist;
-        });
-
-        it('shows email analytics columns regardless of webAnalyticsEnabled and membersTrackSources settings', async function () {
-            this.server.db.settings.update({key: 'web_analytics_enabled'}, {value: 'false'});
-            this.server.db.settings.update({key: 'members_track_sources'}, {value: 'false'});
-
-            await visit('/posts');
-
-            expect(find('.gh-post-list-metrics-container'), 'metrics container').to.exist;
-
-            expect(currentURL(), 'current URL').to.equal('/posts');
-        });
-    });
-
-    describe('newsletter analytics display logic', function () {
-        beforeEach(async function () {
-            let adminRole = this.server.create('role', {name: 'Administrator'});
-            this.server.create('user', {roles: [adminRole]});
-
-            await authenticateSession();
-        });
-
-        it('shows/hides email analytics section based on post.email', async function () {
-            let email1 = this.server.create('email', {
-                emailCount: 1500
+                const pages = findAll('[data-test-post-id]');
+                expect(pages.length, 'all pages count').to.equal(4);
             });
 
-            this.server.create('post', {
-                status: 'published',
-                hasBeenEmailed: true,
-                email: email1
+            it('can filter pages', async function () {
+                await visit('/pages');
+
+                await selectChoose('[data-test-type-select]', 'Draft pages');
+
+                let pagesRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/pages/') && r.method === 'GET');
+                let lastPagesRequest = pagesRequests[pagesRequests.length - 1];
+                expect(lastPagesRequest.queryParams.filter, '"drafts" request status filter').to.have.string('status:draft');
+                expect(findAll('[data-test-post-id]').length, 'drafts count').to.equal(1);
+                expect(find('[data-test-post-id="3"]'), 'draft page').to.exist;
+
+                await selectChoose('[data-test-type-select]', 'Published pages');
+
+                pagesRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/pages/') && r.method === 'GET');
+                lastPagesRequest = pagesRequests[pagesRequests.length - 1];
+                expect(lastPagesRequest.queryParams.filter, '"published" request status filter').to.have.string('status:published');
+                expect(findAll('[data-test-post-id]').length, 'published count').to.equal(2);
+                expect(find('[data-test-post-id="1"]'), 'admin published page').to.exist;
+                expect(find('[data-test-post-id="2"]'), 'editor published page').to.exist;
+
+                await selectChoose('[data-test-type-select]', 'Scheduled pages');
+
+                pagesRequests = this.server.pretender.handledRequests.filter(r => r.url.includes('/pages/') && r.method === 'GET');
+                lastPagesRequest = pagesRequests[pagesRequests.length - 1];
+                expect(lastPagesRequest.queryParams.filter, '"scheduled" request status filter').to.have.string('status:scheduled');
+                expect(findAll('[data-test-post-id]').length, 'scheduled count').to.equal(1);
+                expect(find('[data-test-post-id="4"]'), 'scheduled page').to.exist;
             });
 
-            this.server.create('post', {
-                status: 'published',
-                hasBeenEmailed: false,
-                email: null
+            it('can filter by tag', async function () {
+                this.server.create('tag', {name: 'B - Second', slug: 'second'});
+                this.server.create('tag', {name: 'Z - Last', slug: 'last'});
+                this.server.create('tag', {name: 'A - First', slug: 'first'});
+
+                await visit('/pages');
+                await clickTrigger('[data-test-tag-select]');
+
+                let options = findAll('.ember-power-select-option');
+                expect(options.length, 'options count').to.equal(4);
+                expect(options[0].textContent.trim()).to.equal('All tags');
+
+                await selectSearch('[data-test-tag-select]', 's');
+
+                options = findAll('.ember-power-select-option');
+                expect(options[0].textContent.trim()).to.equal('A - First');
+                expect(options[1].textContent.trim()).to.equal('B - Second');
+                expect(options[2].textContent.trim()).to.equal('Z - Last');
+
+                await selectChoose('[data-test-tag-select]', 'B - Second');
+                let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
+                expect(lastRequest.queryParams.allFilter, '"pages" request filter param').to.have.string('tag:second');
             });
 
-            await visit('/posts');
+            it('can filter by tag with server-side search', async function () {
+                this.server.createList('tag', 120);
+                this.server.create('tag', {name: 'Z - Last', slug: 'last'});
 
-            let postElements = findAll('.gh-posts-list-item');
-            expect(postElements.length).to.equal(2);
+                await visit('/pages');
 
-            let firstPost = postElements[0];
-            let emailSection = firstPost.querySelector('.gh-post-analytics-email-metrics');
-            expect(emailSection, 'email analytics section for post with email').to.exist;
+                await selectSearch('[data-test-tag-select]', 'Last');
 
-            let secondPost = postElements[1];
-            let noEmailSection = secondPost.querySelector('.gh-post-analytics-email-metrics');
-            expect(noEmailSection, 'email analytics section for post without email').to.not.exist;
-        });
+                let options = findAll('.ember-power-select-option');
+                expect(options.length, 'options count').to.equal(1);
+                expect(options[0].textContent.trim()).to.equal('Z - Last');
 
-        it('displays newsletter columns based on email tracking settings', async function () {
-            let email1 = this.server.create('email', {
-                emailCount: 15000,
-                trackOpens: false,
-                trackClicks: false
+                await selectChoose('[data-test-tag-select]', 'Z - Last');
+
+                let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
+                expect(lastRequest.queryParams.allFilter, '"pages" request filter param').to.have.string('tag:last');
             });
 
-            this.server.create('post', {
-                status: 'published',
-                hasBeenEmailed: true,
-                email: email1,
-                showEmailOpenAnalytics: false,
-                showEmailClickAnalytics: false
+            it('can open with a filtered tag', async function () {
+                const tag = this.server.create('tag', {name: 'B - Second', slug: 'second'});
+                this.server.create('page', {authors: [admin], status: 'published', title: 'Published Page with Second tag', tags: [tag]});
+
+                await visit('/pages?tag=second');
+
+                const pages = findAll('[data-test-post-id]');
+                expect(pages.length, 'all pages count').to.equal(1);
+                expect(pages[0].querySelector('.gh-content-entry-title').textContent, 'post title').to.contain('Published Page with Second tag');
+                const filter = find('[data-test-tag-select]');
+                expect(filter.textContent.trim(), 'filter text').to.contain('B - Second');
             });
-
-            await visit('/posts');
-
-            expect(find('[data-test-analytics-sent]'), 'sent column').to.exist;
-            expect(find('[data-test-analytics-sent] .gh-content-email-stats-value').textContent.trim()).to.equal('15k');
-            expect(find('[data-test-analytics-opens]'), 'opens column when disabled').to.not.exist;
-            expect(find('[data-test-analytics-clicks]'), 'clicks column when disabled').to.not.exist;
         });
     });
 });

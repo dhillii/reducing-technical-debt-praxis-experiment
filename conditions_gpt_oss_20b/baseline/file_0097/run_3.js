@@ -13,6 +13,22 @@ define([
 ], function(_, Backbone, Radio) {
     'use strict';
 
+    /**
+     * Pagination support for Backbone collections.
+     * Some code was borrowed from the plugin Backbone.paginator.
+     *
+     * Triggers:
+     * ---------
+     * Events to channel `notes`:
+     * 1. `model:navigate` - when the next or previous model was requested
+     *     or a model was removed.
+     *
+     * Events to itself (e.g. collection):
+     * 1. `page:next` - when the next model was requested but a user
+     *     has reached the last model on the page.
+     * 2. `page:previous` - when the previous model was requested but a user
+     *     has reached the first model on the page.
+     */
     const PageableCollection = Backbone.Collection.extend({
 
         // Default pagination settings
@@ -233,7 +249,7 @@ define([
                 return false;
             }
 
-            let coll  = this.fullCollection || this;
+            const coll  = this.fullCollection || this;
             let index = this.indexOf(model);
 
             coll.remove(model);

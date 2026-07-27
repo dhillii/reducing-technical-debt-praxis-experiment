@@ -57,6 +57,9 @@ function useEventCallback<Func extends (...args: any[]) => unknown>(callback: Fu
   return cb as any
 }
 
+/**
+ * Delete button with confirmation dialog.
+ */
 function DeleteButton({
   list,
   itemId,
@@ -77,24 +80,6 @@ function DeleteButton({
     { variables: { id: itemId } }
   )
 
-  const handleDelete = async () => {
-    try {
-      await deleteItem()
-    } catch (err: any) {
-      toastQueue.critical('Unable to delete item', {
-        actionLabel: 'Details',
-        onAction: () => setErrorDialogValue(err),
-        shouldCloseOnAction: true,
-      })
-      return
-    }
-
-    toastQueue.neutral(`${list.singular} deleted.`, {
-      timeout: 5000,
-    })
-    router.push(list.isSingleton ? '/' : `/${list.path}`)
-  }
-
   return (
     <Fragment>
       <DialogTrigger>
@@ -104,7 +89,23 @@ function DeleteButton({
           title="Delete item"
           cancelLabel="Cancel"
           primaryActionLabel="Yes, delete"
-          onPrimaryAction={handleDelete}
+          onPrimaryAction={async () => {
+            try {
+              await deleteItem()
+            } catch (err: any) {
+              toastQueue.critical('Unable to delete item', {
+                actionLabel: 'Details',
+                onAction: () => setErrorDialogValue(err),
+                shouldCloseOnAction: true,
+              })
+              return
+            }
+
+            toastQueue.neutral(`${list.singular} deleted.`, {
+              timeout: 5000,
+            })
+            router.push(list.isSingleton ? '/' : `/${list.path}`)
+          }}
         >
           <Text>
             Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>
@@ -142,6 +143,9 @@ function ItemNotFound(props: PropsWithChildren) {
   )
 }
 
+/**
+ * Reset button with confirmation dialog.
+ */
 function ResetButton(props: { onReset: () => void; hasChanges?: boolean }) {
   return (
     <DialogTrigger>
@@ -161,6 +165,9 @@ function ResetButton(props: { onReset: () => void; hasChanges?: boolean }) {
   )
 }
 
+/**
+ * Form for editing an item.
+ */
 function ItemForm({
   listKey,
   initialValue,
@@ -300,71 +307,57 @@ function ItemForm({
   )
 }
 
-export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
-
-function handleNavigation(
-  action: ActionMeta,
-  resultId: string | null,
-  currentId: string,
-  list: ListMeta,
-  router: ReturnType<typeof useRouter>,
-  refetch: () => void
-) {
-  const { navigation } = action.itemView
-  if ((navigation === 'follow' && resultId === currentId) || navigation === 'refetch') {
-    refetch()
-  } else if (navigation === 'follow' && resultId) {
-    router.push(`/${list.path}/${resultId}`)
-  } else {
-    router.push(list.isSingleton ? '/' : `/${list.path}`)
-  }
-}
-
-function NotFoundContent({
+/**
+ * Render content for item not found scenarios.
+ */
+function ItemNotFoundContent({
   list,
   itemId,
+  item,
+  isSingleton,
+  hideCreate,
 }: {
   list: ListMeta
-  itemId: string
+  itemId: string | undefined
+  item: any
+  isSingleton: boolean
+  hideCreate: boolean
 }) {
-  if (list.isSingleton) {
-    if (itemId === '1') {
+  if (item == null) {
+    if (isSingleton) {
+      if (itemId === '1') {
+        return (
+          <ItemNotFound>
+            <Text>“{list.label}” doesn’t exist, or you don’t have access to it.</Text>
+            {!hideCreate && <CreateButtonLink list={list} />}
+          </ItemNotFound>
+        )
+      }
       return (
         <ItemNotFound>
-          <Text>“{list.label}” doesn’t exist, or you don’t have access to it.</Text>
-          {!list.hideCreate && <CreateButtonLink list={list} />}
+          <Text>
+            An item with ID <strong>“{itemId}”</strong> does not exist.
+          </Text>
         </ItemNotFound>
       )
     }
     return (
       <ItemNotFound>
         <Text>
-          An item with ID <strong>“{itemId}”</strong> does not exist.
+          The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have
+          access to it.
         </Text>
       </ItemNotFound>
     )
   }
-  return (
-    <ItemNotFound>
-      <Text>
-        The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have access to it.
-      </Text>
-    </ItemNotFound>
-  )
+  return null
 }
 
-function Loading() {
-  return (
-    <VStack height="100%" alignItems="center" justifyContent="center">
-      <ProgressCircle aria-label="loading item data" size="large" isIndeterminate />
-    </VStack>
-  )
-}
+export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
 
 function ItemPage({ listKey }: ItemPageProps) {
   const list = useList(listKey)
-  const router = useRouter()
-  const id_ = router.query.id
+  const id_ = useRouter().query.id
   const [itemId] = Array.isArray(id_) ? id_ : [id_]
   const { data, error, loading, refetch } = useListItem(listKey, itemId ?? null)
   const item = data?.item
@@ -428,13 +421,32 @@ function ItemPage({ listKey }: ItemPageProps) {
     }
   }, [data?.keystone?.adminMeta, list.fields])
 
-  const onAction = useCallback(
-    (action: ActionMeta, resultId: string | null) => {
-      const currentId = Array.isArray(itemId) ? itemId[0] : itemId
-      handleNavigation(action, resultId, currentId, list, router, refetch)
-    },
-    [itemId, list, router, refetch]
+  const navigationHandlers = useMemo(
+    () => ({
+      follow: (resultId: string | null) => {
+        if (resultId === itemId) {
+          refetch()
+        } else if (resultId) {
+          router.push(`/${list.path}/${resultId}`)
+        } else {
+          router.push(list.isSingleton ? '/' : `/${list.path}`)
+        }
+      },
+      refetch: () => refetch(),
+    }),
+    [itemId, list.isSingleton, list.path, refetch]
   )
+
+  function onAction(action: ActionMeta, resultId: string | null) {
+    const { navigation } = action.itemView
+    if (navigation === 'follow') {
+      navigationHandlers.follow(resultId)
+    } else if (navigation === 'refetch') {
+      navigationHandlers.refetch()
+    } else {
+      router.push(list.isSingleton ? '/' : `/${list.path}`)
+    }
+  }
 
   return (
     <PageContainer
@@ -451,14 +463,20 @@ function ItemPage({ listKey }: ItemPageProps) {
       }
     >
       {pageLoading ? (
-        <Loading />
+        <VStack height="100%" alignItems="center" justifyContent="center">
+          <ProgressCircle aria-label="loading item data" size="large" isIndeterminate />
+        </VStack>
       ) : (
         <ColumnLayout>
           <Box marginY="xlarge">
             <GraphQLErrorNotice errors={[error]} />
-            {item == null && (
-              <NotFoundContent list={list} itemId={Array.isArray(itemId) ? itemId[0] : itemId} />
-            )}
+            {ItemNotFoundContent({
+              list,
+              itemId,
+              item,
+              isSingleton: list.isSingleton,
+              hideCreate: list.hideCreate,
+            })}
           </Box>
           {initialValue && (
             <ItemForm

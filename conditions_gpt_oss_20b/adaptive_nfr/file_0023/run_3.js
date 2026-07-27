@@ -42,19 +42,9 @@ const StylesWrapper = () => {
 class PopupContent extends React.Component {
     static contextType = AppContext;
 
-    componentDidMount() {
-        this.sendContainerHeightChangeEvent();
-    }
+    componentDidMount() {}
 
-    sendContainerHeightChangeEvent() {
-        // Placeholder for future implementation
-        // Currently no-op
-        return;
-    }
-
-    componentDidUpdate() {
-        this.sendContainerHeightChangeEvent();
-    }
+    componentDidUpdate() {}
 
     handlePopupClose(e) {
         e.preventDefault();

@@ -886,7 +886,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getAutomatedEmailSentEvents(options = {}, filter) {
+    async getAutomatedEmailSentEvents(options, filter = undefined) {
         options = {
             ...options,
             withRelated: ['member', 'automatedEmail'],

@@ -36,15 +36,16 @@ function validate(
     if (value.confirm !== value.value) return `The passwords do not match`
 
     const val = value.value
+    const { min, max } = validation.length
 
-    if (val.length < validation.length.min) {
-      return validation.length.min === 1
+    if (val.length < min) {
+      return min === 1
         ? `${fieldLabel} must not be empty`
-        : `${fieldLabel} must be at least ${validation.length.min} characters long`
+        : `${fieldLabel} must be at least ${min} characters long`
     }
 
-    if (validation.length.max !== null && val.length > validation.length.max) {
-      return `${fieldLabel} must be no longer than ${validation.length.max} characters`
+    if (max !== null && val.length > max) {
+      return `${fieldLabel} must be no longer than ${max} characters`
     }
 
     if (validation.match && !validation.match.regex.test(val)) {
@@ -61,7 +62,7 @@ function validate(
 
 function readonlyCheckboxProps(isSet: null | undefined | boolean) {
   const isIndeterminate = isSet == null
-  const isSelected = isIndeterminate ? undefined : isSet
+  const isSelected = isSet == null ? undefined : isSet
   return {
     children: isIndeterminate ? 'Access denied' : 'Value is set',
     isIndeterminate,
@@ -94,7 +95,6 @@ export function Field(props: FieldProps<typeof controller>) {
       triggerRef.current?.focus()
     }, 0)
   }
-
   const onEscape = (e: React.KeyboardEvent) => {
     if (e.key !== 'Escape' || value.kind !== 'editing') return
     if (value.value === '' && value.confirm === '') {

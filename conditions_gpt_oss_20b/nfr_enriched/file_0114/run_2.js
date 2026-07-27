@@ -13,7 +13,7 @@ var debug       = require('debug')('pm2:cli');
 var util        = require('util');
 var chalk       = require('ansis');
 var fclone      = require('fclone');
-var conf        = require('./tools/Conf.js');
+var conf        = require('./conf');
 
 var IMMUTABLE_MSG = chalk.bold.blue('Use --update-env to update environment variables');
 

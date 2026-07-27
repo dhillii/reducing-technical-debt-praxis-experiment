@@ -25,7 +25,7 @@ export function Field(props: FieldProps<typeof controller>) {
   const { autoFocus, field, forceValidation, onChange, value, isRequired } = props
   const [isDirty, setDirty] = useState(false)
   const [preNullValue, setPreNullValue] = useState(
-    value.value || (value.kind === 'update' ? value.initial : null)
+    value.value ?? (value.kind === 'update' ? value.initial : null)
   )
   const longestLabelLength = useMemo(() => {
     return field.options.reduce((a, item) => Math.max(a, item.label.length), 0)
@@ -42,10 +42,7 @@ export function Field(props: FieldProps<typeof controller>) {
   const onSelectionChange = (key: Key | null) => {
     if (!onChange) return
 
-    const newValue =
-      key == null
-        ? null
-        : field.options.find(opt => opt.value === key)?.value ?? null
+    const newValue: string | number | null = field.options.find(opt => opt.value === key)?.value ?? null
 
     onChange({ ...value, value: newValue })
     setDirty(true)
@@ -92,7 +89,7 @@ export function Field(props: FieldProps<typeof controller>) {
             isReadOnly={isReadOnly}
             isRequired={isRequired}
             onChange={onSelectionChange}
-            value={value.value ?? preNullValue ?? null}
+            value={value.value ?? preNullValue}
           >
             {field.options.map(item => (
               <Radio key={item.value} value={item.value}>
@@ -141,7 +138,7 @@ export function Field(props: FieldProps<typeof controller>) {
 }
 
 export const Cell: CellComponent<typeof controller> = ({ value, field }) => {
-  const label = field.options.find(x => x.value === value)?.label
+  const label = field.options.find(x => x.value === value.value)?.label
   return <Text>{label}</Text>
 }
 
@@ -209,16 +206,16 @@ export function controller(config: Config): FieldController<
     displayMode: config.fieldMeta.displayMode,
     options: optionsWithStringValues,
     deserialize: data => {
-      for (const option of config.fieldMeta.options) {
-        if (option.value === data[config.fieldKey]) {
-          return {
-            kind: 'update',
-            initial: option.value,
-            value: option.value,
-          }
-        }
+      const raw = data[config.fieldKey]
+      if (raw == null) {
+        return { kind: 'update', initial: null, value: null }
       }
-      return { kind: 'update', initial: null, value: null }
+      const stringifiedOption = raw.toString()
+      return {
+        kind: 'update',
+        initial: stringifiedOption,
+        value: stringifiedOption,
+      }
     },
     serialize: value => ({ [config.fieldKey]: t(value.value ?? null) }),
     validate: (value, opts) => validate(value, opts.isRequired),

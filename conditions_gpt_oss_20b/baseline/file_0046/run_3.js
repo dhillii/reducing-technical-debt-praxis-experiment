@@ -147,28 +147,25 @@ module.exports = class StripeAPI {
                 expand: ['data.subscriptions']
             });
 
-            if (!customers?.length) {
-                return null;
+            if (!customers.length) return null;
+            if (customers.length === 1) return customers[0].id;
+
+            let latestCustomer = null;
+            let latestEnd = 0;
+
+            for (const customer of customers) {
+                const subs = customer.subscriptions?.data;
+                if (!subs?.length) continue;
+                for (const sub of subs) {
+                    const end = sub.current_period_end;
+                    if (end && end > latestEnd) {
+                        latestEnd = end;
+                        latestCustomer = customer;
+                    }
+                }
             }
 
-            if (customers.length === 1) {
-                return customers[0].id;
-            }
-
-            const latest = customers.reduce(
-                (best, customer) => {
-                    const subs = customer.subscriptions?.data;
-                    if (!subs?.length) return best;
-                    const latestSubEnd = subs.reduce(
-                        (max, sub) => (sub.current_period_end && sub.current_period_end > max ? sub.current_period_end : max),
-                        0
-                    );
-                    return latestSubEnd > best.latest ? {customer, latest: latestSubEnd} : best;
-                },
-                {customer: null, latest: 0}
-            );
-
-            return latest.customer?.id ?? null;
+            return latestCustomer?.id ?? null;
         } catch (err) {
             debug(`getCustomerByEmail(${email}) -> ${err.type}:${err.message}`);
             return null;
@@ -224,6 +221,7 @@ module.exports = class StripeAPI {
             await this._rateLimitBucket.throttle();
             await this._stripe.webhookEndpoints.del(id);
             debug(`deleteWebhook(${id}) -> Success`);
+            return;
         } catch (err) {
             debug(`deleteWebhook(${id}) -> ${err.type}`);
             throw err;
@@ -295,7 +293,7 @@ module.exports = class StripeAPI {
             subscriptionData.trial_period_days = options.trialDays;
         }
 
-        const stripeSessionOptions = {
+        let stripeSessionOptions = {
             payment_method_types: this.PAYMENT_METHOD_TYPES,
             success_url: options.successUrl || this._config.checkoutSessionSuccessUrl,
             cancel_url: options.cancelUrl || this._config.checkoutSessionCancelUrl,
@@ -480,6 +478,7 @@ module.exports = class StripeAPI {
     async attachPaymentMethodToCustomer(customer, paymentMethod) {
         await this._rateLimitBucket.throttle();
         await this._stripe.paymentMethods.attach(paymentMethod, {customer});
+        return;
     }
 
     async getCardPaymentMethod(id) {

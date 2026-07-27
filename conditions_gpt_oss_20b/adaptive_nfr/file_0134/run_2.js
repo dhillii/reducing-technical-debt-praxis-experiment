@@ -22,13 +22,17 @@ const isTypeAttributeEnabled = (model, attr) =>
 
 /**
  * Convert scalar attribute to GraphQL type.
+ *
  * @param {Object} attribute
+ * @param {String} modelName
+ * @param {String} attributeName
  * @param {String} rootType
  * @param {String} action
- * @returns {String}
+ * @param {Function} convertEnumType
+ * @return {String}
  */
-function getScalarType(attribute, rootType, action) {
-  const typeMap = {
+function getScalarGraphQLType(attribute, modelName, attributeName, rootType, action, convertEnumType) {
+  const scalarMap = {
     boolean: 'Boolean',
     integer: 'Int',
     biginteger: 'Long',
@@ -41,14 +45,15 @@ function getScalarType(attribute, rootType, action) {
     timestamp: 'DateTime',
   };
 
-  let type = typeMap[attribute.type] || 'String';
+  let type = scalarMap[attribute.type] || 'String';
 
   if (attribute.type === 'enumeration') {
-    type = this.convertEnumType(attribute, attribute.modelName, attribute.attributeName);
+    type = convertEnumType(attribute, modelName, attributeName);
   }
 
   if (attribute.required) {
-    if (rootType !== 'mutation' || (action !== 'update' && attribute.default === undefined)) {
+    const requiredCondition = rootType !== 'mutation' || (action !== 'update' && attribute.default === undefined);
+    if (requiredCondition) {
       type += '!';
     }
   }
@@ -58,35 +63,39 @@ function getScalarType(attribute, rootType, action) {
 
 /**
  * Convert component attribute to GraphQL type.
+ *
  * @param {Object} attribute
  * @param {String} rootType
  * @param {String} action
- * @returns {String}
+ * @return {String}
  */
-function getComponentType(attribute, rootType, action) {
+function getComponentGraphQLType(attribute, rootType, action) {
   const { required, repeatable, component } = attribute;
   const globalId = strapi.components[component].globalId;
-  let typeName = required === true ? `${globalId}` : globalId;
+
+  let typeName = globalId;
 
   if (rootType === 'mutation') {
+    const singular = _.upperFirst(toSingular(globalId));
     typeName =
       action === 'update'
-        ? `edit${_.upperFirst(toSingular(globalId))}Input`
-        : `${_.upperFirst(toSingular(globalId))}Input${required ? '!' : ''}`;
+        ? `edit${singular}Input`
+        : `${singular}Input${required ? '!' : ''}`;
   }
 
-  return repeatable === true ? `[${typeName}]` : `${typeName}`;
+  return repeatable ? `[${typeName}]` : typeName;
 }
 
 /**
  * Convert dynamiczone attribute to GraphQL type.
+ *
  * @param {Object} attribute
  * @param {String} modelName
  * @param {String} attributeName
  * @param {String} rootType
- * @returns {String}
+ * @return {String}
  */
-function getDynamicZoneType(attribute, modelName, attributeName, rootType) {
+function getDynamicZoneGraphQLType(attribute, modelName, attributeName, rootType) {
   const { required } = attribute;
   const unionName = `${modelName}${_.upperFirst(_.camelCase(attributeName))}DynamicZone`;
   let typeName = unionName;
@@ -100,30 +109,21 @@ function getDynamicZoneType(attribute, modelName, attributeName, rootType) {
 
 /**
  * Convert association attribute to GraphQL type.
+ *
  * @param {Object} attribute
  * @param {String} rootType
- * @param {String} action
- * @returns {String}
+ * @return {String}
  */
-function getAssociationType(attribute, rootType, action) {
+function getAssociationGraphQLType(attribute, rootType) {
   const ref = attribute.model || attribute.collection;
+  const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
+  const plural = !_.isEmpty(attribute.collection);
 
-  if (ref && ref !== '*') {
-    const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
-    const plural = !_.isEmpty(attribute.collection);
-
-    if (plural) {
-      return rootType === 'mutation' ? '[ID]' : `[${globalId}]`;
-    }
-
-    return rootType === 'mutation' ? 'ID' : globalId;
+  if (plural) {
+    return rootType === 'mutation' ? '[ID]' : `[${globalId}]`;
   }
 
-  if (rootType === 'mutation') {
-    return attribute.model ? 'ID' : '[ID]';
-  }
-
-  return attribute.model ? 'Morph' : '[Morph]';
+  return rootType === 'mutation' ? 'ID' : globalId;
 }
 
 module.exports = {
@@ -143,18 +143,35 @@ module.exports = {
     action = '',
   }) {
     if (isScalarAttribute(attribute)) {
-      return getScalarType.call(this, attribute, rootType, action);
+      return getScalarGraphQLType(
+        attribute,
+        modelName,
+        attributeName,
+        rootType,
+        action,
+        this.convertEnumType
+      );
     }
 
     if (attribute.type === 'component') {
-      return getComponentType.call(this, attribute, rootType, action);
+      return getComponentGraphQLType(attribute, rootType, action);
     }
 
     if (attribute.type === 'dynamiczone') {
-      return getDynamicZoneType.call(this, attribute, modelName, attributeName, rootType);
+      return getDynamicZoneGraphQLType(attribute, modelName, attributeName, rootType);
     }
 
-    return getAssociationType.call(this, attribute, rootType, action);
+    const ref = attribute.model || attribute.collection;
+
+    if (ref && ref !== '*') {
+      return getAssociationGraphQLType(attribute, rootType);
+    }
+
+    if (rootType === 'mutation') {
+      return attribute.model ? 'ID' : '[ID]';
+    }
+
+    return attribute.model ? 'Morph' : '[Morph]';
   },
 
   /**

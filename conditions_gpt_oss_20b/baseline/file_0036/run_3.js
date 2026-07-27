@@ -1,18 +1,6 @@
-const {
-    metaData,
-    settingsCache,
-    config,
-    blogIcon,
-    urlUtils,
-    getFrontendKey,
-    settingsHelpers
-} = require('../services/proxy');
+const {metaData, settingsCache, config, blogIcon, urlUtils, getFrontendKey, settingsHelpers} = require('../services/proxy');
 const {escapeExpression, SafeString} = require('../services/handlebars');
-const {
-    generateCustomFontCss,
-    isValidCustomFont,
-    isValidCustomHeadingFont
-} = require('@tryghost/custom-fonts');
+const {generateCustomFontCss, isValidCustomFont, isValidCustomHeadingFont} = require('@tryghost/custom-fonts');
 const {cardAssets} = require('../services/assets-minification');
 const logging = require('@tryghost/logging');
 const _ = require('lodash');
@@ -33,6 +21,7 @@ function finaliseStructuredData(meta) {
         if (property === 'article:tag') {
             _.each(meta.keywords, keyword => {
                 if (keyword !== '') {
+                    keyword = escapeExpression(keyword);
                     head.push(writeMetaTag(property, escapeExpression(keyword)));
                 }
             });
@@ -154,130 +143,6 @@ function getTinybirdTrackerScript(dataRoot) {
     return `<script defer src="${src}" data-stringify-payload="false" ${datasource ? `data-datasource="${datasource}"` : ''} data-storage="localStorage" data-host="${endpoint}" ${token && env !== 'production' ? `data-token="${token}"` : ''} ${tbParams}></script>`;
 }
 
-function buildHeadElements(options, meta, frontendKey, excludeList, dataRoot) {
-    const head = [];
-    const context = dataRoot._locals?.context || null;
-    const safeVersion = dataRoot._locals?.safeVersion;
-    const postCodeInjection = dataRoot?.post?.codeinjection_head || null;
-    const tagCodeInjection = dataRoot?.tag?.codeinjection_head || null;
-    const globalCodeinjection = settingsCache.get('codeinjection_head');
-    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
-    const referrerPolicy = config.get('referrerPolicy') || 'no-referrer-when-downgrade';
-    const favicon = blogIcon.getIconUrl();
-    const iconType = blogIcon.getIconType(favicon);
-
-    if (context) {
-        if (!excludeList.has('metadata')) {
-            if (meta.metaDescription) {
-                head.push(`<meta name="description" content="${escapeExpression(meta.metaDescription)}">`);
-            }
-            if (settingsCache.get('icon')) {
-                head.push(`<link rel="icon" href="${favicon}" type="image/${iconType}">`);
-            }
-            head.push(`<link rel="canonical" href="${escapeExpression(meta.canonicalUrl)}">`);
-            if (_.includes(context, 'preview')) {
-                head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-                head.push(writeMetaTag('referrer', 'same-origin', 'name'));
-            } else {
-                head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
-            }
-        }
-        if (meta.previousUrl) {
-            head.push(`<link rel="prev" href="${escapeExpression(meta.previousUrl)}">`);
-        }
-        if (meta.nextUrl) {
-            head.push(`<link rel="next" href="${escapeExpression(meta.nextUrl)}">`);
-        }
-        if (!_.includes(context, 'paged') && useStructuredData) {
-            if (!excludeList.has('social_data')) {
-                head.push(...finaliseStructuredData(meta));
-            }
-            if (!excludeList.has('schema') && meta.schema) {
-                head.push(`<script type="application/ld+json">\n${JSON.stringify(meta.schema, null, '    ')}\n</script>`);
-            }
-        }
-    }
-
-    head.push(`<meta name="generator" content="Ghost ${escapeExpression(safeVersion)}">`);
-    head.push(`<link rel="alternate" type="application/rss+xml" title="${escapeExpression(meta.site.title)}" href="${escapeExpression(meta.rssUrl)}">`);
-
-    head.push(getMembersHelper(options.data, frontendKey, excludeList));
-    if (!excludeList.has('search')) {
-        head.push(getSearchHelper(frontendKey));
-    }
-    if (!excludeList.has('announcement')) {
-        head.push(getAnnouncementBarHelper(options.data));
-    }
-    try {
-        head.push(getWebmentionDiscoveryLink());
-    } catch (err) {
-        logging.warn(err);
-    }
-
-    if (!excludeList.has('card_assets')) {
-        if (cardAssets.hasFile('js')) {
-            head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
-        }
-        if (cardAssets.hasFile('css')) {
-            head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
-        }
-    }
-
-    if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
-        head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
-    }
-
-    if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
-        head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
-    }
-
-    if (settingsHelpers.isWebAnalyticsEnabled()) {
-        head.push(getTinybirdTrackerScript(dataRoot));
-        if (dataRoot._locals) {
-            dataRoot._locals.ghostAnalytics = true;
-        }
-    }
-
-    if (options.data?.site?.accent_color) {
-        const accentColor = escapeExpression(options.data.site.accent_color);
-        const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
-        const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
-        if (existingScriptIndex !== -1) {
-            head[existingScriptIndex] += styleTag;
-        } else {
-            head.push(styleTag);
-        }
-    }
-
-    if (!_.isEmpty(globalCodeinjection)) {
-        head.push(globalCodeinjection);
-    }
-    if (!_.isEmpty(postCodeInjection)) {
-        head.push(postCodeInjection);
-    }
-    if (!_.isEmpty(tagCodeInjection)) {
-        head.push(tagCodeInjection);
-    }
-
-    const isSitePreview = options.data?.site?._preview ?? false;
-    const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
-    const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
-    if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
-        (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
-        const fontSelection = {};
-        if (headingFont) {
-            fontSelection.heading = headingFont;
-        }
-        if (bodyFont) {
-            fontSelection.body = bodyFont;
-        }
-        const customCSS = generateCustomFontCss(fontSelection);
-        head.push(new SafeString(customCSS));
-    }
-
-    return head;
-}
-
 module.exports = async function ghost_head(options) {
     debug('begin');
     if (options.data.root.statusCode >= 500) {
@@ -285,15 +150,102 @@ module.exports = async function ghost_head(options) {
     }
     const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
     const dataRoot = options.data.root;
+    const context = dataRoot._locals?.context ?? null;
+    const safeVersion = dataRoot._locals?.safeVersion;
+    const postCodeInjection = dataRoot?.post?.codeinjection_head ?? null;
+    const tagCodeInjection = dataRoot?.tag?.codeinjection_head ?? null;
+    const globalCodeinjection = settingsCache.get('codeinjection_head');
+    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
+    const referrerPolicy = config.get('referrerPolicy') || 'no-referrer-when-downgrade';
+    const favicon = blogIcon.getIconUrl();
+    const iconType = blogIcon.getIconType(favicon);
+    const head = [];
     try {
         const meta = await getMetaData(dataRoot, dataRoot);
         const frontendKey = await getFrontendKey();
-        const headElements = buildHeadElements(options, meta, frontendKey, excludeList, dataRoot);
+        if (context) {
+            if (!excludeList.has('metadata')) {
+                if (meta.metaDescription) {
+                    head.push(`<meta name="description" content="${escapeExpression(meta.metaDescription)}">`);
+                }
+                if (settingsCache.get('icon')) {
+                    head.push(`<link rel="icon" href="${favicon}" type="image/${iconType}">`);
+                }
+                head.push(`<link rel="canonical" href="${escapeExpression(meta.canonicalUrl)}">`);
+                if (context.includes('preview')) {
+                    head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+                    head.push(writeMetaTag('referrer', 'same-origin', 'name'));
+                } else {
+                    head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
+                }
+            }
+            if (meta.previousUrl) {
+                head.push(`<link rel="prev" href="${escapeExpression(meta.previousUrl)}">`);
+            }
+            if (meta.nextUrl) {
+                head.push(`<link rel="next" href="${escapeExpression(meta.nextUrl)}">`);
+            }
+            if (!context.includes('paged') && useStructuredData) {
+                if (!excludeList.has('social_data')) {
+                    head.push('');
+                    head.push(...finaliseStructuredData(meta));
+                    head.push('');
+                }
+                if (!excludeList.has('schema') && meta.schema) {
+                    head.push(`<script type="application/ld+json">\n${JSON.stringify(meta.schema, null, '    ')}\n    </script>\n`);
+                }
+            }
+        }
+        head.push(`<meta name="generator" content="Ghost ${escapeExpression(safeVersion)}">`);
+        head.push(`<link rel="alternate" type="application/rss+xml" title="${escapeExpression(meta.site.title)}" href="${escapeExpression(meta.rssUrl)}">`);
+        head.push(getMembersHelper(options.data, frontendKey, excludeList));
+        if (!excludeList.has('search')) head.push(getSearchHelper(frontendKey));
+        if (!excludeList.has('announcement')) head.push(getAnnouncementBarHelper(options.data));
+        try {
+            head.push(getWebmentionDiscoveryLink());
+        } catch (err) {
+            logging.warn(err);
+        }
+        if (!excludeList.has('card_assets')) {
+            if (cardAssets.hasFile('js')) head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+            if (cardAssets.hasFile('css')) head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        }
+        if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
+            head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+        }
+        if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
+            head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+        }
+        if (settingsHelpers.isWebAnalyticsEnabled()) {
+            head.push(getTinybirdTrackerScript(dataRoot));
+            if (dataRoot._locals) dataRoot._locals.ghostAnalytics = true;
+        }
+        if (options.data.site.accent_color) {
+            const accentColor = escapeExpression(options.data.site.accent_color);
+            const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+            const existingIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+            if (existingIndex !== -1) head[existingIndex] += styleTag;
+            else head.push(styleTag);
+        }
+        if (globalCodeinjection) head.push(globalCodeinjection);
+        if (postCodeInjection) head.push(postCodeInjection);
+        if (tagCodeInjection) head.push(tagCodeInjection);
+        const isSitePreview = options.data?.site?._preview ?? false;
+        const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
+        const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
+        if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
+            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
+            const fontSelection = {};
+            if (headingFont) fontSelection.heading = headingFont;
+            if (bodyFont) fontSelection.body = bodyFont;
+            const customCSS = generateCustomFontCss(fontSelection);
+            head.push(new SafeString(customCSS));
+        }
         debug('end');
-        return new SafeString(headElements.join('\n    ').trim());
+        return new SafeString(head.join('\n    ').trim());
     } catch (error) {
         logging.error(error);
-        return new SafeString('');
+        return new SafeString(head.join('\n    ').trim());
     }
 };
 

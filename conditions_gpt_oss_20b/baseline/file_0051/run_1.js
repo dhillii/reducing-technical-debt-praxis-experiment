@@ -14,6 +14,8 @@ module.exports = config;
 
 config.data = {};
 
+const propStringTmplRe = /^<%=\s*([a-z0-9_$]+(?:\.[a-z0-9_$]+)*)\s*%>$/i;
+
 config.escape = function(str) {
   return str.replace(/\./g, '\\.');
 };
@@ -29,8 +31,6 @@ config.getRaw = function(prop) {
     return config.data;
   }
 };
-
-const propStringTmplRe = /^<%=\s*([a-z0-9_$]+(?:\.[a-z0-9_$]+)*)\s*%>$/i;
 
 config.get = function(prop) {
   return config.process(config.getRaw(prop));

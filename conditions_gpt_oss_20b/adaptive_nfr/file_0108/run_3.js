@@ -58,9 +58,9 @@ exports.isString = function (obj) {
  */
 exports.watch = function (files, fn) {
   const options = { interval: 100 };
-  files.forEach((file) => {
+  files.forEach(function (file) {
     debug('file %s', file);
-    watchFile(file, options, (curr, prev) => {
+    watchFile(file, options, function (curr, prev) {
       if (prev.mtime < curr.mtime) {
         fn(file);
       }
@@ -96,12 +96,12 @@ exports.files = function (dir, ext, ret) {
 
   readdirSync(dir)
     .filter(ignored)
-    .forEach((p) => {
-      const fullPath = join(dir, p);
-      if (lstatSync(fullPath).isDirectory()) {
-        exports.files(fullPath, ext, ret);
-      } else if (fullPath.match(re)) {
-        ret.push(fullPath);
+    .forEach(function (path) {
+      path = join(dir, path);
+      if (lstatSync(path).isDirectory()) {
+        exports.files(path, ext, ret);
+      } else if (path.match(re)) {
+        ret.push(path);
       }
     });
 
@@ -136,7 +136,7 @@ exports.clean = function (str) {
 
   const spaces = str.match(/^\n?( *)/)[1].length;
   const tabs = str.match(/^\n?(\t*)/)[1].length;
-  const re = new RegExp('^\\n?' + (tabs ? '\\t' : ' ') + '{' + (tabs || spaces) + '}', 'gm');
+  const re = new RegExp('^\n?' + (tabs ? '\t' : ' ') + '{' + (tabs || spaces) + '}', 'gm');
 
   str = str.replace(re, '');
 
@@ -151,7 +151,7 @@ exports.clean = function (str) {
  * @return {Object}
  */
 exports.parseQuery = function (qs) {
-  return qs.replace('?', '').split('&').reduce((obj, pair) => {
+  return qs.replace('?', '').split('&').reduce(function (obj, pair) {
     const i = pair.indexOf('=');
     const key = pair.slice(0, i);
     const val = pair.slice(++i);
@@ -285,7 +285,7 @@ exports.stringify = function (value) {
     // IE7/IE8 has a bizarre String constructor; needs to be coerced
     // into an array and back to obj.
     if (typeHint === 'string' && typeof value === 'object') {
-      value = value.split('').reduce((acc, char, idx) => {
+      value = value.split('').reduce(function (acc, char, idx) {
         acc[idx] = char;
         return acc;
       }, {});
@@ -295,7 +295,7 @@ exports.stringify = function (value) {
     }
   }
 
-  for (const prop in value) {
+  for (let prop in value) {
     if (Object.prototype.hasOwnProperty.call(value, prop)) {
       return jsonStringify(exports.canonicalize(value, null, typeHint), 2).replace(/,(\n|$)/g, '$1');
     }
@@ -348,14 +348,14 @@ function jsonStringify (object, spaces, depth) {
           : val.toString();
         break;
       case 'date':
-        const sDate = isNaN(val.getTime()) ? val.toString() : val.getTime().toISOString();
+        const sDate = isNaN(val.getTime()) ? val.toString() : val.toISOString();
         val = '[Date: ' + sDate + ']';
         break;
       case 'buffer':
         const json = val.toJSON();
         // Based on the toJSON result
-        const jsonData = json.data && json.type ? json.data : json;
-        val = '[Buffer: ' + jsonStringify(jsonData, 2, depth + 1) + ']';
+        const jsonVal = json.data && json.type ? json.data : json;
+        val = '[Buffer: ' + jsonStringify(jsonVal, 2, depth + 1) + ']';
         break;
       default:
         val = (val === '[Function]' || val === '[Circular]')
@@ -365,7 +365,7 @@ function jsonStringify (object, spaces, depth) {
     return val;
   }
 
-  for (const i in object) {
+  for (let i in object) {
     if (!Object.prototype.hasOwnProperty.call(object, i)) {
       continue; // not my business
     }
@@ -390,8 +390,8 @@ function jsonStringify (object, spaces, depth) {
  * - is `null`, return value `null`
  * - is some other primitive, return the value
  * - is not a primitive or an `Array`, `Object`, or `Function`, return the value of the Thing's `toString()` method
- * - is an empty `Array`, `Object`, or `Function`, return the result of calling this function again.
- * - is an empty `Array`, `Object`, or `Function`, return the result of calling this function again.
+ * - is a non-empty `Array`, `Object`, or `Function`, return the result of calling this function again.
+ * - is an empty `Array`, `Object`, or `Function`, return the result of calling `emptyRepresentation()`
  *
  * @api private
  * @see {@link exports.stringify}
@@ -425,8 +425,8 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
       canonicalizedObj = value;
       break;
     case 'array':
-      withStack(value, () => {
-        canonicalizedObj = value.map((item) => {
+      withStack(value, function () {
+        canonicalizedObj = value.map(function (item) {
           return exports.canonicalize(item, stack);
         });
       });
@@ -445,8 +445,8 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
     /* falls through */
     case 'object':
       canonicalizedObj = canonicalizedObj || {};
-      withStack(value, () => {
-        Object.keys(value).sort().forEach((key) => {
+      withStack(value, function () {
+        Object.keys(value).sort().forEach(function (key) {
           canonicalizedObj[key] = exports.canonicalize(value[key], stack);
         });
       });
@@ -475,17 +475,17 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
  * @return {string[]} An array of paths.
  */
 exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
-  const files = [];
+  let files = [];
 
   if (!exists(path)) {
     if (exists(path + '.js')) {
       path += '.js';
     } else {
-      const found = glob.sync(path);
-      if (!found.length) {
+      files = glob.sync(path);
+      if (!files.length) {
         throw new Error("cannot resolve path (or pattern) '" + path + "'");
       }
-      return found;
+      return files;
     }
   }
 
@@ -499,13 +499,13 @@ exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
     return;
   }
 
-  readdirSync(path).forEach((file) => {
-    const fullPath = join(path, file);
+  readdirSync(path).forEach(function (file) {
+    file = join(path, file);
     try {
-      const stat = statSync(fullPath);
+      const stat = statSync(file);
       if (stat.isDirectory()) {
         if (recursive) {
-          files.push(...lookupFiles(fullPath, extensions, recursive));
+          files = files.concat(lookupFiles(file, extensions, recursive));
         }
         return;
       }
@@ -514,10 +514,10 @@ exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
       return;
     }
     const re = new RegExp('\\.(?:' + extensions.join('|') + ')$');
-    if (!stat.isFile() || !re.test(fullPath) || basename(fullPath)[0] === '.') {
+    if (!stat.isFile() || !re.test(file) || basename(file)[0] === '.') {
       return;
     }
-    files.push(fullPath);
+    files.push(file);
   });
 
   return files;
@@ -584,9 +584,9 @@ exports.stackTraceFilter = function () {
   }
 
   return function (stack) {
-    const lines = stack.split('\n');
+    stack = stack.split('\n');
 
-    const filtered = lines.reduce((list, line) => {
+    stack = stack.reduce(function (list, line) {
       if (isMochaInternal(line)) {
         return list;
       }
@@ -604,7 +604,7 @@ exports.stackTraceFilter = function () {
       return list;
     }, []);
 
-    return filtered.join('\n');
+    return stack.join('\n');
   };
 };
 

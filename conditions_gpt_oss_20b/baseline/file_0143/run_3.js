@@ -1,3 +1,7 @@
+/*
+	MIT License http://www.opensource.org/licenses/mit-license.php
+	Author Tobias Koppers @sokra
+	*/
 "use strict";
 
 const asyncLib = require("async");
@@ -196,94 +200,129 @@ class Compilation extends Tapable {
 	}
 
 	addModuleDependencies(module, dependencies, bail, cacheGroup, recursive, callback) {
-		const start = this.profile && Date.now();
+		let _this = this;
+		const start = _this.profile && Date.now();
+
 		const factories = [];
 		for(let i = 0; i < dependencies.length; i++) {
-			const depGroup = dependencies[i];
-			const factory = this.dependencyFactories.get(depGroup[0].constructor);
-			if(!factory) return callback(new Error(`No module factory available for dependency type: ${depGroup[0].constructor.name}`));
-			factories[i] = [factory, depGroup];
+			const factory = _this.dependencyFactories.get(dependencies[i][0].constructor);
+			if(!factory) {
+				return callback(new Error(`No module factory available for dependency type: ${dependencies[i][0].constructor.name}`));
+			}
+			factories[i] = [factory, dependencies[i]];
 		}
+		asyncLib.forEach(factories, function iteratorFactory(item, callback) {
+			const dependencies = item[1];
 
-		let self = this;
-		asyncLib.forEach(factories, (item, cb) => {
-			const [factory, deps] = item;
+			const errorAndCallback = function errorAndCallback(err) {
+				err.origin = module;
+				_this.errors.push(err);
+				if(bail) {
+					callback(err);
+				} else {
+					callback();
+				}
+			};
+			const warningAndCallback = function warningAndCallback(err) {
+				err.origin = module;
+				_this.warnings.push(err);
+				callback();
+			};
+
+			const factory = item[0];
 			factory.create({
 				contextInfo: {
 					issuer: module.nameForCondition && module.nameForCondition(),
-					compiler: self.compiler.name
+					compiler: _this.compiler.name
 				},
 				context: module.context,
-				dependencies: deps
-			}, (err, dependentModule) => {
-				if(err) {
-					const moduleErr = new ModuleNotFoundError(module, err, deps);
-					moduleErr.origin = module;
-					self.errors.push(moduleErr);
-					return bail ? cb(err) : cb();
-				}
-				if(!dependentModule) return process.nextTick(cb);
+				dependencies: dependencies
+			}, function factoryCallback(err, dependentModule) {
+				let afterFactory;
 
-				if(self.profile) {
-					if(!dependentModule.profile) dependentModule.profile = {};
-					dependentModule.profile.factory = Date.now() - start;
+				const optional = dependencies.every(d => d.optional);
+
+				if (err) {
+					if (optional) return warningAndCallback(err);
+					return errorAndCallback(err);
+				}
+				if (!dependentModule) {
+					return process.nextTick(callback);
+				}
+
+				if (_this.profile) {
+					if (!dependentModule.profile) dependentModule.profile = {};
+					afterFactory = Date.now();
+					dependentModule.profile.factory = afterFactory - start;
 				}
 
 				dependentModule.issuer = module;
-				const newModule = self.addModule(dependentModule, cacheGroup);
+				const newModule = _this.addModule(dependentModule, cacheGroup);
 
-				const assignReasons = () => {
-					deps.forEach(d => {
-						d.module = dependentModule;
-						dependentModule.addReason(module, d);
-					});
-				};
-
-				if(!newModule) {
-					dependentModule = self.getModule(dependentModule);
-					if(dependentModule.optional) dependentModule.optional = deps.every(d => d.optional);
-					assignReasons();
-					if(self.profile) {
-						if(!module.profile) module.profile = {};
-						const time = Date.now() - start;
-						if(!module.profile.dependencies || time > module.profile.dependencies) module.profile.dependencies = time;
+				function handleDependencies() {
+					for(let index = 0; index < dependencies.length; index++) {
+						const dep = dependencies[index];
+						dep.module = dependentModule;
+						dependentModule.addReason(module, dep);
 					}
-					return process.nextTick(cb);
+					if (_this.profile) {
+						if (!module.profile) module.profile = {};
+						const time = Date.now() - start;
+						if (!module.profile.dependencies || time > module.profile.dependencies) {
+							module.profile.dependencies = time;
+						}
+					}
 				}
 
-				if(newModule instanceof Module) {
-					if(self.profile) newModule.profile = dependentModule.profile;
-					newModule.optional = deps.every(d => d.optional);
+				if (!newModule) {
+					dependentModule = _this.getModule(dependentModule);
+					if (dependentModule.optional) dependentModule.optional = optional;
+					handleDependencies();
+					return process.nextTick(callback);
+				}
+
+				if (newModule instanceof Module) {
+					if (_this.profile) newModule.profile = dependentModule.profile;
+					newModule.optional = optional;
 					newModule.issuer = dependentModule.issuer;
 					dependentModule = newModule;
-					assignReasons();
-					if(self.profile) {
+					handleDependencies();
+					if (_this.profile) {
 						const afterBuilding = Date.now();
-						module.profile.building = afterBuilding - dependentModule.profile.factory;
+						module.profile.building = afterBuilding - afterFactory;
 					}
-					return recursive ? process.nextTick(() => self.processModuleDependencies(dependentModule, cb)) : process.nextTick(cb);
+					return recursive
+						? process.nextTick(_this.processModuleDependencies.bind(_this, dependentModule, callback))
+						: process.nextTick(callback);
 				}
 
-				dependentModule.optional = deps.every(d => d.optional);
-				assignReasons();
+				dependentModule.optional = optional;
+				handleDependencies();
 
-				self.buildModule(dependentModule, deps.every(d => d.optional), module, deps, err => {
-					if(err) {
-						err.origin = module;
-						self.errors.push(err);
-						return bail ? cb(err) : cb();
+				_this.buildModule(dependentModule, optional, module, dependencies, err => {
+					if (err) {
+						if (optional) return warningAndCallback(err);
+						return errorAndCallback(err);
 					}
-					if(self.profile) {
+					if (_this.profile) {
 						const afterBuilding = Date.now();
-						dependentModule.profile.building = afterBuilding - start;
+						dependentModule.profile.building = afterBuilding - afterFactory;
 					}
-					recursive ? self.processModuleDependencies(dependentModule, cb) : cb();
+					if (recursive) {
+						_this.processModuleDependencies(dependentModule, callback);
+					} else {
+						callback();
+					}
 				});
 			});
-		}, err => {
-			self = null;
-			if(err) return callback(err);
-			process.nextTick(callback);
+		}, function finalCallbackAddModuleDependencies(err) {
+			_this = null;
+
+			if(err) {
+				return callback(err);
+			}
+
+			return process.nextTick(callback);
 		});
 	}
 
@@ -744,11 +783,9 @@ class Compilation extends Tapable {
 			}
 		}
 
-		const queue = [
-			() => {
-				assignDepthToModule(module, 0);
-			}
-		];
+		const queue = [() => {
+			assignDepthToModule(module, 0);
+		}];
 		while(queue.length) {
 			queue.pop()();
 		}
@@ -841,7 +878,7 @@ class Compilation extends Tapable {
 		let unusedIds = [];
 		let nextFreeModuleId = 0;
 		let usedIds = [];
-		// TODO consider Map when performance has improved https://gist.github.com/sokra/234c077e1299b7369461f1708519c392
+		// TODO consider Map when performance has improved https://gist.github.com/sokra/234c077e1299b7369461f1708519b392
 		const usedIdMap = Object.create(null);
 		if(this.usedModuleIds) {
 			Object.keys(this.usedModuleIds).forEach(key => {

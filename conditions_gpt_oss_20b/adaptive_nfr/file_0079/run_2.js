@@ -147,7 +147,6 @@ internals.Plugin.prototype._clone = function (connections, plugin) {
 
 internals.Plugin.prototype.register = function (plugins /*, [options], callback */) {
 
-    const self = this;
     let options = (typeof arguments[1] === 'object' ? arguments[1] : {});
     const callback = (typeof arguments[1] === 'object' ? arguments[2] : arguments[1]);
 
@@ -167,27 +166,32 @@ internals.Plugin.prototype.register = function (plugins /*, [options], callback 
 
     options = Schema.apply('register', options);
 
-    const registrations = internals._prepareRegistrations.call(this, plugins, options);
+    /*
+        const register = function (server, options, next) { return next(); };
+        register.attributes = {
+            pkg: require('../package.json'),
+            name: 'plugin',
+            version: '1.1.1',
+            multiple: false,
+            dependencies: [],
+            connections: false,
+            once: true
+        };
 
-    this.root._registring = true;
+        const item = {
+            register: register,
+            options: options        // -optional--
+        };
 
-    Items.serial(registrations, function (item, next) {
-        internals._processRegistration.call(self, item, next);
-    }, function (err) {
-        self.root._registring = false;
-        return Hoek.nextTick(callback)(err);
-    });
-};
+        - OR -
 
+        const item = function () {}
+        item.register = register;
+        item.options = options;
 
-/**
- * Prepare registration objects from plugins array.
- *
- * @param {Array} plugins
- * @param {Object} options
- * @returns {Array}
- */
-internals._prepareRegistrations = function (plugins, options) {
+        const plugins = register, items, [register, item]
+    */
+
     const registrations = [];
     plugins = [].concat(plugins);
     for (let i = 0; i < plugins.length; ++i) {
@@ -230,88 +234,99 @@ internals._prepareRegistrations = function (plugins, options) {
 
         registrations.push(registration);
     }
-    return registrations;
-};
 
+    this.root._registring = true;
 
-/**
- * Process a single registration item.
- *
- * @param {Object} item
- * @param {Function} next
- */
-internals._processRegistration = function (item, next) {
-    const selection = this._select(item.options.select, item.name);
-    selection.realm.modifiers.route.prefix = item.options.routes.prefix;
-    selection.realm.modifiers.route.vhost = item.options.routes.vhost;
-    selection.realm.pluginOptions = item.pluginOptions || {};
+    const each = (item, next) => {
 
-    // Validate requirements
-    const requirements = item.requirements;
-    Hoek.assert(!requirements.node || Somever.match(process.version, requirements.node), 'Plugin', item.name, 'requires node version', requirements.node, 'but found', process.version);
-    Hoek.assert(!requirements.hapi || Somever.match(this.version, requirements.hapi), 'Plugin', item.name, 'requires hapi version', requirements.hapi, 'but found', this.version);
+        const selection = this._select(item.options.select, item.name);
+        selection.realm.modifiers.route.prefix = item.options.routes.prefix;
+        selection.realm.modifiers.route.vhost = item.options.routes.vhost;
+        selection.realm.pluginOptions = item.pluginOptions || {};
 
-    // Protect against multiple registrations
-    const connectionless = (item.connections === 'conditional' ? selection.connections.length === 0 : !item.connections);
-    const registrationData = {
-        version: item.version,
-        name: item.name,
-        options: item.pluginOptions,
-        attributes: item.register.attributes
+        const registrationData = {
+            version: item.version,
+            name: item.name,
+            options: item.pluginOptions,
+            attributes: item.register.attributes
+        };
+
+        // Validate requirements
+        const validateRequirements = (req) => {
+            Hoek.assert(!req.node || Somever.match(process.version, req.node), 'Plugin', item.name, 'requires node version', req.node, 'but found', process.version);
+            Hoek.assert(!req.hapi || Somever.match(this.version, req.hapi), 'Plugin', item.name, 'requires hapi version', req.hapi, 'but found', this.version);
+        };
+        validateRequirements(item.requirements);
+
+        // Determine if registration is connectionless
+        const isConnectionless = (item.connections === 'conditional' ? selection.connections.length === 0 : !item.connections);
+
+        // Handle multiple registrations
+        const handleMultipleRegistrations = () => {
+            if (isConnectionless) {
+                if (this.root._registrations[item.name]) {
+                    if (item.options.once) {
+                        return true; // skip registration
+                    }
+                    Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered');
+                } else {
+                    this.root._registrations[item.name] = registrationData;
+                }
+            }
+            return false;
+        };
+        if (handleMultipleRegistrations()) {
+            return next();
+        }
+
+        // Gather connections
+        const gatherConnections = () => {
+            const connections = [];
+            if (selection.connections) {
+                for (let i = 0; i < selection.connections.length; ++i) {
+                    const connection = selection.connections[i];
+                    if (connection.registrations[item.name]) {
+                        if (item.options.once) {
+                            continue;
+                        }
+                        Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered in:', connection.info.uri);
+                    } else {
+                        connection.registrations[item.name] = registrationData;
+                    }
+                    connections.push(connection);
+                }
+                if (item.options.once && !isConnectionless && !connections.length) {
+                    return null; // skip registration
+                }
+            }
+            return connections;
+        };
+        const connections = gatherConnections();
+        if (connections === null) {
+            return next();
+        }
+
+        // Finalize selection
+        selection.connections = (isConnectionless ? null : connections);
+        selection._single();
+
+        if (item.dependencies) {
+            selection.dependency(item.dependencies);
+        }
+
+        if (isConnectionless) {
+            selection.connection = this.root.connection;
+        }
+
+        // Register
+        item.register(selection, item.pluginOptions || {}, next);
     };
 
-    if (connectionless) {
-        if (this.root._registrations[item.name]) {
-            if (item.options.once) {
-                return next();
-            }
+    Items.serial(registrations, each, (err) => {
 
-            Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered');
-        }
-        else {
-            this.root._registrations[item.name] = registrationData;
-        }
-    }
-
-    const connections = [];
-    if (selection.connections) {
-        for (let i = 0; i < selection.connections.length; ++i) {
-            const connection = selection.connections[i];
-            if (connection.registrations[item.name]) {
-                if (item.options.once) {
-                    continue;
-                }
-
-                Hoek.assert(item.multiple, 'Plugin', item.name, 'already registered in:', connection.info.uri);
-            }
-            else {
-                connection.registrations[item.name] = registrationData;
-            }
-
-            connections.push(connection);
-        }
-
-        if (item.options.once &&
-            !connectionless &&
-            !connections.length) {
-
-            return next();                                              // All the connections already registered
-        }
-    }
-
-    selection.connections = (connectionless ? null : connections);
-    selection._single();
-
-    if (item.dependencies) {
-        selection.dependency(item.dependencies);
-    }
-
-    if (connectionless) {
-        selection.connection = this.root.connection;
-    }
-
-    // Register
-    item.register(selection, item.pluginOptions || {}, next);
+        this.root._registring = false;
+        return Hoek.nextTick(callback)(err);
+    });
 };
 
 

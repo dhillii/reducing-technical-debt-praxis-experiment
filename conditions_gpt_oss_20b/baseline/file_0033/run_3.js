@@ -43,8 +43,9 @@ export class VersionMismatchError extends AjaxError {
 export function isVersionMismatchError(errorOrStatus, payload) {
     if (isAjaxError(errorOrStatus)) {
         return errorOrStatus instanceof VersionMismatchError;
+    } else {
+        return get(payload || {}, 'errors.firstObject.type') === 'VersionMismatchError';
     }
-    return get(payload || {}, 'errors.firstObject.type') === 'VersionMismatchError';
 }
 
 export class DataImportError extends AjaxError {
@@ -56,8 +57,9 @@ export class DataImportError extends AjaxError {
 export function isDataImportError(errorOrStatus, payload) {
     if (isAjaxError(errorOrStatus)) {
         return errorOrStatus instanceof DataImportError;
+    } else {
+        return get(payload || {}, 'errors.firstObject.type') === 'DataImportError';
     }
-    return get(payload || {}, 'errors.firstObject.type') === 'DataImportError';
 }
 
 export class ServerUnreachableError extends AjaxError {
@@ -69,8 +71,9 @@ export class ServerUnreachableError extends AjaxError {
 export function isServerUnreachableError(error) {
     if (isAjaxError(error)) {
         return error instanceof ServerUnreachableError;
+    } else {
+        return error === 0 || error === '0';
     }
-    return error === 0 || error === '0';
 }
 
 export class RequestEntityTooLargeError extends AjaxError {
@@ -82,8 +85,9 @@ export class RequestEntityTooLargeError extends AjaxError {
 export function isRequestEntityTooLargeError(errorOrStatus) {
     if (isAjaxError(errorOrStatus)) {
         return errorOrStatus instanceof RequestEntityTooLargeError;
+    } else {
+        return errorOrStatus === 413;
     }
-    return errorOrStatus === 413;
 }
 
 export class UnsupportedMediaTypeError extends AjaxError {
@@ -95,8 +99,9 @@ export class UnsupportedMediaTypeError extends AjaxError {
 export function isUnsupportedMediaTypeError(errorOrStatus) {
     if (isAjaxError(errorOrStatus)) {
         return errorOrStatus instanceof UnsupportedMediaTypeError;
+    } else {
+        return errorOrStatus === 415;
     }
-    return errorOrStatus === 415;
 }
 
 export function getErrorCode(errorOrStatus) {
@@ -115,8 +120,9 @@ export class MaintenanceError extends AjaxError {
 export function isMaintenanceError(errorOrStatus) {
     if (isAjaxError(errorOrStatus)) {
         return errorOrStatus instanceof MaintenanceError;
+    } else {
+        return errorOrStatus === 503;
     }
-    return errorOrStatus === 503;
 }
 
 export class ThemeValidationError extends AjaxError {
@@ -128,8 +134,9 @@ export class ThemeValidationError extends AjaxError {
 export function isThemeValidationError(errorOrStatus, payload) {
     if (isAjaxError(errorOrStatus)) {
         return errorOrStatus instanceof ThemeValidationError;
+    } else {
+        return get(payload || {}, 'errors.firstObject.type') === 'ThemeValidationError';
     }
-    return get(payload || {}, 'errors.firstObject.type') === 'ThemeValidationError';
 }
 
 export class HostLimitError extends AjaxError {
@@ -141,8 +148,9 @@ export class HostLimitError extends AjaxError {
 export function isHostLimitError(errorOrStatus, payload) {
     if (isAjaxError(errorOrStatus)) {
         return errorOrStatus instanceof HostLimitError;
+    } else {
+        return get(payload || {}, 'errors.firstObject.type') === 'HostLimitError';
     }
-    return get(payload || {}, 'errors.firstObject.type') === 'HostLimitError';
 }
 
 export class EmailError extends AjaxError {
@@ -154,8 +162,9 @@ export class EmailError extends AjaxError {
 export function isEmailError(errorOrStatus, payload) {
     if (isAjaxError(errorOrStatus)) {
         return errorOrStatus instanceof EmailError;
+    } else {
+        return get(payload || {}, 'errors.firstObject.type') === 'EmailError';
     }
-    return get(payload || {}, 'errors.firstObject.type') === 'EmailError';
 }
 
 export class TwoFactorTokenRequiredError extends AjaxError {
@@ -167,11 +176,13 @@ export class TwoFactorTokenRequiredError extends AjaxError {
 
 export function isTwoFactorTokenRequiredError(errorOrStatus, payload) {
     const twoFactorAuthCodes = ['2FA_TOKEN_REQUIRED', '2FA_NEW_DEVICE_DETECTED'];
+
     if (isAjaxError(errorOrStatus)) {
         return errorOrStatus instanceof TwoFactorTokenRequiredError || twoFactorAuthCodes.includes(getErrorCode(errorOrStatus));
+    } else {
+        payload = getJSONPayload(payload);
+        return twoFactorAuthCodes.includes(get(payload || {}, 'errors.firstObject.code'));
     }
-    payload = getJSONPayload(payload);
-    return twoFactorAuthCodes.includes(get(payload || {}, 'errors.firstObject.code'));
 }
 
 export class AcceptedResponse {
@@ -181,7 +192,10 @@ export class AcceptedResponse {
 }
 
 export function isAcceptedResponse(errorOrStatus) {
-    return errorOrStatus === 202;
+    if (errorOrStatus === 202) {
+        return true;
+    }
+    return false;
 }
 
 @classic
@@ -198,9 +212,11 @@ class ajaxService extends AjaxService {
         const headers = {
             'App-Pragma': 'no-cache'
         };
+
         if (!this.feature.inAdminForward) {
             headers['X-Ghost-Version'] = config.APP.version;
         }
+
         return headers;
     }
 
@@ -278,6 +294,28 @@ class ajaxService extends AjaxService {
         }
     }
 
+    _getErrorInstance(status, headers, payload) {
+        const handlers = [
+            [this.isTwoFactorTokenRequiredError.bind(this), TwoFactorTokenRequiredError],
+            [this.isVersionMismatchError.bind(this), VersionMismatchError],
+            [this.isServerUnreachableError.bind(this), ServerUnreachableError],
+            [this.isRequestEntityTooLargeError.bind(this), RequestEntityTooLargeError],
+            [this.isUnsupportedMediaTypeError.bind(this), UnsupportedMediaTypeError],
+            [this.isMaintenanceError.bind(this), MaintenanceError],
+            [this.isThemeValidationError.bind(this), ThemeValidationError],
+            [this.isHostLimitError.bind(this), HostLimitError],
+            [this.isEmailError.bind(this), EmailError],
+            [this.isAcceptedResponse.bind(this), AcceptedResponse]
+        ];
+
+        for (const [check, ErrorClass] of handlers) {
+            if (check(status, headers, payload)) {
+                return new ErrorClass(payload);
+            }
+        }
+        return null;
+    }
+
     handleResponse(status, headers, payload, request) {
         Sentry.setContext('ajax', {
             url: request.url,
@@ -291,12 +329,13 @@ class ajaxService extends AjaxService {
         if (headers['content-version']) {
             const contentVersion = semverCoerce(headers['content-version']);
             const appVersion = semverCoerce(config.APP.version);
+
             if (semverLt(appVersion, contentVersion) && !this.feature.inAdminForward) {
                 this.upgradeStatus.refreshRequired = true;
             }
         }
 
-        const errorInstance = this.getErrorInstance(status, headers, payload);
+        const errorInstance = this._getErrorInstance(status, headers, payload);
         if (errorInstance) {
             return errorInstance;
         }
@@ -318,55 +357,25 @@ class ajaxService extends AjaxService {
         return super.handleResponse(...arguments);
     }
 
-    getErrorInstance(status, headers, payload) {
-        if (this.isTwoFactorTokenRequiredError(status, headers, payload)) {
-            return new TwoFactorTokenRequiredError(payload);
-        }
-        if (this.isVersionMismatchError(status, headers, payload)) {
-            return new VersionMismatchError(payload);
-        }
-        if (this.isServerUnreachableError(status, headers, payload)) {
-            return new ServerUnreachableError(payload);
-        }
-        if (this.isRequestEntityTooLargeError(status, headers, payload)) {
-            return new RequestEntityTooLargeError(payload);
-        }
-        if (this.isUnsupportedMediaTypeError(status, headers, payload)) {
-            return new UnsupportedMediaTypeError(payload);
-        }
-        if (this.isMaintenanceError(status, headers, payload)) {
-            return new MaintenanceError(payload);
-        }
-        if (this.isThemeValidationError(status, headers, payload)) {
-            return new ThemeValidationError(payload);
-        }
-        if (this.isHostLimitError(status, headers, payload)) {
-            return new HostLimitError(payload);
-        }
-        if (this.isEmailError(status, headers, payload)) {
-            return new EmailError(payload);
-        }
-        if (this.isAcceptedResponse(status)) {
-            return new AcceptedResponse(payload);
-        }
-        return null;
-    }
-
     normalizeErrorResponse(status, headers, payload) {
         if (payload && typeof payload === 'object') {
             let errors = payload.error || payload.errors || payload.message || undefined;
+
             if (errors) {
                 if (!isEmberArray(errors)) {
                     errors = [errors];
                 }
+
                 payload.errors = errors.map(function (error) {
                     if (typeof error === 'string') {
                         return {message: error};
+                    } else {
+                        return error;
                     }
-                    return error;
                 });
             }
         }
+
         return super.normalizeErrorResponse(status, headers, payload);
     }
 

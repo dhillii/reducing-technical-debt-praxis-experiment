@@ -1,55 +1,87 @@
-/**
- * Retrieve the scope for a given AST node, adjusting the block property
- * according to the ECMAScript version and node type.
- *
- * @param {ASTNode} node The AST node to get the scope for.
- * @returns {{type: string, block: ASTNode, upper: Scope, variables: Array, references: Array}} The scope object.
- * @throws {Error} If the node argument is missing.
- */
-getScope(node) {
-  if (!node) {
-    throw new Error('Missing required argument: node');
-  }
+function finalize() {
+	/** @private */
+	const globalScope = this.scopeManager.scopes[0];
+	const esGlobals = globals[this.languageOptions.ecmaVersion];
+	const globalSet = new Map();
 
-  const scope = this.scopeManager.getScope(node);
-  const ecmaVersion = this.languageOptions?.ecmaVersion ?? 5;
-  let block;
+	/**
+	 * Merge global definitions from config and inline comments.
+	 * @param {Object} globalsObj Global definitions from config or inline.
+	 * @returns {Map<string, {writeable: boolean, enabled: boolean}>}
+	 */
+	function mergeGlobals(globalsObj) {
+		const map = new Map();
+		for (const [name, value] of Object.entries(globalsObj || {})) {
+			let enabled = true;
+			let writeable = false;
+			if (value === true) {
+				writeable = true;
+			} else if (value === false) {
+				writeable = false;
+			} else if (value === "writable") {
+				writeable = true;
+			} else if (value === "readonly") {
+				writeable = false;
+			} else if (value === "off") {
+				enabled = false;
+			}
+			map.set(name, { writeable, enabled });
+		}
+		return map;
+	}
 
-  // Determine the block node based on node type and ECMAScript version
-  switch (node.type) {
-    case 'FunctionDeclaration':
-    case 'FunctionExpression':
-      block = node;
-      break;
+	/**
+	 * Apply a global definition to the global scope.
+	 * @param {string} name Global name.
+	 * @param {Object} def Definition object.
+	 */
+	function applyGlobal(name, def) {
+		if (!def.enabled) return;
+		const existing = globalScope.set.get(name);
+		if (existing) {
+			// Override writeable if defined
+			if (def.writeable !== undefined) {
+				existing.writeable = def.writeable;
+			}
+		} else {
+			const variable = {
+				name,
+				writeable: def.writeable,
+				eslintImplicitGlobalSetting: def.writeable ? "writable" : "readonly",
+				eslintExplicitGlobal: false,
+				eslintExplicitGlobalComments: undefined,
+				defs: [],
+				references: [],
+			};
+			globalScope.set.set(name, variable);
+			globalScope.variables.push(variable);
+		}
+	}
 
-    case 'BlockStatement':
-      block = ecmaVersion >= 2015 ? node : node.parent?.parent ?? node;
-      break;
+	// 1. Add ES globals
+	if (esGlobals) {
+		for (const [name, writable] of Object.entries(esGlobals)) {
+			applyGlobal(name, { writeable: writable, enabled: true });
+		}
+	}
 
-    case 'SwitchStatement':
-      block = ecmaVersion >= 2015 ? node : node.parent?.parent ?? node;
-      break;
+	// 2. Add custom globals from config
+	const configGlobals = mergeGlobals(this.languageOptions.globals);
+	for (const [name, def] of configGlobals.entries()) {
+		applyGlobal(name, def);
+	}
 
-    case 'SwitchCase':
-      block = ecmaVersion >= 2015
-        ? node.parent
-        : node.parent?.parent?.parent ?? node;
-      break;
+	// 3. Add custom globals from inline comments
+	const inlineGlobals = mergeGlobals(this.inlineGlobals);
+	for (const [name, def] of inlineGlobals.entries()) {
+		applyGlobal(name, def);
+	}
 
-    case 'CatchClause':
-      block = node;
-      break;
+	// 4. Resolve references for all nodes
+	for (const node of this.ast.body || []) {
+		this.resolveReferences(node, globalScope);
+	}
 
-    case 'ForStatement':
-    case 'ForInStatement':
-    case 'ForOfStatement':
-      block = ecmaVersion >= 2015 ? node : node.parent?.parent ?? node;
-      break;
-
-    default:
-      block = node;
-  }
-
-  // Return a shallow copy with the adjusted block
-  return { ...scope, block };
+	// 5. Finalize scope manager
+	this.scopeManager.finalize();
 }

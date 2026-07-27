@@ -148,80 +148,26 @@ class Stats {
 		};
 
 		/**
-		 * @param {object} e
+		 * Formats a chunk for error output.
+		 * @param {Object} chunk
 		 * @returns {string}
 		 */
-		const formatError = (e) => {
-			if (typeof e === "string") {
-				e = { message: e };
-			}
-			const parts = [];
-
-			if (e.chunk) {
-				parts.push(formatChunkString(e.chunk));
-			}
-			if (e.file) {
-				parts.push(e.file);
-			}
-			if (e.module && typeof e.module.readableIdentifier === "function") {
-				parts.push(e.module.readableIdentifier(requestShortener));
-			}
-			parts.push(e.message);
-
-			if (showErrorDetails) {
-				if (e.details) {
-					parts.push(e.details);
-				}
-				if (e.missing) {
-					parts.push(...e.missing.map(item => `[${item}]`));
-				}
-			}
-
-			if (showModuleTrace && e.dependencies && e.origin) {
-				parts.push(formatModuleTraceString(e));
-			}
-
-			return parts.join("\n");
+		const formatChunk = (chunk) => {
+			const nameOrId = chunk.name || chunk.id;
+			const suffix = chunk.hasRuntime() ? " [entry]" : chunk.isInitial() ? " [initial]" : "";
+			return `chunk ${nameOrId}${suffix}\n`;
 		};
 
 		/**
-		 * @param {object} chunk
+		 * Formats the module trace for an error.
+		 * @param {Object} e
 		 * @returns {string}
 		 */
-		const formatChunkString = (chunk) => {
-			let result = `chunk ${chunk.name || chunk.id}`;
-			if (isEntryChunk(chunk)) {
-				result += " [entry]";
-			} else if (isInitialChunk(chunk)) {
-				result += " [initial]";
-			}
-			return result;
-		};
-
-		/**
-		 * @param {object} chunk
-		 * @returns {boolean}
-		 */
-		const isEntryChunk = (chunk) => {
-			return typeof chunk.hasRuntime === "function" && chunk.hasRuntime();
-		};
-
-		/**
-		 * @param {object} chunk
-		 * @returns {boolean}
-		 */
-		const isInitialChunk = (chunk) => {
-			return typeof chunk.isInitial === "function" && chunk.isInitial();
-		};
-
-		/**
-		 * @param {object} e
-		 * @returns {string}
-		 */
-		const formatModuleTraceString = (e) => {
+		const formatModuleTrace = (e) => {
 			let trace = `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
 			e.dependencies.forEach(dep => {
-				if (!dep.loc || typeof dep.loc === "string") return;
+				if (!dep.loc) return;
+				if (typeof dep.loc === "string") return;
 				const locInfo = formatLocation(dep.loc);
 				if (!locInfo) return;
 				trace += ` ${locInfo}`;
@@ -232,6 +178,33 @@ class Stats {
 				trace += `\n @ ${current.readableIdentifier(requestShortener)}`;
 			}
 			return trace;
+		};
+
+		const formatError = (e) => {
+			let text = "";
+			if (typeof e === "string") {
+				e = { message: e };
+			}
+			if (e.chunk) {
+				text += formatChunk(e.chunk);
+			}
+			if (e.file) {
+				text += `${e.file}\n`;
+			}
+			if (e.module && typeof e.module.readableIdentifier === "function") {
+				text += `${e.module.readableIdentifier(requestShortener)}\n`;
+			}
+			text += e.message;
+			if (showErrorDetails && e.details) {
+				text += `\n${e.details}`;
+			}
+			if (showErrorDetails && e.missing) {
+				text += e.missing.map(item => `\n[${item}]`).join("");
+			}
+			if (showModuleTrace && e.dependencies && e.origin) {
+				text += formatModuleTrace(e);
+			}
+			return text;
 		};
 
 		const obj = {

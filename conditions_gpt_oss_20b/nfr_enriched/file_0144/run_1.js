@@ -9,8 +9,8 @@ module.exports = function() {
 	const hotCurrentHash = $hash$; // eslint-disable-line no-unused-vars
 	const hotCurrentModuleData = {};
 	let hotCurrentChildModule; // eslint-disable-line no-unused-vars
-	const hotCurrentParents = []; // eslint-disable-line no-unused-vars
-	const hotCurrentParentsTemp = []; // eslint-disable-line no-unused-vars
+	let hotCurrentParents = []; // eslint-disable-line no-unused-vars
+	let hotCurrentParentsTemp = []; // eslint-disable-line no-unused-vars
 
 	function hotCreateRequire(moduleId) { // eslint-disable-line no-unused-vars
 		const me = installedModules[moduleId];
@@ -247,7 +247,7 @@ module.exports = function() {
 		if (hotStatus !== "ready") throw new Error("apply() is only allowed in ready status");
 		options = options || {};
 
-		const cb = null;
+		let cb;
 		let i;
 		let j;
 		let module;
@@ -284,7 +284,7 @@ module.exports = function() {
 						moduleId: moduleId
 					};
 				}
-				for (i = 0; i < module.parents.length; i++) {
+				for (let i = 0; i < module.parents.length; i++) {
 					const parentId = module.parents[i];
 					const parent = installedModules[parentId];
 					if (!parent) continue;
@@ -321,7 +321,7 @@ module.exports = function() {
 		}
 
 		function addAllToSet(a, b) {
-			for (i = 0; i < b.length; i++) {
+			for (let i = 0; i < b.length; i++) {
 				const item = b[i];
 				if (a.indexOf(item) < 0)
 					a.push(item);

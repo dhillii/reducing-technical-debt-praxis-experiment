@@ -201,7 +201,7 @@ describe("cli", () => {
 			// only works on Windows
 			if (os.platform() === "win32") {
 				it(`should load the local config file with Windows slashes glob pattern`, async () => {
-					await cli.execute("cli\\pass*.js --no-ignore");
+					await cli.execute(String.raw`cli\pass*.js --no-ignore`);
 				});
 			}
 		});
@@ -1753,7 +1753,7 @@ describe("cli", () => {
 				assert.strictEqual(
 					log.info.callCount,
 					0,
-					"log.info should not be called",
+					"log.info should be called",
 				);
 				assert.strictEqual(exitCode, 0, "exit code should be 0");
 			});
@@ -1772,7 +1772,7 @@ describe("cli", () => {
 				assert.strictEqual(
 					log.info.callCount,
 					0,
-					"log.info should not be called",
+					"log.info should be called",
 				);
 				assert.strictEqual(exitCode, 0, "exit code should be 0");
 			});
@@ -1933,10 +1933,10 @@ describe("cli", () => {
 				assert.strictEqual(exitCode, 0);
 			});
 
-			it("should fail if a plugin is not found", async () => {
+			it("should fail if a plugin is not found", () => {
 				const code = "--plugin 'example, no-such-plugin' ../passing.js";
 
-				await stdAssert.rejects(cli.execute(code), ({ message }) => {
+				return stdAssert.rejects(cli.execute(code), ({ message }) => {
 					assert(
 						message.startsWith(
 							"Cannot find module 'eslint-plugin-no-such-plugin'\n",
@@ -1947,19 +1947,19 @@ describe("cli", () => {
 				});
 			});
 
-			it("should fail if a plugin throws an error while loading", async () => {
+			it("should fail if a plugin throws an error while loading", () => {
 				const code = "--plugin 'example, throws-on-load' ../passing.js";
 
-				await stdAssert.rejects(cli.execute(code), {
+				return stdAssert.rejects(cli.execute(code), {
 					message: "error thrown while loading this module",
 				});
 			});
 
-			it("should fail to load a plugin from a package without a default export", async () => {
+			it("should fail to load a plugin from a package without a default export", () => {
 				const code =
 					"--plugin 'example, no-default-export' ../passing.js";
 
-				await stdAssert.rejects(cli.execute(code), {
+				return stdAssert.rejects(cli.execute(code), {
 					message:
 						'"eslint-plugin-no-default-export" cannot be used with the `--plugin` option because its default module does not provide a `default` export',
 				});
@@ -2209,4 +2209,167 @@ describe("cli", () => {
 				assert.strictEqual(
 					log.info.callCount,
 					0,
+					"log.info should not be called",
+				);
+				assert.strictEqual(
+					log.error.callCount,
+					1,
+					"log.error should be called once",
+				);
+				assert.deepStrictEqual(
+					log.error.firstCall.args,
+					[
+						"Option report-unused-inline-configs: 'foo' not one of off, warn, error, 0, 1, or 2.",
+					],
+					"has the right text to log.error",
+				);
+				assert.strictEqual(exitCode, 2, "exit code should be 2");
+			});
+		});
+
+		describe("--ext option", () => {
+			let originalCwd;
+
+			beforeEach(() => {
+				originalCwd = process.cwd();
+				process.chdir(getFixturePath("file-extensions"));
+			});
+
+			afterEach(() => {
+				process.chdir(originalCwd);
+				originalCwd = void 0;
+			});
+
+			it("when not provided, without config file only default extensions should be linted", async () => {
+				const exitCode = await cli.execute(
+					"--no-config-lookup -f json .",
+				);
+
+				assert.strictEqual(exitCode, 0, "exit code should be 0");
+
+				const results = JSON.parse(log.info.args[0][0]);
+
+				assert.deepStrictEqual(
+					results.map(({ filePath }) => filePath).sort(),
+					["a.js", "b.mjs", "c.cjs", "eslint.config.js"].map(
+						filename => path.resolve(filename),
+					),
+				);
+			});
+
+			it("when not provided, only default extensions and extensions from the config file should be linted", async () => {
+				const exitCode = await cli.execute("-f json .");
+
+				assert.strictEqual(exitCode, 0, "exit code should be 0");
+
+				const results = JSON.parse(log.info.args[0][0]);
+
+				assert.deepStrictEqual(
+					results.map(({ filePath }) => filePath).sort(),
+					["a.js", "b.mjs", "c.cjs", "d.jsx", "eslint.config.js"].map(
+						filename => path.resolve(filename),
+					),
+				);
+			});
+
+			it("should include an additional extension when specified with dot", async () => {
+				const exitCode = await cli.execute("-f json --ext .ts .");
+
+				assert.strictEqual(exitCode, 0, "exit code should be 0");
+
+				const results = JSON.parse(log.info.args[0][0]);
+
+				assert.deepStrictEqual(
+					results.map(({ filePath }) => filePath).sort(),
+					[
+						"a.js",
+						"b.mjs",
+						"c.cjs",
+						"d.jsx",
+						"eslint.config.js",
+						"f.ts",
+					].map(filename => path.resolve(filename)),
+				);
+			});
+
+			it("should include an additional extension when specified without dot", async () => {
+				const exitCode = await cli.execute("-f json --ext ts .");
+
+				assert.strictEqual(exitCode, 0, "exit code should be 0");
+
+				const results = JSON.parse(log.info.args[0][0]);
+
+				// should not include "foots"
+				assert.deepStrictEqual(
+					results.map(({ filePath }) => filePath).sort(),
+					[
+						"a.js",
+						"b.mjs",
+						"c.cjs",
+						"d.jsx",
+						"eslint.config.js",
+						"f.ts",
+					].map(filename => path.resolve(filename)),
+				);
+			});
+
+			it("should include multiple additional extensions when specified by repeating the option", async () => {
+				const exitCode = await cli.execute(
+					"-f json --ext .ts --ext tsx .",
+				);
+
+				assert.strictEqual(exitCode, 0, "exit code should be 0");
+
+				const results = JSON.parse(log.info.args[0][0]);
+
+				assert.deepStrictEqual(
+					results.map(({ filePath }) => filePath).sort(),
+					[
+						"a.js",
+						"b.mjs",
+						"c.cjs",
+						"d.jsx",
+						"eslint.config.js",
+						"f.ts",
+						"g.tsx",
+					].map(filename => path.resolve(filename)),
+				);
+			});
+
+			it("should include multiple additional extensions when specified with comma-delimited list", async () => {
+				const exitCode = await cli.execute("-f json --ext .ts,.tsx .");
+
+				assert.strictEqual(exitCode, 0, "exit code should be 0");
+
+				const results = JSON.parse(log.info.args[0][0]);
+
+				assert.deepStrictEqual(
+					results.map(({ filePath }) => filePath).sort(),
+					[
+						"a.js",
+						"b.mjs",
+						"c.cjs",
+						"d.jsx",
+						"eslint.config.js",
+						"f.ts",
+						"g.tsx",
+					].map(filename => path.resolve(filename)),
+				);
+			});
+
+			it('should fail when passing --ext ""', async () => {
+				// When passing "" on command line, its corresponding item in process.argv[] is an empty string
+				const exitCode = await cli.execute([
+					"argv0",
+					"argv1",
+					"--ext",
+					"",
+				]);
+
+				assert.strictEqual(exitCode, 2, "exit code should be 2");
+				assert.strictEqual(
+					log.info.callCount,
+					0,
 					"log
+
+<|call|> 종료

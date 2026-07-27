@@ -34,6 +34,23 @@ interface FilterFieldDefinition {
     filterItem?: (item: Record<string, unknown>) => boolean;
 }
 
+const getDeviceLabel = (v: string): string => {
+    switch (v) {
+        case 'mobile-ios':
+            return 'iOS';
+        case 'mobile-android':
+            return 'Android';
+        case 'desktop':
+            return 'Desktop';
+        case 'bot':
+            return 'Bot';
+        case 'unknown':
+            return 'Unknown';
+        default:
+            return v;
+    }
+};
+
 const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     utm_source: {
         endpoint: 'api_top_utm_sources',
@@ -80,29 +97,10 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     device: {
         endpoint: 'api_top_devices',
         valueKey: 'device',
-        transformValue: v => {
-            let label;
-            switch (v) {
-                case 'mobile-ios':
-                    label = 'iOS';
-                    break;
-                case 'mobile-android':
-                    label = 'Android';
-                    break;
-                case 'desktop':
-                    label = 'Desktop';
-                    break;
-                case 'bot':
-                    label = 'Bot';
-                    break;
-                case 'unknown':
-                    label = 'Unknown';
-                    break;
-                default:
-                    label = v;
-            }
-            return {value: v, label};
-        }
+        transformValue: v => ({
+            value: v,
+            label: getDeviceLabel(v)
+        })
     }
 };
 

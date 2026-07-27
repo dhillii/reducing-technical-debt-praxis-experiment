@@ -31,196 +31,52 @@ import type { RelationshipController, RelationshipValue } from './types'
 
 export { ComboboxMany, ComboboxSingle }
 
-/**
- * Determines if the value represents a count.
- * @param value - The relationship value.
- * @returns True if the value is a count.
- */
-function isCount(value: any): boolean {
-  return value.kind === 'count'
-}
+export function Field(props: FieldProps<typeof controller>) {
+  const { autoFocus, field, forceValidation = false, onChange, value, isRequired } = props
+  const foreignList = useList(field.refListKey)
+  const [dialogIsOpen, setDialogOpen] = useState(false)
+  const description = field.description || undefined
+  const isReadOnly = onChange === undefined
+  const [counter, setCounter] = useState(1)
 
-/**
- * Determines if the field should be displayed as a table.
- * @param field - The field definition.
- * @returns True if the field display mode is table.
- */
-function isTableDisplay(field: any): boolean {
-  return field.display === 'table'
-}
-
-/**
- * Determines if the field has a reference field key.
- * @param field - The field definition.
- * @returns True if a reference field key is present.
- */
-function hasRefFieldKey(field: any): boolean {
-  return !!field.refFieldKey
-}
-
-/**
- * Determines if the value represents many relationships.
- * @param value - The relationship value.
- * @returns True if the value is many.
- */
-function isMany(value: any): boolean {
-  return value.kind === 'many'
-}
-
-/**
- * Determines if the field is read-only.
- * @param onChange - The change handler.
- * @returns True if the field is read-only.
- */
-function isReadOnly(onChange: any): boolean {
-  return onChange === undefined
-}
-
-/**
- * Renders the UI for a count value.
- * @param autoFocus - Whether the field should auto focus.
- * @param field - The field definition.
- * @param value - The relationship value.
- * @param description - The field description.
- * @param readOnly - Whether the field is read-only.
- * @param foreignList - The foreign list context.
- * @returns JSX for the count field.
- */
-function renderCountField(
-  autoFocus: boolean,
-  field: any,
-  value: any,
-  description: string | undefined,
-  readOnly: boolean,
-  foreignList: any
-) {
-  if (isTableDisplay(field)) {
-    return <RelationshipTable field={field} value={value} />
+  if (value.kind === 'count') {
+    if (field.display === 'table') {
+      return <RelationshipTable field={field} value={value} />
+    }
+    const textField = (
+      <TextField
+        autoFocus={autoFocus}
+        label={field.label}
+        description={description}
+        isReadOnly
+        value={value.count.toString()}
+        width="alias.singleLineWidth"
+      />
+    )
+    if (!field.refFieldKey) return textField
+    return (
+      <HStack gap="small" alignItems="end">
+        {textField}
+        <ActionButton
+          href={`/${foreignList.path}?${buildQueryForRelationshipFieldWithForeignField(foreignList, field.refFieldKey, value.id)}`}
+        >
+          <Icon src={arrowUpRightIcon} />
+        </ActionButton>
+      </HStack>
+    )
   }
-  const textField = (
-    <TextField
-      autoFocus={autoFocus}
-      label={field.label}
-      description={description}
-      isReadOnly={readOnly}
-      value={value.count.toString()}
-      width="alias.singleLineWidth"
-    />
-  )
-  if (!hasRefFieldKey(field)) return textField
-  return (
-    <HStack gap="small" alignItems="end">
-      {textField}
-      <ActionButton
-        href={`/${foreignList.path}?${buildQueryForRelationshipFieldWithForeignField(
-          foreignList,
-          field.refFieldKey,
-          value.id
-        )}`}
-      >
-        <Icon src={arrowUpRightIcon} />
-      </ActionButton>
-    </HStack>
-  )
-}
 
-/**
- * Handles the creation of a new related item.
- * @param value - The current relationship value.
- * @param builtItemData - Data for the newly built item.
- * @param counter - Current counter for temporary IDs.
- * @param setCounter - Setter for the counter.
- * @param setDialogOpen - Setter for dialog visibility.
- * @param onChange - Change handler for the field.
- * @param foreignList - The foreign list context.
- */
-function handleBuiltItemChange(
-  value: any,
-  builtItemData: any,
-  counter: number,
-  setCounter: (n: number) => void,
-  setDialogOpen: (open: boolean) => void,
-  onChange: any,
-  foreignList: any
-) {
-  const id = `_____temporary_${counter}`
-  const label =
-    (builtItemData?.[foreignList.labelField] as string | null) ??
-    `[Unnamed ${foreignList.singular} ${counter}]`
-  setDialogOpen(false)
-  setCounter(counter + 1)
-
-  if (value.kind === 'many') {
-    onChange?.({
-      ...value,
-      value: [
-        ...value.value,
-        {
-          id,
-          label,
-          data: builtItemData,
-          built: true,
-        },
-      ],
-    })
-  } else if (value.kind === 'one') {
-    onChange?.({
-      ...value,
-      value: {
-        id,
-        label,
-        data: builtItemData,
-        built: true,
-      },
-    })
-  }
-}
-
-/**
- * Renders the main content of the field when not a count.
- * @param props - Props and state needed for rendering.
- * @returns JSX for the field content.
- */
-function FieldContent({
-  foreignList,
-  dialogIsOpen,
-  setDialogOpen,
-  counter,
-  setCounter,
-  onChange,
-  value,
-  autoFocus,
-  field,
-  forceValidation,
-  isRequired,
-  readOnly,
-  description,
-}: {
-  foreignList: any
-  dialogIsOpen: boolean
-  setDialogOpen: (open: boolean) => void
-  counter: number
-  setCounter: (n: number) => void
-  onChange: any
-  value: any
-  autoFocus: boolean
-  field: any
-  forceValidation: boolean
-  isRequired: boolean
-  readOnly: boolean
-  description: string | undefined
-}) {
   return (
     <Fragment>
       <VStack gap="medium">
-        <ContextualActions onAdd={() => setDialogOpen(true)} {...{ autoFocus, field, forceValidation, onChange, value, isRequired }}>
-          {isMany(value) ? (
+        <ContextualActions onAdd={() => setDialogOpen(true)} {...props}>
+          {value.kind === 'many' ? (
             <ComboboxMany
               autoFocus={autoFocus}
               label={field.label}
               description={description}
               forceValidation={forceValidation}
-              isReadOnly={readOnly}
+              isReadOnly={isReadOnly}
               isRequired={isRequired}
               list={foreignList}
               labelField={field.refLabelField}
@@ -241,7 +97,7 @@ function FieldContent({
               label={field.label}
               description={description}
               forceValidation={forceValidation}
-              isReadOnly={readOnly}
+              isReadOnly={isReadOnly}
               isRequired={isRequired}
               list={foreignList}
               labelField={field.refLabelField}
@@ -259,7 +115,7 @@ function FieldContent({
           )}
         </ContextualActions>
 
-        {isMany(value) && (
+        {value.kind === 'many' && (
           <TagGroup
             aria-label={`related ${foreignList.plural}`}
             isRequired={isRequired}
@@ -270,7 +126,7 @@ function FieldContent({
             }))}
             maxRows={2}
             onRemove={
-              readOnly
+              isReadOnly
                 ? undefined
                 : keys => {
                     onChange?.({
@@ -290,58 +146,49 @@ function FieldContent({
         )}
       </VStack>
 
-      {!readOnly && (
+      {!isReadOnly && (
         <DialogContainer onDismiss={() => setDialogOpen(false)}>
           {dialogIsOpen && (
             <BuildItemDialog
               listKey={foreignList.key}
               onChange={builtItemData => {
-                handleBuiltItemChange(
-                  value,
-                  builtItemData,
-                  counter,
-                  setCounter,
-                  setDialogOpen,
-                  onChange,
-                  foreignList
-                )
+                const id = `_____temporary_${counter}`
+                const label =
+                  (builtItemData?.[foreignList.labelField] as string | null) ??
+                  `[Unnamed ${foreignList.singular} ${counter}]`
+                setDialogOpen(false)
+                setCounter(counter + 1)
+
+                if (value.kind === 'many') {
+                  onChange({
+                    ...value,
+                    value: [
+                      ...value.value,
+                      {
+                        id,
+                        label,
+                        data: builtItemData,
+                        built: true,
+                      },
+                    ],
+                  })
+                } else if (value.kind === 'one') {
+                  onChange({
+                    ...value,
+                    value: {
+                      id,
+                      label,
+                      data: builtItemData,
+                      built: true,
+                    },
+                  })
+                }
               }}
             />
           )}
         </DialogContainer>
       )}
     </Fragment>
-  )
-}
-
-export function Field(props: FieldProps<typeof controller>) {
-  const { autoFocus, field, forceValidation = false, onChange, value, isRequired } = props
-  const foreignList = useList(field.refListKey)
-  const [dialogIsOpen, setDialogOpen] = useState(false)
-  const description = field.description || undefined
-  const readOnly = isReadOnly(onChange)
-  const [counter, setCounter] = useState(1)
-
-  if (isCount(value)) {
-    return renderCountField(autoFocus, field, value, description, readOnly, foreignList)
-  }
-
-  return (
-    <FieldContent
-      foreignList={foreignList}
-      dialogIsOpen={dialogIsOpen}
-      setDialogOpen={setDialogOpen}
-      counter={counter}
-      setCounter={setCounter}
-      onChange={onChange}
-      value={value}
-      autoFocus={autoFocus}
-      field={field}
-      forceValidation={forceValidation}
-      isRequired={isRequired}
-      readOnly={readOnly}
-      description={description}
-    />
   )
 }
 
@@ -490,6 +337,8 @@ export function controller(
       }
     },
     serialize: state => {
+      if (state.kind !== 'many' && state.kind !== 'one') return {}
+
       if (state.kind === 'many') {
         const newAllIds = new Set(state.value.map(x => x.id))
         const initialIds = new Set(state.initialValue.map(x => x.id))
@@ -500,35 +349,27 @@ export function controller(
           .filter(x => !x.built && !initialIds.has(x.id))
           .map(x => ({ id: x.id }))
         const create = state.value.filter(x => x.built).map(x => x.data)
-        const output = {
-          ...(disconnect.length ? { disconnect } : {}),
-          ...(connect.length ? { connect } : {}),
-          ...(create.length ? { create } : {}),
-        }
-
+        const output: any = {}
+        if (disconnect.length) output.disconnect = disconnect
+        if (connect.length) output.connect = connect
+        if (create.length) output.create = create
         if (Object.keys(output).length) {
           return {
             [config.fieldKey]: output,
           }
         }
-      } else if (state.kind === 'one') {
-        if (state.initialValue && !state.value) return { [config.fieldKey]: { disconnect: true } }
-        if (state.value?.built) {
-          return {
-            [config.fieldKey]: {
-              create: state.value.data,
-            },
-          }
-        }
-        if (state.value && state.value.id !== state.initialValue?.id) {
-          return {
-            [config.fieldKey]: {
-              connect: {
-                id: state.value.id,
-              },
-            },
-          }
-        }
+        return {}
+      }
+
+      // state.kind === 'one'
+      if (state.initialValue && !state.value) {
+        return { [config.fieldKey]: { disconnect: true } }
+      }
+      if (state.value?.built) {
+        return { [config.fieldKey]: { create: state.value.data } }
+      }
+      if (state.value && state.value.id !== state.initialValue?.id) {
+        return { [config.fieldKey]: { connect: { id: state.value.id } } }
       }
       return {}
     },

@@ -96,11 +96,11 @@ const InputModalStepper = ({
 
     if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
       if (hasFilesToUpload) {
-        const confirmed = globalThis.confirm(
+        const confirm = globalThis.confirm(
           formatMessage({ id: getTrad('window.confirm.close-modal.files') })
         );
 
-        if (!confirmed) {
+        if (!confirm) {
           return;
         }
       }
@@ -283,11 +283,11 @@ const InputModalStepper = ({
 
   const handleToggle = () => {
     if (filesToUploadLength > 0) {
-      const confirmed = globalThis.confirm(
+      const confirm = globalThis.confirm(
         formatMessage({ id: getTrad('window.confirm.close-modal.files') })
       );
 
-      if (!confirmed) {
+      if (!confirm) {
         return;
       }
     }
@@ -297,11 +297,11 @@ const InputModalStepper = ({
       (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
       (currentStep === 'edit' && selectedFiles.length > 0)
     ) {
-      const confirmed = globalThis.confirm(
+      const confirm = globalThis.confirm(
         formatMessage({ id: getTrad('window.confirm.close-modal.file') })
       );
 
-      if (!confirmed) {
+      if (!confirm) {
         return;
       }
     }

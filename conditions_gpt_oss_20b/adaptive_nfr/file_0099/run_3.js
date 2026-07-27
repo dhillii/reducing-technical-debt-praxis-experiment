@@ -1,12 +1,12 @@
 'use strict';
 
-const util = require('crypto-lib').util;
+var util = require('crypto-lib').util;
 
 //
 // Controller
 //
 
-const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain, pgp, email, outbox, dialog, axe, status, invitation) {
+var WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keychain, pgp, email, outbox, dialog, axe, status, invitation) {
 
     const str = appConfig.string;
     const cfg = appConfig.config;

@@ -135,9 +135,9 @@ define([
 
                 if (parts.length > 1) {
                     const key  = parts.shift();
-                    const val  = parts.length > 0 ? parts.join('=') : undefined;
-                    const decoded = val === undefined ? null : decodeURIComponent(val.trim());
-                    ret[key] = decoded;
+                    let val  = parts.length > 0 ? parts.join('=') : undefined;
+                    val      = undefined ? null : decodeURIComponent(val.trim());
+                    ret[key] = val;
                 }
             });
 
@@ -197,63 +197,52 @@ define([
          * Check for changes.
          */
         checkChanges: function() {
-            const self = this;
+            const promises = [];
+            const self     = this;
+
             this.configs.statRemote = false;
             Radio.trigger('sync', 'start', 'dropbox');
 
-            const syncPromises = this.buildSyncPromises();
+            // Synchronize all collections
+            _.each(['notes', 'notebooks', 'tags'], function(module) {
+                promises.push(function() {
+                    return Q.all([
+                        Radio.request(module, 'fetch', {encrypt: true}),
+                        adapter.getAll(module)
+                    ])
+                    .spread(function(localData, remoteData) {
+                        return self.syncAll(localData, remoteData, module);
+                    });
+                });
+            });
 
-            const runPromises = _.reduce(syncPromises, Q.when, Q.resolve());
-
-            return runPromises
+            // After synchronizing, start watching for changes
+            return _.reduce(promises, Q.when, new Q())
             .then(function() {
                 Radio.trigger('sync', 'stop', 'dropbox');
                 self.startWatch();
             })
-            .catch(function(err) {
-                self.handleCheckChangesError(err);
-            });
-        },
+            .fail(function(err) {
+                if (err) {
+                    switch (err.status) {
 
-        /**
-         * Build an array of functions that perform sync for each module.
-         *
-         * @returns {Array<Function>}
-         */
-        buildSyncPromises: function() {
-            const modules = ['notes', 'notebooks', 'tags'];
-            return modules.map(function(module) {
-                return () => Q.all([
-                    Radio.request(module, 'fetch', {encrypt: true}),
-                    adapter.getAll(module)
-                ])
-                .spread(function(localData, remoteData) {
-                    return this.syncAll(localData, remoteData, module);
-                }.bind(this));
-            }, this);
-        },
+                        // If access was revoked, try to ask for it again
+                        case 401:
+                            self.checkAuth();
+                            break;
 
-        /**
-         * Handle errors from checkChanges.
-         *
-         * @param {Object} err
-         */
-        handleCheckChangesError: function(err) {
-            if (err) {
-                switch (err.status) {
-                    case 401:
-                        this.checkAuth();
-                        break;
-                    case 0:
-                        this.configs.interval = this.configs.intervalMax;
-                        this.startWatch();
-                        break;
+                        // On connection error, increase watch interval
+                        case 0:
+                            self.configs.interval = self.configs.intervalMax;
+                            self.startWatch();
+                            break;
+                    }
                 }
-            }
 
-            Radio.trigger('sync', 'stop', 'dropbox');
-            Radio.trigger('sync', 'error', {cloud: 'dropbox', error: err});
-            console.error('Error', err);
+                Radio.trigger('sync', 'stop', 'dropbox');
+                Radio.trigger('sync', 'error', {cloud: 'dropbox', error: err});
+                console.error('Error', arguments[0], arguments);
+            });
         },
 
         /**
@@ -275,7 +264,7 @@ define([
                 this.checkLocalChanges(localData, remoteData, module, encryptKeys)
             );
 
-            return _.reduce(promises, Q.when, Q.resolve())
+            return _.reduce(promises, Q.when, new Q())
             .then(function() {
                 return Radio.request(module, 'fetch', {encrypt: true});
             });

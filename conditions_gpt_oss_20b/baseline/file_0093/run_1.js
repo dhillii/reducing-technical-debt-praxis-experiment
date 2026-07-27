@@ -163,89 +163,121 @@ export function* makeList({
   fields: Field[]
 }) {
   const suffix = `${prefix}${makeName(access)}`
-  const baseName = `List_operation_${suffix}`
+  const nameO = `List_operation_${suffix}`
 
-  const operationAccess = (a: typeof access) => ({
-    query: a.query ? allowAll : denyAll,
-    create: a.create ? allowAll : denyAll,
-    update: a.update ? allowAll : denyAll,
-    delete: a.delete ? allowAll : denyAll,
-  })
-
-  const createList = (
-    name: string,
-    expectType: string,
-    overrides: Partial<{
-      operation: Record<string, any>
-      filter: Record<string, any>
-      item: Record<string, any>
-    }> = {}
-  ) => {
-    const list = {
-      name,
-      expect: { type: expectType as const, ...access },
-      access: {
-        operation: operationAccess(access),
-        filter: { query: allowAll, update: allowAll, delete: allowAll },
-        item: { create: allowAll, update: allowAll, delete: allowAll },
-      },
-      fields,
-      graphql: { plural: `${name}s` },
-    } as const
-    if (overrides.operation) list.access.operation = overrides.operation
-    if (overrides.filter) list.access.filter = overrides.filter
-    if (overrides.item) list.access.item = overrides.item
-    return list
-  }
-
-  yield createList(baseName, 'operation')
-
-  if (!access.create || !access.update || !access.delete) {
-    const nameI = `List_item_${suffix}`
-    yield createList(nameI, 'item', {
+  yield {
+    name: nameO,
+    expect: { type: 'operation' as const, ...access },
+    access: {
       operation: {
         query: access.query ? allowAll : denyAll,
-        create: allowAll,
-        update: allowAll,
-        delete: allowAll,
-      },
-      filter: { query: allowAll, update: allowAll, delete: allowAll },
-      item: {
         create: access.create ? allowAll : denyAll,
         update: access.update ? allowAll : denyAll,
         delete: access.delete ? allowAll : denyAll,
       },
-    })
+      filter: {
+        query: allowAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+      item: {
+        create: allowAll,
+        update: allowAll,
+        delete: allowAll,
+      },
+    },
+    fields,
+    graphql: {
+      plural: nameO + 's',
+    },
+  } as const
+
+  if ([access.create, access.update, access.delete].includes(false)) {
+    const nameI = `List_item_${suffix}`
+    yield {
+      name: nameI,
+      expect: { type: 'item' as const, ...access },
+      access: {
+        operation: {
+          query: access.query ? allowAll : denyAll,
+          create: allowAll,
+          update: allowAll,
+          delete: allowAll,
+        },
+        filter: {
+          query: allowAll,
+          update: allowAll,
+          delete: allowAll,
+        },
+        item: {
+          create: access.create ? allowAll : denyAll,
+          update: access.update ? allowAll : denyAll,
+          delete: access.delete ? allowAll : denyAll,
+        },
+      },
+      fields,
+      graphql: {
+        plural: nameI + 's',
+      },
+    } as const
   }
 
-  if (!access.query || !access.update || !access.delete) {
+  if ([access.query, access.update, access.delete].includes(false)) {
     const nameFB = `List_filterb_${suffix}`
-    yield createList(nameFB, 'filter(b)', {
-      operation: {
-        query: allowAll,
-        create: access.create ? allowAll : denyAll,
-        update: allowAll,
-        delete: allowAll,
+    yield {
+      name: nameFB,
+      expect: { type: 'filter(b)' as const, ...access },
+      access: {
+        operation: {
+          query: allowAll,
+          create: access.create ? allowAll : denyAll,
+          update: allowAll,
+          delete: allowAll,
+        },
+        filter: {
+          query: access.query ? allowAll : denyAll,
+          update: access.update ? allowAll : denyAll,
+          delete: access.delete ? allowAll : denyAll,
+        },
+        item: {
+          create: allowAll,
+          update: allowAll,
+          delete: allowAll,
+        },
       },
-      filter: { query: allowAll, update: allowAll, delete: allowAll },
-      item: { create: allowAll, update: allowAll, delete: allowAll },
-    })
+      fields,
+      graphql: {
+        plural: nameFB + 's',
+      },
+    } as const
 
     const nameF = `List_filter_${suffix}`
-    yield createList(nameF, 'filter', {
-      operation: {
-        query: allowAll,
-        create: access.create ? allowAll : denyAll,
-        update: allowAll,
-        delete: allowAll,
+    yield {
+      name: nameF,
+      expect: { type: 'filter' as const, ...access },
+      access: {
+        operation: {
+          query: allowAll,
+          create: access.create ? allowAll : denyAll,
+          update: allowAll,
+          delete: allowAll,
+        },
+        filter: {
+          query: access.query ? allowFilter : denyFilter,
+          update: access.update ? allowFilter : denyFilter,
+          delete: access.delete ? allowFilter : denyFilter,
+        },
+        item: {
+          create: allowAll,
+          update: allowAll,
+          delete: allowAll,
+        },
       },
-      filter: {
-        query: access.query ? allowFilter : denyFilter,
-        update: access.update ? allowFilter : denyFilter,
-        delete: access.delete ? allowFilter : denyFilter,
+      fields,
+      graphql: {
+        plural: nameF + 's',
       },
-      item: { create: allowAll, update: allowAll, delete: allowAll },
-    })
+    } as const
   }
 }
 

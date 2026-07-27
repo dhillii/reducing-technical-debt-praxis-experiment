@@ -294,32 +294,22 @@ internals.Request.prototype.getLog = function (tags, internal) {
     }
 
     tags = [].concat(tags || []);
-    if (!tags.length &&
-        internal === undefined) {
 
+    if (!tags.length && internal === undefined) {
         return this._logger;
     }
 
-    const filter = tags.length ? Hoek.mapToObject(tags) : null;
-    const result = [];
+    const filterTags = tags.length ? Hoek.mapToObject(tags) : null;
 
-    for (let i = 0; i < this._logger.length; ++i) {
-        const event = this._logger[i];
-        if (internal === undefined || event.internal === internal) {
-            if (filter) {
-                for (let j = 0; j < event.tags.length; ++j) {
-                    const tag = event.tags[j];
-                    if (filter[tag]) {
-                        result.push(event);
-                        break;
-                    }
-                }
-            }
-            else {
-                result.push(event);
-            }
+    const result = this._logger.filter(event => {
+        if (internal !== undefined && event.internal !== internal) {
+            return false;
         }
-    }
+        if (!filterTags) {
+            return true;
+        }
+        return event.tags.some(tag => filterTags[tag]);
+    });
 
     return result;
 };
@@ -327,15 +317,22 @@ internals.Request.prototype.getLog = function (tags, internal) {
 
 internals.Request.prototype._execute = function () {
 
+    // Execute onRequest extensions (can change request method and url)
+
     if (!this.connection._extensions.onRequest.nodes) {
         return this._match();
     }
 
-    this._invoke(this.connection._extensions.onRequest, (err) => this._match(err));
+    this._invoke(this.connection._extensions.onRequest, (err) => {
+
+        return this._match(err);
+    });
 };
 
 
 internals.Request.prototype._match = function (err) {
+
+    // Undecorate request
 
     this.setUrl = undefined;
     this.setMethod = undefined;
@@ -349,6 +346,8 @@ internals.Request.prototype._match = function (err) {
 
         return this._reply(Boom.badRequest('Invalid path'));
     }
+
+    // Lookup route
 
     const match = this.connection._router.route(this.method, this.path, this.info.hostname);
     if (!match.route.settings.isInternal ||
@@ -375,21 +374,22 @@ internals.Request.prototype._lifecycle = function () {
 
     this._setTimeouts();
 
-    Items.serial(this._route._cycle, this._lifecycleProcess.bind(this), (err) => this._reply(err));
-};
+    const each = (func, next) => {
 
+        if (this._isReplied ||
+            this._isBailed) {
 
-internals.Request.prototype._lifecycleProcess = function (ext, next) {
+            return next(Boom.internal('Already closed'));                       // Error is not used
+        }
 
-    if (this._isReplied || this._isBailed) {
-        return next(Boom.internal('Already closed'));
-    }
+        if (typeof func !== 'function') {                                       // Extension point
+            return this._invoke(func, next);                                    // next() called with response object which ends processing (treated like error)
+        }
 
-    if (typeof ext !== 'function') {
-        return this._invoke(ext, next);
-    }
+        return func(this, next);
+    };
 
-    return ext(this, next);
+    return Items.serial(this._route._cycle, each, (err) => this._reply(err));
 };
 
 
@@ -422,67 +422,74 @@ internals.Request.prototype._setTimeouts = function () {
 internals.Request.prototype._invoke = function (event, callback) {
 
     this._protect.run(callback, (exit) => {
-        const each = (ext, next) => this._invokeEach(ext, next);
+
+        const each = (ext, next) => {
+
+            const finalize = (result, override) => {
+
+                if (override) {
+                    this._setResponse(override);
+                }
+
+                return next(result);            // next() called with response object which ends processing (treated like error)
+            };
+
+            const options = { postHandler: (event.type === 'onPostHandler' || event.type === 'onPreResponse') };
+            const reply = this.server._replier.interface(this, ext.plugin.realm, options, finalize);
+            const bind = (ext.bind || ext.plugin.realm.settings.bind);
+
+            ext.func.call(bind, this, reply);
+        };
+
         Items.serial(event.nodes, each, exit);
     });
 };
 
 
-internals.Request.prototype._invokeEach = function (ext, next) {
-
-    const finalize = (result, override) => {
-        if (override) {
-            this._setResponse(override);
-        }
-        next(result);
-    };
-
-    const options = { postHandler: (ext.type === 'onPostHandler' || ext.type === 'onPreResponse') };
-    const reply = this.server._replier.interface(this, ext.plugin.realm, options, finalize);
-    const bind = (ext.bind || ext.plugin.realm.settings.bind);
-
-    ext.func.call(bind, this, reply);
-};
-
-
 internals.Request.prototype._reply = function (exit) {
 
-    if (this._isReplied) {
+    if (this._isReplied) {                                  // Prevent any future responses to this request
         return;
     }
 
     this._isReplied = true;
+
     clearTimeout(this._serverTimeoutId);
 
     if (this._isBailed) {
         return this._finalize();
     }
 
-    if (this.response && this.response.closed) {
+    if (this.response &&                                    // Can be null if response coming from exit
+        this.response.closed) {
+
         if (this.response.end) {
-            this.raw.res.end();
+            this.raw.res.end();                             // End the response in case it wasn't already closed
         }
+
         return this._finalize();
     }
 
-    if (exit) {
+    if (exit) {                                             // Can be a valid response or error (if returned from an ext, already handled because this.response is also set)
         this._setResponse(Response.wrap(exit, this));
     }
 
     this._protect.reset();
 
     const transmit = (err) => {
-        if (err) {
+
+        if (err) {                                          // Can be valid response or error
             this._setResponse(Response.wrap(err, this));
         }
-        Transmit.send(this, () => this._finalize());
+
+        return Transmit.send(this, () => this._finalize());
     };
 
     if (!this._route._extensions.onPreResponse.nodes) {
         return transmit();
     }
 
-    this._invoke(this._route._extensions.onPreResponse, transmit);
+    return this._invoke(this._route._extensions.onPreResponse, transmit);
 };
 
 
@@ -490,23 +497,15 @@ internals.Request.prototype._finalize = function () {
 
     this.info.responded = Date.now();
 
-    this._finalizeResponseCheck();
-    this.connection.emit('response', this);
-    this._finalizeState();
-    this._finalizeCleanup();
-};
+    if (this.response &&
+        this.response.statusCode === 500 &&
+        this.response._error) {
 
-
-internals.Request.prototype._finalizeResponseCheck = function () {
-
-    if (this.response && this.response.statusCode === 500 && this.response._error) {
         this.connection.emit('request-error', [this, this.response._error]);
         this._log(this.response._error.isDeveloperError ? ['internal', 'implementation', 'error'] : ['internal', 'error'], this.response._error);
     }
-};
 
-
-internals.Request.prototype._finalizeState = function () {
+    this.connection.emit('response', this);
 
     this._isFinalized = true;
     this.addTail = undefined;
@@ -515,17 +514,17 @@ internals.Request.prototype._finalizeState = function () {
     if (Object.keys(this._tails).length === 0) {
         this.connection.emit('tail', this);
     }
-};
 
-
-internals.Request.prototype._finalizeCleanup = function () {
+    // Cleanup
 
     this.raw.req.removeListener('end', this._onEnd);
     this.raw.req.removeListener('close', this._onClose);
     this.raw.req.removeListener('error', this._onError);
     this.raw.req.removeListener('error', this._onAbort);
 
-    if (this.response && this.response._close) {
+    if (this.response &&
+        this.response._close) {
+
         this.response._close();
     }
 
@@ -562,27 +561,27 @@ internals.Request.prototype._addTail = function (name) {
     this._tails[tailId] = name;
     this._log(['tail', 'add'], { name, id: tailId });
 
-    const drop = () => this._addTailDrop(tailId, name);
+    const drop = () => {
+
+        if (!this._tails[tailId]) {
+            this._log(['tail', 'remove', 'error'], { name, id: tailId });             // Already removed
+            return;
+        }
+
+        delete this._tails[tailId];
+
+        if (Object.keys(this._tails).length === 0 &&
+            this._isFinalized) {
+
+            this._log(['tail', 'remove', 'last'], { name, id: tailId });
+            this.connection.emit('tail', this);
+        }
+        else {
+            this._log(['tail', 'remove'], { name, id: tailId });
+        }
+    };
+
     return drop;
-};
-
-
-internals.Request.prototype._addTailDrop = function (tailId, name) {
-
-    if (!this._tails[tailId]) {
-        this._log(['tail', 'remove', 'error'], { name, id: tailId });
-        return;
-    }
-
-    delete this._tails[tailId];
-
-    if (Object.keys(this._tails).length === 0 && this._isFinalized) {
-        this._log(['tail', 'remove', 'last'], { name, id: tailId });
-        this.connection.emit('tail', this);
-    }
-    else {
-        this._log(['tail', 'remove'], { name, id: tailId });
-    }
 };
 
 

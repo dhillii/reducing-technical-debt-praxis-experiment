@@ -239,11 +239,7 @@ class BatchSendingService {
     async createBatches({email, post, newsletter}) {
         logging.info(`Creating batches for email ${email.id}`);
 
-        // Infinity implies all emails should be sent from the primary domain
-        let domainWarmupLimit = Infinity;
-        if (this.#domainWarmingService.isEnabled()) {
-            domainWarmupLimit = Number.isInteger(email.get('csd_email_count')) ? email.get('csd_email_count') : Infinity;
-        }
+        const domainWarmupLimit = this.#getDomainWarmupLimit(email);
 
         const segments = await this.#emailRenderer.getSegments(post);
         const batches = [];
@@ -255,31 +251,28 @@ class BatchSendingService {
 
             const segmentFilter = this.#emailSegmenter.getMemberFilterForSegment(newsletter, email.get('recipient_filter'), segment);
 
-            // Avoiding Bookshelf for performance reasons
-            let members;
-
-            // Start with the id of the email, which is an objectId. We'll only fetch members that are created before the email. This is a special property of ObjectIds.
-            // Note: we use ID and not created_at, because imported members could set a created_at in the future or past and avoid limit checking.
             let lastId = email.id;
+            let members = null;
 
-            while (!members || lastId) {
-                logging.info(`Fetching members batch for email ${email.id} segment ${segment}, lastId: ${lastId}`);
+            while (true) {
+                if (!members || lastId) {
+                    logging.info(`Fetching members batch for email ${email.id} segment ${segment}, lastId: ${lastId}`);
+                    const filter = `${segmentFilter}+id:<'${lastId}'`;
+                    logging.info(`Fetching members batch for email ${email.id} segment ${segment}, lastId: ${lastId} ${filter}`);
 
-                const filter = segmentFilter + `+id:<'${lastId}'`;
-                logging.info(`Fetching members batch for email ${email.id} segment ${segment}, lastId: ${lastId} ${filter}`);
+                    members = await this.#models.Member.getFilteredCollectionQuery({filter})
+                        .orderByRaw('id DESC')
+                        .select('members.id', 'members.uuid', 'members.email', 'members.name')
+                        .limit(BATCH_SIZE + 1);
 
-                members = await this.#models.Member.getFilteredCollectionQuery({filter})
-                    .orderByRaw('id DESC')
-                    .select('members.id', 'members.uuid', 'members.email', 'members.name').limit(BATCH_SIZE + 1);
+                    if (!members || members.length === 0) {
+                        break;
+                    }
 
-                if (members.length > 0) {
-                    // Determine how many members to include in this batch
                     const remainingCustomDomainCapacity = domainWarmupLimit - totalCount;
                     const membersToProcess = Math.min(members.length, BATCH_SIZE);
 
-                    const shouldSplitBatch = remainingCustomDomainCapacity > 0 && remainingCustomDomainCapacity < membersToProcess;
-                    if (shouldSplitBatch) {
-                        // Split batch: some via custom domain, rest via fallback
+                    if (this.#shouldSplitBatch(remainingCustomDomainCapacity, membersToProcess)) {
                         totalCount += await this.#createBatchWithRetry({
                             email,
                             segment,
@@ -295,19 +288,20 @@ class BatchSendingService {
                             batches
                         });
                     } else {
-                        // Single batch: all members use same domain
                         totalCount += await this.#createBatchWithRetry({
                             email,
                             segment,
                             members: members.slice(0, membersToProcess),
-                            useFallbackDomain: totalCount >= domainWarmupLimit,
+                            useFallbackDomain: this.#useFallbackDomain(totalCount, domainWarmupLimit),
                             batches
                         });
                     }
-                }
 
-                if (members.length > BATCH_SIZE) {
-                    lastId = members[members.length - 2].id;
+                    if (members.length > BATCH_SIZE) {
+                        lastId = members[members.length - 2].id;
+                    } else {
+                        break;
+                    }
                 } else {
                     break;
                 }
@@ -319,16 +313,11 @@ class BatchSendingService {
         if (email.get('email_count') !== totalCount) {
             logging.error(`Email ${email.id} has wrong stored email_count ${email.get('email_count')}, did expect ${totalCount}. Updating the model.`);
 
-            // If the error rate is greater than 1%, we log it to Sentry so we can investigate
-            // Some differences are expected, e.g. if a new member signs up while we are sending the email
             const errorRate = Math.abs((totalCount - email.get('email_count')) / email.get('email_count'));
             if (this.#sentry && errorRate >= 0.01) {
-                // we don't have a real exception, so just log a message to Sentry
                 this.#sentry.captureMessage(`Email ${email.id} has wrong stored email_count ${email.get('email_count')}, did expect ${totalCount}.`);
             }
 
-            // We update the email model because this might happen in rare cases where the initial member count changed (e.g. deleted members)
-            // between creating the email and sending it
             const newEmailUpdate = {
                 email_count: totalCount
             };
@@ -342,7 +331,7 @@ class BatchSendingService {
     }
 
     /**
-     * Creates a batch with retry logic and adds it to the batches array
+     * @private
      * @param {object} params
      * @param {Email} params.email
      * @param {import('./email-renderer').Segment} params.segment
@@ -488,6 +477,7 @@ class BatchSendingService {
         logging.info(`Sending batch ${originalBatch.id} for email ${email.id}`);
 
         // Check the status of the email batch in a 'for update' transaction
+
         const batch = await this.retryDb(
             async () => {
                 return await this.updateStatusLock(this.#models.EmailBatch, originalBatch.id, 'submitting', ['pending', 'failed']);
@@ -502,7 +492,7 @@ class BatchSendingService {
         let succeeded = false;
 
         try {
-            const members = await this.retryDb(
+            let members = await this.retryDb(
                 async () => {
                     const m = await this.getBatchMembers(batch.id);
 
@@ -572,6 +562,7 @@ class BatchSendingService {
             }
 
             if (!succeeded) {
+                // We check succeeded because a Rare edge case where the batch was send, but we failed to set status to submitted, then we don't want to set it to failed
                 await this.retryDb(
                     async () => {
                         await batch.save({
@@ -769,6 +760,41 @@ class BatchSendingService {
             }
             return deliveryTimes;
         }
+    }
+
+    /**
+     * Determines the domain warmup limit for the given email.
+     * @private
+     * @param {Email} email
+     * @returns {number}
+     */
+    #getDomainWarmupLimit(email) {
+        if (!this.#domainWarmingService.isEnabled()) {
+            return Infinity;
+        }
+        return Number.isInteger(email.get('csd_email_count')) ? email.get('csd_email_count') : Infinity;
+    }
+
+    /**
+     * Determines if a batch should be split between custom and fallback domains.
+     * @private
+     * @param {number} remainingCapacity
+     * @param {number} membersToProcess
+     * @returns {boolean}
+     */
+    #shouldSplitBatch(remainingCapacity, membersToProcess) {
+        return remainingCapacity > 0 && remainingCapacity < membersToProcess;
+    }
+
+    /**
+     * Determines whether to use the fallback domain for a batch based on total count and limit.
+     * @private
+     * @param {number} totalCount
+     * @param {number} domainWarmupLimit
+     * @returns {boolean}
+     */
+    #useFallbackDomain(totalCount, domainWarmupLimit) {
+        return totalCount >= domainWarmupLimit;
     }
 }
 

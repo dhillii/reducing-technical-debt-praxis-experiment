@@ -387,12 +387,12 @@ export default class Analytics extends Component {
             return;
         }
 
-        const classSelectors = Array.from(element.classList).map(c => '.' + c).join('');
-        const newNumberSelector = `${classSelectors} .new-number span`;
-        const oldNumberSelector = `${classSelectors} .old-number span`;
+        const baseClasses = Array.from(element.classList).map(c => '.' + c).join('');
+        const newTarget = baseClasses + ' .new-number span';
+        const oldTarget = baseClasses + ' .old-number span';
 
         anime({
-            targets: newNumberSelector,
+            targets: newTarget,
             translateY: [10,0],
             opacity: [0,1],
             easing: 'easeOutElastic',
@@ -402,7 +402,7 @@ export default class Analytics extends Component {
         });
 
         anime({
-            targets: oldNumberSelector,
+            targets: oldTarget,
             translateY: [0,-10],
             opacity: [1,0],
             easing: 'easeOutExpo',
@@ -424,6 +424,6 @@ export default class Analytics extends Component {
     }
 
     get isLoaded() {
-        return this.links !== null && this.souces !== null && this.mentions !== null;
+        return this.links !== null && this.sources !== null && this.mentions !== null;
     }
 }

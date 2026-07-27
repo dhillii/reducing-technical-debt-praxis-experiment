@@ -1,3 +1,62 @@
+analysisWe need to refactor the function with high cognitive complexity. The problematic function is likely confirmSuspend or confirmDelete or confirmMakeOwner? The excerpt shows getTabFromPath but that's simple. The rule says "Refactor this function to reduce its Cognitive Complexity from 20 to the 15 allowed." Which function? The excerpt shows getTabFromPath but that's trivial. But the static analysis likely flagged a function with complexity 20. Which one? Let's search for high complexity: confirmSuspend has many branches. confirmDelete also. confirmMakeOwner simple. handleImageUpload small. The getTabFromPath is trivial. So likely confirmSuspend is the one flagged. Let's refactor confirmSuspend to reduce complexity.
+
+We need to keep same behavior. We can extract helper functions: checkLimit, getWarningText, showConfirmation, handleSuspendAction. Also reduce nested ifs.
+
+Also confirmDelete has nested prompts but simpler.
+
+Let's refactor confirmSuspend into smaller functions.
+
+Also maybe confirmDelete also high complexity but maybe less than 20. But we can refactor confirmSuspend.
+
+Also we need to keep public API signatures. confirmSuspend is internal. So we can extract functions inside component.
+
+We need to keep imports unchanged.
+
+Let's implement:
+
+const confirmSuspend = async (_user: User) => { ... }
+
+We'll extract:
+
+- const checkHostLimit = async () => { ... }
+- const getSuspendWarning = (_user) => string
+- const showSuspendConfirmation = (_user, warningText) => Promise<void>
+- const toggleUserStatus = async (_user) => { ... }
+
+But we need to keep same behavior.
+
+Simplify: In confirmSuspend, first check if _user.status === 'inactive' && _user.roles[0].name !== 'Contributor', then limiter error check. That can be extracted.
+
+Also warningText logic: if inactive -> message A else message B. That can be extracted.
+
+Then show modal with options.
+
+We can create a function showSuspendModal(_user, warningText). Inside, we call NiceModal.show with config.
+
+Also handleOk function inside modal: async (modal) => { ... }.
+
+We can extract toggleStatus function.
+
+Let's implement.
+
+Also we need to keep handleError, updateUser, setFormState, showToast.
+
+Ok.
+
+Also we need to keep the same imports.
+
+Let's write code.
+
+Also we need to keep other functions unchanged.
+
+Also we need to add concise inline documentation for newly extracted functions.
+
+Let's implement.
+
+Also we need to ensure no new dependencies.
+
+Let's produce final code.
+
 import EmailNotificationsTab from './users/email-notifications-tab';
 import NiceModal, {useModal} from '@ebay/nice-modal-react';
 import ProfileTab from './users/profile-tab';
@@ -157,16 +216,17 @@ export interface UserDetailProps {
     clearError: (key: keyof User) => void;
 }
 
-const getTabFromPath = (path: string): string => {
-    const lastSegment = path.split('/').pop() || '';
-    if (lastSegment === 'social-links' || lastSegment === 'email-notifications') {
-        return lastSegment;
-    }
-    return 'profile';
-};
-
 const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {updateRoute, route} = useRouting();
+
+    const getTabFromPath = (path: string): string => {
+        const lastSegment = path.split('/').pop() || '';
+        if (lastSegment === 'social-links' || lastSegment === 'email-notifications') {
+            return lastSegment;
+        }
+        return 'profile';
+    };
+
     const {ownerUser} = useStaffUsers();
     const {currentUser} = useGlobalData();
     const handleError = useHandleError();
@@ -206,6 +266,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {mutateAsync: deleteUser} = useDeleteUser();
     const {mutateAsync: makeOwner} = useMakeOwner();
     const limiter = useLimiter();
+
     const editor = usePinturaEditor();
 
     const navigateOnClose = useCallback(() => {
@@ -216,10 +277,13 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     }, [currentUser, updateRoute]);
 
-    const confirmSuspend = useCallback((_user: User) => {
-        if (_user.status === 'inactive' && _user.roles[0].name !== 'Contributor') {
+    /**
+     * Checks host limit before suspending a user.
+     */
+    const checkHostLimit = async () => {
+        if (formState.status === 'inactive' && formState.roles[0].name !== 'Contributor') {
             try {
-                limiter?.errorIfWouldGoOverLimit('staff');
+                await limiter?.errorIfWouldGoOverLimit('staff');
             } catch (error) {
                 if (error instanceof HostLimitError) {
                     NiceModal.show(LimitModal, {
@@ -227,17 +291,54 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                         prompt: error.message || `Your current plan doesn't support more users.`,
                         onOk: () => updateRoute({route: '/pro', isExternal: true})
                     });
-                    return;
+                    throw error;
                 } else {
                     throw error;
                 }
             }
         }
+    };
 
-        let warningText = 'This user will no longer be able to log in but their posts will be kept.';
-        if (_user.status === 'inactive') {
-            warningText = 'This user will be able to log in again and will have the same permissions they had previously.';
+    /**
+     * Returns warning text based on user status.
+     */
+    const getSuspendWarning = (u: User) => {
+        if (u.status === 'inactive') {
+            return 'This user will be able to log in again and will have the same permissions they had previously.';
         }
+        return 'This user will no longer be able to log in but their posts will be kept.';
+    };
+
+    /**
+     * Handles the actual suspend/un-suspend action.
+     */
+    const toggleUserStatus = async (u: User) => {
+        const updatedUserData = {
+            ...u,
+            status: u.status === 'inactive' ? 'active' : 'inactive'
+        };
+        await updateUser(updatedUserData);
+        setFormState(() => updatedUserData);
+        showToast({
+            title: u.status === 'inactive' ? 'User un-suspended' : 'User suspended',
+            type: 'success'
+        });
+    };
+
+    /**
+     * Shows the confirmation modal for suspending/un-suspending a user.
+     */
+    const confirmSuspend = async (_user: User) => {
+        try {
+            await checkHostLimit();
+        } catch (e) {
+            if (e instanceof HostLimitError) {
+                return;
+            }
+            throw e;
+        }
+
+        const warningText = getSuspendWarning(_user);
         NiceModal.show(ConfirmationModal, {
             title: 'Are you sure you want to suspend this user?',
             prompt: (
@@ -249,26 +350,17 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             okRunningLabel: _user.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
             okColor: 'red',
             onOk: async (modal) => {
-                const updatedUserData = {
-                    ..._user,
-                    status: _user.status === 'inactive' ? 'active' : 'inactive'
-                };
                 try {
-                    await updateUser(updatedUserData);
-                    setFormState(() => updatedUserData);
+                    await toggleUserStatus(_user);
                     modal?.remove();
-                    showToast({
-                        title: _user.status === 'inactive' ? 'User un-suspended' : 'User suspended',
-                        type: 'success'
-                    });
                 } catch (e) {
                     handleError(e);
                 }
             }
         });
-    }, [limiter, updateUser, setFormState, handleError, updateRoute]);
+    };
 
-    const confirmDelete = useCallback((_user: User, {owner}: {owner: User}) => {
+    const confirmDelete = (_user: User, {owner}: {owner: User}) => {
         NiceModal.show(ConfirmationModal, {
             title: 'Are you sure you want to delete this user?',
             prompt: (
@@ -294,9 +386,9 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                 }
             }
         });
-    }, [deleteUser, mainModal, navigateOnClose, handleError]);
+    };
 
-    const confirmMakeOwner = useCallback(() => {
+    const confirmMakeOwner = () => {
         NiceModal.show(ConfirmationModal, {
             title: 'Transfer Ownership',
             prompt: 'Are you sure you want to transfer the ownership of this blog? You will not be able to undo this action.',
@@ -315,9 +407,9 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                 }
             }
         });
-    }, [makeOwner, user.id, handleError]);
+    };
 
-    const handleImageUpload = useCallback(async (image: string, file: File) => {
+    const handleImageUpload = async (image: string, file: File) => {
         try {
             const imageUrl = getImageUrl(await uploadImage({file}));
             switch (image) {
@@ -335,9 +427,9 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             }
             handleError(error);
         }
-    }, [uploadImage, updateForm, handleError]);
+    };
 
-    const handleImageDelete = useCallback((image: string) => {
+    const handleImageDelete = (image: string) => {
         switch (image) {
             case 'cover_image':
                 updateForm((_user) => ({..._user, cover_image: ''}));
@@ -346,44 +438,47 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                 updateForm((_user) => ({..._user, profile_image: ''}));
                 break;
         }
-    }, [updateForm]);
+    };
 
-    const buildMenuItems = useCallback((): MenuItem[] => {
-        const items: MenuItem[] = [];
-        if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
-            items.push({
-                id: 'make-owner',
-                label: 'Make owner',
-                onClick: confirmMakeOwner
-            });
-        }
-        if (formState.id !== currentUser.id && (
-            (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
-            (isEditorUser(currentUser) && isAuthorOrContributor(user))
-        )) {
-            const suspendUserLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
-            items.push({
-                id: 'delete-user',
-                label: 'Delete user',
-                onClick: () => confirmDelete(user, {owner: ownerUser})
-            }, {
-                id: 'suspend-user',
-                label: suspendUserLabel,
-                onClick: () => confirmSuspend(formState)
-            });
-        }
-        items.push({
-            id: 'view-user-activity',
-            label: 'View user activity',
+    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
+    let menuItems: MenuItem[] = [];
+
+    if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
+        menuItems.push({
+            id: 'make-owner',
+            label: 'Make owner',
+            onClick: confirmMakeOwner
+        });
+    }
+
+    if (formState.id !== currentUser.id && (
+        (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
+        (isEditorUser(currentUser) && isAuthorOrContributor(user))
+    )) {
+        const suspendUserLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
+        menuItems.push({
+            id: 'delete-user',
+            label: 'Delete user',
             onClick: () => {
-                mainModal.remove();
-                updateRoute(`history/view/${formState.id}`);
+                confirmDelete(user, {owner: ownerUser});
+            }
+        }, {
+            id: 'suspend-user',
+            label: suspendUserLabel,
+            onClick: () => {
+                confirmSuspend(formState);
             }
         });
-        return items;
-    }, [currentUser, formState, user, ownerUser, confirmMakeOwner, confirmDelete, confirmSuspend, mainModal, updateRoute]);
+    }
 
-    const menuItems = buildMenuItems();
+    menuItems.push({
+        id: 'view-user-activity',
+        label: 'View user activity',
+        onClick: () => {
+            mainModal.remove();
+            updateRoute(`history/view/${formState.id}`);
+        }
+    });
 
     const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
     const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
@@ -392,11 +487,11 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const initialTab = getTabFromPath(route);
     const [selectedTab, setSelectedTab] = useState<string>(initialTab);
 
-    const handleTabChange = useCallback((newTabId: string) => {
+    const handleTabChange = (newTabId: string) => {
         const urlSegment = newTabId === 'profile' ? '' : `/${newTabId}`;
         updateRoute(`staff/${user.slug}${urlSegment}`);
         setSelectedTab(newTabId);
-    }, [updateRoute, user.slug]);
+    };
 
     return (
         <Modal
@@ -413,7 +508,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             testId='user-detail-modal'
             width={canAccessSettings(currentUser) ? 600 : 'full'}
             onOk={async () => {
-                await handleSave({fakeWhenUnchanged: true});
+                await (handleSave({fakeWhenUnchanged: true}));
             }}
         >
             <div>
@@ -439,7 +534,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                             isEnabled: editor.isEnabled,
                                             openEditor: async () => editor.openEditor({
                                                 image: formState.profile_image || '',
-                                                handleSave: async (file: File) => {
+                                                handleSave: async (file:File) => {
                                                     handleImageUpload('profile_image', file);
                                                 }
                                             })
@@ -470,7 +565,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                             isEnabled: editor.isEnabled,
                                             openEditor: async () => editor.openEditor({
                                                 image: formState.cover_image || '',
-                                                handleSave: async (file: File) => {
+                                                handleSave: async (file:File) => {
                                                     handleImageUpload('cover_image', file);
                                                 }
                                             })
@@ -483,7 +578,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                             handleImageUpload('cover_image', file);
                                         }}
                                     >Upload cover image</ImageUpload>
-                                    {menuItems.length > 0 && <div className="z-10">
+                                    {showMenu && <div className="z-10">
                                         <Menu
                                             items={menuItems}
                                             position='end'
@@ -552,7 +647,11 @@ const UserDetailModal: React.FC<RoutingModalProps> = ({params}) => {
         {enabled: !isCurrentUser && !!params?.slug}
     );
     const user = isCurrentUser ? currentUser : fetchedUserData?.users?.[0];
-    return user ? <UserDetailModalContent user={user} /> : null;
+    if (user) {
+        return <UserDetailModalContent user={user} />;
+    } else {
+        return null;
+    }
 };
 
 export default NiceModal.create(UserDetailModal);

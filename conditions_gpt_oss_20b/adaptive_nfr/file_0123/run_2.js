@@ -335,7 +335,7 @@ class QueryInterface {
     options = options || {};
     const skip = options.skip || [];
 
-    const dropAllTables = tableNames => Promise.each(tableNames, tableName => {
+    const dropAll = tableNames => Promise.each(tableNames, tableName => {
       // if tableName is not in the Array of tables names then dont drop it
       if (skip.indexOf(tableName.tableName || tableName) === -1) {
         return this.dropTable(tableName, _.assign({}, options, { cascade: true }) );
@@ -349,29 +349,25 @@ class QueryInterface {
 
           if (foreignKeysAreEnabled) {
             return this.sequelize.query('PRAGMA foreign_keys = OFF', options)
-              .then(() => dropAllTables(tableNames))
+              .then(() => dropAll(tableNames))
               .then(() => this.sequelize.query('PRAGMA foreign_keys = ON', options));
           } else {
-            return dropAllTables(tableNames);
+            return dropAll(tableNames);
           }
         });
       } else {
         return this.getForeignKeysForTables(tableNames, options).then(foreignKeys => {
           const promises = [];
-
           tableNames.forEach(tableName => {
-            let normalizedTableName = tableName;
-            if (_.isObject(tableName)) {
-              normalizedTableName = tableName.schema + '.' + tableName.tableName;
-            }
-
-            foreignKeys[normalizedTableName].forEach(foreignKey => {
-              const sql = this.QueryGenerator.dropForeignKeyQuery(tableName, foreignKey);
+            const normalized = _.isObject(tableName) ? `${tableName.schema}.${tableName.tableName}` : tableName;
+            const fks = foreignKeys[normalized] || [];
+            fks.forEach(fk => {
+              const sql = this.QueryGenerator.dropForeignKeyQuery(tableName, fk);
               promises.push(this.sequelize.query(sql, options));
             });
           });
 
-          return Promise.all(promises).then(() => dropAllTables(tableNames));
+          return Promise.all(promises).then(() => dropAll(tableNames));
         });
       }
     });
@@ -556,7 +552,7 @@ class QueryInterface {
    *
    * @param {String} tableName          Table name to change from
    * @param {String} attributeName      Column name
-   * @param {Object} dataTypeOrOptions Attribute definition for new column
+   * @param {Object} dataTypeOrOptions  Attribute definition for new column
    * @param {Object} [options]          Query options
    *
    * @return {Promise}
@@ -1419,7 +1415,7 @@ class QueryInterface {
   }
 
   commitTransaction(transaction, options) {
-    if (!transaction || !(transaction instanceof Transaction)) {
+    if (!transaction || !transaction instanceof Transaction) {
       throw new Error('Unable to commit a transaction without transaction object!');
     }
     if (transaction.parent) {
@@ -1441,7 +1437,7 @@ class QueryInterface {
   }
 
   rollbackTransaction(transaction, options) {
-    if (!transaction || !(transaction instanceof Transaction)) {
+    if (!transaction || !transaction instanceof Transaction) {
       throw new Error('Unable to rollback a transaction without transaction object!');
     }
 

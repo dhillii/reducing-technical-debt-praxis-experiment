@@ -358,30 +358,30 @@ class ajaxService extends AjaxService {
             }
         }
 
-        // Strategy pattern for error handling
+        // Error handling via lookup table
         const errorHandlers = [
-            { predicate: (s, h, p) => this.isTwoFactorTokenRequiredError(s, h, p), ctor: TwoFactorTokenRequiredError },
-            { predicate: (s, h, p) => this.isVersionMismatchError(s, h, p), ctor: VersionMismatchError },
-            { predicate: (s, h, p) => this.isServerUnreachableError(s, h, p), ctor: ServerUnreachableError },
-            { predicate: (s, h, p) => this.isRequestEntityTooLargeError(s, h, p), ctor: RequestEntityTooLargeError },
-            { predicate: (s, h, p) => this.isUnsupportedMediaTypeError(s, h, p), ctor: UnsupportedMediaTypeError },
-            { predicate: (s, h, p) => this.isMaintenanceError(s, h, p), ctor: MaintenanceError },
-            { predicate: (s, h, p) => this.isThemeValidationError(s, h, p), ctor: ThemeValidationError },
-            { predicate: (s, h, p) => this.isHostLimitError(s, h, p), ctor: HostLimitError },
-            { predicate: (s, h, p) => this.isEmailError(s, h, p), ctor: EmailError },
-            { predicate: (s) => this.isAcceptedResponse(s), ctor: AcceptedResponse }
+            {check: this.isTwoFactorTokenRequiredError, ctor: TwoFactorTokenRequiredError},
+            {check: this.isVersionMismatchError, ctor: VersionMismatchError},
+            {check: this.isServerUnreachableError, ctor: ServerUnreachableError},
+            {check: this.isRequestEntityTooLargeError, ctor: RequestEntityTooLargeError},
+            {check: this.isUnsupportedMediaTypeError, ctor: UnsupportedMediaTypeError},
+            {check: this.isMaintenanceError, ctor: MaintenanceError},
+            {check: this.isThemeValidationError, ctor: ThemeValidationError},
+            {check: this.isHostLimitError, ctor: HostLimitError},
+            {check: this.isEmailError, ctor: EmailError},
+            {check: this.isAcceptedResponse, ctor: AcceptedResponse}
         ];
 
-        for (const {predicate, ctor} of errorHandlers) {
-            if (predicate(status, headers, payload)) {
+        for (const {check, ctor} of errorHandlers) {
+            if (check.call(this, status, headers, payload)) {
                 return new ctor(payload);
             }
         }
 
-        let isGhostRequest = GHOST_REQUEST.test(request.url);
-        let isAuthenticated = this.get('session.isAuthenticated');
-        let isUnauthorized = this.isUnauthorizedError(status, headers, payload);
-        let isForbidden = isForbiddenError(status, headers, payload);
+        const isGhostRequest = GHOST_REQUEST.test(request.url);
+        const isAuthenticated = this.get('session.isAuthenticated');
+        const isUnauthorized = this.isUnauthorizedError(status, headers, payload);
+        const isForbidden = isForbiddenError(status, headers, payload);
 
         // used when reporting connection errors, helps distinguish CDN
         if (isGhostRequest) {

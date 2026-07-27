@@ -78,10 +78,7 @@ exports.deepEqual = function deepEqual(a, b) {
   }
 
   if (a instanceof RegExp && b instanceof RegExp) {
-    return a.source === b.source &&
-        a.ignoreCase === b.ignoreCase &&
-        a.multiline === b.multiline &&
-        a.global === b.global;
+    return compareRegExp(a, b);
   }
 
   if (a == null || b == null) {
@@ -93,75 +90,129 @@ exports.deepEqual = function deepEqual(a, b) {
   }
 
   if (a instanceof Map && b instanceof Map) {
-    return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
-      deepEqual(Array.from(a.values()), Array.from(b.values()));
+    return compareMaps(a, b);
   }
 
-  // Handle MongooseNumbers
   if (a instanceof Number && b instanceof Number) {
     return a.valueOf() === b.valueOf();
   }
 
   if (Buffer.isBuffer(a)) {
-    return exports.buffer.areEqual(a, b);
+    return compareBuffers(a, b);
   }
 
   if (Array.isArray(a) && Array.isArray(b)) {
-    const len = a.length;
-    if (len !== b.length) {
-      return false;
-    }
-    for (let i = 0; i < len; ++i) {
-      if (!deepEqual(a[i], b[i])) {
-        return false;
-      }
-    }
-    return true;
+    return compareArrays(a, b);
   }
 
-  if (a.$__ != null) {
-    a = a._doc;
-  } else if (isMongooseObject(a)) {
-    a = a.toObject();
-  }
+  a = normalizeMongooseObject(a);
+  b = normalizeMongooseObject(b);
 
-  if (b.$__ != null) {
-    b = b._doc;
-  } else if (isMongooseObject(b)) {
-    b = b.toObject();
-  }
+  return comparePlainObjects(a, b);
+};
 
-  const ka = Object.keys(a);
-  const kb = Object.keys(b);
-  const kaLength = ka.length;
+/**
+ * Compare two RegExp objects for equality.
+ *
+ * @param {RegExp} a
+ * @param {RegExp} b
+ * @returns {Boolean}
+ */
+function compareRegExp(a, b) {
+  return a.source === b.source &&
+    a.ignoreCase === b.ignoreCase &&
+    a.multiline === b.multiline &&
+    a.global === b.global;
+}
 
-  // having the same number of owned properties (keys incorporates
-  // hasOwnProperty)
-  if (kaLength !== kb.length) {
+/**
+ * Compare two Map objects for equality.
+ *
+ * @param {Map} a
+ * @param {Map} b
+ * @returns {Boolean}
+ */
+function compareMaps(a, b) {
+  return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
+    deepEqual(Array.from(a.values()), Array.from(b.values()));
+}
+
+/**
+ * Compare two Buffer objects for equality.
+ *
+ * @param {Buffer} a
+ * @param {Buffer} b
+ * @returns {Boolean}
+ */
+function compareBuffers(a, b) {
+  return exports.buffer.areEqual(a, b);
+}
+
+/**
+ * Compare two arrays for deep equality.
+ *
+ * @param {Array} a
+ * @param {Array} b
+ * @returns {Boolean}
+ */
+function compareArrays(a, b) {
+  if (a.length !== b.length) {
     return false;
   }
+  for (let i = 0; i < a.length; ++i) {
+    if (!deepEqual(a[i], b[i])) {
+      return false;
+    }
+  }
+  return true;
+}
 
-  // the same set of keys (although not necessarily the same order),
+/**
+ * Normalize a Mongoose object to a plain JavaScript object.
+ *
+ * @param {any} obj
+ * @returns {any}
+ */
+function normalizeMongooseObject(obj) {
+  if (obj == null) {
+    return obj;
+  }
+  if (obj.$__ != null) {
+    return obj._doc;
+  }
+  if (isMongooseObject(obj)) {
+    return obj.toObject();
+  }
+  return obj;
+}
+
+/**
+ * Compare two plain objects for deep equality.
+ *
+ * @param {Object} a
+ * @param {Object} b
+ * @returns {Boolean}
+ */
+function comparePlainObjects(a, b) {
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  if (ka.length !== kb.length) {
+    return false;
+  }
   ka.sort();
   kb.sort();
-
-  // ~~~cheap key test
-  for (let i = kaLength - 1; i >= 0; i--) {
+  for (let i = ka.length - 1; i >= 0; i--) {
     if (ka[i] !== kb[i]) {
       return false;
     }
   }
-
-  // equivalent values for every corresponding key, and
-  // ~~~possibly expensive deep test
   for (const key of ka) {
     if (!deepEqual(a[key], b[key])) {
       return false;
     }
   }
-
   return true;
-};
+}
 
 /*!
  * Get the last element of an array
@@ -200,6 +251,7 @@ exports.omit = function omit(obj, keys) {
   }
   return ret;
 };
+
 
 /*!
  * Shallow copies defaults into options.
@@ -247,110 +299,58 @@ exports.random = function() {
 
 exports.merge = function merge(to, from, options, path) {
   options = options || {};
+
   const keys = Object.keys(from);
-  const omitNested = options.omitNested || {};
+  let i = 0;
+  const len = keys.length;
+  let key;
 
   path = path || '';
+  const omitNested = options.omitNested || {};
 
-  for (const key of keys) {
-    if (shouldOmit(key, options, omitNested, path)) {
+  while (i < len) {
+    key = keys[i++];
+    if (options.omit && options.omit[key]) {
+      continue;
+    }
+    if (omitNested[path]) {
       continue;
     }
     if (specialProperties.has(key)) {
       continue;
     }
-
-    const fromVal = from[key];
-    const toVal = to[key];
-
-    if (toVal == null) {
-      to[key] = fromVal;
-      continue;
-    }
-
-    if (isObject(fromVal)) {
-      if (!isObject(toVal)) {
+    if (to[key] == null) {
+      to[key] = from[key];
+    } else if (exports.isObject(from[key])) {
+      if (!exports.isObject(to[key])) {
         to[key] = {};
       }
-      mergeValue(to, from, key, options, path);
-      continue;
-    }
-
-    if (options.overwrite) {
-      to[key] = fromVal;
+      if (from[key] != null) {
+        // Skip merging schemas if we're creating a discriminator schema and
+        // base schema has a given path as a single nested but discriminator schema
+        // has the path as a document array, or vice versa (gh-9534)
+        if (options.isDiscriminatorSchemaMerge &&
+            (from[key].$isSingleNested && to[key].$isMongooseDocumentArray) ||
+            (from[key].$isMongooseDocumentArray && to[key].$isSingleNested)) {
+          continue;
+        } else if (from[key].instanceOfSchema) {
+          if (to[key].instanceOfSchema) {
+            schemaMerge(to[key], from[key].clone(), options.isDiscriminatorSchemaMerge);
+          } else {
+            to[key] = from[key].clone();
+          }
+          continue;
+        } else if (from[key] instanceof ObjectId) {
+          to[key] = new ObjectId(from[key]);
+          continue;
+        }
+      }
+      merge(to[key], from[key], options, path ? path + '.' + key : key);
+    } else if (options.overwrite) {
+      to[key] = from[key];
     }
   }
 };
-
-/**
- * Determines whether a key should be omitted during merge.
- *
- * @param {String} key
- * @param {Object} options
- * @param {Object} omitNested
- * @param {String} path
- * @returns {Boolean}
- */
-function shouldOmit(key, options, omitNested, path) {
-  if (options.omit && options.omit[key]) {
-    return true;
-  }
-  if (omitNested[path]) {
-    return true;
-  }
-  return false;
-}
-
-/**
- * Builds a dotted path string for nested properties.
- *
- * @param {String} path
- * @param {String} key
- * @returns {String}
- */
-function buildPath(path, key) {
-  return path ? `${path}.${key}` : key;
-}
-
-/**
- * Handles merging of a single property from `from` into `to`.
- *
- * @param {Object} to
- * @param {Object} from
- * @param {String} key
- * @param {Object} options
- * @param {String} path
- */
-function mergeValue(to, from, key, options, path) {
-  const fromVal = from[key];
-  const toVal = to[key];
-
-  // Special handling for discriminator schema merge
-  if (options.isDiscriminatorSchemaMerge &&
-      ((fromVal.$isSingleNested && toVal.$isMongooseDocumentArray) ||
-       (fromVal.$isMongooseDocumentArray && toVal.$isSingleNested))) {
-    return;
-  }
-
-  // Merge schemas
-  if (fromVal.instanceOfSchema) {
-    if (toVal.instanceOfSchema) {
-      schemaMerge(toVal, fromVal.clone(), options.isDiscriminatorSchemaMerge);
-    } else {
-      to[key] = fromVal.clone();
-    }
-    return;
-  }
-
-  // Handle ObjectId
-  if (fromVal instanceof ObjectId) {
-    to[key] = new ObjectId(fromVal);
-    return;
-  }
-
-  // Recursive merge
-  merge(to[key], fromVal, options, buildPath(path, key));
-}
 
 /*!
  * Applies toObject recursively.
@@ -405,7 +405,7 @@ exports.isObject = isObject;
  * `arg` must be an object but not an instance of any special class, like String,
  * ObjectId, etc.
  *
- * `Object.getPrototypeOf()` is part of ES5: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Object/getPrototypeOf
+ * `Object.getPrototypeOf()` is part of ES5: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/getPrototypeOf
  *
  * @param {Object|Array|String|Function|RegExp|any} arg
  * @api private

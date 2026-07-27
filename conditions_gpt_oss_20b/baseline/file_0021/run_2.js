@@ -258,7 +258,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             if (res.ok) {
                 return res.text();
             } else {
-                const humanError = await HumanReadableError.fromApiResponse(res);
+                const humanError = HumanReadableError.fromApiResponse(res);
                 if (humanError) {
                     throw humanError;
                 }
@@ -308,7 +308,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 }
                 return {};
             } else {
-                const humanError = await HumanReadableError.fromApiResponse(res);
+                const humanError = HumanReadableError.fromApiResponse(res);
                 if (humanError) {
                     throw humanError;
                 }
@@ -337,7 +337,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             if (res.ok) {
                 return await res.json();
             } else {
-                const humanError = await HumanReadableError.fromApiResponse(res);
+                const humanError = HumanReadableError.fromApiResponse(res);
                 if (humanError) {
                     throw humanError;
                 }

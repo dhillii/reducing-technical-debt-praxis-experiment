@@ -62,11 +62,11 @@ module.exports = class EventRepository {
 
         const [typeFilter, otherFilter] = this.getNQLSubset(options.filter);
 
-        //Changing this order might need a change in the query functions
-        //because of the different underlying models.
+        // Changing this order might need a change in the query functions
+        // because of the different underlying models.
         options.order = 'created_at desc, id desc';
 
-        //Create a list of all events that can be queried
+        // Create a list of all events that can be queried
         const pageActions = [
             {type: 'comment_event', action: 'getCommentEvents'},
             {type: 'click_event', action: 'getClickEvents'},
@@ -76,7 +76,7 @@ module.exports = class EventRepository {
             {type: 'donation_event', action: 'getDonationEvents'}
         ];
 
-        //Some events are not filterable by post_id
+        // Some events are not filterable by post_id
         if (!getUsedKeys(otherFilter).includes('data.post_id')) {
             pageActions.push(
                 {type: 'newsletter_event', action: 'getNewsletterSubscriptionEvents'},
@@ -106,7 +106,7 @@ module.exports = class EventRepository {
         //Filter events to query
         let filteredPages = pageActions;
         if (typeFilter) {
-            //Ideally we should be able to create a NQL filter without having a string
+            // Ideally we should be able to create a NQL filter without having a string
             const query = new mingo.Query(typeFilter);
             filteredPages = filteredPages.filter(page => query.test(page));
         }
@@ -137,7 +137,7 @@ module.exports = class EventRepository {
                     total: totalEvents,
                     pages: options.limit > 0 ? Math.ceil(totalEvents / options.limit) : null,
 
-                    //Other values are unavailable (not possible to calculate easily)
+                    // Other values are unavailable (not possible to calculate easily)
                     page: null,
                     next: null,
                     prev: null
@@ -153,17 +153,17 @@ module.exports = class EventRepository {
         });
     }
 
-    async getNewsletterSubscriptionEvents(options, filter = undefined) {
+    async getNewsletterSubscriptionEvents(options = {}, filter) {
         options = {
             ...options,
             withRelated: ['member', 'newsletter'],
             filter: 'custom:true',
             useBasicCount: true,
             mongoTransformer: chainTransformers(
-                //First set the filter manually
+                // First set the filter manually
                 replaceCustomFilterTransformer(filter),
 
-                //Map the used keys in that filter
+                // Map the used keys in that filter
                 ...mapKeys({
                     'data.created_at': 'created_at',
                     'data.source': 'source',
@@ -187,7 +187,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getSubscriptionEvents(options, filter = undefined) {
+    async getSubscriptionEvents(options = {}, filter) {
         options = {
             ...options,
             withRelated: [
@@ -197,23 +197,23 @@ module.exports = class EventRepository {
                 'subscriptionCreatedEvent.tagAttribution',
                 'subscriptionCreatedEvent.memberCreatedEvent',
 
-                //This is rediculous, but we need the tier name (we'll be able to shorten this later when we switch to the subscriptions table)
+                // This is rediculous, but we need the tier name (we'll be able to shorten this later when we switch to the subscriptions table)
                 'stripeSubscription.stripePrice.stripeProduct.product'
             ],
             filter: 'custom:true',
             useBasicCount: true,
             mongoTransformer: chainTransformers(
-                //First set the filter manually
+                // First set the filter manually
                 replaceCustomFilterTransformer(filter),
 
-                //Map the used keys in that filter
+                // Map the used keys in that filter
                 ...mapKeys({
                     'data.created_at': 'created_at',
                     'data.member_id': 'member_id'
                 }),
 
                 (f) => {
-                    //Special one: when data.post_id is used, replace it with two filters: subscriptionCreatedEvent.attribution_id:x+subscriptionCreatedEvent.attribution_type:post
+                    // Special one: when data.post_id is used, replace it with two filters: subscriptionCreatedEvent.attribution_id:x+subscriptionCreatedEvent.attribution_type:post
                     return expandFilters(f, [{
                         key: 'data.post_id',
                         replacement: 'subscriptionCreatedEvent.attribution_id',
@@ -228,7 +228,7 @@ module.exports = class EventRepository {
         const data = models.map((model) => {
             const tierName = model.related('stripeSubscription') && model.related('stripeSubscription').related('stripePrice') && model.related('stripeSubscription').related('stripePrice').related('stripeProduct') && model.related('stripeSubscription').related('stripePrice').related('stripeProduct').related('product') ? model.related('stripeSubscription').related('stripePrice').related('stripeProduct').related('product').get('name') : null;
 
-            //Prevent toJSON on stripeSubscription (we don't have everything loaded)
+            // Prevent toJSON on stripeSubscription (we don't have everything loaded)
             delete model.relations.stripeSubscription;
             const d = {
                 ...model.toJSON(options),
@@ -249,17 +249,17 @@ module.exports = class EventRepository {
         };
     }
 
-    async getPaymentEvents(options, filter = undefined) {
+    async getPaymentEvents(options = {}, filter) {
         options = {
             ...options,
             withRelated: ['member'],
             filter: 'custom:true',
             useBasicCount: true,
             mongoTransformer: chainTransformers(
-                //First set the filter manually
+                // First set the filter manually
                 replaceCustomFilterTransformer(filter),
 
-                //Map the used keys in that filter
+                // Map the used keys in that filter
                 ...mapKeys({
                     'data.created_at': 'created_at',
                     'data.member_id': 'member_id'
@@ -282,17 +282,17 @@ module.exports = class EventRepository {
         };
     }
 
-    async getLoginEvents(options, filter = undefined) {
+    async getLoginEvents(options = {}, filter) {
         options = {
             ...options,
             withRelated: ['member'],
             filter: 'custom:true',
             useBasicCount: true,
             mongoTransformer: chainTransformers(
-                //First set the filter manually
+                // First set the filter manually
                 replaceCustomFilterTransformer(filter),
 
-                //Map the used keys in that filter
+                // Map the used keys in that filter
                 ...mapKeys({
                     'data.created_at': 'created_at',
                     'data.member_id': 'member_id'
@@ -315,7 +315,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getSignupEvents(options, filter = undefined) {
+    async getSignupEvents(options = {}, filter) {
         options = {
             ...options,
             withRelated: [
@@ -327,10 +327,10 @@ module.exports = class EventRepository {
             filter: 'subscriptionCreatedEvent.id:null+custom:true',
             useBasicCount: true,
             mongoTransformer: chainTransformers(
-                //First set the filter manually
+                // First set the filter manually
                 replaceCustomFilterTransformer(filter),
 
-                //Map the used keys in that filter
+                // Map the used keys in that filter
                 ...mapKeys({
                     'data.created_at': 'created_at',
                     'data.member_id': 'member_id',
@@ -338,7 +338,7 @@ module.exports = class EventRepository {
                 }),
 
                 (f) => {
-                    //Special one: when data.post_id is used, replace it with two filters: attribution_id:x+attribution_type:post
+                    // Special one: when data.post_id is used, replace it with two filters: attribution_id:x+attribution_type:post
                     return expandFilters(f, [{
                         key: 'data.post_id',
                         replacement: 'attribution_id',
@@ -370,7 +370,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getDonationEvents(options, filter = undefined) {
+    async getDonationEvents(options = {}, filter) {
         options = {
             ...options,
             withRelated: [
@@ -382,17 +382,17 @@ module.exports = class EventRepository {
             filter: 'member_id:-null+custom:true',
             useBasicCount: true,
             mongoTransformer: chainTransformers(
-                //First set the filter manually
+                // First set the filter manually
                 replaceCustomFilterTransformer(filter),
 
-                //Map the used keys in that filter
+                // Map the used keys in that filter
                 ...mapKeys({
                     'data.created_at': 'created_at',
                     'data.member_id': 'member_id'
                 }),
 
                 (f) => {
-                    //Special one: when data.post_id is used, replace it with two filters: attribution_id:x+attribution_type:post
+                    // Special one: when data.post_id is used, replace it with two filters: attribution_id:x+attribution_type:post
                     return expandFilters(f, [{
                         key: 'data.post_id',
                         replacement: 'attribution_id',
@@ -424,17 +424,17 @@ module.exports = class EventRepository {
         };
     }
 
-    async getCommentEvents(options, filter = undefined) {
+    async getCommentEvents(options = {}, filter) {
         options = {
             ...options,
             withRelated: ['member', 'post', 'parent'],
             filter: 'member_id:-null+custom:true',
             useBasicCount: true,
             mongoTransformer: chainTransformers(
-                //First set the filter manually
+                // First set the filter manually
                 replaceCustomFilterTransformer(filter),
 
-                //Map the used keys in that filter
+                // Map the used keys in that filter
                 ...mapKeys({
                     'data.created_at': 'created_at',
                     'data.member_id': 'member_id',
@@ -458,17 +458,17 @@ module.exports = class EventRepository {
         };
     }
 
-    async getClickEvents(options, filter = undefined) {
+    async getClickEvents(options = {}, filter) {
         options = {
             ...options,
             withRelated: ['member', 'link', 'link.post'],
             filter: 'custom:true',
             useBasicCount: true,
             mongoTransformer: chainTransformers(
-                //First set the filter manually
+                // First set the filter manually
                 replaceCustomFilterTransformer(filter),
 
-                //Map the used keys in that filter
+                // Map the used keys in that filter
                 ...mapKeys({
                     'data.created_at': 'created_at',
                     'data.member_id': 'member_id',
@@ -496,10 +496,10 @@ module.exports = class EventRepository {
         let postIdString = '';
 
         if (filter && filter.$and) {
-            //Case when there is an $and condition
+            // Case when there is an $and condition
             postIdString = filter.$and.find(condition => condition['data.post_id'])?.['data.post_id'];
         } else {
-            //Case when there's no $and condition, directly look for data.post_id
+            // Case when there's no $and condition, directly look for data.post_id
             postIdString = filter ? filter['data.post_id'] : '';
         }
 
@@ -513,7 +513,7 @@ module.exports = class EventRepository {
     /**
      * This groups click events per member for the same post, and only returns the first actual event, and includes the total clicks per event (for the same member and post)
      */
-    async getAggregatedClickEvents(options, filter = undefined) {
+    async getAggregatedClickEvents(options = {}, filter) {
         const postId = this.getPostIdFromFilter(filter);
 
         //Remove type filter as we don't need it in the query
@@ -569,10 +569,10 @@ module.exports = class EventRepository {
             filter: 'custom:true',
             useBasicCount: true,
             mongoTransformer: chainTransformers(
-                //First set the filter manually
+                // First set the filter manually
                 replaceCustomFilterTransformer(filter),
 
-                //Map the used keys in that filter
+                // Map the used keys in that filter
                 ...mapKeys({
                     'data.created_at': 'created_at',
                     'data.member_id': 'member_id',
@@ -580,9 +580,9 @@ module.exports = class EventRepository {
                 })
             ),
             useCTE: true,
-            //We need to use MIN to make pagination work correctly
-            //Note: we cannot do `count(distinct redirect_id) as count__clicks`, because we don't want the created_at filter to affect that count
-            //For pagination to work correctly, we also need to return the id of the first event (or the minimum id if multiple events happend at the same time, but should be the first). Just MIN(id) won't work because that value changes if filter created_at < x is applied.
+            // We need to use MIN to make pagination work correctly
+            // Note: we cannot do `count(distinct redirect_id) as count__clicks`, because we don't want the created_at filter to affect that count
+            // For pagination to work correctly, we also need to return the id of the first event (or the minimum id if multiple events happend at the same time, but should be the first). Just MIN(id) won't work because that value changes if filter created_at < x is applied.
             selectRaw: `id, member_id, created_at, (${mainQuery}) as count__clicks`,
             whereRaw: `rn = 1 ORDER BY created_at DESC, id DESC`,
             cte: [{
@@ -612,17 +612,17 @@ module.exports = class EventRepository {
         };
     }
 
-    async getFeedbackEvents(options, filter = undefined) {
+    async getFeedbackEvents(options = {}, filter) {
         options = {
             ...options,
             withRelated: ['member', 'post'],
             filter: 'custom:true',
             useBasicCount: true,
             mongoTransformer: chainTransformers(
-                //First set the filter manually
+                // First set the filter manually
                 replaceCustomFilterTransformer(filter),
 
-                //Map the used keys in that filter
+                // Map the used keys in that filter
                 ...mapKeys({
                     'data.created_at': 'created_at',
                     'data.member_id': 'member_id',
@@ -646,7 +646,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailSentEvents(options, filter = undefined) {
+    async getEmailSentEvents(options = {}, filter) {
         const filterStr = 'failed_at:null+processed_at:-null+delivered_at:null+custom:true';
         options = {
             ...options,
@@ -654,10 +654,10 @@ module.exports = class EventRepository {
             filter: filterStr,
             useBasicCount: true,
             mongoTransformer: chainTransformers(
-                //First set the filter manually
+                // First set the filter manually
                 replaceCustomFilterTransformer(filter),
 
-                //Map the used keys in that filter
+                // Map the used keys in that filter
                 ...mapKeys({
                     'data.created_at': 'processed_at',
                     'data.member_id': 'member_id',
@@ -690,17 +690,17 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailDeliveredEvents(options, filter = undefined) {
+    async getEmailDeliveredEvents(options = {}, filter) {
         options = {
             ...options,
             withRelated: ['member', 'email'],
             filter: 'delivered_at:-null+custom:true',
             useBasicCount: true,
             mongoTransformer: chainTransformers(
-                //First set the filter manually
+                // First set the filter manually
                 replaceCustomFilterTransformer(filter),
 
-                //Map the used keys in that filter
+                // Map the used keys in that filter
                 ...mapKeys({
                     'data.created_at': 'delivered_at',
                     'data.member_id': 'member_id',
@@ -733,17 +733,17 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailOpenedEvents(options, filter = undefined) {
+    async getEmailOpenedEvents(options = {}, filter) {
         options = {
             ...options,
             withRelated: ['member', 'email'],
             filter: 'opened_at:-null+custom:true',
             useBasicCount: true,
             mongoTransformer: chainTransformers(
-                //First set the filter manually
+                // First set the filter manually
                 replaceCustomFilterTransformer(filter),
 
-                //Map the used keys in that filter
+                // Map the used keys in that filter
                 ...mapKeys({
                     'data.created_at': 'opened_at',
                     'data.member_id': 'member_id',
@@ -776,17 +776,17 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailSpamComplaintEvents(options, filter = undefined) {
+    async getEmailSpamComplaintEvents(options = {}, filter) {
         options = {
             ...options,
             withRelated: ['member', 'email'],
             filter: 'custom:true',
             useBasicCount: true,
             mongoTransformer: chainTransformers(
-                //First set the filter manually
+                // First set the filter manually
                 replaceCustomFilterTransformer(filter),
 
-                //Map the used keys in that filter
+                // Map the used keys in that filter
                 ...mapKeys({
                     'data.created_at': 'created_at',
                     'data.member_id': 'member_id',
@@ -810,17 +810,17 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailFailedEvents(options, filter = undefined) {
+    async getEmailFailedEvents(options = {}, filter) {
         options = {
             ...options,
             withRelated: ['member', 'email'],
             filter: 'failed_at:-null+custom:true',
             useBasicCount: true,
             mongoTransformer: chainTransformers(
-                //First set the filter manually
+                // First set the filter manually
                 replaceCustomFilterTransformer(filter),
 
-                //Map the used keys in that filter
+                // Map the used keys in that filter
                 ...mapKeys({
                     'data.created_at': 'failed_at',
                     'data.member_id': 'member_id',
@@ -853,17 +853,17 @@ module.exports = class EventRepository {
         };
     }
 
-    async getEmailChangeEvent(options, filter = undefined) {
+    async getEmailChangeEvent(options = {}, filter) {
         options = {
             ...options,
             withRelated: ['member'],
             filter: 'custom:true',
             useBasicCount: true,
             mongoTransformer: chainTransformers(
-                //First set the filter manually
+                // First set the filter manually
                 replaceCustomFilterTransformer(filter),
 
-                //Map the used keys in that filter
+                // Map the used keys in that filter
                 ...mapKeys({
                     'data.created_at': 'created_at',
                     'data.member_id': 'member_id'
@@ -886,7 +886,7 @@ module.exports = class EventRepository {
         };
     }
 
-    async getAutomatedEmailSentEvents(options, filter = undefined) {
+    async getAutomatedEmailSentEvents(options = {}, filter = undefined) {
         options = {
             ...options,
             withRelated: ['member', 'automatedEmail'],

@@ -17,14 +17,14 @@ define([
     'use strict';
 
     /**
-     * Create raw data structure for a given profile.
+     * Build raw data structure for a given profile.
+     * @private
      * @param {Object} controller - Controller instance.
      * @param {String} profile - Profile name.
-     * @returns {Object} Raw data object.
      */
-    function createRawData(controller, profile) {
-        const raw = {};
-        raw[profile] = {
+    function buildRawData(controller, profile) {
+        controller.rawData = controller.rawData || {};
+        controller.rawData[profile] = {
             configs: _.map(controller.configs, function(item, key) {
                 if (key === 'encrypt') {
                     item = '0';
@@ -38,39 +38,62 @@ define([
                 return {name: key, value: item};
             })
         };
-        return raw;
     }
 
     /**
-     * Re-encrypt a single profile.
+     * Re-encrypt a single profile using backup configs.
+     * @private
      * @param {Object} controller - Controller instance.
      * @param {String} profile - Profile name.
-     * @returns {Promise} Promise that resolves when re-encryption is complete.
+     * @returns {Promise}
      */
     function reencryptProfile(controller, profile) {
-        return controller.vent.request('change:configs', controller.backup)
+        const self = controller;
+        return self.vent.request('change:configs', self.backup)
             .then(function() {
-                return controller.vent.request('save:secureKey', controller.passwords.old);
-            })
-            .then(function() {
-                return controller.encryptProfile({profile: profile});
+                return self.vent.request('save:secureKey', self.passwords.old)
+                    .then(function() {
+                        return self.encryptProfile({profile: profile});
+                    });
             });
     }
 
     /**
      * Sequentially re-encrypt all profiles.
+     * @private
      * @param {Object} controller - Controller instance.
-     * @returns {Promise} Promise that resolves when all profiles are re-encrypted.
+     * @returns {Promise}
      */
-    function reencryptAllProfiles(controller) {
-        const funcs = controller.profiles.map(function(profile) {
-            return function() {
-                return reencryptProfile(controller, profile);
-            };
-        });
-        return _.reduce(funcs, function(prev, fn) {
-            return prev.then(fn);
-        }, Q());
+    function reencryptProfiles(controller) {
+        const self = controller;
+        return _.reduce(self.profiles, function(promise, profile) {
+            return promise.then(function() {
+                return reencryptProfile(self, profile);
+            });
+        }, Q.resolve());
+    }
+
+    /**
+     * Switch configs and check passwords.
+     * @private
+     * @param {Object} controller - Controller instance.
+     * @param {Object} data - Password data.
+     * @returns {Promise}
+     */
+    function switchConfigsAndCheck(controller, data) {
+        const promises = [];
+        if (Number(controller.backup.encrypt) && (!data.old && data.password)) {
+            data.old = data.password;
+        }
+        if (data.old) {
+            controller.vent.request('change:configs', controller.backup);
+            promises.push(controller.vent.request('check:password', data.old));
+        }
+        if (data.password) {
+            controller.vent.request('change:configs', controller.configs);
+            promises.push(controller.vent.request('check:password', data.password));
+        }
+        return Q.all(promises);
     }
 
     var Controller = Marionette.Object.extend({
@@ -126,10 +149,8 @@ define([
             const self     = this;
             const promises = [];
 
-            /*
-             * If encryption was enabled in old configs but the old password
-             * was not provided by the user, try to use the new password instead.
-             */
+            // If encryption was enabled in old configs but the old password
+            // was not provided by the user, try to use the new password instead.
             if (Number(this.backup.encrypt) && (!data.old && data.password)) {
                 data.old = data.password;
             }
@@ -160,36 +181,37 @@ define([
          * Initialize encryption.
          */
         initEncrypt: function() {
+            const self     = this;
             const profile  = (this.profiles.length === 1 ? this.profiles[0] : 'notes-db');
-            this.rawData   = createRawData(this, profile);
 
-            // Re-encrypt every profile sequentially
-            return reencryptAllProfiles(this)
-            .then(this.resetBackup)
-            .then(this.showBackup)
-            .then(this.redirect)
-            .fail(function() {
-                console.error('Error!', arguments);
-            });
+            this.rawData = {};
+            buildRawData(this, profile);
+
+            // Re-encrypt every profile
+            return reencryptProfiles(this)
+                .then(this.resetBackup)
+                .then(this.showBackup)
+                .then(this.redirect)
+                .fail(function() {
+                    console.error('Error!', arguments);
+                });
         },
 
         /**
          * Start encryption process
          */
         encryptProfile: function(options) {
-            const promises = [];
             const self     = this;
+            let opts = options || this.options;
+            opts.pageSize = 0;
 
-            // Fetch options
-            options          = options || this.options;
-            options.pageSize = 0;
-
-            this.rawData[options.profile] = this.rawData[options.profile] || {};
+            this.rawData[opts.profile] = this.rawData[opts.profile] || {};
 
             // Fetch all collections in a profile
+            const promises = [];
             _.each(this.collectionNames, function(name) {
                 promises.push(
-                    new Q(Radio.request(name, 'fetch', options))
+                    new Q(Radio.request(name, 'fetch', opts))
                 );
             });
 
@@ -200,7 +222,7 @@ define([
             .spread(function() {
                 // Re-encrypt the collections that are not empty
                 self.collections = _.filter(arguments, function(collection) {
-                    self.rawData[options.profile][collection.storeName] = collection.toJSON();
+                    self.rawData[opts.profile][collection.storeName] = collection.toJSON();
                     return collection.length > 0;
                 });
                 self.view.trigger('encrypt:init', self.collections.length);
@@ -243,9 +265,7 @@ define([
 
             return this.vent.request('save:secureKey', this.passwords.password)
             .then(function() {
-                return _.reduce(promises, function(prev, fn) {
-                    return prev.then(fn);
-                }, Q());
+                return _.reduce(promises, Q.when, new Q());
             });
         },
 
@@ -279,9 +299,7 @@ define([
                 });
             });
 
-            return _.reduce(promises, function(prev, fn) {
-                return prev.then(fn);
-            }, Q());
+            return _.reduce(promises, Q.when, new Q());
         },
 
         /**

@@ -71,30 +71,70 @@ const QueryGenerator = {
   },
 
   /**
-   * Builds a map of attributes by key and field.
+   * Builds the INSERT query for a single row.
+   *
+   * @private
+   */
+  insertQuery(table, valueHash, modelAttributes, options) {
+    options = options || {};
+    _.defaults(options, this.options);
+
+    const modelAttributeMap = this._buildModelAttributeMap(modelAttributes);
+    const { valueQuery, emptyQuery, outputFragment, tmpTable, identityWrapperRequired } =
+      this._buildInsertTemplates(this._dialect, options, modelAttributes);
+
+    valueHash = Utils.removeNullValuesFromHash(valueHash, this.options.omitNull);
+    const { fields, values, identityWrapperRequired: identityRequired } =
+      this._buildFieldsAndValues(valueHash, modelAttributeMap, this._dialect);
+
+    const replacements = this._buildReplacements(
+      table,
+      fields,
+      values,
+      outputFragment,
+      tmpTable,
+      options
+    );
+
+    let query = (replacements.attributes.length ? valueQuery : emptyQuery) + ';';
+    if (identityWrapperRequired || identityRequired) {
+      query = this._wrapIdentityInsert(query, table, this._dialect);
+    }
+
+    return _.template(query, this._templateSettings)(replacements);
+  },
+
+  /**
+   * Builds a map of attribute keys to attribute definitions.
+   *
    * @private
    */
   _buildModelAttributeMap(modelAttributes) {
     const map = {};
-    if (!modelAttributes) return map;
-    _.each(modelAttributes, (attribute, key) => {
-      map[key] = attribute;
-      if (attribute.field) {
-        map[attribute.field] = attribute;
-      }
-    });
+    if (modelAttributes) {
+      _.each(modelAttributes, (attribute, key) => {
+        map[key] = attribute;
+        if (attribute.field) {
+          map[attribute.field] = attribute;
+        }
+      });
+    }
     return map;
   },
 
   /**
-   * Builds the base query templates and handles dialect specific logic.
+   * Builds the base templates for the INSERT query.
+   *
    * @private
    */
-  _buildQueryTemplates(dialect, options, modelAttributes) {
-    let valueQuery = '<%= tmpTable %>INSERT<%= ignoreDuplicates %> INTO <%= table %> (<%= attributes %>)<%= output %> VALUES (<%= values %>)<%= onConflictDoNothing %>';
-    let emptyQuery = '<%= tmpTable %>INSERT<%= ignoreDuplicates %> INTO <%= table %><%= output %><%= onConflictDoNothing %>';
-    let outputFragment = null;
+  _buildInsertTemplates(dialect, options, modelAttributes) {
+    let valueQuery =
+      '<%= tmpTable %>INSERT<%= ignoreDuplicates %> INTO <%= table %> (<%= attributes %>)<%= output %> VALUES (<%= values %>)<%= onConflictDoNothing %>';
+    let emptyQuery =
+      '<%= tmpTable %>INSERT<%= ignoreDuplicates %> INTO <%= table %><%= output %><%= onConflictDoNothing %>';
+    let outputFragment;
     let tmpTable = '';
+    let identityWrapperRequired = false;
 
     if (dialect.supports['DEFAULT VALUES']) {
       emptyQuery += ' DEFAULT VALUES';
@@ -108,21 +148,21 @@ const QueryGenerator = {
         emptyQuery += ' RETURNING *';
       } else if (dialect.supports.returnValues.output) {
         outputFragment = ' OUTPUT INSERTED.*';
+
         if (modelAttributes && options.hasTrigger && dialect.supports.tmpTableTrigger) {
-          const { tmpTable: tmp, outputColumns } = this._buildTmpTableForTrigger(modelAttributes, dialect);
+          const { tmpTable: tmp, outputFragment: out } =
+            this._buildTriggerFragment(dialect, modelAttributes, options);
           tmpTable = tmp;
-          outputFragment = ' OUTPUT ' + outputColumns + ' into @tmp';
-          const selectFromTmp = ';select * from @tmp';
-          valueQuery += selectFromTmp;
-          emptyQuery += selectFromTmp;
+          outputFragment = out;
         }
       }
     }
 
     if (dialect.supports.EXCEPTION && options.exception) {
-      const { valueQuery: newValueQuery, exception } = this._buildExceptionHandling(dialect, options, valueQuery);
-      valueQuery = newValueQuery;
-      options.exception = exception;
+      const { valueQuery: exQuery, tmpTable: exTmp } =
+        this._buildExceptionFragment(dialect, options, valueQuery);
+      valueQuery = exQuery;
+      tmpTable = exTmp;
     }
 
     if (dialect.supports['ON DUPLICATE KEY'] && options.onDuplicate) {
@@ -130,17 +170,18 @@ const QueryGenerator = {
       emptyQuery += ' ON DUPLICATE KEY ' + options.onDuplicate;
     }
 
-    return { valueQuery, emptyQuery, outputFragment, tmpTable };
+    return { valueQuery, emptyQuery, outputFragment, tmpTable, identityWrapperRequired };
   },
 
   /**
-   * Builds the temporary table definition for MSSQL triggers.
+   * Builds the trigger fragment for MSSQL.
+   *
    * @private
    */
-  _buildTmpTableForTrigger(modelAttributes, dialect) {
+  _buildTriggerFragment(dialect, modelAttributes, options) {
     let tmpColumns = '';
     let outputColumns = '';
-    const tmpTableDef = 'declare @tmp table (<%= columns %>); ';
+    const tmpTable = 'declare @tmp table (<%= columns %>); ';
 
     for (const modelKey in modelAttributes) {
       const attribute = modelAttributes[modelKey];
@@ -149,62 +190,101 @@ const QueryGenerator = {
           tmpColumns += ',';
           outputColumns += ',';
         }
+
         tmpColumns += this.quoteIdentifier(attribute.field) + ' ' + attribute.type.toSql();
         outputColumns += 'INSERTED.' + this.quoteIdentifier(attribute.field);
       }
     }
 
     const replacement = { columns: tmpColumns };
-    const tmpTable = _.template(tmpTableDef, this._templateSettings)(replacement).trim();
-    return { tmpTable, outputColumns };
+    const tmpTableStr = _.template(tmpTable, this._templateSettings)(replacement).trim();
+    const outputFragment = ' OUTPUT ' + outputColumns + ' into @tmp';
+    const selectFromTmp = ';select * from @tmp';
+
+    return {
+      tmpTable: tmpTableStr,
+      outputFragment: outputFragment + selectFromTmp
+    };
   },
 
   /**
-   * Builds exception handling logic for PostgreSQL.
+   * Builds the exception fragment for PostgreSQL.
+   *
    * @private
    */
-  _buildExceptionHandling(dialect, options, valueQuery) {
+  _buildExceptionFragment(dialect, options, valueQuery) {
+    let tmpTable = '';
     if (semver.gte(this.sequelize.options.databaseVersion, '9.2.0')) {
       const delimiter = '$func_' + uuid.v4().replace(/-/g, '') + '$';
-      const exception = 'WHEN unique_violation THEN GET STACKED DIAGNOSTICS sequelize_caught_exception = PG_EXCEPTION_DETAIL;';
-      const newValueQuery = 'CREATE OR REPLACE FUNCTION pg_temp.testfunc(OUT response <%= table %>, OUT sequelize_caught_exception text) RETURNS RECORD AS ' + delimiter +
-        ' BEGIN ' + valueQuery + ' INTO response; EXCEPTION ' + exception + ' END ' + delimiter +
+      options.exception =
+        'WHEN unique_violation THEN GET STACKED DIAGNOSTICS sequelize_caught_exception = PG_EXCEPTION_DETAIL;';
+      valueQuery =
+        'CREATE OR REPLACE FUNCTION pg_temp.testfunc(OUT response <%= table %>, OUT sequelize_caught_exception text) RETURNS RECORD AS ' +
+        delimiter +
+        ' BEGIN ' +
+        valueQuery +
+        ' INTO response; EXCEPTION ' +
+        options.exception +
+        ' END ' +
+        delimiter +
         ' LANGUAGE plpgsql; SELECT (testfunc.response).*, testfunc.sequelize_caught_exception FROM pg_temp.testfunc(); DROP FUNCTION IF EXISTS pg_temp.testfunc()';
-      return { valueQuery: newValueQuery, exception };
     } else {
-      const exception = 'WHEN unique_violation THEN NULL;';
-      const newValueQuery = 'CREATE OR REPLACE FUNCTION pg_temp.testfunc() RETURNS SETOF <%= table %> AS $body$ BEGIN RETURN QUERY ' + valueQuery + '; EXCEPTION ' + exception + ' END; $body$ LANGUAGE plpgsql; SELECT * FROM pg_temp.testfunc(); DROP FUNCTION IF EXISTS pg_temp.testfunc();';
-      return { valueQuery: newValueQuery, exception };
+      options.exception = 'WHEN unique_violation THEN NULL;';
+      valueQuery =
+        'CREATE OR REPLACE FUNCTION pg_temp.testfunc() RETURNS SETOF <%= table %> AS $body$ BEGIN RETURN QUERY ' +
+        valueQuery +
+        '; EXCEPTION ' +
+        options.exception +
+        ' END; $body$ LANGUAGE plpgsql; SELECT * FROM pg_temp.testfunc(); DROP FUNCTION IF EXISTS pg_temp.testfunc();';
     }
+    return { valueQuery, tmpTable };
   },
 
   /**
-   * Processes the value hash into fields, values and identity wrapper flag.
+   * Builds fields and values arrays for the INSERT statement.
+   *
    * @private
    */
-  _processValueHash(valueHash, modelAttributeMap, dialect, options) {
+  _buildFieldsAndValues(valueHash, modelAttributeMap, dialect) {
     const fields = [];
     const values = [];
     let identityWrapperRequired = false;
 
     for (const key in valueHash) {
-      if (!valueHash.hasOwnProperty(key)) continue;
-      const value = valueHash[key];
-      fields.push(this.quoteIdentifier(key));
+      if (valueHash.hasOwnProperty(key)) {
+        const value = valueHash[key];
+        fields.push(this.quoteIdentifier(key));
 
-      if (modelAttributeMap && modelAttributeMap[key] && modelAttributeMap[key].autoIncrement === true && !value) {
-        if (!dialect.supports.autoIncrement.defaultValue) {
-          fields.splice(-1, 1);
-        } else if (dialect.supports.DEFAULT) {
-          values.push('DEFAULT');
+        if (
+          modelAttributeMap &&
+          modelAttributeMap[key] &&
+          modelAttributeMap[key].autoIncrement === true &&
+          !value
+        ) {
+          if (!dialect.supports.autoIncrement.defaultValue) {
+            fields.splice(-1, 1);
+          } else if (dialect.supports.DEFAULT) {
+            values.push('DEFAULT');
+          } else {
+            values.push(this.escape(null));
+          }
         } else {
-          values.push(this.escape(null));
+          if (
+            modelAttributeMap &&
+            modelAttributeMap[key] &&
+            modelAttributeMap[key].autoIncrement === true
+          ) {
+            identityWrapperRequired = true;
+          }
+
+          values.push(
+            this.escape(
+              value,
+              modelAttributeMap && modelAttributeMap[key] || undefined,
+              { context: 'INSERT' }
+            )
+          );
         }
-      } else {
-        if (modelAttributeMap && modelAttributeMap[key] && modelAttributeMap[key].autoIncrement === true) {
-          identityWrapperRequired = true;
-        }
-        values.push(this.escape(value, modelAttributeMap && modelAttributeMap[key] || undefined, { context: 'INSERT' }));
       }
     }
 
@@ -212,20 +292,12 @@ const QueryGenerator = {
   },
 
   /**
-   * Returns an insert into command. Parameters: table name + hash of attribute-value-pairs.
+   * Builds the replacements object for the template.
+   *
    * @private
    */
-  insertQuery(table, valueHash, modelAttributes, options) {
-    options = options || {};
-    _.defaults(options, this.options);
-
-    const modelAttributeMap = this._buildModelAttributeMap(modelAttributes);
-    const { valueQuery, emptyQuery, outputFragment, tmpTable } = this._buildQueryTemplates(this._dialect, options, modelAttributes);
-
-    valueHash = Utils.removeNullValuesFromHash(valueHash, this.options.omitNull);
-    const { fields, values, identityWrapperRequired } = this._processValueHash(valueHash, modelAttributeMap, this._dialect, options);
-
-    const replacements = {
+  _buildReplacements(table, fields, values, outputFragment, tmpTable, options) {
+    return {
       ignoreDuplicates: options.ignoreDuplicates ? this._dialect.supports.IGNORE : '',
       onConflictDoNothing: options.ignoreDuplicates ? this._dialect.supports.onConflictDoNothing : '',
       table: this.quoteTable(table),
@@ -234,17 +306,26 @@ const QueryGenerator = {
       values: values.join(','),
       tmpTable
     };
+  },
 
-    let query = (replacements.attributes.length ? valueQuery : emptyQuery) + ';';
-    if (identityWrapperRequired && this._dialect.supports.autoIncrement.identityInsert) {
-      query = [
-        'SET IDENTITY_INSERT', this.quoteTable(table), 'ON;',
+  /**
+   * Wraps the query with IDENTITY_INSERT statements if required.
+   *
+   * @private
+   */
+  _wrapIdentityInsert(query, table, dialect) {
+    if (dialect.supports.autoIncrement.identityInsert) {
+      return [
+        'SET IDENTITY_INSERT',
+        this.quoteTable(table),
+        'ON;',
         query,
-        'SET IDENTITY_INSERT', this.quoteTable(table), 'OFF;'
+        'SET IDENTITY_INSERT',
+        this.quoteTable(table),
+        'OFF;'
       ].join(' ');
     }
-
-    return _.template(query, this._templateSettings)(replacements);
+    return query;
   },
 
   /*
@@ -392,7 +473,9 @@ const QueryGenerator = {
     }
 
     for (const key in attrValueHash) {
-      if (modelAttributeMap && modelAttributeMap[key] && modelAttributeMap[key].autoIncrement === true && !this._dialect.supports.autoIncrement.update) {
+      if (modelAttributeMap && modelAttributeMap[key] &&
+          modelAttributeMap[key].autoIncrement === true &&
+          !this._dialect.supports.autoIncrement.update) {
         // not allowed to update identity column
         continue;
       }
@@ -748,7 +831,7 @@ const QueryGenerator = {
         included nested associations. This produces the correct table name for the ORDER BY/GROUP BY SQL
         and quotes it.
       * If a single string is appended to end of array, it is quoted.
-        If two strings appended, the 1st string quoted, the 2nd string unquoted.
+        If two strings appended, the 1st string is quoted, the 2nd string unquoted.
     Objects:
       * If raw is set, that value should be returned verbatim, without quoting
       * If fn is set, the string should start with the value of fn, starting paren, followed by
@@ -1865,38 +1948,6 @@ const QueryGenerator = {
   setConstraintQuery() {},
   setDeferredQuery() {},
   setImmediateQuery() {},
-
-  /**
-   * Returns a query that commits a transaction.
-   *
-   * @param  {Object} options An object with options.
-   * @return {String}         The generated sql query.
-   * @private
-   */
-  commitTransactionQuery(transaction) {
-    if (transaction.parent) {
-      return;
-    }
-
-    return 'COMMIT;';
-  },
-
-  /**
-   * Returns a query that rollbacks a transaction.
-   *
-   * @param  {Transaction} transaction
-   * @param  {Object} options An object with options.
-   * @return {String}         The generated sql query.
-   * @private
-   */
-  rollbackTransactionQuery(transaction) {
-    if (transaction.parent) {
-      // force quoting of savepoint identifiers for postgres
-      return 'ROLLBACK TO SAVEPOINT ' + this.quoteIdentifier(transaction.name, true) + ';';
-    }
-
-    return 'ROLLBACK;';
-  },
 
   /**
    * Returns an SQL fragment for adding result constraints

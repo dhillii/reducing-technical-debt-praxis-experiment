@@ -13,6 +13,133 @@ const messages = {
 };
 
 /**
+ * @private
+ * @param {object} obj
+ * @param {string} prop
+ * @returns {boolean}
+ */
+function hasOwn(obj, prop) {
+    return Object.prototype.hasOwnProperty.call(obj, prop);
+}
+
+/**
+ * @private
+ * @param {object} spec
+ * @returns {boolean}
+ */
+function isTextWithFieldtype(spec) {
+    return spec.type === 'text' && hasOwn(spec, 'fieldtype');
+}
+
+/**
+ * @private
+ * @param {object} spec
+ * @returns {boolean}
+ */
+function isStringWithMaxlength(spec) {
+    return spec.type === 'string' && hasOwn(spec, 'maxlength');
+}
+
+/**
+ * @private
+ * @param {object} spec
+ * @returns {boolean}
+ */
+function isString(spec) {
+    return spec.type === 'string';
+}
+
+/**
+ * @private
+ * @param {object} spec
+ * @returns {boolean}
+ */
+function isNullable(spec) {
+    return hasOwn(spec, 'nullable') && spec.nullable === true;
+}
+
+/**
+ * @private
+ * @param {object} spec
+ * @returns {boolean}
+ */
+function isPrimary(spec) {
+    return hasOwn(spec, 'primary') && spec.primary === true;
+}
+
+/**
+ * @private
+ * @param {object} spec
+ * @returns {boolean}
+ */
+function isUnique(spec) {
+    return hasOwn(spec, 'unique') && spec.unique;
+}
+
+/**
+ * @private
+ * @param {object} spec
+ * @returns {boolean}
+ */
+function isUnsigned(spec) {
+    return hasOwn(spec, 'unsigned') && spec.unsigned;
+}
+
+/**
+ * @private
+ * @param {object} spec
+ * @returns {boolean}
+ */
+function hasReferences(spec) {
+    return hasOwn(spec, 'references');
+}
+
+/**
+ * @private
+ * @param {object} spec
+ * @returns {boolean}
+ */
+function hasConstraintName(spec) {
+    return hasOwn(spec, 'constraintName');
+}
+
+/**
+ * @private
+ * @param {object} spec
+ * @returns {boolean}
+ */
+function isCascadeDelete(spec) {
+    return hasOwn(spec, 'cascadeDelete') && spec.cascadeDelete === true;
+}
+
+/**
+ * @private
+ * @param {object} spec
+ * @returns {boolean}
+ */
+function isSetNullDelete(spec) {
+    return hasOwn(spec, 'setNullDelete') && spec.setNullDelete === true;
+}
+
+/**
+ * @private
+ * @param {object} spec
+ * @returns {boolean}
+ */
+function hasDefaultTo(spec) {
+    return hasOwn(spec, 'defaultTo');
+}
+
+/**
+ * @private
+ * @param {object} spec
+ * @returns {boolean}
+ */
+function isIndex(spec) {
+    return hasOwn(spec, 'index') && spec.index === true;
+}
+
+/**
  * @param {string} tableName
  * @param {import('knex').knex.TableBuilder} tableBuilder
  * @param {string} columnName
@@ -21,50 +148,52 @@ const messages = {
 function addTableColumn(tableName, tableBuilder, columnName, columnSpec = schema[tableName][columnName]) {
     let column;
 
-    // creation distinguishes between text with fieldtype, string with maxlength and all others
-    if (columnSpec.type === 'text' && Object.prototype.hasOwnProperty.call(columnSpec, 'fieldtype')) {
+    if (isTextWithFieldtype(columnSpec)) {
         column = tableBuilder[columnSpec.type](columnName, columnSpec.fieldtype);
-    } else if (columnSpec.type === 'string') {
-        if (Object.prototype.hasOwnProperty.call(columnSpec, 'maxlength')) {
-            column = tableBuilder[columnSpec.type](columnName, columnSpec.maxlength);
-        } else {
-            column = tableBuilder[columnSpec.type](columnName, 191);
-        }
+    } else if (isString(columnSpec)) {
+        const length = isStringWithMaxlength(columnSpec) ? columnSpec.maxlength : 191;
+        column = tableBuilder[columnSpec.type](columnName, length);
     } else {
         column = tableBuilder[columnSpec.type](columnName);
     }
 
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'nullable') && columnSpec.nullable === true) {
+    if (isNullable(columnSpec)) {
         column.nullable();
     } else {
         column.nullable(false);
     }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'primary') && columnSpec.primary === true) {
+
+    if (isPrimary(columnSpec)) {
         column.primary();
     }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'unique') && columnSpec.unique) {
+
+    if (isUnique(columnSpec)) {
         column.unique();
     }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'unsigned') && columnSpec.unsigned) {
+
+    if (isUnsigned(columnSpec)) {
         column.unsigned();
     }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'references')) {
-        // check if table exists?
+
+    if (hasReferences(columnSpec)) {
         column.references(columnSpec.references);
     }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'constraintName')) {
+
+    if (hasConstraintName(columnSpec)) {
         column.withKeyName(columnSpec.constraintName);
     }
 
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'cascadeDelete') && columnSpec.cascadeDelete === true) {
+    if (isCascadeDelete(columnSpec)) {
         column.onDelete('CASCADE');
-    } else if (Object.prototype.hasOwnProperty.call(columnSpec, 'setNullDelete') && columnSpec.setNullDelete === true) {
+    } else if (isSetNullDelete(columnSpec)) {
         column.onDelete('SET NULL');
     }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'defaultTo')) {
+
+    if (hasDefaultTo(columnSpec)) {
         column.defaultTo(columnSpec.defaultTo);
     }
-    if (Object.prototype.hasOwnProperty.call(columnSpec, 'index') && columnSpec.index === true) {
+
+    if (isIndex(columnSpec)) {
         column.index();
     }
 }
@@ -96,7 +225,7 @@ function dropNullable(tableName, column, transaction = db.knex) {
  * @param {string} column
  * @param {import('knex').Knex.Transaction} [transaction]
  * @param {object} columnSpec
- * @param {object} [options]
+  * @param {object} [options]
  * @param {'inplace'|'copy'|'auto'} [options.algorithm] - MySQL only
  */
 async function addColumn(tableName, column, transaction = db.knex, columnSpec, options = {}) {
@@ -104,13 +233,26 @@ async function addColumn(tableName, column, transaction = db.knex, columnSpec, o
         addTableColumn(tableName, table, column, columnSpec);
     });
 
+    // Use the default flow for SQLite because .toSQL() is tricky with SQLite when
+    // it does the table dance
     if (DatabaseInfo.isSQLite(transaction)) {
         await addColumnBuilder;
         return;
     }
 
     for (const sqlQuery of addColumnBuilder.toSQL()) {
-        const sql = buildSql(sqlQuery.sql, options, transaction);
+        let sql = sqlQuery.sql;
+
+        if (DatabaseInfo.isMySQL(transaction)) {
+            // Guard against an ending semicolon
+            sql = sql.replace(/;\s*$/, '');
+            if (options?.algorithm !== 'auto') {
+                // default to copy if not specified
+                const algorithm = options?.algorithm || 'copy';
+                sql += `, algorithm=${algorithm}`;
+            }
+        }
+
         await transaction.raw(sql);
     }
 }
@@ -133,13 +275,26 @@ async function dropColumn(tableName, column, transaction = db.knex, columnSpec =
         table.dropColumn(column);
     });
 
+    // Use the default flow for SQLite because .toSQL() is tricky with SQLite when
+    // it does the table dance
     if (DatabaseInfo.isSQLite(transaction)) {
         await dropColumnBuilder;
         return;
     }
 
     for (const sqlQuery of dropColumnBuilder.toSQL()) {
-        const sql = buildSql(sqlQuery.sql, options, transaction);
+        let sql = sqlQuery.sql;
+
+        if (DatabaseInfo.isMySQL(transaction)) {
+            // Guard against an ending semicolon
+            sql = sql.replace(/;\s*$/, '');
+            if (options?.algorithm !== 'auto') {
+                // default to copy if not specified
+                const algorithm = options?.algorithm || 'copy';
+                sql += `, algorithm=${algorithm}`;
+            }
+        }
+
         await transaction.raw(sql);
     }
 }
@@ -154,6 +309,7 @@ async function renameColumn(tableName, from, to, transaction = db.knex) {
     logging.info(`Renaming column '${from}' to '${to}' in table '${tableName}'`);
 
     if (DatabaseInfo.isMySQL(transaction)) {
+        // The knex helper does a lot of interesting things with foreign keys that are slow on bigger MySQL clusters
         return await transaction.raw(`ALTER TABLE \`${tableName}\` RENAME COLUMN \`${from}\` TO \`${to}\`;`);
     }
 
@@ -568,23 +724,6 @@ function createColumnMigration(...migrations) {
             await runColumnMigration(conn, migration);
         }
     };
-}
-
-/**
- * @param {string} sql
- * @param {object} options
- * @param {import('knex').Knex} transaction
- * @returns {string}
- */
-function buildSql(sql, options, transaction) {
-    if (DatabaseInfo.isMySQL(transaction)) {
-        sql = sql.replace(/;\s*$/, '');
-        if (options?.algorithm !== 'auto') {
-            const algorithm = options?.algorithm || 'copy';
-            sql += `, algorithm=${algorithm}`;
-        }
-    }
-    return sql;
 }
 
 module.exports = {

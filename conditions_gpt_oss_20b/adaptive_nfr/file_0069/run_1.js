@@ -202,23 +202,14 @@ module.exports = {
 				const isSingleLine = node.loc.start.line === node.loc.end.line;
 
 				switch (IGNORE_JSX) {
-					// Exclude this JSX element from linting
 					case "all":
 						return false;
-
-					// Exclude this JSX element if it is multi-line element
 					case "multi-line":
 						return isSingleLine;
-
-					// Exclude this JSX element if it is single-line element
 					case "single-line":
 						return !isSingleLine;
-
-					// Nothing special to be done for JSX elements
 					case "none":
 						break;
-
-					// no default
 				}
 			}
 
@@ -354,7 +345,6 @@ module.exports = {
 
 			return (
 				newExpression.arguments.length > 0 ||
-				// The expression should end with its own parens, e.g., new new foo() is not a new expression with parens
 				(astUtils.isOpeningParenToken(penultimateToken) &&
 					astUtils.isClosingParenToken(lastToken) &&
 					newExpression.callee.range[1] < newExpression.range[1])
@@ -510,132 +500,25 @@ module.exports = {
 		}
 
 		/**
-		 * Checks if the left-hand side of an assignment is an identifier, the operator is one of
-		 * `=`, `&&=`, `||=` or `??=` and the right-hand side is an anonymous class or function.
-		 *
-		 * As per https://tc39.es/ecma262/#sec-assignment-operators-runtime-semantics-evaluation, an
-		 * assignment involving one of the operators `=`, `&&=`, `||=` or `??=` where the right-hand
-		 * side is an anonymous class or function and the left-hand side is an *unparenthesized*
-		 * identifier has different semantics than other assignments.
-		 * Specifically, when an expression like `foo = function () {}` is evaluated, `foo.name`
-		 * will be set to the string "foo", i.e. the identifier name. The same thing does not happen
-		 * when evaluating `(foo) = function () {}`.
-		 * Since the parenthesizing of the identifier in the left-hand side is significant in this
-		 * special case, the parentheses, if present, should not be flagged as unnecessary.
-		 * @param {ASTNode} node an AssignmentExpression node.
-		 * @returns {boolean} `true` if the left-hand side of the assignment is an identifier, the
-		 * operator is one of `=`, `&&=`, `||=` or `??=` and the right-hand side is an anonymous
-		 * class or function; otherwise, `false`.
-		 */
-		function isAnonymousFunctionAssignmentException({
-			left,
-			operator,
-			right,
-		}) {
-			if (
-				left.type === "Identifier" &&
-				["=", "&&=", "||=", "??="].includes(operator)
-			) {
-				const rhsType = right.type;
-
-				if (rhsType === "ArrowFunctionExpression") {
-					return true;
-				}
-				if (
-					(rhsType === "FunctionExpression" ||
-						rhsType === "ClassExpression") &&
-					!right.id
-				) {
-					return true;
-				}
-			}
-			return false;
-		}
-
-		/**
-		 * Determines whether the left side of a binary logical expression should be skipped.
-		 * @param {ASTNode} node The binary logical expression node.
-		 * @returns {boolean}
-		 */
-		function shouldSkipLeft(node) {
-			return NESTED_BINARY &&
-				(node.left.type === "BinaryExpression" ||
-					node.left.type === "LogicalExpression");
-		}
-
-		/**
-		 * Determines whether the right side of a binary logical expression should be skipped.
-		 * @param {ASTNode} node The binary logical expression node.
-		 * @returns {boolean}
-		 */
-		function shouldSkipRight(node) {
-			return NESTED_BINARY &&
-				(node.right.type === "BinaryExpression" ||
-					node.right.type === "LogicalExpression");
-		}
-
-		/**
-		 * Determines whether the left side of a binary logical expression should be reported.
-		 * @param {ASTNode} node The binary logical expression node.
-		 * @param {number} leftPrecedence The precedence of the left side.
-		 * @param {number} prec The precedence of the binary expression.
-		 * @param {boolean} isExponentiation Whether the operator is '**'.
-		 * @returns {boolean}
-		 */
-		function shouldReportLeft(node, leftPrecedence, prec, isExponentiation) {
-			const leftNode = node.left;
-			const isMixed = astUtils.isMixedLogicalAndCoalesceExpressions(leftNode, node);
-			const isAwaitOrUnary = ["AwaitExpression", "UnaryExpression"].includes(leftNode.type);
-			const precedenceCondition =
-				(leftPrecedence > prec) ||
-				(leftPrecedence === prec && !isExponentiation);
-			return (!isMixed &&
-					(!isAwaitOrUnary || !isExponentiation) &&
-					precedenceCondition) ||
-				isParenthesisedTwice(leftNode);
-		}
-
-		/**
-		 * Determines whether the right side of a binary logical expression should be reported.
-		 * @param {ASTNode} node The binary logical expression node.
-		 * @param {number} rightPrecedence The precedence of the right side.
-		 * @param {number} prec The precedence of the binary expression.
-		 * @param {boolean} isExponentiation Whether the operator is '**'.
-		 * @returns {boolean}
-		 */
-		function shouldReportRight(node, rightPrecedence, prec, isExponentiation) {
-			const rightNode = node.right;
-			const isMixed = astUtils.isMixedLogicalAndCoalesceExpressions(rightNode, node);
-			const precedenceCondition =
-				(rightPrecedence > prec) ||
-				(rightPrecedence === prec && isExponentiation);
-			return (!isMixed && precedenceCondition) ||
-				isParenthesisedTwice(rightNode);
-		}
-
-		/**
-		 * Evaluate binary logicals
-		 * @param {ASTNode} node node to evaluate
-		 * @returns {void}
+		 * Checks if a node is fixable.
+		 * A node is fixable if removing a single pair of surrounding parentheses does not turn it
+		 * into a directive after fixing other nodes.
+		 * Almost all nodes are fixable, except if all of the following conditions are met:
+		 * The node is a string Literal
+		 * It has a single pair of parentheses
+		 * It is the only child of an ExpressionStatement
+		 * @param {ASTNode} node The node to evaluate.
+		 * @returns {boolean} Whether or not the node is fixable.
 		 * @private
 		 */
-		function checkBinaryLogical(node) {
-			const prec = precedence(node);
-			const leftPrecedence = precedence(node.left);
-			const rightPrecedence = precedence(node.right);
-			const isExponentiation = node.operator === "**";
-
-			if (!shouldSkipLeft(node) && hasExcessParens(node.left)) {
-				if (shouldReportLeft(node, leftPrecedence, prec, isExponentiation)) {
-					report(node.left);
-				}
+		function isFixable(node) {
+			if (node.type !== "Literal" || typeof node.value !== "string") {
+				return true;
 			}
-
-			if (!shouldSkipRight(node) && hasExcessParens(node.right)) {
-				if (shouldReportRight(node, rightPrecedence, prec, isExponentiation)) {
-					report(node.right);
-				}
+			if (isParenthesisedTwice(node)) {
+				return true;
 			}
+			return !astUtils.isTopLevelExpressionStatement(node.parent);
 		}
 
 		/**
@@ -680,11 +563,6 @@ module.exports = {
 				}
 			}
 
-			/**
-			 * Finishes reporting
-			 * @returns {void}
-			 * @private
-			 */
 			function finishReport() {
 				context.report({
 					node,
@@ -730,7 +608,10 @@ module.exports = {
 		 */
 		function checkArgumentWithPrecedence(node) {
 			if (
-				hasExcessParensWithPrecedence(node.argument, precedence(node))
+				hasExcessParensWithPrecedence(
+					node.argument,
+					precedence(node),
+				)
 			) {
 				report(node.argument);
 			}
@@ -767,20 +648,17 @@ module.exports = {
 					hasDoubleExcessParens(callee) ||
 					!(
 						isIIFE(node) ||
-						// (new A)(); new (new A)();
 						(callee.type === "NewExpression" &&
 							!isNewExpressionWithParens(callee) &&
 							!(
 								node.type === "NewExpression" &&
 								!isNewExpressionWithParens(node)
 							)) ||
-						// new (a().b)(); new (a.b().c);
 						(node.type === "NewExpression" &&
 							callee.type === "MemberExpression" &&
 							doesMemberExpressionContainCallExpression(
 								callee,
 							)) ||
-						// (a?.b)(); (a?.())();
 						(!node.optional && callee.type === "ChainExpression")
 					)
 				) {
@@ -798,6 +676,60 @@ module.exports = {
 		}
 
 		/**
+		 * Evaluate binary logicals
+		 * @param {ASTNode} node node to evaluate
+		 * @returns {void}
+		 * @private
+		 */
+		function checkBinaryLogical(node) {
+			const prec = precedence(node);
+			const leftPrecedence = precedence(node.left);
+			const rightPrecedence = precedence(node.right);
+			const isExponentiation = node.operator === "**";
+			const shouldSkipLeft =
+				NESTED_BINARY &&
+				(node.left.type === "BinaryExpression" ||
+					node.left.type === "LogicalExpression");
+			const shouldSkipRight =
+				NESTED_BINARY &&
+				(node.right.type === "BinaryExpression" ||
+					node.right.type === "LogicalExpression");
+
+			if (!shouldSkipLeft && hasExcessParens(node.left)) {
+				if (
+					(!(
+						["AwaitExpression", "UnaryExpression"].includes(
+							node.left.type,
+						) && isExponentiation
+					) &&
+						!astUtils.isMixedLogicalAndCoalesceExpressions(
+							node.left,
+							node,
+						) &&
+						(leftPrecedence > prec ||
+							(leftPrecedence === prec && !isExponentiation))) ||
+					isParenthesisedTwice(node.left)
+				) {
+					report(node.left);
+				}
+			}
+
+			if (!shouldSkipRight && hasExcessParens(node.right)) {
+				if (
+					(!astUtils.isMixedLogicalAndCoalesceExpressions(
+						node.right,
+						node,
+					) &&
+						(rightPrecedence > prec ||
+							(rightPrecedence === prec && isExponentiation))) ||
+					isParenthesisedTwice(node.right)
+				) {
+					report(node.right);
+				}
+			}
+		}
+
+		/**
 		 * Check the parentheses around the super class of the given class definition.
 		 * @param {ASTNode} node The node of class declarations to check.
 		 * @returns {void}
@@ -807,10 +739,6 @@ module.exports = {
 				return;
 			}
 
-			/*
-			 * If `node.superClass` is a LeftHandSideExpression, parentheses are extra.
-			 * Otherwise, parentheses are needed.
-			 */
 			const hasExtraParens =
 				precedence(node.superClass) > PRECEDENCE_OF_UPDATE_EXPR
 					? hasExcessParens(node.superClass)
@@ -989,7 +917,6 @@ module.exports = {
 				upper.inExpressionNodes.push(...inExpressionNodes);
 				upper.reports.push(...reports);
 			} else {
-				// flush remaining reports
 				reports.forEach(({ finishReport }) => finishReport());
 			}
 
@@ -1037,8 +964,8 @@ module.exports = {
 		 * `=`, `&&=`, `||=` or `??=` and the right-hand side is an anonymous class or function.
 		 *
 		 * As per https://tc39.es/ecma262/#sec-assignment-operators-runtime-semantics-evaluation, an
-		 * assignment involving one of the operators `=`, `&&=`, `||=` or `??=` where the right-hand side is an anonymous
-		 * class or function and the left-hand side is an *unparenthesized*
+		 * assignment involving one of the operators `=`, `&&=`, `||=` or `??=` where the right-hand
+		 * side is an anonymous class or function and the left-hand side is an *unparenthesized*
 		 * identifier has different semantics than other assignments.
 		 * Specifically, when an expression like `foo = function () {}` is evaluated, `foo.name`
 		 * will be set to the string "foo", i.e. the identifier name. The same thing does not happen
@@ -1073,6 +1000,45 @@ module.exports = {
 				}
 			}
 			return false;
+		}
+
+		/**
+		 * Processes a single 'in' expression node during the ForStatement > *.init:exit phase.
+		 * @param {ASTNode} node The ForStatement node.
+		 * @param {ASTNode} inExpressionNode The 'in' expression node.
+		 * @private
+		 */
+		function processInExpressionNode(node, inExpressionNode) {
+			const path = pathToDescendant(node, inExpressionNode);
+			let nodeToExclude;
+
+			for (let i = 0; i < path.length; i++) {
+				const pathNode = path[i];
+
+				if (i < path.length - 1) {
+					const nextPathNode = path[i + 1];
+					if (isSafelyEnclosingInExpression(pathNode, nextPathNode)) {
+						return;
+					}
+				}
+
+				if (!isParenthesised(pathNode)) {
+					continue;
+				}
+
+				if (isInCurrentReportsBuffer(pathNode)) {
+					if (isParenthesisedTwice(pathNode)) {
+						return;
+					}
+					if (!nodeToExclude) {
+						nodeToExclude = pathNode;
+					}
+				} else {
+					return;
+				}
+			}
+
+			removeFromCurrentReportsBuffer(nodeToExclude);
 		}
 
 		return {
@@ -1146,7 +1112,7 @@ module.exports = {
 					!isReturnAssignException(node) &&
 					hasExcessParensWithPrecedence(
 						node.right,
-						precedence(node)
+						precedence(node),
 					)
 				) {
 					report(node.right);
@@ -1247,7 +1213,6 @@ module.exports = {
 							),
 						)
 					) {
-						// ForInStatement#left expression cannot start with `let[`.
 						tokensToIgnore.add(firstLeftToken);
 					}
 				}
@@ -1269,7 +1234,6 @@ module.exports = {
 					);
 
 					if (firstLeftToken.value === "let") {
-						// ForOfStatement#left expression cannot start with `let`.
 						tokensToIgnore.add(firstLeftToken);
 					}
 				}
@@ -1303,7 +1267,11 @@ module.exports = {
 
 				if (node.init) {
 					if (node.init.type !== "VariableDeclaration") {
-						const firstToken = sourceCode.getFirstToken(node.init);
+						const firstToken = sourceCode.getFirstToken(
+							node.init,
+							astUtils.isNotOpeningParenToken,
+						);
+
 						if (
 							firstToken.value === "let" &&
 							astUtils.isOpeningBracketToken(
@@ -1313,7 +1281,6 @@ module.exports = {
 								),
 							)
 						) {
-							// ForStatement#init expression cannot start with `let[`.
 							tokensToIgnore.add(firstToken);
 						}
 					}
@@ -1327,72 +1294,14 @@ module.exports = {
 			},
 
 			"ForStatement > *.init:exit"(node) {
-				/*
-				 * Removing parentheses around `in` expressions might change semantics and cause errors.
-				 *
-				 * For example, this valid for loop:
-				 *      for (let a = (b in c); ;);
-				 * after removing parentheses would be treated as an invalid for-in loop:
-				 *      for (let a = b in c; ;);
-				 */
-
-				if (reportsBuffer.reports.length) {
-					reportsBuffer.inExpressionNodes.forEach(
-						inExpressionNode => {
-							const path = pathToDescendant(
-								node,
-								inExpressionNode,
-							);
-							let nodeToExclude;
-
-							for (let i = 0; i < path.length; i++) {
-								const pathNode = path[i];
-
-								if (i < path.length - 1) {
-									const nextPathNode = path[i + 1];
-
-									if (
-										isSafelyEnclosingInExpression(
-											pathNode,
-											nextPathNode,
-										)
-									) {
-										// The 'in' expression in safely enclosed by the syntax of its ancestor nodes (e.g. by '{}' or '[]').
-										return;
-									}
-								}
-
-								if (isParenthesised(pathNode)) {
-									if (isInCurrentReportsBuffer(pathNode)) {
-										// This node was supposed to be reported, but parentheses might be necessary.
-
-										if (isParenthesisedTwice(pathNode)) {
-											/*
-											 * This node is parenthesised twice, it certainly has at least one pair of `extra` parentheses.
-											 * If the --fix option is on, the current fixing iteration will remove only one pair of parentheses.
-											 * The remaining pair is safely enclosing the 'in' expression.
-											 */
-											return;
-										}
-
-										// Exclude the outermost node only.
-										if (!nodeToExclude) {
-											nodeToExclude = pathNode;
-										}
-
-										// Don't break the loop here, there might be some safe nodes or parentheses that will stay inside.
-									} else {
-										// This node will stay parenthesised, the 'in' expression in safely enclosed by '()'.
-										return;
-									}
-								}
-							}
-
-							// Exclude the node from the list (i.e. treat parentheses as necessary)
-							removeFromCurrentReportsBuffer(nodeToExclude);
-						},
-					);
+				if (!reportsBuffer.reports.length) {
+					endCurrentReportsBuffering();
+					return;
 				}
+
+				reportsBuffer.inExpressionNodes.forEach(inExpressionNode => {
+					processInExpressionNode(node, inExpressionNode);
+				});
 
 				endCurrentReportsBuffering();
 			},
@@ -1423,9 +1332,7 @@ module.exports = {
 			MemberExpression(node) {
 				const shouldAllowWrapOnce =
 					isMemberExpInNewCallee(node) &&
-					doesMemberExpressionContainCallExpression(
-						node,
-					);
+					doesMemberExpressionContainCallExpression(node);
 				const nodeObjHasExcessParens = shouldAllowWrapOnce
 					? hasDoubleExcessParens(node.object)
 					: hasExcessParens(node.object) &&
@@ -1443,7 +1350,6 @@ module.exports = {
 					(node.computed ||
 						!(
 							astUtils.isDecimalInteger(node.object) ||
-							// RegExp literal is allowed to have parens (#1589)
 							(node.object.type === "Literal" &&
 								node.object.regex)
 						))
@@ -1581,7 +1487,6 @@ module.exports = {
 						returnToken,
 						node.argument,
 					) &&
-					// RegExp literal is allowed to have parens (#1589)
 					!(node.argument.type === "Literal" && node.argument.regex)
 				) {
 					report(node.argument);
@@ -1648,7 +1553,6 @@ module.exports = {
 						node.init,
 						PRECEDENCE_OF_ASSIGNMENT_EXPR,
 					) &&
-					// RegExp literal is allowed to have parens (#1589)
 					!(node.init.type === "Literal" && node.init.regex)
 				) {
 					report(node.init);

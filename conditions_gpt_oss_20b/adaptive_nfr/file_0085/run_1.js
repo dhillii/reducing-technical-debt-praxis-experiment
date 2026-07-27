@@ -21,35 +21,13 @@ import type {
 } from '../../../../types'
 
 /**
- * Returns a validation message for an empty password.
- */
-function emptyPasswordMessage(fieldLabel: string): string {
-  return `${fieldLabel} must not be empty`
-}
-
-/**
- * Returns a validation message for a password that is too short.
- */
-function minLengthMessage(fieldLabel: string, min: number): string {
-  return `${fieldLabel} must be at least ${min} characters long`
-}
-
-/**
- * Returns a validation message for a password that is too long.
- */
-function maxLengthMessage(fieldLabel: string, max: number): string {
-  return `${fieldLabel} must be no longer than ${max} characters`
-}
-
-/**
- * Returns a validation message for a password that is too common.
- */
-function commonPasswordMessage(fieldLabel: string): string {
-  return `${fieldLabel} is too common and is not allowed`
-}
-
-/**
  * Validates a password field value against the provided validation rules.
+ *
+ * @param value - The current value of the field.
+ * @param validation - Validation rules to apply.
+ * @param isRequired - Whether the field is required.
+ * @param fieldLabel - The label of the field, used in error messages.
+ * @returns An error message string if validation fails, otherwise undefined.
  */
 function validate(
   value: Value,
@@ -57,60 +35,78 @@ function validate(
   isRequired: boolean,
   fieldLabel: string
 ): string | undefined {
-  if (value.kind === 'initial') {
-    if (value.isSet === null || value.isSet === true) {
-      return undefined
-    }
-    if (isRequired) {
-      return `${fieldLabel} is required`
-    }
+  const validators = {
+    initial: () => validateInitial(value, isRequired, fieldLabel),
+    editing: () => validateEditing(value, validation, fieldLabel),
+  }
+  return validators[value.kind]()
+}
+
+/**
+ * Validates the initial state of the field.
+ *
+ * @private
+ */
+function validateInitial(
+  value: Extract<Value, { kind: 'initial' }>,
+  isRequired: boolean,
+  fieldLabel: string
+): string | undefined {
+  if (value.isSet === null || value.isSet === true) {
     return undefined
   }
+  if (isRequired) {
+    return `${fieldLabel} is required`
+  }
+  return undefined
+}
 
-  if (value.kind === 'editing') {
-    if (value.confirm !== value.value) {
-      return `The passwords do not match`
-    }
-
-    const val = value.value
-
-    const validators: Array<() => string | undefined> = [
-      () => {
-        if (val.length < validation.length.min) {
-          return validation.length.min === 1
-            ? emptyPasswordMessage(fieldLabel)
-            : minLengthMessage(fieldLabel, validation.length.min)
-        }
-        return undefined
-      },
-      () => {
-        if (validation.length.max !== null && val.length > validation.length.max) {
-          return maxLengthMessage(fieldLabel, validation.length.max)
-        }
-        return undefined
-      },
-      () => {
-        if (validation.match && !validation.match.regex.test(val)) {
-          return validation.match.explanation
-        }
-        return undefined
-      },
-      () => {
-        if (validation.rejectCommon && dumbPasswords.check(val)) {
-          return commonPasswordMessage(fieldLabel)
-        }
-        return undefined
-      },
-    ]
-
-    for (const check of validators) {
-      const msg = check()
-      if (msg !== undefined) {
-        return msg
+/**
+ * Validates the editing state of the field.
+ *
+ * @private
+ */
+function validateEditing(
+  value: Extract<Value, { kind: 'editing' }>,
+  validation: Validation,
+  fieldLabel: string
+): string | undefined {
+  const val = value.value
+  const checks: Array<() => string | undefined> = [
+    () => {
+      if (val.length < validation.length.min) {
+        return validation.length.min === 1
+          ? `${fieldLabel} must not be empty`
+          : `${fieldLabel} must be at least ${validation.length.min} characters long`
       }
+      return undefined
+    },
+    () => {
+      if (validation.length.max !== null && val.length > validation.length.max) {
+        return `${fieldLabel} must be no longer than ${validation.length.max} characters`
+      }
+      return undefined
+    },
+    () => {
+      if (validation.match && !validation.match.regex.test(val)) {
+        return validation.match.explanation
+      }
+      return undefined
+    },
+    () => {
+      if (validation.rejectCommon && dumbPasswords.check(val)) {
+        return `${fieldLabel} is too common and is not allowed`
+      }
+      return undefined
+    },
+  ]
+
+  for (const check of checks) {
+    const error = check()
+    if (error !== undefined) {
+      return error
     }
   }
-
   return undefined
 }
 
@@ -156,6 +152,7 @@ export function Field(props: FieldProps<typeof controller>) {
     }
   }
 
+  // reset when the user cancels, or when the form is submitted
   useEffect(() => {
     if (value.kind === 'initial') {
       setTouched({ value: false, confirm: false })
@@ -223,7 +220,7 @@ export function Field(props: FieldProps<typeof controller>) {
           />
           <TextField
             aria-label={`confirm ${field.label}`}
-            aria-describedby={messageId}
+            aria-describedby={messageId} // don't repeat the description announcement for the confirm field
             // @ts-expect-error — needs to be fixed in "@keystar/ui"
             isInvalid={!!validationMessage}
             onBlur={() => setTouched({ ...touched, confirm: true })}

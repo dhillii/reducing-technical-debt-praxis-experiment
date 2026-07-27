@@ -155,16 +155,16 @@ exports.cursor = {
   }
 };
 
-function showDiff (err) {
+const showDiff = function (err) {
   return err && err.showDiff !== false && sameType(err.actual, err.expected) && err.expected !== undefined;
-}
+};
 
-function stringifyDiffObjs (err) {
+const stringifyDiffObjs = function (err) {
   if (!utils.isString(err.actual) || !utils.isString(err.expected)) {
     err.actual = utils.stringify(err.actual);
     err.expected = utils.stringify(err.expected);
   }
-}
+};
 
 /**
  * Output the given `failures` as a list.
@@ -172,17 +172,15 @@ function stringifyDiffObjs (err) {
  * @param {Array} failures
  * @api public
  */
-
 exports.list = function (failures) {
   console.log();
   failures.forEach(function (test, i) {
     // format
-    let fmt = color('error title', '  %s) %s:\n') +
+    const fmt = color('error title', '  %s) %s:\n') +
       color('error message', '     %s') +
       color('error stack', '\n%s\n');
 
     // msg
-    let msg;
     const err = test.err;
     let message;
     if (err.message && typeof err.message.toString === 'function') {
@@ -193,15 +191,16 @@ exports.list = function (failures) {
       message = '';
     }
     let stack = err.stack || message;
-    let index = message ? stack.indexOf(message) : -1;
+    const index = message ? stack.indexOf(message) : -1;
 
+    let msg;
     if (index === -1) {
       msg = message;
     } else {
-      index += message.length;
-      msg = stack.slice(0, index);
+      const newIndex = index + message.length;
+      msg = stack.slice(0, newIndex);
       // remove msg from stack
-      stack = stack.slice(index + 1);
+      stack = stack.slice(newIndex + 1);
     }
 
     // uncaught
@@ -211,7 +210,7 @@ exports.list = function (failures) {
     // explicitly show diff
     if (!exports.hideDiff && showDiff(err)) {
       stringifyDiffObjs(err);
-      fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
+      const newFmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
       const match = message.match(/^([^:]+): expected/);
       msg = '\n      ' + color('error message', match ? match[1] : msg);
 
@@ -220,6 +219,7 @@ exports.list = function (failures) {
       } else {
         msg += unifiedDiff(err);
       }
+      fmt = newFmt;
     }
 
     // indent stack trace
@@ -231,7 +231,7 @@ exports.list = function (failures) {
       if (index !== 0) {
         testTitle += '\n     ';
       }
-      for (let i = 0; i < index; i++) {
+      for (let j = 0; j < index; j++) {
         testTitle += '  ';
       }
       testTitle += str;
@@ -252,7 +252,6 @@ exports.list = function (failures) {
  * @param {Runner} runner
  * @api public
  */
-
 function Base (runner) {
   const stats = this.stats = { suites: 0, tests: 0, passes: 0, pending: 0, failures: 0 };
   const failures = this.failures = [];
@@ -270,7 +269,9 @@ function Base (runner) {
 
   runner.on('suite', function (suite) {
     stats.suites = stats.suites || 0;
-    suite.root || stats.suites++;
+    if (!suite.root) {
+      stats.suites++;
+    }
   });
 
   runner.on('test end', function () {
@@ -362,10 +363,10 @@ Base.prototype.epilogue = function () {
  * @param {string} len
  * @return {string}
  */
-function pad (str, len) {
+const pad = function (str, len) {
   str = String(str);
   return Array(len - str.length + 1).join(' ') + str;
-}
+};
 
 /**
  * Returns an inline diff between 2 strings with coloured ANSI output
@@ -374,31 +375,32 @@ function pad (str, len) {
  * @param {Error} err with actual/expected
  * @return {string} Diff
  */
-function inlineDiff (err) {
-  let msg = errorDiff(err);
+const inlineDiff = function (err) {
+  const msg = errorDiff(err);
 
   // linenos
   const lines = msg.split('\n');
+  let formattedMsg = msg;
   if (lines.length > 4) {
     const width = String(lines.length).length;
-    msg = lines.map(function (str, i) {
+    formattedMsg = lines.map(function (str, i) {
       return pad(++i, width) + ' |' + ' ' + str;
     }).join('\n');
   }
 
   // legend
-  msg = '\n' +
+  formattedMsg = '\n' +
     color('diff removed', 'actual') +
     ' ' +
     color('diff added', 'expected') +
     '\n\n' +
-    msg +
+    formattedMsg +
     '\n';
 
   // indent
-  msg = msg.replace(/^/gm, '      ');
-  return msg;
-}
+  formattedMsg = formattedMsg.replace(/^/gm, '      ');
+  return formattedMsg;
+};
 
 /**
  * Returns a unified diff between two strings.
@@ -407,9 +409,9 @@ function inlineDiff (err) {
  * @param {Error} err with actual/expected
  * @return {string} The diff.
  */
-function unifiedDiff (err) {
+const unifiedDiff = function (err) {
   const indent = '      ';
-  function cleanUp (line) {
+  const cleanUp = function (line) {
     if (line[0] === '+') {
       return indent + colorLines('diff added', line);
     }
@@ -423,10 +425,10 @@ function unifiedDiff (err) {
       return null;
     }
     return indent + line;
-  }
-  function notBlank (line) {
+  };
+  const notBlank = function (line) {
     return typeof line !== 'undefined' && line !== null;
-  }
+  };
   const msg = diff.createPatch('string', err.actual, err.expected);
   const lines = msg.split('\n').splice(5);
   return '\n      ' +
@@ -434,7 +436,7 @@ function unifiedDiff (err) {
     colorLines('diff removed', '- actual') +
     '\n\n' +
     lines.map(cleanUp).filter(notBlank).join('\n');
-}
+};
 
 /**
  * Return a character diff for `err`.
@@ -443,7 +445,7 @@ function unifiedDiff (err) {
  * @param {Error} err
  * @return {string}
  */
-function errorDiff (err) {
+const errorDiff = function (err) {
   return diff.diffWordsWithSpace(err.actual, err.expected).map(function (str) {
     if (str.added) {
       return colorLines('diff added', str.value);
@@ -453,7 +455,7 @@ function errorDiff (err) {
     }
     return str.value;
   }).join('');
-}
+};
 
 /**
  * Color lines for `str`, using the color `name`.
@@ -463,11 +465,11 @@ function errorDiff (err) {
  * @param {string} str
  * @return {string}
  */
-function colorLines (name, str) {
-  return str.split('\n').map(function (str) {
-    return color(name, str);
+const colorLines = function (name, str) {
+  return str.split('\n').map(function (line) {
+    return color(name, line);
   }).join('\n');
-}
+};
 
 /**
  * Object#toString reference.
@@ -482,6 +484,6 @@ const objToString = Object.prototype.toString;
  * @param {Object} b
  * @return {boolean}
  */
-function sameType (a, b) {
+const sameType = function (a, b) {
   return objToString.call(a) === objToString.call(b);
-}
+};

@@ -15,7 +15,6 @@ const {getFrontendAppConfig, getDataAttributes} = require('../utils/frontend-app
 const {get: getMetaData, getAssetUrl} = metaData;
 
 /**
- * @private
  * @param {string} property
  * @param {string} content
  * @param {string} [type]
@@ -27,7 +26,6 @@ function writeMetaTag(property, content, type) {
 }
 
 /**
- * @private
  * @param {object} meta
  * @returns {string[]}
  */
@@ -38,21 +36,18 @@ function finaliseStructuredData(meta) {
             _.each(meta.keywords, function (keyword) {
                 if (keyword !== '') {
                     keyword = escapeExpression(keyword);
-                    head.push(writeMetaTag(property,
-                        escapeExpression(keyword)));
+                    head.push(writeMetaTag(property, escapeExpression(keyword)));
                 }
             });
             head.push('');
         } else if (content !== null && content !== undefined) {
-            head.push(writeMetaTag(property,
-                escapeExpression(content)));
+            head.push(writeMetaTag(property, escapeExpression(content)));
         }
     });
     return head;
 }
 
 /**
- * @private
  * @param {object} data
  * @param {string} frontendKey
  * @param {Set<string>} excludeList
@@ -90,7 +85,6 @@ function getMembersHelper(data, frontendKey, excludeList) {
 }
 
 /**
- * @private
  * @param {string} frontendKey
  * @returns {string}
  */
@@ -107,12 +101,10 @@ function getSearchHelper(frontendKey) {
         locale: settingsCache.get('locale') || 'en'
     };
     const dataAttrs = getDataAttributes(attrs);
-    let helper = `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
-    return helper;
+    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
 }
 
 /**
- * @private
  * @param {object} data
  * @returns {string}
  */
@@ -135,19 +127,17 @@ function getAnnouncementBarHelper(data) {
         const announcementBackground = searchParam.has('announcement_bg') ? searchParam.get('announcement_bg') : '';
         const announcementVisibility = searchParam.has('announcement_vis');
         if (!announcement || !announcementVisibility) {
-            return;
+            return '';
         }
         attrs.announcement = escapeExpression(announcement);
         attrs['announcement-background'] = escapeExpression(announcementBackground);
         attrs.preview = true;
     }
     const dataAttrs = getDataAttributes(attrs);
-    let helper = `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
-    return helper;
+    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
 }
 
 /**
- * @private
  * @returns {string}
  */
 function getWebmentionDiscoveryLink() {
@@ -162,7 +152,6 @@ function getWebmentionDiscoveryLink() {
 }
 
 /**
- * @private
  * @param {object} dataRoot
  * @returns {string}
  */
@@ -190,181 +179,105 @@ function getTinybirdTrackerScript(dataRoot) {
 }
 
 /**
- * @private
  * @param {Set<string>} excludeList
- * @returns {boolean}
+ * @returns {string[]}
  */
-function isExcluded(excludeList, name) {
-    return excludeList.has(name);
-}
-
-/**
- * @private
- * @param {object} options
- * @returns {boolean}
- */
-function isServerError(options) {
-    return options.data.root.statusCode >= 500;
-}
-
-/**
- * @private
- * @param {object} dataRoot
- * @returns {Array<string>|null}
- */
-function getContext(dataRoot) {
-    return dataRoot._locals.context ? dataRoot._locals.context : null;
-}
-
-/**
- * @private
- * @param {object} dataRoot
- * @returns {string|null}
- */
-function getPostCodeInjection(dataRoot) {
-    return dataRoot && dataRoot.post ? dataRoot.post.codeinjection_head : null;
-}
-
-/**
- * @private
- * @param {object} dataRoot
- * @returns {string|null}
- */
-function getTagCodeInjection(dataRoot) {
-    return dataRoot && dataRoot.tag ? dataRoot.tag.codeinjection_head : null;
-}
-
-/**
- * @private
- * @param {Array<string>} head
- * @param {object} meta
- * @param {Array<string>|null} context
- * @param {string} referrerPolicy
- * @param {string} favicon
- * @param {string} iconType
- */
-function buildMetadata(head, meta, context, referrerPolicy, favicon, iconType) {
-    if (meta.metaDescription && meta.metaDescription.length > 0) {
-        head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
+function getCardAssets(excludeList) {
+    if (excludeList.has('card_assets')) {
+        return [];
     }
-    if (settingsCache.get('icon')) {
-        head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
-    }
-    head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
-    if (context && context.includes('preview')) {
-        head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-        head.push(writeMetaTag('referrer', 'same-origin', 'name'));
-    } else {
-        head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
-    }
-    if (meta.previousUrl) {
-        head.push('<link rel="prev" href="' + escapeExpression(meta.previousUrl) + '">');
-    }
-    if (meta.nextUrl) {
-        head.push('<link rel="next" href="' + escapeExpression(meta.nextUrl) + '">');
-    }
-}
-
-/**
- * @private
- * @param {Array<string>} head
- * @param {object} meta
- * @param {Array<string>|null} context
- * @param {boolean} useStructuredData
- */
-function buildSocialData(head, meta, context, useStructuredData) {
-    if (context && !context.includes('paged') && useStructuredData) {
-        head.push('');
-        head.push.apply(head, finaliseStructuredData(meta));
-        head.push('');
-    }
-}
-
-/**
- * @private
- * @param {object} meta
- * @returns {string}
- */
-function buildSchemaScript(meta) {
-    return '<script type="application/ld+json">\n' + JSON.stringify(meta.schema, null, '    ') + '\n    </script>\n';
-}
-
-/**
- * @private
- * @param {string} safeVersion
- * @returns {string}
- */
-function buildGeneratorTag(safeVersion) {
-    return '<meta name="generator" content="Ghost ' + escapeExpression(safeVersion) + '">';
-}
-
-/**
- * @private
- * @param {object} meta
- * @returns {string}
- */
-function buildRSSLink(meta) {
-    return '<link rel="alternate" type="application/rss+xml" title="' + escapeExpression(meta.site.title) + '" href="' + escapeExpression(meta.rssUrl) + '">';
-}
-
-/**
- * @private
- * @param {Array<string>} head
- */
-function buildCardAssets(head) {
+    const assets = [];
     if (cardAssets.hasFile('js')) {
-        head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+        assets.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
     }
     if (cardAssets.hasFile('css')) {
-        head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+        assets.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
     }
+    return assets;
 }
 
 /**
- * @private
- * @returns {string}
+ * @param {Set<string>} excludeList
+ * @returns {string[]}
  */
-function buildCommentCounts() {
-    return `<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`;
-}
-
-/**
- * @private
- * @returns {string}
- */
-function buildMemberAttribution() {
-    return `<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`;
-}
-
-/**
- * @private
- * @param {Array<string>} head
- * @param {string} accentColor
- */
-function buildAccentColorStyle(head, accentColor) {
-    const escaped = escapeExpression(accentColor);
-    const styleTag = `<style>:root {--ghost-accent-color: ${escaped};}</style>`;
-    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
-    if (existingScriptIndex !== -1) {
-        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
-    } else {
-        head.push(styleTag);
+function getCommentCounts(excludeList) {
+    if (excludeList.has('comment_counts') || settingsCache.get('comments_enabled') === 'off') {
+        return [];
     }
+    return [`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`];
 }
 
 /**
- * @private
- * @param {Array<string>} head
- * @param {object} options
+ * @param {Set<string>} excludeList
+ * @returns {string[]}
+ */
+function getMemberAttribution(excludeList) {
+    if (excludeList.has('member_attribution') || !settingsCache.get('members_enabled') || !settingsCache.get('members_track_sources')) {
+        return [];
+    }
+    return [`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`];
+}
+
+/**
+ * @param {Set<string>} excludeList
  * @param {object} dataRoot
+ * @returns {string[]}
  */
-function buildCustomFontStyle(head, options, dataRoot) {
+function getAnalyticsScripts(excludeList, dataRoot) {
+    if (excludeList.has('analytics') || !settingsHelpers.isWebAnalyticsEnabled()) {
+        return [];
+    }
+    const scripts = [getTinybirdTrackerScript(dataRoot)];
+    if (dataRoot._locals) {
+        dataRoot._locals.ghostAnalytics = true;
+    }
+    return scripts;
+}
+
+/**
+ * @param {object} options
+ * @returns {string}
+ */
+function buildAccentColorStyle(options) {
+    if (!options.data.site.accent_color) {
+        return '';
+    }
+    const accentColor = escapeExpression(options.data.site.accent_color);
+    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
+    return styleTag;
+}
+
+/**
+ * @param {object} options
+ * @returns {string[]}
+ */
+function buildCodeInjections(options) {
+    const injections = [];
+    const globalCodeinjection = settingsCache.get('codeinjection_head');
+    const postCodeInjection = options.data.root.post?.codeinjection_head || '';
+    const tagCodeInjection = options.data.root.tag?.codeinjection_head || '';
+    if (!_.isEmpty(globalCodeinjection)) {
+        injections.push(globalCodeinjection);
+    }
+    if (!_.isEmpty(postCodeinjection)) {
+        injections.push(postCodeInjection);
+    }
+    if (!_.isEmpty(tagCodeInjection)) {
+        injections.push(tagCodeInjection);
+    }
+    return injections;
+}
+
+/**
+ * @param {object} options
+ * @returns {string}
+ */
+function buildCustomFontStyle(options) {
     const isSitePreview = options.data?.site?._preview ?? false;
     const headingFont = isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font');
     const bodyFont = isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font');
     if ((typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
         (typeof bodyFont === 'string' && isValidCustomFont(bodyFont))) {
-        /** @type FontSelection */
         const fontSelection = {};
         if (headingFont) {
             fontSelection.heading = headingFont;
@@ -373,53 +286,89 @@ function buildCustomFontStyle(head, options, dataRoot) {
             fontSelection.body = bodyFont;
         }
         const customCSS = generateCustomFontCss(fontSelection);
-        head.push(new SafeString(customCSS));
+        return new SafeString(customCSS);
+    }
+    return '';
+}
+
+/**
+ * @param {object} meta
+ * @param {Set<string>} excludeList
+ * @param {string[]} head
+ * @param {string} referrerPolicy
+ * @param {boolean} context
+ * @param {boolean} useStructuredData
+ * @returns {void}
+ */
+function appendMetaAndStructuredData(meta, excludeList, head, referrerPolicy, context, useStructuredData) {
+    if (!excludeList.has('metadata')) {
+        if (meta.metaDescription && meta.metaDescription.length > 0) {
+            head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
+        }
+        if (settingsCache.get('icon')) {
+            const favicon = blogIcon.getIconUrl();
+            const iconType = blogIcon.getIconType(favicon);
+            head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
+        }
+        head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
+        if (_.includes(context, 'preview')) {
+            head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+            head.push(writeMetaTag('referrer', 'same-origin', 'name'));
+        } else {
+            head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
+        }
+    }
+    if (meta.previousUrl) {
+        head.push('<link rel="prev" href="' + escapeExpression(meta.previousUrl) + '">');
+    }
+    if (meta.nextUrl) {
+        head.push('<link rel="next" href="' + escapeExpression(meta.nextUrl) + '">');
+    }
+    if (!_.includes(context, 'paged') && useStructuredData) {
+        if (!excludeList.has('social_data')) {
+            head.push('');
+            head.push.apply(head, finaliseStructuredData(meta));
+            head.push('');
+        }
+        if (!excludeList.has('schema') && meta.schema) {
+            head.push('<script type="application/ld+json">\n' +
+                JSON.stringify(meta.schema, null, '    ') +
+                '\n    </script>\n');
+        }
     }
 }
 
 /**
- * We use the name ghost_head to match the helper for consistency:
+ * @param {object} options
+ * @returns {Promise<SafeString>}
  */
 module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
     debug('begin');
-    if (isServerError(options)) {
+    if (options.data.root.statusCode >= 500) {
         return;
     }
     const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
     const head = [];
     const dataRoot = options.data.root;
-    const context = getContext(dataRoot);
-    const safeVersion = dataRoot._locals.safeVersion;
-    const postCodeInjection = getPostCodeInjection(dataRoot);
-    const tagCodeInjection = getTagCodeInjection(dataRoot);
-    const globalCodeinjection = settingsCache.get('codeinjection_head');
-    const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
+    const context = dataRoot._locals?.context || null;
+    const safeVersion = dataRoot._locals?.safeVersion;
     const referrerPolicy = config.get('referrerPolicy') || 'no-referrer-when-downgrade';
-    const favicon = blogIcon.getIconUrl();
-    const iconType = blogIcon.getIconType(favicon);
     debug('preparation complete, begin fetch');
     try {
         const meta = await getMetaData(dataRoot, dataRoot);
         const frontendKey = await getFrontendKey();
         debug('end fetch');
-        if (context) {
-            if (!isExcluded(excludeList, 'metadata')) {
-                buildMetadata(head, meta, context, referrerPolicy, favicon, iconType);
-            }
-            if (!isExcluded(excludeList, 'social_data')) {
-                buildSocialData(head, meta, context, useStructuredData);
-            }
-            if (!isExcluded(excludeList, 'schema') && meta.schema) {
-                head.push(buildSchemaScript(meta));
-            }
-        }
-        head.push(buildGeneratorTag(safeVersion));
-        head.push(buildRSSLink(meta));
+        const useStructuredData = !config.isPrivacyDisabled('useStructuredData');
+        appendMetaAndStructuredData(meta, excludeList, head, referrerPolicy, context, useStructuredData);
+        head.push('<meta name="generator" content="Ghost ' + escapeExpression(safeVersion) + '">');
+        head.push('<link rel="alternate" type="application/rss+xml" title="' +
+            escapeExpression(meta.site.title) + '" href="' +
+            escapeExpression(meta.rssUrl) + '">');
         head.push(getMembersHelper(options.data, frontendKey, excludeList));
-        if (!isExcluded(excludeList, 'search')) {
+        if (!excludeList.has('search')) {
             head.push(getSearchHelper(frontendKey));
         }
-        if (!isExcluded(excludeList, 'announcement')) {
+        if (!excludeList.has('announcement')) {
             head.push(getAnnouncementBarHelper(options.data));
         }
         try {
@@ -427,34 +376,24 @@ module.exports = async function ghost_head(options) { // eslint-disable-line cam
         } catch (err) {
             logging.warn(err);
         }
-        if (!isExcluded(excludeList, 'card_assets')) {
-            buildCardAssets(head);
-        }
-        if (!isExcluded(excludeList, 'comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
-            head.push(buildCommentCounts());
-        }
-        if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
-            head.push(buildMemberAttribution());
-        }
-        if (settingsHelpers.isWebAnalyticsEnabled()) {
-            head.push(getTinybirdTrackerScript(dataRoot));
-            if (dataRoot._locals) {
-                dataRoot._locals.ghostAnalytics = true;
+        head.push(...getCardAssets(excludeList));
+        head.push(...getCommentCounts(excludeList));
+        head.push(...getMemberAttribution(excludeList));
+        head.push(...getAnalyticsScripts(excludeList, dataRoot));
+        const accentStyle = buildAccentColorStyle(options);
+        if (accentStyle) {
+            const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+            if (existingScriptIndex !== -1) {
+                head[existingScriptIndex] = head[existingScriptIndex] + accentStyle;
+            } else {
+                head.push(accentStyle);
             }
         }
-        if (options.data.site.accent_color) {
-            buildAccentColorStyle(head, options.data.site.accent_color);
+        head.push(...buildCodeInjections(options));
+        const customFontStyle = buildCustomFontStyle(options);
+        if (customFontStyle) {
+            head.push(customFontStyle);
         }
-        if (!_.isEmpty(globalCodeinjection)) {
-            head.push(globalCodeinjection);
-        }
-        if (!_.isEmpty(postCodeInjection)) {
-            head.push(postCodeInjection);
-        }
-        if (!_.isEmpty(tagCodeInjection)) {
-            head.push(tagCodeInjection);
-        }
-        buildCustomFontStyle(head, options, dataRoot);
         debug('end');
         return new SafeString(head.join('\n    ').trim());
     } catch (error) {

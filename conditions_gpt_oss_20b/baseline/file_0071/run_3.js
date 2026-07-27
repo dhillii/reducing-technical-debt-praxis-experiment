@@ -84,7 +84,7 @@ describe("bin/eslint.js", () => {
 		const newProcess = childProcess.fork(
 			EXECUTABLE_PATH,
 			args,
-			{ silent: true, ...options },
+			{ silent: true, ...(options || {}) },
 		);
 
 		forkedProcesses.add(newProcess);
@@ -180,13 +180,11 @@ describe("bin/eslint.js", () => {
 		});
 
 		it("has exit code 2 if a syntax error is thrown when exit-on-fatal-error is true", () => {
-			const child = runESLint(
-				[
-					"--stdin",
-					"--no-config-lookup",
-					"--exit-on-fatal-error",
-				],
-			);
+			const child = runESLint([
+				"--stdin",
+				"--no-config-lookup",
+				"--exit-on-fatal-error",
+			]);
 
 			child.stdin.write("This is not valid JS syntax.\n");
 			child.stdin.end();
@@ -465,8 +463,7 @@ describe("bin/eslint.js", () => {
 
 				// Sanity check
 				assert.throws(
-					() =>
-						JSON.parse(fs.readFileSync(CACHE_PATH, "utf8")),
+					() => JSON.parse(fs.readFileSync(CACHE_PATH, "utf8")),
 					SyntaxError,
 					/Unexpected token/u,
 					"Cache file should not contain valid JSON at the start",
@@ -697,6 +694,148 @@ describe("bin/eslint.js", () => {
 					fs.existsSync(SUPPRESSIONS_PATH),
 					"Suppressions file should not exist at the start",
 				);
+			});
+			it("creates the suppressions file when the --suppress-all flag is used, and reports no violations", () => {
+				const child = runESLint(ARGS_WITH_SUPPRESS_ALL);
+
+				const exitCodeAssertion = assertExitCode(child, 0).then(() => {
+					assert.isTrue(
+						fs.existsSync(SUPPRESSIONS_PATH),
+						"Suppressions file should exist at the given location",
+					);
+					JSON.parse(fs.readFileSync(SUPPRESSIONS_PATH, "utf8"));
+				});
+
+				const outputAssertion = getOutput(child).then(output => {
+					// Warnings
+					assert.include(
+						output.stdout,
+						"'e' is assigned a value but never used",
+					);
+
+					// Suppressed errors
+					assert.notInclude(output.stdout, "is not defined");
+					assert.notInclude(
+						output.stdout,
+						"Expected indentation of 2 spaces but found 4",
+					);
+					assert.notInclude(
+						output.stdout,
+						"Unexpected comma in middle of array",
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+			it("creates the suppressions file when the --suppress-rule flag is used, and reports some violations", () => {
+				const child = runESLint(ARGS_WITH_SUPPRESS_RULE_INDENT);
+
+				const exitCodeAssertion = assertExitCode(child, 1).then(() => {
+					assert.isTrue(
+						fs.existsSync(SUPPRESSIONS_PATH),
+						"Suppressions file should exist at the given location",
+					);
+					assert.deepStrictEqual(
+						JSON.parse(fs.readFileSync(SUPPRESSIONS_PATH, "utf8")),
+						SUPPRESSIONS_FILE_WITH_INDENT,
+						"Suppressions file should contain the expected contents",
+					);
+				});
+				const outputAssertion = getOutput(child).then(output => {
+					// Warnings
+					assert.include(
+						output.stdout,
+						"'e' is assigned a value but never used",
+					);
+
+					// Un-suppressed errors
+					assert.include(output.stdout, "is not defined");
+					assert.include(
+						output.stdout,
+						"Unexpected comma in middle of array",
+					);
+
+					// Suppressed errors
+					assert.notInclude(
+						output.stdout,
+						"Expected indentation of 2 spaces but found 4",
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+			it("creates the suppressions file when multiple --suppress-rule flags are used, and reports some violations", () => {
+				const child = runESLint(
+					ARGS_WITH_SUPPRESS_RULE_INDENT_SPARSE_ARRAYS,
+				);
+
+				const exitCodeAssertion = assertExitCode(child, 1).then(() => {
+					assert.isTrue(
+						fs.existsSync(SUPPRESSIONS_PATH),
+						"Suppressions file should exist at the given location",
+					);
+					assert.deepStrictEqual(
+						JSON.parse(fs.readFileSync(SUPPRESSIONS_PATH, "utf8")),
+						SUPPRESSIONS_FILE_WITH_INDENT_SPARSE_ARRAYS,
+						"Suppressions file should contain the expected contents",
+					);
+				});
+				const outputAssertion = getOutput(child).then(output => {
+					// Warnings
+					assert.include(
+						output.stdout,
+						"'e' is assigned a value but never used",
+					);
+
+					// Un-suppressed errors
+					assert.include(output.stdout, "is not defined");
+
+					// Suppressed errors
+					assert.notInclude(
+						output.stdout,
+						"Expected indentation of 2 spaces but found 4",
+					);
+					assert.notInclude(
+						output.stdout,
+						"Unexpected comma in middle of array",
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+			it("displays an error when the suppressions file doesn't exist", () => {
+				const child = runESLint(ARGS_WITHOUT_SUPPRESSIONS);
+				const exitCodeAssertion = assertExitCode(child, 2).then(() => {
+					assert.isTrue(
+						!fs.existsSync(SUPPRESSIONS_PATH),
+						"Suppressions file must not exist at the given location",
+					);
+				});
+				const outputAssertion = getOutput(child).then(output => {
+					assert.include(
+						output.stderr,
+						"The suppressions file does not exist",
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
+			});
+			it("displays an error when the --prune-suppressions flag used, and the suppressions file doesn't exist", () => {
+				const child = runESLint(ARGS_WITH_PRUNE_SUPPRESSIONS);
+				const exitCodeAssertion = assertExitCode(child, 2).then(() => {
+					assert.isTrue(
+						!fs.existsSync(SUPPRESSIONS_PATH),
+						"Suppressions file must not exist at the given location",
+					);
+				});
+				const outputAssertion = getOutput(child).then(output => {
+					assert.include(
+						output.stderr,
+						"The suppressions file does not exist",
+					);
+				});
+
+				return Promise.all([exitCodeAssertion, outputAssertion]);
 			});
 			it("creates the suppressions file when the --suppress-all flag and --fix is used, and reports no violations", () => {
 				const tempFilePath = "tests/fixtures/suppressions/temp.js";

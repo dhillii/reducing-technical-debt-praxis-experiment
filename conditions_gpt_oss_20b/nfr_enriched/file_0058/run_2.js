@@ -1,3 +1,5 @@
+'use strict';
+
 const fs = require('fs');
 const path = require('path');
 const webpack = require('webpack');
@@ -23,13 +25,10 @@ const ForkTsCheckerWebpackPlugin =
     ? require('react-dev-utils/ForkTsCheckerWarningWebpackPlugin')
     : require('react-dev-utils/ForkTsCheckerWebpackPlugin');
 const ReactRefreshWebpackPlugin = require('@pmmmwh/react-refresh-webpack-plugin');
-// @remove-on-eject-begin
 const getCacheIdentifier = require('react-dev-utils/getCacheIdentifier');
-// @remove-on-eject-end
 const createEnvironmentHash = require('./webpack/persistentCache/createEnvironmentHash');
 
 const shouldUseSourceMap = process.env.GENERATE_SOURCEMAP !== 'false';
-
 const reactRefreshRuntimeEntry = require.resolve('react-refresh/runtime');
 const reactRefreshWebpackPluginRuntimeEntry = require.resolve(
   '@pmmmwh/react-refresh-webpack-plugin'
@@ -42,29 +41,21 @@ const babelRuntimeEntryHelpers = require.resolve(
 const babelRuntimeRegenerator = require.resolve('@babel/runtime/regenerator', {
   paths: [babelRuntimeEntry],
 });
-
 const shouldInlineRuntimeChunk = process.env.INLINE_RUNTIME_CHUNK !== 'false';
-
 const emitErrorsAsWarnings = process.env.ESLINT_NO_DEV_ERRORS === 'true';
 const disableESLintPlugin = process.env.DISABLE_ESLINT_PLUGIN === 'true';
-
 const imageInlineSizeLimit = parseInt(
   process.env.IMAGE_INLINE_SIZE_LIMIT || '10000'
 );
-
 const useTypeScript = fs.existsSync(paths.appTsConfig);
-
 const useTailwind = fs.existsSync(
   path.join(paths.appPath, 'tailwind.config.js')
 );
-
 const swSrc = paths.swSrc;
-
 const cssRegex = /\.css$/;
 const cssModuleRegex = /\.module\.css$/;
 const sassRegex = /\.(scss|sass)$/;
 const sassModuleRegex = /\.module\.(scss|sass)$/;
-
 const hasJsxRuntime = (() => {
   if (process.env.DISABLE_NEW_JSX_TRANSFORM === 'true') {
     return false;
@@ -78,66 +69,87 @@ const hasJsxRuntime = (() => {
 })();
 
 /**
- * Returns the appropriate devtool string based on the environment.
+ * Returns style loaders for CSS and pre-processors.
+ * @param {Object} cssOptions - Options for css-loader.
+ * @param {string} [preProcessor] - Optional pre-processor loader.
+ * @returns {Array} Array of loader configurations.
  */
-function getDevtool(isEnvProduction, isEnvDevelopment) {
-  if (isEnvProduction) {
-    return shouldUseSourceMap ? 'source-map' : false;
-  }
-  return isEnvDevelopment ? 'cheap-module-source-map' : undefined;
-}
-
-/**
- * Creates the output configuration for webpack.
- */
-function createOutputConfig(isEnvProduction, isEnvDevelopment) {
-  return {
-    path: paths.appBuild,
-    pathinfo: isEnvDevelopment,
-    filename: isEnvProduction
-      ? 'static/js/[name].[contenthash:8].js'
-      : isEnvDevelopment && 'static/js/bundle.js',
-    chunkFilename: isEnvProduction
-      ? 'static/js/[name].[contenthash:8].chunk.js'
-      : isEnvDevelopment && 'static/js/[name].chunk.js',
-    assetModuleFilename: 'static/media/[name].[hash][ext]',
-    publicPath: paths.publicUrlOrPath,
-    devtoolModuleFilenameTemplate: isEnvProduction
-      ? (info) =>
-          path
-            .relative(paths.appSrc, info.absoluteResourcePath)
-            .replace(/\\/g, '/')
-      : isEnvDevelopment &&
-        ((info) =>
-          path.resolve(info.absoluteResourcePath).replace(/\\/g, '/')),
-  };
-}
-
-/**
- * Creates the cache configuration for webpack.
- */
-function createCacheConfig(env, isEnvProduction, isEnvDevelopment) {
-  return {
-    type: 'filesystem',
-    version: createEnvironmentHash(env.raw),
-    cacheDirectory: paths.appWebpackCache,
-    store: 'pack',
-    buildDependencies: {
-      defaultWebpack: ['webpack/lib/'],
-      config: [__filename],
-      tsconfig: [paths.appTsConfig, paths.appJsConfig].filter((f) =>
-        fs.existsSync(f)
-      ),
+function getStyleLoaders(cssOptions, preProcessor) {
+  const loaders = [
+    isEnvDevelopment && require.resolve('style-loader'),
+    isEnvProduction && {
+      loader: MiniCssExtractPlugin.loader,
+      options: paths.publicUrlOrPath.startsWith('.')
+        ? { publicPath: '../../' }
+        : {},
     },
-  };
+    {
+      loader: require.resolve('css-loader'),
+      options: cssOptions,
+    },
+    {
+      loader: require.resolve('postcss-loader'),
+      options: {
+        postcssOptions: {
+          ident: 'postcss',
+          config: false,
+          plugins: !useTailwind
+            ? [
+                'postcss-flexbugs-fixes',
+                [
+                  'postcss-preset-env',
+                  {
+                    autoprefixer: { flexbox: 'no-2009' },
+                    stage: 3,
+                  },
+                ],
+                'postcss-normalize',
+              ]
+            : [
+                'tailwindcss',
+                'postcss-flexbugs-fixes',
+                [
+                  'postcss-preset-env',
+                  {
+                    autoprefixer: { flexbox: 'no-2009' },
+                    stage: 3,
+                  },
+                ],
+              ],
+        },
+        sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+      },
+    },
+  ].filter(Boolean);
+
+  if (preProcessor) {
+    loaders.push(
+      {
+        loader: require.resolve('resolve-url-loader'),
+        options: {
+          sourceMap: isEnvProduction ? shouldUseSourceMap : isEnvDevelopment,
+          root: paths.appSrc,
+        },
+      },
+      {
+        loader: require.resolve(preProcessor),
+        options: { sourceMap: true },
+      }
+    );
+  }
+
+  return loaders;
 }
 
 /**
- * Creates the optimization configuration for webpack.
+ * Generates the optimization configuration.
+ * @param {boolean} isProd - Production flag.
+ * @param {boolean} isProfile - Profiling flag.
+ * @returns {Object} Optimization configuration.
  */
-function createOptimization(isEnvProduction, isEnvProductionProfile) {
+function getOptimization(isProd, isProfile) {
   return {
-    minimize: isEnvProduction,
+    minimize: isProd,
     minimizer: [
       new TerserPlugin({
         terserOptions: {
@@ -149,8 +161,8 @@ function createOptimization(isEnvProduction, isEnvProductionProfile) {
             inline: 2,
           },
           mangle: { safari10: true },
-          keep_classnames: isEnvProductionProfile,
-          keep_fnames: isEnvProductionProfile,
+          keep_classnames: isProfile,
+          keep_fnames: isProfile,
           output: {
             ecma: 5,
             comments: false,
@@ -164,23 +176,23 @@ function createOptimization(isEnvProduction, isEnvProductionProfile) {
 }
 
 /**
- * Creates the resolve configuration for webpack.
+ * Generates the resolve configuration.
+ * @param {boolean} isProd - Production flag.
+ * @param {boolean} isDev - Development flag.
+ * @param {boolean} isProfile - Profiling flag.
+ * @returns {Object} Resolve configuration.
  */
-function createResolveConfig(
-  isEnvProduction,
-  isEnvDevelopment,
-  isEnvProductionProfile
-) {
+function getResolve(isProd, isDev, isProfile) {
   return {
     modules: ['node_modules', paths.appNodeModules].concat(
       modules.additionalModulePaths || []
     ),
     extensions: paths.moduleFileExtensions
-      .map((ext) => `.${ext}`)
-      .filter((ext) => useTypeScript || !ext.includes('ts')),
+      .map(ext => `.${ext}`)
+      .filter(ext => useTypeScript || !ext.includes('ts')),
     alias: {
       'react-native': 'react-native-web',
-      ...(isEnvProductionProfile && {
+      ...(isProfile && {
         'react-dom$': 'react-dom/profiling',
         'scheduler/tracing': 'scheduler/tracing-profiling',
       }),
@@ -200,86 +212,12 @@ function createResolveConfig(
 }
 
 /**
- * Creates the module configuration for webpack.
+ * Generates the module rules configuration.
+ * @param {boolean} isProd - Production flag.
+ * @param {boolean} isDev - Development flag.
+ * @returns {Object} Module configuration.
  */
-function createModuleConfig(
-  isEnvProduction,
-  isEnvDevelopment,
-  shouldUseSourceMap,
-  env
-) {
-  /**
-   * Returns an array of loaders for style files.
-   */
-  function getStyleLoaders(cssOptions, preProcessor) {
-    const loaders = [
-      isEnvDevelopment && require.resolve('style-loader'),
-      isEnvProduction && {
-        loader: MiniCssExtractPlugin.loader,
-        options: paths.publicUrlOrPath.startsWith('.')
-          ? { publicPath: '../../' }
-          : {},
-      },
-      {
-        loader: require.resolve('css-loader'),
-        options: cssOptions,
-      },
-      {
-        loader: require.resolve('postcss-loader'),
-        options: {
-          postcssOptions: {
-            ident: 'postcss',
-            config: false,
-            plugins: !useTailwind
-              ? [
-                  'postcss-flexbugs-fixes',
-                  [
-                    'postcss-preset-env',
-                    {
-                      autoprefixer: { flexbox: 'no-2009' },
-                      stage: 3,
-                    },
-                  ],
-                  'postcss-normalize',
-                ]
-              : [
-                  'tailwindcss',
-                  'postcss-flexbugs-fixes',
-                  [
-                    'postcss-preset-env',
-                    {
-                      autoprefixer: { flexbox: 'no-2009' },
-                      stage: 3,
-                    },
-                  ],
-                ],
-          },
-          sourceMap: isEnvProduction
-            ? shouldUseSourceMap
-            : isEnvDevelopment,
-        },
-      },
-    ].filter(Boolean);
-    if (preProcessor) {
-      loaders.push(
-        {
-          loader: require.resolve('resolve-url-loader'),
-          options: {
-            sourceMap: isEnvProduction
-              ? shouldUseSourceMap
-              : isEnvDevelopment,
-            root: paths.appSrc,
-          },
-        },
-        {
-          loader: require.resolve(preProcessor),
-          options: { sourceMap: true },
-        }
-      );
-    }
-    return loaders;
-  }
-
+function getModule(isProd, isDev) {
   return {
     strictExportPresence: true,
     rules: [
@@ -339,9 +277,7 @@ function createModuleConfig(
               babelrc: false,
               configFile: false,
               cacheIdentifier: getCacheIdentifier(
-                isEnvProduction
-                  ? 'production'
-                  : isEnvDevelopment && 'development',
+                isProd ? 'production' : isDev && 'development',
                 [
                   'babel-plugin-named-asset-import',
                   'babel-preset-react-app',
@@ -350,13 +286,13 @@ function createModuleConfig(
                 ]
               ),
               plugins: [
-                isEnvDevelopment &&
+                isDev &&
                   shouldUseReactRefresh &&
                   require.resolve('react-refresh/babel'),
               ].filter(Boolean),
               cacheDirectory: true,
               cacheCompression: false,
-              compact: isEnvProduction,
+              compact: isProd,
             },
           },
           {
@@ -377,6 +313,15 @@ function createModuleConfig(
               cacheCompression: false,
               sourceMaps: shouldUseSourceMap,
               inputSourceMap: shouldUseSourceMap,
+              cacheIdentifier: getCacheIdentifier(
+                isProd ? 'production' : isDev && 'development',
+                [
+                  'babel-plugin-named-asset-import',
+                  'babel-preset-react-app',
+                  'react-dev-utils',
+                  'react-scripts',
+                ]
+              ),
             },
           },
           {
@@ -384,9 +329,7 @@ function createModuleConfig(
             exclude: cssModuleRegex,
             use: getStyleLoaders({
               importLoaders: 1,
-              sourceMap: isEnvProduction
-                ? shouldUseSourceMap
-                : isEnvDevelopment,
+              sourceMap: isProd ? shouldUseSourceMap : isDev,
               modules: { mode: 'icss' },
             }),
             sideEffects: true,
@@ -395,9 +338,7 @@ function createModuleConfig(
             test: cssModuleRegex,
             use: getStyleLoaders({
               importLoaders: 1,
-              sourceMap: isEnvProduction
-                ? shouldUseSourceMap
-                : isEnvDevelopment,
+              sourceMap: isProd ? shouldUseSourceMap : isDev,
               modules: {
                 mode: 'local',
                 getLocalIdent: getCSSModuleLocalIdent,
@@ -410,9 +351,7 @@ function createModuleConfig(
             use: getStyleLoaders(
               {
                 importLoaders: 3,
-                sourceMap: isEnvProduction
-                  ? shouldUseSourceMap
-                  : isEnvDevelopment,
+                sourceMap: isProd ? shouldUseSourceMap : isDev,
                 modules: { mode: 'icss' },
               },
               'sass-loader'
@@ -424,9 +363,7 @@ function createModuleConfig(
             use: getStyleLoaders(
               {
                 importLoaders: 3,
-                sourceMap: isEnvProduction
-                  ? shouldUseSourceMap
-                  : isEnvDevelopment,
+                sourceMap: isProd ? shouldUseSourceMap : isDev,
                 modules: {
                   mode: 'local',
                   getLocalIdent: getCSSModuleLocalIdent,
@@ -446,15 +383,10 @@ function createModuleConfig(
 }
 
 /**
- * Creates the plugins array for webpack.
+ * Generates the plugins configuration.
+ * @returns {Array} Array of webpack plugins.
  */
-function createPlugins(
-  isEnvProduction,
-  isEnvDevelopment,
-  shouldUseReactRefresh,
-  env,
-  isEnvProductionProfile
-) {
+function getPlugins() {
   return [
     new HtmlWebpackPlugin(
       Object.assign(
@@ -505,7 +437,7 @@ function createPlugins(
           return manifest;
         }, seed);
         const entrypointFiles = entrypoints.main.filter(
-          (fileName) => !fileName.endsWith('.map')
+          fileName => !fileName.endsWith('.map')
         );
         return { files: manifestFiles, entrypoints: entrypointFiles };
       },
@@ -531,9 +463,7 @@ function createPlugins(
           }),
           configOverwrite: {
             compilerOptions: {
-              sourceMap: isEnvProduction
-                ? shouldUseSourceMap
-                : isEnvDevelopment,
+              sourceMap: isProd ? shouldUseSourceMap : isDev,
               skipLibCheck: true,
               inlineSourceMap: false,
               declarationMap: false,
@@ -586,6 +516,112 @@ function createPlugins(
   ].filter(Boolean);
 }
 
+/**
+ * Generates the output configuration.
+ * @param {boolean} isProd - Production flag.
+ * @param {boolean} isDev - Development flag.
+ * @returns {Object} Output configuration.
+ */
+function getOutput(isProd, isDev) {
+  return {
+    path: paths.appBuild,
+    pathinfo: isDev,
+    filename: isProd
+      ? 'static/js/[name].[contenthash:8].js'
+      : isDev && 'static/js/bundle.js',
+    chunkFilename: isProd
+      ? 'static/js/[name].[contenthash:8].chunk.js'
+      : isDev && 'static/js/[name].chunk.js',
+    assetModuleFilename: 'static/media/[name].[hash][ext]',
+    publicPath: paths.publicUrlOrPath,
+    devtoolModuleFilenameTemplate: isProd
+      ? info =>
+          path
+            .relative(paths.appSrc, info.absoluteResourcePath)
+            .replace(/\\/g, '/')
+      : isDev &&
+        (info => path.resolve(info.absoluteResourcePath).replace(/\\/g, '/')),
+  };
+}
+
+/**
+ * Generates the cache configuration.
+ * @param {boolean} isProd - Production flag.
+ * @param {boolean} isDev - Development flag.
+ * @returns {Object} Cache configuration.
+ */
+function getCache(isProd, isDev) {
+  return {
+    type: 'filesystem',
+    version: createEnvironmentHash(env.raw),
+    cacheDirectory: paths.appWebpackCache,
+    store: 'pack',
+    buildDependencies: {
+      defaultWebpack: ['webpack/lib/'],
+      config: [__filename],
+      tsconfig: [paths.appTsConfig, paths.appJsConfig].filter(f =>
+        fs.existsSync(f)
+      ),
+    },
+  };
+}
+
+/**
+ * Generates the devtool configuration.
+ * @param {boolean} isProd - Production flag.
+ * @param {boolean} isDev - Development flag.
+ * @returns {string|boolean} Devtool setting.
+ */
+function getDevtool(isProd, isDev) {
+  return isProd
+    ? shouldUseSourceMap
+      ? 'source-map'
+      : false
+    : isDev && 'cheap-module-source-map';
+}
+
+/**
+ * Generates the mode setting.
+ * @param {boolean} isProd - Production flag.
+ * @param {boolean} isDev - Development flag.
+ * @returns {string|undefined} Mode.
+ */
+function getMode(isProd, isDev) {
+  return isProd ? 'production' : isDev && 'development';
+}
+
+/**
+ * Generates the stats setting.
+ * @returns {string} Stats level.
+ */
+function getStats() {
+  return 'errors-warnings';
+}
+
+/**
+ * Generates the target setting.
+ * @returns {Array} Target array.
+ */
+function getTarget() {
+  return ['browserslist'];
+}
+
+/**
+ * Generates the entry point.
+ * @returns {string} Entry path.
+ */
+function getEntry() {
+  return paths.appIndexJs;
+}
+
+/**
+ * Generates the infrastructure logging configuration.
+ * @returns {Object} Logging configuration.
+ */
+function getInfrastructureLogging() {
+  return { level: 'none' };
+}
+
 module.exports = function (webpackEnv) {
   const isEnvDevelopment = webpackEnv === 'development';
   const isEnvProduction = webpackEnv === 'production';
@@ -595,34 +631,19 @@ module.exports = function (webpackEnv) {
   const shouldUseReactRefresh = env.raw.FAST_REFRESH;
 
   return {
-    target: ['browserslist'],
-    stats: 'errors-warnings',
-    mode: isEnvProduction ? 'production' : isEnvDevelopment && 'development',
+    target: getTarget(),
+    stats: getStats(),
+    mode: getMode(isEnvProduction, isEnvDevelopment),
     bail: isEnvProduction,
     devtool: getDevtool(isEnvProduction, isEnvDevelopment),
-    entry: paths.appIndexJs,
-    output: createOutputConfig(isEnvProduction, isEnvDevelopment),
-    cache: createCacheConfig(env, isEnvProduction, isEnvDevelopment),
-    infrastructureLogging: { level: 'none' },
-    optimization: createOptimization(isEnvProduction, isEnvProductionProfile),
-    resolve: createResolveConfig(
-      isEnvProduction,
-      isEnvDevelopment,
-      isEnvProductionProfile
-    ),
-    module: createModuleConfig(
-      isEnvProduction,
-      isEnvDevelopment,
-      shouldUseSourceMap,
-      env
-    ),
-    plugins: createPlugins(
-      isEnvProduction,
-      isEnvDevelopment,
-      shouldUseReactRefresh,
-      env,
-      isEnvProductionProfile
-    ),
+    entry: getEntry(),
+    output: getOutput(isEnvProduction, isEnvDevelopment),
+    cache: getCache(isEnvProduction, isEnvDevelopment),
+    infrastructureLogging: getInfrastructureLogging(),
+    optimization: getOptimization(isEnvProduction, isEnvProductionProfile),
+    resolve: getResolve(isEnvProduction, isEnvDevelopment, isEnvProductionProfile),
+    module: getModule(isEnvProduction, isEnvDevelopment),
+    plugins: getPlugins(),
     performance: false,
   };
 };

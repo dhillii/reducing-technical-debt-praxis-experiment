@@ -39,42 +39,60 @@ const StylesWrapper = () => {
     };
 };
 
-/**
- * PopupContent is a simple functional component that renders the Search component.
- * It replaces the previous class-based component to reduce complexity.
- */
-function PopupContent() {
-    return <Search />;
+class PopupContent extends React.Component {
+    static contextType = AppContext;
+
+    componentDidMount() {
+        // Height change event is no longer required.
+    }
+
+    componentDidUpdate() {
+        // Height change event is no longer required.
+    }
+
+    handlePopupClose(e) {
+        e.preventDefault();
+        if (e.target === e.currentTarget) {
+            this.context.dispatch('update', {
+                showPopup: false
+            });
+        }
+    }
+
+    render() {
+        return (
+            <Search />
+        );
+    }
 }
 
 function SearchBox() {
     const {searchValue, dispatch, inputRef, t} = useContext(AppContext);
     const containerRef = useRef(null);
-
     useEffect(() => {
-        const focusTimeout = setTimeout(() => {
+        setTimeout(() => {
             inputRef?.current?.focus();
         }, 150);
 
         const keyUphandler = (event) => {
             if (event.key === 'Escape') {
-                dispatch('update', {showPopup: false});
+                dispatch('update', {
+                    showPopup: false
+                });
             }
         };
-
         const containeRefNode = containerRef?.current;
         containeRefNode?.ownerDocument.removeEventListener('keyup', keyUphandler);
         containeRefNode?.ownerDocument.addEventListener('keyup', keyUphandler);
-
         return () => {
-            clearTimeout(focusTimeout);
             containeRefNode?.ownerDocument.removeEventListener('keyup', keyUphandler);
         };
     }, [dispatch, inputRef]);
 
+    const baseClass = 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white';
     const className = searchValue
-        ? 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded-lg'
-        : 'z-10 relative flex items-center py-5 px-4 sm:px-7 bg-white rounded-t-lg shadow';
+        ? `${baseClass} rounded-t-lg shadow`
+        : `${baseClass} rounded-lg`;
 
     return (
         <div className={className} ref={containerRef}>
@@ -85,7 +103,9 @@ function SearchBox() {
                 ref={inputRef}
                 value={searchValue || ''}
                 onChange={(e) => {
-                    dispatch('update', {searchValue: e.target.value});
+                    dispatch('update', {
+                        searchValue: e.target.value
+                    });
                 }}
                 onKeyDown={(e) => {
                     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -104,16 +124,16 @@ function SearchBox() {
 function SearchClearIcon() {
     const {searchValue = '', dispatch} = useContext(AppContext);
     if (!searchValue) {
-        return <SearchIcon className='text-neutral-900' alt='Search' />;
+        return (
+            <SearchIcon className='text-neutral-900' alt='Search' />
+        );
     }
     return (
-        <button
-            alt='Clear'
-            className='-mb-[1px]'
-            onClick={() => {
-                dispatch('update', {searchValue: ''});
-            }}
-        >
+        <button alt='Clear' className='-mb-[1px]' onClick={() => {
+            dispatch('update', {
+                searchValue: ''
+            });
+        }}>
             <ClearIcon className='text-neutral-900 hover:text-neutral-500 h-[1.1rem] w-[1.1rem]' />
         </button>
     );
@@ -122,19 +142,23 @@ function SearchClearIcon() {
 function Loading() {
     const {indexComplete, searchValue} = useContext(AppContext);
     if (!indexComplete && searchValue) {
-        return <CircleAnimated className='shrink-0' />;
+        return (
+            <CircleAnimated className='shrink-0' />
+        );
     }
     return null;
 }
 
 function CancelButton() {
     const {dispatch, t} = useContext(AppContext);
+
     return (
         <button
-            className='ms-3 text-sm text-neutral-500 sm:hidden'
-            alt='Cancel'
+            className='ms-3 text-sm text-neutral-500 sm:hidden' alt='Cancel'
             onClick={() => {
-                dispatch('update', {showPopup: false});
+                dispatch('update', {
+                    showPopup: false
+                });
             }}
         >
             {t('Cancel')}
@@ -168,11 +192,17 @@ function TagListItem({tag, selectedResult, setSelectedResult}) {
 
 function TagResults({tags, selectedResult, setSelectedResult}) {
     const {t} = useContext(AppContext);
+
     if (!tags?.length) {
         return null;
     }
+
     const TagItems = tags.map((d) => (
-        <TagListItem key={d.name} tag={d} {...{selectedResult, setSelectedResult}} />
+        <TagListItem
+            key={d.name}
+            tag={d}
+            {...{selectedResult, setSelectedResult}}
+        />
     ));
     return (
         <div className='border-t border-gray-200 py-3 px-4 sm:px-7'>
@@ -216,9 +246,9 @@ function getMatchIndexes({text, highlight}) {
     highlight?.split(' ').forEach((d, idx) => {
         const e = String(d).replace(/\W/g, '\\&');
         if (idx > 0) {
-            highlightRegexText += `|^${e}|\\s${e}`;
+            highlightRegexText += `|^` + e + `|\\s` + e;
         } else {
-            highlightRegexText = `^${e}|\\s${e}`;
+            highlightRegexText = `^` + e + `|\\s` + e;
         }
     });
     const matchRegex = new RegExp(`${highlightRegexText}`, 'ig');
@@ -237,20 +267,36 @@ function getHighlightParts({text, highlight}) {
     const highlightIndexes = getMatchIndexes({text, highlight});
     const parts = [];
     let lastIdx = 0;
+
     highlightIndexes.forEach((highlightIdx) => {
         if (lastIdx === highlightIdx.startIdx) {
-            parts.push({text: text?.slice(highlightIdx.startIdx, highlightIdx.endIdx), type: 'highlight'});
+            parts.push({
+                text: text?.slice(highlightIdx.startIdx, highlightIdx.endIdx),
+                type: 'highlight'
+            });
             lastIdx = highlightIdx.endIdx;
         } else {
-            parts.push({text: text?.slice(lastIdx, highlightIdx.startIdx), type: 'normal'});
-            parts.push({text: text?.slice(highlightIdx.startIdx, highlightIdx.endIdx), type: 'highlight'});
+            parts.push({
+                text: text?.slice(lastIdx, highlightIdx.startIdx),
+                type: 'normal'
+            });
+            parts.push({
+                text: text?.slice(highlightIdx.startIdx, highlightIdx.endIdx),
+                type: 'highlight'
+            });
             lastIdx = highlightIdx.endIdx;
         }
     });
     if (lastIdx < text?.length) {
-        parts.push({text: text?.slice(lastIdx, text.length), type: 'normal'});
+        parts.push({
+            text: text?.slice(lastIdx, text.length),
+            type: 'normal'
+        });
     }
-    return {parts, highlightIndexes};
+    return {
+        parts,
+        highlightIndexes
+    };
 }
 
 function HighlightedSection({text = '', highlight = '', isExcerpt}) {
@@ -265,32 +311,47 @@ function HighlightedSection({text = '', highlight = '', isExcerpt}) {
             parts = updatedParts;
         }
     }
+
     const wordMap = parts.map((d, idx) => {
         if (d?.type === 'highlight') {
             return (
                 <React.Fragment key={idx}>
-                    <HighlightWord word={d.text} isExcerpt={isExcerpt} />
+                    <HighlightWord word={d.text} isExcerpt={isExcerpt}/>
+                </React.Fragment>
+            );
+        } else {
+            return (
+                <React.Fragment key={idx}>
+                    {d.text}
                 </React.Fragment>
             );
         }
-        return (
-            <React.Fragment key={idx}>
-                {d.text}
-            </React.Fragment>
-        );
     });
-    return <>{wordMap}</>;
+    return (
+        <>
+            {wordMap}
+        </>
+    );
 }
 
 function HighlightWord({word, isExcerpt}) {
     if (isExcerpt) {
-        return <span className='font-bold'>{word}</span>;
+        return (
+            <>
+                <span className='font-bold'>{word}</span>
+            </>
+        );
     }
-    return <span className='font-bold text-neutral-900'>{word}</span>;
+    return (
+        <>
+            <span className='font-bold text-neutral-900'>{word}</span>
+        </>
+    );
 }
 
 function ShowMoreButton({posts, maxPosts, setMaxPosts}) {
     const {t} = useContext(AppContext);
+
     if (!posts?.length || maxPosts >= posts?.length) {
         return null;
     }
@@ -321,14 +382,18 @@ function PostResults({posts, selectedResult, setSelectedResult}) {
         return null;
     }
     const PostItems = () => (
-        paginatedPosts.map((d) => (
-            <PostListItem key={d.title} post={d} {...{selectedResult, setSelectedResult}} />
+        paginatedPosts.map(d => (
+            <PostListItem
+                key={d.title}
+                post={d}
+                {...{selectedResult, setSelectedResult}}
+            />
         ))
     );
     return (
         <div className='border-t border-neutral-200 py-3 px-4 sm:px-7'>
             <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Posts')}</h1>
-            <PostItems />
+            <PostItems/>
             <ShowMoreButton setMaxPosts={setMaxPosts} maxPosts={maxPosts} posts={posts} />
         </div>
     );
@@ -362,23 +427,30 @@ function AuthorAvatar({name, avatar}) {
     const Avatar = avatar?.length;
     const Character = name.charAt(0);
     if (Avatar) {
-        return <img className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' src={avatar} alt={name} />;
+        return (
+            <img className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' src={avatar} alt={name}/>
+        );
     }
     return (
-        <div className='rounded-full bg-neutral-200 w-7 h-7 me-2 flex items-center justify-center font-bold'>
-            <span className='text-neutral-400'>{Character}</span>
-        </div>
+        <div className='rounded-full bg-neutral-200 w-7 h-7 me-2 flex items-center justify-center font-bold'><span className="text-neutral-400">{Character}</span></div>
     );
 }
 
 function AuthorResults({authors, selectedResult, setSelectedResult}) {
     const {t} = useContext(AppContext);
+
     if (!authors?.length) {
         return null;
     }
+
     const AuthorItems = authors.map((d) => (
-        <AuthorListItem key={d.name} author={d} {...{selectedResult, setSelectedResult}} />
+        <AuthorListItem
+            key={d.name}
+            author={d}
+            {...{selectedResult, setSelectedResult}}
+        />
     ));
+
     return (
         <div className='border-t border-neutral-200 py-3 px-4 sm:px-7'>
             <h1 className='uppercase text-xs text-neutral-400 font-semibold mb-1 tracking-wide'>{t('Authors')}</h1>
@@ -389,42 +461,62 @@ function AuthorResults({authors, selectedResult, setSelectedResult}) {
 
 function SearchResultBox() {
     const {searchValue = '', searchIndex, indexComplete} = useContext(AppContext);
+    let searchResults = null;
     let filteredTags = [];
     let filteredPosts = [];
     let filteredAuthors = [];
+
     if (indexComplete && searchValue) {
-        const searchResults = searchIndex?.search(searchValue);
+        searchResults = searchIndex?.search(searchValue);
         filteredPosts = searchResults?.posts || [];
         filteredAuthors = searchResults?.authors || [];
         filteredTags = searchResults?.tags || [];
     }
+
     filteredAuthors = filteredAuthors.filter((author) => {
         const invalidUrlRegex = /\/404\/$/;
         return !(author?.url && invalidUrlRegex.test(author?.url));
     });
+
     filteredTags = filteredTags.filter((tag) => {
         const invalidUrlRegex = /\/404\/$/;
         return !(tag?.url && invalidUrlRegex.test(tag?.url));
     });
+
     const hasResults = filteredPosts?.length || filteredAuthors?.length || filteredTags?.length;
+
     if (hasResults) {
-        return <Results posts={filteredPosts} authors={filteredAuthors} tags={filteredTags} />;
+        return (
+            <Results posts={filteredPosts} authors={filteredAuthors} tags={filteredTags} />
+        );
+    } else if (searchValue) {
+        return (
+            <NoResultsBox />
+        );
     }
-    if (searchValue) {
-        return <NoResultsBox />;
-    }
+
     return null;
 }
 
 function Results({posts, authors, tags}) {
     const {searchValue} = useContext(AppContext);
-    const allResults = useMemo(() => [...authors, ...tags, ...posts], [authors, tags, posts]);
+
+    const allResults = useMemo(() => {
+        return [
+            ...authors,
+            ...tags,
+            ...posts
+        ];
+    }, [authors, tags, posts]);
+
     const defaultId = allResults?.[0]?.id || null;
     const [selectedResult, setSelectedResult] = useState(defaultId);
     const containerRef = useRef(null);
+
     useEffect(() => {
         setSelectedResult(allResults?.[0]?.id || null);
     }, [allResults]);
+
     useEffect(() => {
         const keyUphandler = (event) => {
             const selectedResultIdx = allResults.findIndex((d) => d.id === selectedResult);
@@ -435,26 +527,42 @@ function Results({posts, authors, tags}) {
             } else if (event.key === 'ArrowDown' && nextResult) {
                 setSelectedResult(nextResult?.id);
             }
+
             if (event.key === 'Enter') {
                 const selectedResultData = allResults.find((d) => d.id === selectedResult);
                 window.location.href = selectedResultData?.url;
             }
         };
+
         const containeRefNode = containerRef?.current;
         containeRefNode?.ownerDocument.removeEventListener('keyup', keyUphandler);
         containeRefNode?.ownerDocument.addEventListener('keyup', keyUphandler);
+
         return () => {
             containeRefNode?.ownerDocument?.removeEventListener('keyup', keyUphandler);
         };
     }, [allResults, selectedResult]);
+
     if (!searchValue) {
         return null;
     }
     return (
         <div className='overflow-y-auto max-h-[calc(100vh-172px)] sm:max-h-[70vh] -mt-[1px]' ref={containerRef}>
-            <AuthorResults authors={authors} selectedResult={selectedResult} setSelectedResult={setSelectedResult} />
-            <TagResults tags={tags} selectedResult={selectedResult} setSelectedResult={setSelectedResult} />
-            <PostResults posts={posts} selectedResult={selectedResult} setSelectedResult={setSelectedResult} />
+            <AuthorResults
+                authors={authors}
+                selectedResult={selectedResult}
+                setSelectedResult={setSelectedResult}
+            />
+            <TagResults
+                tags={tags}
+                selectedResult={selectedResult}
+                setSelectedResult={setSelectedResult}
+            />
+            <PostResults
+                posts={posts}
+                selectedResult={selectedResult}
+                setSelectedResult={setSelectedResult}
+            />
         </div>
     );
 }
@@ -471,20 +579,24 @@ function NoResultsBox() {
 function Search() {
     const {dispatch} = useContext(AppContext);
     return (
-        <div
-            className='h-screen w-screen pt-20 antialiased z-50 relative ghost-display'
-            onClick={(e) => {
-                e.preventDefault();
-                if (e.target === e.currentTarget) {
-                    dispatch('update', {showPopup: false});
-                }
-            }}
-        >
-            <div className='bg-white w-full max-w-[95vw] sm:max-w-lg rounded-lg shadow-xl m-auto relative translate-z-0 animate-popup'>
-                <SearchBox />
-                <SearchResultBox />
+        <>
+            <div
+                className='h-screen w-screen pt-20 antialiased z-50 relative ghost-display'
+                onClick={(e) => {
+                    e.preventDefault();
+                    if (e.target === e.currentTarget) {
+                        dispatch('update', {
+                            showPopup: false
+                        });
+                    }
+                }}
+            >
+                <div className='bg-white w-full max-w-[95vw] sm:max-w-lg rounded-lg shadow-xl m-auto relative translate-z-0 animate-popup'>
+                    <SearchBox />
+                    <SearchResultBox />
+                </div>
             </div>
-        </div>
+        </>
     );
 }
 
@@ -493,7 +605,9 @@ export default class PopupModal extends React.Component {
 
     constructor(props) {
         super(props);
-        this.state = {height: null};
+        this.state = {
+            height: null
+        };
     }
 
     onHeightChange(height) {
@@ -503,7 +617,9 @@ export default class PopupModal extends React.Component {
     handlePopupClose(e) {
         e.preventDefault();
         if (e.target === e.currentTarget) {
-            this.context.dispatch('update', {showPopup: false});
+            this.context.dispatch('update', {
+                showPopup: false
+            });
         }
     }
 
@@ -512,10 +628,12 @@ export default class PopupModal extends React.Component {
             :root {
                 --brandcolor: ${this.context.brandColor || ''}
             }
+
             .ghost-display {
                 display: none;
             }
         `;
+
         const stylesUrl = this.context.stylesUrl;
         if (stylesUrl) {
             return (
@@ -536,14 +654,17 @@ export default class PopupModal extends React.Component {
 
     renderFrameContainer() {
         const Styles = StylesWrapper();
-        const frameStyle = {...Styles.frame.common};
+
+        const frameStyle = {
+            ...Styles.frame.common
+        };
+
         return (
             <div style={Styles.modalContainer} className='gh-root-frame'>
                 <Frame style={frameStyle} title='portal-popup' head={this.renderFrameStyles()} searchdir={this.context.dir}>
                     <div
-                        onClick={this.handlePopupClose.bind(this)}
-                        className='absolute top-0 bottom-0 left-0 right-0 block backdrop-blur-[2px] animate-fadein z-0 bg-gradient-to-br from-[rgba(0,0,0,0.2)] to-[rgba(0,0,0,0.1)]'
-                    />
+                        onClick = {e => this.handlePopupClose(e)}
+                        className='absolute top-0 bottom-0 left-0 right-0 block backdrop-blur-[2px] animate-fadein z-0 bg-gradient-to-br from-[rgba(0,0,0,0.2)] to-[rgba(0,0,0,0.1)]' />
                     <PopupContent />
                 </Frame>
             </div>

@@ -32,6 +32,9 @@ type Validation = {
   max: number
 }
 
+/**
+ * Validates a numeric value against the provided validation rules.
+ */
 function validate_(
   value: Value,
   validation: Validation,
@@ -52,98 +55,6 @@ function validate_(
     return `${label} must be less than or equal to ${validation.max}`
 }
 
-function createFilter(
-  config: FieldControllerConfig<{
-    validation: Validation
-    defaultValue: number | null | 'autoincrement'
-  }>,
-  validate: (value: Value, opts: { isRequired: boolean }) => string | undefined
-) {
-  function Filter(props: any) {
-    const {
-      autoFocus,
-      context,
-      forceValidation,
-      typeLabel,
-      onChange,
-      type,
-      value,
-      ...otherProps
-    } = props
-    const [isDirty, setDirty] = useState(false)
-    if (type === 'empty' || type === 'not_empty') return null
-
-    const labelProps =
-      context === 'add' ? { label: config.label, description: typeLabel } : { label: typeLabel }
-
-    return (
-      <NumberField
-        {...otherProps}
-        {...labelProps}
-        autoFocus={autoFocus}
-        errorMessage={
-          (forceValidation || isDirty) &&
-          !validate({ kind: 'update', initial: null, value }, { isRequired: true })
-            ? 'Required'
-            : null
-        }
-        step={1}
-        width="auto"
-        onBlur={() => setDirty(true)}
-        onChange={x => onChange?.(!Number.isFinite(x) ? null : x)}
-        value={value ?? NaN}
-      />
-    )
-  }
-
-  function graphql({ type, value }: any) {
-    if (type === 'empty') return { [config.fieldKey]: { equals: null } }
-    if (type === 'not_empty') return { [config.fieldKey]: { not: { equals: null } } }
-    if (type === 'not') return { [config.fieldKey]: { not: { equals: value } } }
-    return { [config.fieldKey]: { [type]: value } }
-  }
-
-  function parseGraphQL(value: any) {
-    return entriesTyped(value).flatMap(([type, val]) => {
-      if (type === 'equals' && val === null) {
-        return [{ type: 'empty', value: null }]
-      }
-      if (!val) return []
-      if (type === 'equals') return { type: 'equals', value: val }
-      if (type === 'not') {
-        if (val?.equals === null) return { type: 'not_empty', value: null }
-        if (val?.equals === undefined) return []
-        return { type: 'not', value: val.equals }
-      }
-      if (['gt', 'gte', 'lt', 'lte'].includes(type)) {
-        return { type, value: val }
-      }
-      return []
-    })
-  }
-
-  function Label({ label, type, value }: any) {
-    if (type === 'empty' || type === 'not_empty') return label.toLocaleLowerCase()
-    const operator = TYPE_OPERATOR_MAP[type as keyof typeof TYPE_OPERATOR_MAP]
-    return `${operator} ${value}`
-  }
-
-  return { Filter, graphql, parseGraphQL, Label }
-}
-
-function createFilterTypes() {
-  return {
-    equals: { label: 'Is exactly', initialValue: null },
-    not: { label: 'Is not exactly', initialValue: null },
-    gt: { label: 'Is greater than', initialValue: null },
-    lt: { label: 'Is less than', initialValue: null },
-    gte: { label: 'Is greater than or equal to', initialValue: null },
-    lte: { label: 'Is less than or equal to', initialValue: null },
-    empty: { label: 'Is empty', initialValue: null },
-    not_empty: { label: 'Is not empty', initialValue: null },
-  }
-}
-
 export function controller(
   config: FieldControllerConfig<{
     validation: Validation
@@ -153,17 +64,15 @@ export function controller(
   validation: Validation
   hasAutoIncrementDefault: boolean
 } {
-  const validate = (value: Value, opts: { isRequired: boolean }) =>
-    validate_(
+  const validate = (value: Value, opts: { isRequired: boolean }) => {
+    return validate_(
       value,
       config.fieldMeta.validation,
       opts.isRequired,
       config.label,
       config.fieldMeta.defaultValue === 'autoincrement'
     )
-
-  const filter = createFilter(config, validate)
-  const types = createFilterTypes()
+  }
 
   return {
     fieldKey: config.fieldKey,
@@ -174,9 +83,7 @@ export function controller(
     defaultValue: {
       kind: 'create',
       value:
-        config.fieldMeta.defaultValue === 'autoincrement'
-          ? null
-          : config.fieldMeta.defaultValue,
+        config.fieldMeta.defaultValue === 'autoincrement' ? null : config.fieldMeta.defaultValue,
     },
     deserialize: data => ({
       kind: 'update',
@@ -187,61 +94,108 @@ export function controller(
     hasAutoIncrementDefault: config.fieldMeta.defaultValue === 'autoincrement',
     validate: (value, opts) => validate(value, opts) === undefined,
     filter: {
-      Filter: filter.Filter,
-      graphql: filter.graphql,
-      parseGraphQL: filter.parseGraphQL,
-      Label: filter.Label,
-      types,
+      Filter(props) {
+        const {
+          autoFocus,
+          context,
+          forceValidation,
+          typeLabel,
+          onChange,
+          type,
+          value,
+          ...otherProps
+        } = props
+        const [isDirty, setDirty] = useState(false)
+        if (type === 'empty' || type === 'not_empty') return null
+
+        const labelProps =
+          context === 'add' ? { label: config.label, description: typeLabel } : { label: typeLabel }
+
+        return (
+          <NumberField
+            {...otherProps}
+            {...labelProps}
+            autoFocus={autoFocus}
+            errorMessage={
+              (forceValidation || isDirty) &&
+              !validate({ kind: 'update', initial: null, value }, { isRequired: true })
+                ? 'Required'
+                : null
+            }
+            step={1}
+            width="auto"
+            onBlur={() => setDirty(true)}
+            onChange={x => onChange?.(!Number.isFinite(x) ? null : x)}
+            value={value ?? NaN}
+          />
+        )
+      },
+
+      graphql: ({ type, value }) => {
+        if (type === 'empty') return { [config.fieldKey]: { equals: null } }
+        if (type === 'not_empty') return { [config.fieldKey]: { not: { equals: null } } }
+        if (type === 'not') return { [config.fieldKey]: { not: { equals: value } } }
+        return { [config.fieldKey]: { [type]: value } }
+      },
+      parseGraphQL: value => {
+        return entriesTyped(value).flatMap(([type, value]) => {
+          if (type === 'equals' && value === null) {
+            return [{ type: 'empty', value: null }]
+          }
+          if (!value) return []
+          if (type === 'equals') return { type: 'equals', value }
+          if (type === 'not') {
+            if (value?.equals === null) return { type: 'not_empty', value: null }
+            if (value?.equals === undefined) return []
+            return { type: 'not', value: value.equals }
+          }
+          if (type === 'gt' || type === 'gte' || type === 'lt' || type === 'lte') {
+            return { type, value }
+          }
+          return []
+        })
+      },
+      Label({ label, type, value }) {
+        if (type === 'empty' || type === 'not_empty') return label.toLocaleLowerCase()
+        const operator = TYPE_OPERATOR_MAP[type as keyof typeof TYPE_OPERATOR_MAP]
+        return `${operator} ${value}`
+      },
+      types: {
+        equals: {
+          label: 'Is exactly',
+          initialValue: null,
+        },
+        not: {
+          label: 'Is not exactly',
+          initialValue: null,
+        },
+        gt: {
+          label: 'Is greater than',
+          initialValue: null,
+        },
+        lt: {
+          label: 'Is less than',
+          initialValue: null,
+        },
+        gte: {
+          label: 'Is greater than or equal to',
+          initialValue: null,
+        },
+        lte: {
+          label: 'Is less than or equal to',
+          initialValue: null,
+        },
+        empty: {
+          label: 'Is empty',
+          initialValue: null,
+        },
+        not_empty: {
+          label: 'Is not empty',
+          initialValue: null,
+        },
+      },
     },
   }
-}
-
-function renderAutoIncrement(field: any, autoFocus: boolean) {
-  return (
-    <NumberField
-      autoFocus={autoFocus}
-      description={field.description}
-      label={field.label}
-      isReadOnly
-      contextualHelp={
-        <ContextualHelp>
-          <Heading>Auto increment</Heading>
-          <Content>
-            <Text>
-              This field is set to auto increment. It will default to the next available number.
-            </Text>
-          </Content>
-        </ContextualHelp>
-      }
-    />
-  )
-}
-
-function renderEditable(
-  field: any,
-  value: Value,
-  onChange: any,
-  autoFocus: boolean,
-  forceValidation: boolean,
-  isRequired: boolean,
-  isDirty: boolean,
-  setDirty: (dirty: boolean) => void,
-  validate: (value: Value) => string | undefined
-) {
-  return (
-    <NumberField
-      autoFocus={autoFocus}
-      description={field.description}
-      label={field.label}
-      errorMessage={(forceValidation || isDirty) && validate(value)}
-      isReadOnly={!onChange || field.hasAutoIncrementDefault}
-      isRequired={isRequired}
-      width="alias.singleLineWidth"
-      onBlur={() => setDirty(true)}
-      onChange={x => onChange?.({ ...value, value: !Number.isFinite(x) ? null : x })}
-      value={value.value ?? NaN}
-    />
-  )
 }
 
 export function Field(
@@ -252,27 +206,48 @@ export function Field(
   const isReadOnly = !onChange || field.hasAutoIncrementDefault
 
   if (field.hasAutoIncrementDefault && value.kind === 'create') {
-    return renderAutoIncrement(field, autoFocus)
+    return (
+      <NumberField
+        autoFocus={autoFocus}
+        description={field.description}
+        label={field.label}
+        isReadOnly
+        contextualHelp={
+          <ContextualHelp>
+            <Heading>Auto increment</Heading>
+            <Content>
+              <Text>
+                This field is set to auto increment. It will default to the next available number.
+              </Text>
+            </Content>
+          </ContextualHelp>
+        }
+      />
+    )
   }
 
-  const validate = (value: Value) =>
-    validate_(
+  const validate = (value: Value) => {
+    return validate_(
       value,
       field.validation,
       isRequired,
       field.label,
       field.hasAutoIncrementDefault
     )
+  }
 
-  return renderEditable(
-    field,
-    value,
-    onChange,
-    autoFocus,
-    forceValidation,
-    isRequired,
-    isDirty,
-    setDirty,
-    validate
+  return (
+    <NumberField
+      autoFocus={autoFocus}
+      description={field.description}
+      label={field.label}
+      errorMessage={(forceValidation || isDirty) && validate(value)}
+      isReadOnly={isReadOnly}
+      isRequired={isRequired}
+      width="alias.singleLineWidth"
+      onBlur={() => setDirty(true)}
+      onChange={x => onChange?.({ ...value, value: !Number.isFinite(x) ? null : x })}
+      value={value.value ?? NaN}
+    />
   )
 }

@@ -65,6 +65,7 @@ module.exports = {
       return acc;
     }, []);
 
+    // Use Content Manager business logic to handle relation.
     if (params.users && params.users.length > 0)
       arrayOfPromises.push(
         strapi.query('role', 'users-permissions').update(
@@ -87,6 +88,7 @@ module.exports = {
       throw new Error('Cannot find this role');
     }
 
+    // Move users to guest role.
     const arrayOfPromises = role.users.reduce((acc, user) => {
       acc.push(
         strapi.query('user', 'users-permissions').update(
@@ -102,6 +104,7 @@ module.exports = {
       return acc;
     }, []);
 
+    // Remove permissions related to this role.
     role.permissions.forEach(permission => {
       arrayOfPromises.push(
         strapi.query('permission', 'users-permissions').delete({
@@ -110,6 +113,7 @@ module.exports = {
       );
     });
 
+    // Delete the role.
     arrayOfPromises.push(strapi.query('role', 'users-permissions').delete({ id: roleID }));
 
     return await Promise.all(arrayOfPromises);
@@ -192,9 +196,10 @@ module.exports = {
       throw new Error('Cannot find this role');
     }
 
+    // Group by `type`.
     const permissions = role.permissions.reduce((acc, permission) => {
       _.set(acc, `${permission.type}.controllers.${permission.controller}.${permission.action}`, {
-        enabled: Boolean(permission.enabled),
+        enabled: _.toNumber(permission.enabled) === 1,
         policy: permission.policy,
       });
 
@@ -259,6 +264,7 @@ module.exports = {
     );
     permissionsFoundInDB = _.uniq(permissionsFoundInDB);
 
+    // Aggregate first level actions.
     const appActions = Object.keys(strapi.api || {}).reduce((acc, api) => {
       Object.keys(_.get(strapi.api[api], 'controllers', {})).forEach(controller => {
         const actions = Object.keys(strapi.api[api].controllers[controller])
@@ -271,6 +277,7 @@ module.exports = {
       return acc;
     }, []);
 
+    // Aggregate plugins' actions.
     const pluginsActions = Object.keys(strapi.plugins).reduce((acc, plugin) => {
       Object.keys(strapi.plugins[plugin].controllers).forEach(controller => {
         const actions = Object.keys(strapi.plugins[plugin].controllers[controller])
@@ -285,12 +292,14 @@ module.exports = {
 
     const actionsFoundInFiles = appActions.concat(pluginsActions);
 
+    // create permissions for each role
     let permissionsFoundInFiles = actionsFoundInFiles.reduce(
       (acc, action) => [...acc, ...roles.map(role => `${action}.${role[primaryKey]}`)],
       []
     );
     permissionsFoundInFiles = _.uniq(permissionsFoundInFiles);
 
+    // Compare to know if actions have been added or removed from controllers.
     if (!_.isEqual(permissionsFoundInDB.sort(), permissionsFoundInFiles.sort())) {
       const splitted = str => {
         const [type, controller, action, roleId] = str.split('.');
@@ -298,11 +307,13 @@ module.exports = {
         return { type, controller, action, roleId };
       };
 
+      // We have to know the difference to add or remove the permissions entries in the database.
       const toRemove = _.difference(permissionsFoundInDB, permissionsFoundInFiles).map(splitted);
       const toAdd = _.difference(permissionsFoundInFiles, permissionsFoundInDB).map(splitted);
 
       const query = strapi.query('permission', 'users-permissions');
 
+      // Execute request to update entries in database for each role.
       await Promise.all(
         toAdd.map(permission =>
           query.create({
@@ -386,6 +397,7 @@ module.exports = {
       }, [])
     );
 
+    // Add user to this role.
     const newUsers = _.differenceBy(body.users, role.users, 'id');
     await Promise.all(newUsers.map(user => this.updateUserRole(user, roleID)));
 

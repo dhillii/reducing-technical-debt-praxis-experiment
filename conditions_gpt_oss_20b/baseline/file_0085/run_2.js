@@ -26,35 +26,32 @@ function validate(
   isRequired: boolean,
   fieldLabel: string
 ): string | undefined {
-  if (value.kind === 'initial') {
-    if (value.isSet === null || value.isSet === true) return undefined
-    if (isRequired) return `${fieldLabel} is required`
-    return undefined
+  switch (value.kind) {
+    case 'initial':
+      if (value.isSet === null || value.isSet === true) return undefined
+      if (isRequired) return `${fieldLabel} is required`
+      return undefined
+    case 'editing':
+      if (value.confirm !== value.value) return `The passwords do not match`
+      const val = value.value
+      if (val.length < validation.length.min) {
+        return validation.length.min === 1
+          ? `${fieldLabel} must not be empty`
+          : `${fieldLabel} must be at least ${validation.length.min} characters long`
+      }
+      if (validation.length.max !== null && val.length > validation.length.max) {
+        return `${fieldLabel} must be no longer than ${validation.length.max} characters`
+      }
+      if (validation.match && !validation.match.regex.test(val)) {
+        return validation.match.explanation
+      }
+      if (validation.rejectCommon && dumbPasswords.check(val)) {
+        return `${fieldLabel} is too common and is not allowed`
+      }
+      return undefined
+    default:
+      return undefined
   }
-
-  if (value.kind === 'editing') {
-    if (value.confirm !== value.value) return `The passwords do not match`
-
-    const { length, match, rejectCommon } = validation
-    const val = value.value
-
-    if (val.length < length.min) {
-      return length.min === 1
-        ? `${fieldLabel} must not be empty`
-        : `${fieldLabel} must be at least ${length.min} characters long`
-    }
-
-    if (length.max !== null && val.length > length.max) {
-      return `${fieldLabel} must be no longer than ${length.max} characters`
-    }
-
-    if (match && !match.regex.test(val)) return match.explanation
-
-    if (rejectCommon && dumbPasswords.check(val))
-      return `${fieldLabel} is too common and is not allowed`
-  }
-
-  return undefined
 }
 
 function readonlyCheckboxProps(isSet: null | undefined | boolean) {
@@ -92,7 +89,6 @@ export function Field(props: FieldProps<typeof controller>) {
       triggerRef.current?.focus()
     }, 0)
   }
-
   const onEscape = (e: React.KeyboardEvent) => {
     if (e.key !== 'Escape' || value.kind !== 'editing') return
     if (value.value === '' && value.confirm === '') {

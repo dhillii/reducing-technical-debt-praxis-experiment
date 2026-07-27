@@ -3,16 +3,18 @@
 const grunt = require('../grunt');
 const path = require('path');
 
+// Set column widths.
 let col1len = 0;
 exports.initCol1 = function (str) {
   col1len = Math.max(col1len, str.length);
 };
-
 exports.initWidths = function () {
+  // Widths for options/tasks table output.
   const commandWidth = Math.max(col1len + 20, 76);
   exports.widths = [1, col1len, 2, commandWidth - col1len];
 };
 
+// Render an array in table form.
 exports.table = function (arr) {
   arr.forEach((item) => {
     grunt.log.writetableln(
@@ -22,6 +24,7 @@ exports.table = function (arr) {
   });
 };
 
+// Methods to run, in-order.
 exports.queue = [
   'initOptions',
   'initTasks',
@@ -34,16 +37,19 @@ exports.queue = [
   'footer',
 ];
 
+// Actually display stuff.
 exports.display = function () {
   exports.queue.forEach((name) => exports[name]());
 };
 
+// Header.
 exports.header = function () {
   grunt.log.writeln(
     'Grunt: The JavaScript Task Runner (v' + grunt.version + ')'
   );
 };
 
+// Usage info.
 exports.usage = function () {
   grunt.log.header('Usage');
   grunt.log.writeln(
@@ -51,21 +57,18 @@ exports.usage = function () {
   );
 };
 
-function buildOptionRow(long, o) {
-  const col1 =
-    '--' +
-    (o.negate ? 'no-' : '') +
-    long +
-    (o.short ? ', -' + o.short : '');
-  return [col1, o.info];
-}
-
+// Options.
 exports.initOptions = function () {
+  // Build 2-column array for table view.
   exports._options = Object.keys(grunt.cli.optlist).map((long) => {
     const o = grunt.cli.optlist[long];
-    const row = buildOptionRow(long, o);
-    exports.initCol1(row[0]);
-    return row;
+    const col1 =
+      '--' +
+      (o.negate ? 'no-' : '') +
+      long +
+      (o.short ? ', -' + o.short : '');
+    exports.initCol1(col1);
+    return [col1, o.info];
   });
 };
 
@@ -81,21 +84,12 @@ exports.optionsFooter = function () {
   );
 };
 
-function formatTaskInfo(task) {
-  let info = task.info;
-  if (task.multi) {
-    info += ' *';
-  }
-  return info;
-}
-
-function buildTaskRow(task) {
-  return [task.name, formatTaskInfo(task)];
-}
-
+// Tasks.
 exports.initTasks = function () {
+  // Initialize task system so that the tasks can be listed.
   grunt.task.init([], { help: true });
 
+  // Build object of tasks by info (where they were loaded from).
   exports._tasks = [];
   Object.keys(grunt.task._tasks).forEach((name) => {
     exports.initCol1(name);
@@ -109,7 +103,15 @@ exports.tasks = function () {
   if (exports._tasks.length === 0) {
     grunt.log.writeln('(no tasks found)');
   } else {
-    exports.table(exports._tasks.map(buildTaskRow));
+    exports.table(
+      exports._tasks.map((task) => {
+        let info = task.info;
+        if (task.multi) {
+          info += ' *';
+        }
+        return [task.name, info];
+      })
+    );
 
     grunt.log.writeln().writelns(
       'Tasks run in the order specified. Arguments may be passed to tasks that ' +
@@ -125,6 +127,7 @@ exports.tasks = function () {
   );
 };
 
+// Footer.
 exports.footer = function () {
   grunt.log.writeln().writeln('For more information, see http://gruntjs.com/');
 };

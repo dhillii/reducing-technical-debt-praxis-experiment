@@ -15,6 +15,22 @@ import {renderReplyToEmail, renderSenderEmail} from '../../../../utils/newslette
 import {textColorForBackgroundColor} from '@tryghost/color-utils';
 import {useGlobalData} from '../../../providers/global-data-provider';
 
+/**
+ * Returns a toast message component if the email verification type matches known values.
+ *
+ * @param emailToVerify - The email verification type returned from the API.
+ * @returns A React node containing the toast message or undefined if no match.
+ */
+function getEmailVerificationToast(emailToVerify: string | undefined): React.ReactNode | undefined {
+    if (!emailToVerify) {
+        return undefined;
+    }
+    if (emailToVerify === 'sender_email' || emailToVerify === 'sender_reply_to') {
+        return <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
+    }
+    return undefined;
+}
+
 const ReplyToEmailField: React.FC<{
     newsletter: Newsletter;
     updateNewsletter: (fields: Partial<Newsletter>) => void;
@@ -42,7 +58,7 @@ const ReplyToEmailField: React.FC<{
             error={Boolean(errors.sender_reply_to)}
             hint={errors.sender_reply_to}
             maxLength={191}
-            placeholder={renderSenderEmail(newsletter, config, defaultEmailAddress) || ''}
+            placeholder={newsletterAddress || ''}
             title="Reply-to email"
             value={senderReplyTo}
             onBlur={onBlur}
@@ -113,130 +129,98 @@ const Sidebar: React.FC<{
         return textColorForBackgroundColor(newsletter.background_color).hex().toLowerCase() === '#ffffff';
     };
 
-    /**
-     * Archives the newsletter after user confirmation.
-     */
-    const archiveNewsletter = async (): Promise<void> => {
-        NiceModal.show(ConfirmationModal, {
-            title: 'Archive newsletter',
-            prompt: <>
-                <div className="mb-6">Your newsletter <strong>{newsletter.name}</strong> will no longer be visible to members or available as an option when publishing new posts.</div>
-                <div>Existing posts previously sent as this newsletter will remain unchanged.</div>
-            </>,
-            okLabel: 'Archive',
-            okColor: 'red',
-            onOk: async (modal) => {
-                try {
-                    await editNewsletter({...newsletter, status: 'archived'});
+    const confirmStatusChange = async () => {
+        if (newsletter.status === 'active') {
+            NiceModal.show(ConfirmationModal, {
+                title: 'Archive newsletter',
+                prompt: <>
+                    <div className="mb-6">Your newsletter <strong>{newsletter.name}</strong> will no longer be visible to members or available as an option when publishing new posts.</div>
+                    <div>Existing posts previously sent as this newsletter will remain unchanged.</div>
+                </>,
+                okLabel: 'Archive',
+                okColor: 'red',
+                onOk: async (modal) => {
+                    try {
+                        await editNewsletter({...newsletter, status: 'archived'});
+                        modal?.remove();
+                        showToast({
+                            type: 'success',
+                            message: 'Newsletter archived'
+                        });
+                    } catch (e) {
+                        handleError(e);
+                    }
+                }
+            });
+        } else {
+            try {
+                await limiter?.errorIfWouldGoOverLimit('newsletters');
+            } catch (error) {
+                if (error instanceof HostLimitError) {
+                    NiceModal.show(LimitModal, {
+                        prompt: error.message || `Your current plan doesn't support more newsletters.`,
+                        onOk: () => updateRoute({route: '/pro', isExternal: true})
+                    });
+                    return;
+                } else {
+                    throw error;
+                }
+            }
+
+            NiceModal.show(ConfirmationModal, {
+                title: 'Reactivate newsletter',
+                prompt: <>
+                        Reactivating <strong>{newsletter.name}</strong> will immediately make it visible to members and re-enable it as an option when publishing new posts.
+                </>,
+                okLabel: 'Reactivate',
+                onOk: async (modal) => {
+                    await editNewsletter({...newsletter, status: 'active'});
                     modal?.remove();
                     showToast({
                         type: 'success',
-                        message: 'Newsletter archived'
+                        message: 'Newsletter reactivated'
                     });
-                } catch (e) {
-                    handleError(e);
                 }
-            }
-        });
-    };
-
-    /**
-     * Reactivates the newsletter after user confirmation.
-     */
-    const reactivateNewsletter = async (): Promise<void> => {
-        try {
-            await limiter?.errorIfWouldGoOverLimit('newsletters');
-        } catch (error) {
-            if (error instanceof HostLimitError) {
-                NiceModal.show(LimitModal, {
-                    prompt: error.message || `Your current plan doesn't support more newsletters.`,
-                    onOk: () => updateRoute({route: '/pro', isExternal: true})
-                });
-                return;
-            } else {
-                throw error;
-            }
-        }
-
-        NiceModal.show(ConfirmationModal, {
-            title: 'Reactivate newsletter',
-            prompt: <>
-                Reactivating <strong>{newsletter.name}</strong> will immediately make it visible to members and re-enable it as an option when publishing new posts.
-            </>,
-            okLabel: 'Reactivate',
-            onOk: async (modal) => {
-                await editNewsletter({...newsletter, status: 'active'});
-                modal?.remove();
-                showToast({
-                    type: 'success',
-                    message: 'Newsletter reactivated'
-                });
-            }
-        });
-    };
-
-    /**
-     * Handles status change based on current newsletter status.
-     */
-    const confirmStatusChange = async (): Promise<void> => {
-        if (newsletter.status === 'active') {
-            await archiveNewsletter();
-        } else {
-            await reactivateNewsletter();
+            });
         }
     };
 
-    /**
-     * Renders the sender email field for self-hosted configurations.
-     */
-    const renderSenderEmailFieldSelfHosted = (): JSX.Element => (
-        <TextField
-            error={Boolean(errors.sender_email)}
-            hint={errors.sender_email}
-            placeholder={renderSenderEmail(newsletter, config, defaultEmailAddress) || ''}
-            title="Sender email address"
-            value={newsletter.sender_email || ''}
-            onChange={e => updateNewsletter({sender_email: e.target.value})}
-            onKeyDown={() => clearError('sender_email')}
-        />
-    );
-
-    /**
-     * Renders the sender email field for Pro users with custom sending domains.
-     */
-    const renderSenderEmailFieldCustomDomain = (): JSX.Element => (
-        <TextField
-            error={Boolean(errors.sender_email)}
-            hint={errors.sender_email}
-            maxLength={191}
-            placeholder={defaultEmailAddress}
-            title="Sender email address"
-            value={newsletter.sender_email || ''}
-            onChange={e => updateNewsletter({sender_email: e.target.value})}
-            onKeyDown={() => clearError('sender_email')}
-        />
-    );
-
-    /**
-     * Renders the sender email field based on configuration.
-     */
-    const renderSenderEmailField = (): JSX.Element | undefined => {
+    const renderSenderEmailField = () => {
         if (!isManagedEmail(config)) {
-            return renderSenderEmailFieldSelfHosted();
+            return (
+                <TextField
+                    error={Boolean(errors.sender_email)}
+                    hint={errors.sender_email}
+                    placeholder={newsletterAddress || ''}
+                    title="Sender email address"
+                    value={newsletter.sender_email || ''}
+                    onChange={e => updateNewsletter({sender_email: e.target.value})}
+                    onKeyDown={() => clearError('sender_email')}
+                />
+            );
         }
+
         if (hasSendingDomain(config)) {
-            return renderSenderEmailFieldCustomDomain();
+            return (
+                <TextField
+                    error={Boolean(errors.sender_email)}
+                    hint={errors.sender_email}
+                    maxLength={191}
+                    placeholder={defaultEmailAddress}
+                    title="Sender email address"
+                    value={newsletter.sender_email || ''}
+                    onChange={(e) => {
+                        updateNewsletter({sender_email: e.target.value});
+                    }}
+                    onKeyDown={() => clearError('sender_email')}
+                />
+            );
         }
-        // Pro users without custom sending domains: field is not editable
-        return undefined;
     };
 
     const headingFontWeightOptions = fontWeightOptions[newsletter.title_font_category || 'sans_serif'].options;
 
-    /**
-     * Returns the selected font weight option for the heading font.
-     */
-    const getSelectedFontWeightOption = (): SelectOption => {
+    const getSelectedFontWeightOption = () => {
         const category = newsletter.title_font_category || 'sans_serif';
         const fontWeight = newsletter.title_font_weight;
         const weightMap = fontWeightOptions[category].map;
@@ -245,17 +229,15 @@ const Sidebar: React.FC<{
         return option || headingFontWeightOptions[0];
     };
 
-    /**
-     * Updates the newsletter title font category and adjusts weight if necessary.
-     */
-    const changeSelectedTitleFont = (option: SelectOption | null): void => {
+    const changeSelectedTitleFont = (option: SelectOption | null) => {
         const categoryValue = option?.value || 'sans_serif';
         const currentWeight = newsletter.title_font_weight;
         let newWeight = currentWeight;
         if (!fontWeightOptions[categoryValue].options.find(o => o.value === currentWeight)) {
             newWeight = fontWeightOptions[categoryValue].map?.[currentWeight] || 'bold';
         }
-        updateNewsletter({
+
+        return updateNewsletter({
             title_font_category: categoryValue,
             title_font_weight: newWeight
         });
@@ -448,7 +430,7 @@ const Sidebar: React.FC<{
                             swatches={[
                                 {
                                     hex: '#ffffff',
-                                    value: 'light',
+                                    value: 'white',
                                     title: 'White'
                                 }
                             ]}
@@ -493,8 +475,8 @@ const Sidebar: React.FC<{
                             eyedropper={true}
                             swatches={[
                                 {
-                                    value: 'transparent',
-                                    title: 'Transparent',
+                                    value: null,
+                                    title: 'Auto',
                                     hex: '#00000000'
                                 }
                             ]}
@@ -799,13 +781,7 @@ const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: b
         savingDelay: 500,
         onSave: async () => {
             const {meta: {sent_email_verification: [emailToVerify] = []} = {}} = await editNewsletter(formState);
-            let toastMessage;
-
-            if (emailToVerify && emailToVerify === 'sender_email') {
-                toastMessage = <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
-            } else if (emailToVerify && emailToVerify === 'sender_reply_to') {
-                toastMessage = <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
-            }
+            const toastMessage = getEmailVerificationToast(emailToVerify);
 
             if (toastMessage) {
                 showToast({

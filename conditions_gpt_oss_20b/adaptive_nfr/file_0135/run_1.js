@@ -9,17 +9,6 @@ import pluginId from '../../pluginId';
 import stepper from './stepper';
 import useModalContext from '../../hooks/useModalContext';
 
-/**
- * Shows a confirmation dialog using the global `confirm` method.
- * @param {string} message - The message to display.
- * @returns {boolean} - The user's confirmation.
- */
-const confirmAction = (message) => {
-  /* eslint-disable no-alert */
-  return globalThis.confirm(message);
-  /* eslint-enable no-alert */
-};
-
 const InputModalStepper = ({
   allowedActions,
   isOpen,
@@ -79,6 +68,8 @@ const InputModalStepper = ({
   const filesToUploadLength = filesToUpload.length;
   const editModalRef = useRef();
 
+  const confirmDialog = (id) => globalThis.confirm(formatMessage({ id }));
+
   const handleReplaceMedia = () => {
     emitEvent('didReplaceMedia', { location: 'upload' });
 
@@ -107,10 +98,7 @@ const InputModalStepper = ({
 
     if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
       if (hasFilesToUpload) {
-        const confirm = confirmAction(
-          formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-        );
-
+        const confirm = confirmDialog(getTrad('window.confirm.close-modal.files'));
         if (!confirm) {
           return;
         }
@@ -294,10 +282,7 @@ const InputModalStepper = ({
 
   const handleToggle = () => {
     if (filesToUploadLength > 0) {
-      const confirm = confirmAction(
-        formatMessage({ id: getTrad('window.confirm.close-modal.files') })
-      );
-
+      const confirm = confirmDialog(getTrad('window.confirm.close-modal.files'));
       if (!confirm) {
         return;
       }
@@ -308,10 +293,7 @@ const InputModalStepper = ({
       (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
       (currentStep === 'edit' && selectedFiles.length > 0)
     ) {
-      const confirm = confirmAction(
-        formatMessage({ id: getTrad('window.confirm.close-modal.file') })
-      );
-
+      const confirm = confirmDialog(getTrad('window.confirm.close-modal.file'));
       if (!confirm) {
         return;
       }

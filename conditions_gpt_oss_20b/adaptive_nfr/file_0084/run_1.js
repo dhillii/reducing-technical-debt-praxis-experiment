@@ -14,7 +14,6 @@ import type {
 } from '../../../../types'
 import { entriesTyped } from '../../../../lib/core/utils'
 
-// TODO: extract
 const TYPE_OPERATOR_MAP = {
   equals: '=',
   not: '≠',
@@ -109,17 +108,17 @@ export function controller(
         const labelProps =
           context === 'add' ? { label: config.label, description: typeLabel } : { label: typeLabel }
 
+        const hasError =
+          (forceValidation || isDirty) &&
+          !validate({ kind: 'update', initial: null, value }, { isRequired: true })
+        const errorMessage = hasError ? 'Required' : null
+
         return (
           <NumberField
             {...otherProps}
             {...labelProps}
             autoFocus={autoFocus}
-            errorMessage={
-              (forceValidation || isDirty) &&
-              !validate({ kind: 'update', initial: null, value }, { isRequired: true })
-                ? 'Required'
-                : null
-            }
+            errorMessage={errorMessage}
             step={1}
             width="auto"
             onBlur={() => setDirty(true)}
@@ -135,29 +134,32 @@ export function controller(
         if (type === 'not') return { [config.fieldKey]: { not: { equals: value } } }
         return { [config.fieldKey]: { [type]: value } }
       },
+
       parseGraphQL: value => {
-        return entriesTyped(value).flatMap(([type, value]) => {
-          if (type === 'equals' && value === null) {
+        return entriesTyped(value).flatMap(([type, val]) => {
+          if (type === 'equals' && val === null) {
             return [{ type: 'empty', value: null }]
           }
-          if (!value) return []
-          if (type === 'equals') return { type: 'equals', value }
+          if (!val) return []
+          if (type === 'equals') return { type: 'equals', value: val }
           if (type === 'not') {
-            if (value?.equals === null) return { type: 'not_empty', value: null }
-            if (value?.equals === undefined) return []
-            return { type: 'not', value: value.equals }
+            if (val?.equals === null) return { type: 'not_empty', value: null }
+            if (val?.equals === undefined) return []
+            return { type: 'not', value: val.equals }
           }
           if (type === 'gt' || type === 'gte' || type === 'lt' || type === 'lte') {
-            return { type, value }
+            return { type, value: val }
           }
           return []
         })
       },
+
       Label({ label, type, value }) {
         if (type === 'empty' || type === 'not_empty') return label.toLocaleLowerCase()
         const operator = TYPE_OPERATOR_MAP[type as keyof typeof TYPE_OPERATOR_MAP]
         return `${operator} ${value}`
       },
+
       types: {
         equals: {
           label: 'Is exactly',
@@ -238,12 +240,15 @@ export function Field({
     )
   }
 
+  const hasError = (forceValidation || isDirty) && !!validate(value)
+  const errorMessage = hasError ? 'Required' : null
+
   return (
     <NumberField
       autoFocus={autoFocus}
       description={field.description}
       label={field.label}
-      errorMessage={(forceValidation || isDirty) && validate(value)}
+      errorMessage={errorMessage}
       isReadOnly={isReadOnly}
       isRequired={isRequired}
       width="alias.singleLineWidth"

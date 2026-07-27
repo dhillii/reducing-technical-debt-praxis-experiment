@@ -42,15 +42,20 @@ function prepareUrls(protocol, host, port, pathname = '/') {
   if (isUnspecifiedHost) {
     prettyHost = 'localhost';
     try {
+      // This can only return an IPv4 address
       lanUrlForConfig = address.ip();
       if (lanUrlForConfig) {
+        // Check if the address is a private ip
+        // https://en.wikipedia.org/wiki/Private_network#Private_IPv4_address_spaces
         if (
           /^10[.]|^172[.](1[6-9]|2[0-9]|3[0-1])[.]|^192[.]168[.]/.test(
             lanUrlForConfig
           )
         ) {
+          // Address is private, format it for later use
           lanUrlForTerminal = prettyPrintUrl(lanUrlForConfig);
         } else {
+          // Address is not private, so we will discard it
           lanUrlForConfig = undefined;
         }
       }
@@ -72,28 +77,24 @@ function prepareUrls(protocol, host, port, pathname = '/') {
 
 function printInstructions(appName, urls, useYarn) {
   console.log();
-  console.log('You can now view ' + chalk.bold(appName) + ' in the browser.');
+  console.log(`You can now view ${chalk.bold(appName)} in the browser.`);
   console.log();
 
   if (urls.lanUrlForTerminal) {
     console.log(
-      '  ' + chalk.bold('Local:') + '            ' + urls.localUrlForTerminal
+      `  ${chalk.bold('Local:')}            ${urls.localUrlForTerminal}`
     );
     console.log(
-      '  ' + chalk.bold('On Your Network:') + '  ' + urls.lanUrlForTerminal
+      `  ${chalk.bold('On Your Network:')}  ${urls.lanUrlForTerminal}`
     );
   } else {
-    console.log('  ' + urls.localUrlForTerminal);
+    console.log(`  ${urls.localUrlForTerminal}`);
   }
 
   console.log();
   console.log('Note that the development build is not optimized.');
   const buildCommand = useYarn ? 'yarn' : 'npm run';
-  console.log(
-    'To create a production build, use ' +
-      chalk.cyan(buildCommand + ' build') +
-      '.'
-  );
+  console.log('To create a production build, use ' + chalk.cyan(buildCommand + ' build') + '.');
   console.log();
 }
 
@@ -105,6 +106,8 @@ function createCompiler({
   useTypeScript,
   webpack,
 }) {
+  // "Compiler" is a low-level interface to webpack.
+  // It lets us listen to some events and provide our own custom messages.
   let compiler;
   try {
     compiler = webpack(config);
@@ -116,6 +119,10 @@ function createCompiler({
     process.exit(1);
   }
 
+  // "invalid" event fires when you have changed a file, and webpack is
+  // recompiling a bundle. WebpackDevServer takes care to pause serving the
+  // bundle, so if you refresh, it'll wait instead of serving the old one.
+  // "invalid" is short for "bundle invalidated", it doesn't imply any errors.
   compiler.hooks.invalid.tap('invalid', () => {
     if (isInteractive) {
       clearConsole();
@@ -138,6 +145,13 @@ function createCompiler({
       });
   }
 
+  // "done" event fires when webpack has finished recompiling the bundle.
+  // Whether or not you have warnings or errors, you will get this event.
+  // We have switched off the default webpack output in WebpackDevServer
+  // options so we are going to "massage" the warnings and errors and present
+  // them in a readable focused way.
+  // We only construct the warnings and errors for speed:
+  // https://github.com/facebook/create-react-app/issues/4492#issuecomment-421959548
   compiler.hooks.done.tap('done', async stats => {
     if (isInteractive) {
       clearConsole();
@@ -339,18 +353,19 @@ function choosePort(host, defaultPort) {
         }
         const message =
           process.platform !== 'win32' && defaultPort < 1024 && !isRoot()
-            ? 'Admin permissions are required to run a server on a port below 1024.'
-            : 'Something is already running on port ' + defaultPort + '.';
+            ? `Admin permissions are required to run a server on a port below 1024.`
+            : `Something is already running on port ${defaultPort}.`;
         if (isInteractive) {
           clearConsole();
           const existingProcess = getProcessForPort(defaultPort);
-          const extra = existingProcess ? ' Probably:\n  ' + existingProcess : '';
-          const fullMessage = message + extra;
           const question = {
             type: 'confirm',
             name: 'shouldChangePort',
             message:
-              chalk.yellow(fullMessage) + '\n\nWould you like to run the app on another port instead?',
+              chalk.yellow(
+                message +
+                  `${existingProcess ? ` Probably:\n  ${existingProcess}` : ''}`
+              ) + '\n\nWould you like to run the app on another port instead?',
             initial: true,
           };
           prompts(question).then(answer => {
@@ -367,7 +382,7 @@ function choosePort(host, defaultPort) {
       }),
     err => {
       throw new Error(
-        chalk.red('Could not find an open port at ' + chalk.bold(host) + '.') +
+        chalk.red(`Could not find an open port at ${chalk.bold(host)}.`) +
           '\n' +
           ('Network error message: ' + err.message || err) +
           '\n'

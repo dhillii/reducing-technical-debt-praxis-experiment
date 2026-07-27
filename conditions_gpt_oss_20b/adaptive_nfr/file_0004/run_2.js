@@ -36,7 +36,7 @@ export interface ModalProps {
     backDrop?: boolean;
     backDropClick?: boolean;
     stickyFooter?: boolean;
-    stickyHeader?: boolean;
+    stickyHeader?:boolean;
     scrolling?: boolean;
     dirty?: boolean;
     animate?: boolean;
@@ -47,68 +47,49 @@ export interface ModalProps {
 
 export const topLevelBackdropClasses = 'bg-[rgba(98,109,121,0.2)] backdrop-blur-[3px]';
 
-/**
- * Configuration for modal sizes.
- * @internal
- */
-const sizeConfig: Record<ModalSize | 'default', {
-    modal: string;
-    backdrop: string;
-    padding: string;
-    header: string;
+const sizeConfigMap: Record<ModalSize, {
+    modalClassAdd: string;
+    backdropClassAdd: string;
+    paddingClass: string;
+    headerClassAdd: string;
 }> = {
     sm: {
-        modal: 'max-w-[480px]',
-        backdrop: 'p-4 md:p-[8vmin]',
-        padding: 'p-8',
-        header: '-inset-x-8',
+        modalClassAdd: 'max-w-[480px]',
+        backdropClassAdd: 'p-4 md:p-[8vmin]',
+        paddingClass: 'p-8',
+        headerClassAdd: '-inset-x-8',
     },
     md: {
-        modal: 'max-w-[720px]',
-        backdrop: 'p-4 md:p-[8vmin]',
-        padding: 'p-8',
-        header: '-inset-x-8',
+        modalClassAdd: 'max-w-[720px]',
+        backdropClassAdd: 'p-4 md:p-[8vmin]',
+        paddingClass: 'p-8',
+        headerClassAdd: '-inset-x-8',
     },
     lg: {
-        modal: 'max-w-[1020px]',
-        backdrop: 'p-4 md:p-[4vmin]',
-        padding: 'p-7',
-        header: '-inset-x-8',
+        modalClassAdd: 'max-w-[1020px]',
+        backdropClassAdd: 'p-4 md:p-[4vmin]',
+        paddingClass: 'p-7',
+        headerClassAdd: '-inset-x-8',
     },
     xl: {
-        modal: 'max-w-[1240px]',
-        backdrop: 'p-4 md:p-[3vmin]',
-        padding: 'p-10',
-        header: '-inset-x-10 -top-10',
+        modalClassAdd: 'max-w-[1240px]0',
+        backdropClassAdd: 'p-4 md:p-[3vmin]',
+        paddingClass: 'p-10',
+        headerClassAdd: '-inset-x-10 -top-10',
     },
     full: {
-        modal: 'h-full',
-        backdrop: 'p-4 md:p-[3vmin]',
-        padding: 'p-10',
-        header: '-inset-x-10',
+        modalClassAdd: 'h-full',
+        backdropClassAdd: 'p-4 md:p-[3vmin]',
+        paddingClass: 'p-10',
+        headerClassAdd: '-inset-x-10',
     },
     bleed: {
-        modal: 'h-full',
-        backdrop: '',
-        padding: 'p-10',
-        header: '-inset-x-10',
-    },
-    default: {
-        modal: '',
-        backdrop: 'p-4 md:p-[8vmin]',
-        padding: 'p-8',
-        header: '-inset-x-8',
+        modalClassAdd: 'h-full',
+        backdropClassAdd: '',
+        paddingClass: 'p-10',
+        headerClassAdd: '-inset-x-10',
     },
 };
-
-/**
- * Retrieves the configuration for a given modal size.
- * @param size - The size of the modal.
- * @returns The configuration object for the size.
- */
-function getSizeConfig(size: ModalSize | undefined): typeof sizeConfig.default {
-    return sizeConfig[size ?? 'default'] ?? sizeConfig.default;
-}
 
 const Modal = forwardRef<HTMLElement, ModalProps>(({
     size = 'md',
@@ -212,7 +193,7 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
                 key: 'cancel-modal',
                 label: cancelLabel,
                 color: 'outline',
-                onClick: onCancel ?? (() => removeModal()),
+                onClick: onCancel ? onCancel : () => removeModal(),
                 disabled: buttonsDisabled
             });
         }
@@ -236,35 +217,55 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         });
     };
 
-    const config = getSizeConfig(size);
-    let modalClasses = clsx(
+    const baseModalClasses = clsx(
         'relative z-50 flex max-h-[100%] w-full flex-col justify-between overflow-x-hidden bg-white dark:bg-black',
         align === 'center' && 'mx-auto',
         align === 'left' && 'mr-auto',
         align === 'right' && 'ml-auto',
         size !== 'bleed' && 'rounded',
         formSheet ? 'shadow-md' : 'shadow-xl',
+        scrolling ? 'overflow-y-auto' : 'overflow-y-hidden'
+    );
+
+    const baseBackdropClasses = clsx(
+        'fixed inset-0 z-[1000] h-[100dvh] w-[100dvw]',
+        allowBackgroundInteraction && 'pointer-events-none'
+    );
+
+    const baseHeaderClasses = clsx(
+        (!topRightContent || topRightContent === 'close') ? '' : 'flex items-center justify-between gap-5'
+    );
+
+    const sizeConfig = sizeConfigMap[size] ?? {
+        modalClassAdd: '',
+        backdropClassAdd: 'p-4 md:p-[8vmin]',
+        paddingClass: 'p-8',
+        headerClassAdd: '-inset-x-8',
+    };
+
+    let modalClasses = clsx(
+        baseModalClasses,
+        sizeConfig.modalClassAdd,
         (animate && !formSheet && !animationFinished && align === 'center') && 'animate-modal-in',
         (animate && !formSheet && !animationFinished && align === 'right') && 'animate-modal-in-from-right',
-        (formSheet && !animationFinished) && 'animate-modal-in-reverse',
-        scrolling ? 'overflow-y-auto' : 'overflow-y-hidden',
-        config.modal
+        (formSheet && !animationFinished) && 'animate-modal-in-reverse'
     );
 
     let backdropClasses = clsx(
-        'fixed inset-0 z-[1000] h-[100dvh] w-[100dvw]',
-        allowBackgroundInteraction && 'pointer-events-none',
-        config.backdrop
+        baseBackdropClasses,
+        sizeConfig.backdropClassAdd
     );
 
-    let paddingClasses = config.padding;
+    let paddingClasses = sizeConfig.paddingClass;
     if (!padding) {
         paddingClasses = 'p-0';
     }
 
     let headerClasses = clsx(
-        (!topRightContent || topRightContent === 'close') ? '' : 'flex items-center justify-between gap-5',
-        config.header
+        baseHeaderClasses,
+        sizeConfig.headerClassAdd,
+        paddingClasses,
+        'pb-0'
     );
 
     if (stickyHeader) {
@@ -276,11 +277,7 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
 
     let contentClasses = clsx(
         paddingClasses,
-        'py-0'
-    );
-
-    contentClasses = clsx(
-        contentClasses,
+        'py-0',
         ((size === 'full' || size === 'bleed' || height === 'full' || typeof height === 'number') && 'grow')
     );
 
@@ -293,12 +290,6 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
         `${paddingClasses} ${stickyFooter ? 'py-6' : ''}`,
         'flex w-full items-center justify-between'
     );
-
-    const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
-        if (e.target === e.currentTarget && backDropClick) {
-            removeModal();
-        }
-    };
 
     const modalStyles: {width?: string; height?: string; maxWidth?: string; maxHeight?: string;} = {};
 
@@ -320,6 +311,12 @@ const Modal = forwardRef<HTMLElement, ModalProps>(({
     } else if (height === 'full') {
         modalClasses = clsx(modalClasses, 'h-full');
     }
+
+    const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (e.target === e.currentTarget && backDropClick) {
+            removeModal();
+        }
+    };
 
     let footerContent: React.ReactNode;
     if (footer) {

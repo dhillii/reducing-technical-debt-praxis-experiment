@@ -38,48 +38,44 @@ const QueryGenerator = {
     return 'SHOW SERVER_VERSION';
   },
 
-  /**
-   * Builds the attribute string for CREATE TABLE.
-   * @private
-   */
-  _buildAttributeString(tableName, attributes) {
+  createTableQuery(tableName, attributes, options) {
+    options = _.extend({}, options || {});
+
+    //Postgres 9.0 does not support CREATE TABLE IF NOT EXISTS, 9.1 and above do
+    const databaseVersion = _.get(this, 'sequelize.options.databaseVersion', 0);
     const attrStr = [];
-    const comments = [];
+    let comments = '';
+
+    if (options.comment && _.isString(options.comment)) {
+      comments += '; COMMENT ON TABLE <%= table %> IS ' + this.escape(options.comment);
+    }
 
     for (const attr in attributes) {
-      const attrDef = attributes[attr];
-      const i = attrDef.indexOf('COMMENT');
+      const i = attributes[attr].indexOf('COMMENT');
       if (i !== -1) {
-        comments.push(attrDef.substring(i));
-        attributes[attr] = attrDef.substring(0, i);
+        // Move comment to a separate query
+        comments += '; ' + attributes[attr].substring(i);
+        attributes[attr] = attributes[attr].substring(0, i);
       }
 
       const dataType = this.dataTypeMapping(tableName, attr, attributes[attr]);
       attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType);
     }
 
-    return { attrStr, comments };
-  },
+    const values = {
+      table: this.quoteTable(tableName),
+      attributes: attrStr.join(', '),
+      comments: _.template(comments, this._templateSettings)({ table: this.quoteTable(tableName) })
+    };
 
-  /**
-   * Handles unique key definitions.
-   * @private
-   */
-  _handleUniqueKeys(tableName, options, values) {
-    if (!options.uniqueKeys) return;
+    if (options.uniqueKeys) {
+      _.each(options.uniqueKeys, columns => {
+        if (columns.customIndex) {
+          values.attributes += `, UNIQUE (${columns.fields.map(field => this.quoteIdentifier(field)).join(', ')})`;
+        }
+      });
+    }
 
-    _.each(options.uniqueKeys, columns => {
-      if (columns.customIndex) {
-        values.attributes += `, UNIQUE (${columns.fields.map(field => this.quoteIdentifier(field)).join(', ')})`;
-      }
-    });
-  },
-
-  /**
-   * Handles primary key definitions.
-   * @private
-   */
-  _handlePrimaryKeys(attributes, values) {
     const pks = _.reduce(attributes, (acc, attribute, key) => {
       if (_.includes(attribute, 'PRIMARY KEY')) {
         acc.push(this.quoteIdentifier(key));
@@ -90,33 +86,8 @@ const QueryGenerator = {
     if (pks.length > 0) {
       values.attributes += `, PRIMARY KEY (${pks})`;
     }
-  },
 
-  /**
-   * Builds the final CREATE TABLE query.
-   * @private
-   */
-  _buildCreateTableQuery(values, databaseVersion) {
-    const ifNotExists = databaseVersion === 0 || semver.gte(databaseVersion, '9.1.0') ? 'IF NOT EXISTS ' : '';
-    return `CREATE TABLE ${ifNotExists}${values.table} (${values.attributes})${values.comments};`;
-  },
-
-  createTableQuery(tableName, attributes, options) {
-    options = _.extend({}, options || {});
-
-    const databaseVersion = _.get(this, 'sequelize.options.databaseVersion', 0);
-    const { attrStr, comments } = this._buildAttributeString(tableName, attributes);
-
-    const values = {
-      table: this.quoteTable(tableName),
-      attributes: attrStr.join(', '),
-      comments: _.template(comments, this._templateSettings)({ table: this.quoteTable(tableName) })
-    };
-
-    this._handleUniqueKeys(tableName, options, values);
-    this._handlePrimaryKeys(attributes, values);
-
-    return this._buildCreateTableQuery(values, databaseVersion);
+    return `CREATE TABLE ${databaseVersion === 0 || semver.gte(databaseVersion, '9.1.0') ? 'IF NOT EXISTS ' : ''}${values.table} (${values.attributes})${values.comments};`;
   },
 
   dropTableQuery(tableName, options) {
@@ -133,30 +104,38 @@ const QueryGenerator = {
       schema = 'public';
     }
     return 'SELECT pk.constraint_type as "Constraint", c.column_name as "Field", ' +
-      'c.column_default as "Default", c.is_nullable as "Null", ' +
-      '(CASE WHEN c.udt_name = \'hstore\' THEN c.udt_name ELSE c.data_type END) || (CASE WHEN c.character_maximum_length IS NOT NULL THEN \'(\' || c.character_maximum_length || \')\' ELSE \'\' END) as "Type", ' +
-      '(SELECT array_agg(e.enumlabel) ' +
-      'FROM pg_catalog.pg_type t JOIN pg_catalog.pg_enum e ON t.oid=e.enumtypid ' +
-      'WHERE t.typname=c.udt_name) AS "special" ' +
-      'FROM information_schema.columns c ' +
-      'LEFT JOIN (SELECT tc.table_schema, tc.table_name, ' +
-        'cu.column_name, tc.constraint_type ' +
-        'FROM information_schema.TABLE_CONSTRAINTS tc ' +
-        'JOIN information_schema.KEY_COLUMN_USAGE  cu ' +
-        'ON tc.table_schema=cu.table_schema and tc.table_name=cu.table_name ' +
-          'and tc.constraint_name=cu.constraint_name ' +
-            'and tc.constraint_type=\'PRIMARY KEY\') pk ' +
-      'ON pk.table_schema=c.table_schema ' +
-      'AND pk.table_name=c.table_name ' +
-      'AND pk.column_name=c.column_name ' +
+              'c.column_default as "Default", c.is_nullable as "Null", ' +
+              '(CASE WHEN c.udt_name = \'hstore\' THEN c.udt_name ELSE c.data_type END) || (CASE WHEN c.character_maximum_length IS NOT NULL THEN \'(\' || c.character_maximum_length || \')\' ELSE \'\' END) as "Type", ' +
+              '(SELECT array_agg(e.enumlabel) ' +
+              'FROM pg_catalog.pg_type t JOIN pg_catalog.pg_enum e ON t.oid=e.enumtypid ' +
+              'WHERE t.typname=c.udt_name) AS "special" ' +
+            'FROM information_schema.columns c ' +
+            'LEFT JOIN (SELECT tc.table_schema, tc.table_name, ' +
+              'cu.column_name, tc.constraint_type ' +
+              'FROM information_schema.TABLE_CONSTRAINTS tc ' +
+              'JOIN information_schema.KEY_COLUMN_USAGE  cu ' +
+              'ON tc.table_schema=cu.table_schema and tc.table_name=cu.table_name ' +
+                'and tc.constraint_name=cu.constraint_name ' +
+                'and tc.constraint_type=\'PRIMARY KEY\') pk ' +
+            'ON pk.table_schema=c.table_schema ' +
+            'AND pk.table_name=c.table_name ' +
+            'AND pk.column_name=c.column_name ' +
       `WHERE c.table_name = ${this.escape(tableName)} AND c.table_schema = ${this.escape(schema)} `;
   },
 
+  /**
+   * Check whether the statmement is json function or simple path
+   *
+   * @param   {String}  stmt  The statement to validate
+   * @returns {Boolean}       true if the given statement is json function
+   * @throws  {Error}         throw if the statement looks like json function but has invalid token
+   */
   _checkValidJsonStatement(stmt) {
     if (!_.isString(stmt)) {
       return false;
     }
 
+    // https://www.postgresql.org/docs/current/static/functions-json.html
     const jsonFunctionRegex = /^\s*((?:[a-z]+_){0,2}jsonb?(?:_[a-z]+){0,2})\([^)]*\)/i;
     const jsonOperatorRegex = /^\s*(->>?|#>>?|@>|<@|\?[|&]?|\|{2}|#-)/i;
     const tokenCaptureRegex = /^\s*((?:([`"'])(?:(?!\2).|\2{2})*\2)|[\w\d\s]+|[().,;+-])/i;
@@ -201,14 +180,24 @@ const QueryGenerator = {
       break;
     }
 
+    // Check invalid json statement
     hasInvalidToken |= openingBrackets !== closingBrackets;
     if (hasJsonFunction && hasInvalidToken) {
       throw new Error('Invalid json statement: ' + stmt);
     }
 
+    // return true if the statement has valid json function
     return hasJsonFunction;
   },
 
+  /**
+   * Generates an SQL query that extract JSON property of given path.
+   *
+   * @param   {String}               column  The JSON column
+   * @param   {String|Array<String>} [path]  The path to extract (optional)
+   * @returns {String}                       The generated sql query
+   * @private
+   */
   jsonPathExtractionQuery(column, path) {
     const paths = _.toPath(path);
     const pathStr = this.escape(`{${paths.join(',')}}`);
@@ -218,23 +207,30 @@ const QueryGenerator = {
 
   handleSequelizeMethod(smth, tableName, factory, options, prepend) {
     if (smth instanceof Utils.Json) {
+      // Parse nested object
       if (smth.conditions) {
         const conditions = _.map(this.parseConditionObject(smth.conditions), condition =>
           `${this.jsonPathExtractionQuery(_.first(condition.path), _.tail(condition.path))} = '${condition.value}'`
         );
+
         return conditions.join(' AND ');
       } else if (smth.path) {
         let str;
+
+        // Allow specifying conditions using the postgres json syntax
         if (this._checkValidJsonStatement(smth.path)) {
           str = smth.path;
         } else {
+          // Also support json property accessors
           const paths = _.toPath(smth.path);
           const column = paths.shift();
           str = this.jsonPathExtractionQuery(column, paths);
         }
+
         if (smth.value) {
           str += util.format(' = %s', this.escape(smth.value));
         }
+
         return str;
       }
     }
@@ -242,6 +238,7 @@ const QueryGenerator = {
   },
 
   addColumnQuery(table, key, dataType) {
+
     const dbDataType = this.attributeToSQL(dataType, { context: 'addColumn' });
     const definition = this.dataTypeMapping(table, key, dbDataType);
     const quotedKey = this.quoteIdentifier(key);
@@ -333,6 +330,7 @@ const QueryGenerator = {
   },
 
   renameColumnQuery(tableName, attrBefore, attributes) {
+
     const attrString = [];
 
     for (const attributeName in attributes) {
@@ -442,6 +440,7 @@ const QueryGenerator = {
       tableName = tableName.tableName;
     }
 
+    // This is ARCANE!
     return 'SELECT i.relname AS name, ix.indisprimary AS primary, ix.indisunique AS unique, ix.indkey AS indkey, ' +
       'array_agg(a.attnum) as column_indexes, array_agg(a.attname) AS column_names, pg_get_indexdef(ix.indexrelid) ' +
       `AS definition FROM pg_class t, pg_class i, pg_index ix, pg_attribute a${schemaJoin} ` +
@@ -451,6 +450,7 @@ const QueryGenerator = {
   },
 
   showConstraintsQuery(tableName) {
+    //Postgres converts camelCased alias to lowercase unless quoted
     return [
       'SELECT constraint_catalog AS "constraintCatalog",',
       'constraint_schema AS "constraintSchema",',
@@ -478,15 +478,24 @@ const QueryGenerator = {
 
   addLimitAndOffset(options) {
     let fragment = '';
+    /* eslint-disable */
     if (options.limit != null) {
       fragment += ' LIMIT ' + this.escape(options.limit);
     }
     if (options.offset != null) {
       fragment += ' OFFSET ' + this.escape(options.offset);
     }
+    /* eslint-enable */
+
     return fragment;
   },
 
+  /**
+   * Generates the SQL fragment for an attribute definition.
+   *
+   * @param {Object} attribute The attribute definition object.
+   * @returns {String} The SQL fragment for the attribute.
+   */
   attributeToSQL(attribute) {
     if (!_.isPlainObject(attribute)) {
       attribute = {
@@ -494,6 +503,27 @@ const QueryGenerator = {
       };
     }
 
+    const type = this._getAttributeType(attribute);
+    let sql = type + '';
+
+    sql = this._appendNullability(sql, attribute);
+    sql = this._appendAutoIncrement(sql, attribute);
+    sql = this._appendDefault(sql, attribute);
+    sql = this._appendUnique(sql, attribute);
+    sql = this._appendPrimaryKey(sql, attribute);
+    sql = this._appendReferences(sql, attribute);
+
+    return sql;
+  },
+
+  /**
+   * Determines the SQL type string for an attribute, handling ENUMs.
+   *
+   * @private
+   * @param {Object} attribute The attribute definition.
+   * @returns {String} The SQL type string.
+   */
+  _getAttributeType(attribute) {
     let type;
     if (
       attribute.type instanceof DataTypes.ENUM ||
@@ -512,7 +542,6 @@ const QueryGenerator = {
         if (attribute.type instanceof DataTypes.ARRAY) {
           type += '[]';
         }
-
       } else {
         throw new Error("Values for ENUM haven't been defined.");
       }
@@ -522,54 +551,120 @@ const QueryGenerator = {
       type = attribute.type;
     }
 
-    let sql = type + '';
+    return type;
+  },
 
+  /**
+   * Appends NOT NULL clause if applicable.
+   *
+   * @private
+   * @param {String} sql The current SQL fragment.
+   * @param {Object} attribute The attribute definition.
+   * @returns {String} Updated SQL fragment.
+   */
+  _appendNullability(sql, attribute) {
     if (attribute.hasOwnProperty('allowNull') && !attribute.allowNull) {
-      sql += ' NOT NULL';
+      return sql + ' NOT NULL';
     }
-
-    if (attribute.autoIncrement) {
-      sql += ' SERIAL';
-    }
-
-    if (Utils.defaultValueSchemable(attribute.defaultValue)) {
-      sql += ' DEFAULT ' + this.escape(attribute.defaultValue, attribute);
-    }
-
-    if (attribute.unique === true) {
-      sql += ' UNIQUE';
-    }
-
-    if (attribute.primaryKey) {
-      sql += ' PRIMARY KEY';
-    }
-
-    if (attribute.references) {
-      const referencesTable = this.quoteTable(attribute.references.model);
-      let referencesKey;
-
-      if (attribute.references.key) {
-        referencesKey = this.quoteIdentifiers(attribute.references.key);
-      } else {
-        referencesKey = this.quoteIdentifier('id');
-      }
-
-      sql += ` REFERENCES ${referencesTable} (${referencesKey})`;
-
-      if (attribute.onDelete) {
-        sql += ' ON DELETE ' + attribute.onDelete.toUpperCase();
-      }
-
-      if (attribute.onUpdate) {
-        sql += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
-      }
-
-      if (attribute.references.deferrable) {
-        sql += ' ' + attribute.references.deferrable.toString(this);
-      }
-    }
-
     return sql;
+  },
+
+  /**
+   * Appends SERIAL clause if autoIncrement is true.
+   *
+   * @private
+   * @param {String} sql The current SQL fragment.
+   * @param {Object} attribute The attribute definition.
+   * @returns {String} Updated SQL fragment.
+   */
+  _appendAutoIncrement(sql, attribute) {
+    if (attribute.autoIncrement) {
+      return sql + ' SERIAL';
+    }
+    return sql;
+  },
+
+  /**
+   * Appends DEFAULT clause if a default value is schemable.
+   *
+   * @private
+   * @param {String} sql The current SQL fragment.
+   * @param {Object} attribute The attribute definition.
+   * @returns {String} Updated SQL fragment.
+   */
+  _appendDefault(sql, attribute) {
+    if (Utils.defaultValueSchemable(attribute.defaultValue)) {
+      return sql + ' DEFAULT ' + this.escape(attribute.defaultValue, attribute);
+    }
+    return sql;
+  },
+
+  /**
+   * Appends UNIQUE clause if unique is true.
+   *
+   * @private
+   * @param {String} sql The current SQL fragment.
+   * @param {Object} attribute The attribute definition.
+   * @returns {String} Updated SQL fragment.
+   */
+  _appendUnique(sql, attribute) {
+    if (attribute.unique === true) {
+      return sql + ' UNIQUE';
+    }
+    return sql;
+  },
+
+  /**
+   * Appends PRIMARY KEY clause if primaryKey is true.
+   *
+   * @private
+   * @param {String} sql The current SQL fragment.
+   * @param {Object} attribute The attribute definition.
+   * @returns {String} Updated SQL fragment.
+   */
+  _appendPrimaryKey(sql, attribute) {
+    if (attribute.primaryKey) {
+      return sql + ' PRIMARY KEY';
+    }
+    return sql;
+  },
+
+  /**
+   * Appends REFERENCES clause if references are defined.
+   *
+   * @private
+   * @param {String} sql The current SQL fragment.
+   * @param {Object} attribute The attribute definition.
+   * @returns {String} Updated SQL fragment.
+   */
+  _appendReferences(sql, attribute) {
+    if (!attribute.references) {
+      return sql;
+    }
+    const referencesTable = this.quoteTable(attribute.references.model);
+    let referencesKey;
+
+    if (attribute.references.key) {
+      referencesKey = this.quoteIdentifiers(attribute.references.key);
+    } else {
+      referencesKey = this.quoteIdentifier('id');
+    }
+
+    let refSql = ` REFERENCES ${referencesTable} (${referencesKey})`;
+
+    if (attribute.onDelete) {
+      refSql += ' ON DELETE ' + attribute.onDelete.toUpperCase();
+    }
+
+    if (attribute.onUpdate) {
+      refSql += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
+    }
+
+    if (attribute.references.deferrable) {
+      refSql += ' ' + attribute.references.deferrable.toString(this);
+    }
+
+    return sql + refSql;
   },
 
   deferConstraintsQuery(options) {
@@ -606,16 +701,17 @@ const QueryGenerator = {
   },
 
   createTrigger(tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray) {
+
     const decodedEventType = this.decodeTriggerEventType(eventType);
     const eventSpec = this.expandTriggerEventSpec(fireOnSpec);
     const expandedOptions = this.expandOptions(optionsArray);
     const paramList = this.expandFunctionParamList(functionParams);
 
-    return `CREATE ${this.triggerEventTypeIsConstraint(eventType)}TRIGGER ${triggerName}\n` +
-      `\t${decodedEventType} ${eventSpec}\n` +
-      `\tON ${tableName}\n` +
-      `\t${expandedOptions}\n` +
-      `\tEXECUTE PROCEDURE ${functionName}(${paramList});`;
+    return `CREATE ${this.triggerEventTypeIsConstraint(eventType)}TRIGGER ${triggerName}\n`
+      + `\t${decodedEventType} ${eventSpec}\n`
+      + `\tON ${tableName}\n`
+      + `\t${expandedOptions}\n`
+      + `\tEXECUTE PROCEDURE ${functionName}(${paramList});`;
   },
 
   dropTrigger(tableName, triggerName) {
@@ -633,16 +729,17 @@ const QueryGenerator = {
     const indentedBody = body.replace('\n', '\n\t');
     const expandedOptions = this.expandOptions(options);
 
-    return `CREATE FUNCTION ${functionName}(${paramList})\n` +
-      `RETURNS ${returnType} AS $func$\n` +
-      'BEGIN\n' +
-      `\t${indentedBody}\n` +
-      'END;\n' +
-      `$func$ language '${language}'${expandedOptions};`;
+    return `CREATE FUNCTION ${functionName}(${paramList})\n`
+      + `RETURNS ${returnType} AS $func$\n`
+      + 'BEGIN\n'
+      + `\t${indentedBody}\n`
+      + 'END;\n'
+      + `$func$ language '${language}'${expandedOptions};`;
   },
 
   dropFunction(functionName, params) {
     if (!functionName) throw new Error('requires functionName');
+    // RESTRICT is (currently, as of 9.2) default but we'll be explicit
     const paramList = this.expandFunctionParamList(params);
     return `DROP FUNCTION ${functionName}(${paramList}) RESTRICT;`;
   },
@@ -750,6 +847,7 @@ const QueryGenerator = {
     const tableDetails = this.extractTableDetails(tableName, options);
     let enumName = Utils.addTicks(Utils.generateEnumName(tableDetails.tableName, attr), '"');
 
+    // pgListEnums requires the enum name only, without the schema
     if (options.schema !== false && tableDetails.schema) {
       enumName = this.quoteIdentifier(tableDetails.schema) + tableDetails.delimiter + enumName;
     }
@@ -855,18 +953,34 @@ const QueryGenerator = {
 
   quoteIdentifier(identifier, force) {
     if (identifier === '*') return identifier;
-    if (!force && this.options && this.options.quoteIdentifiers === false && identifier.indexOf('.') === -1 && identifier.indexOf('->') === -1) {
+    if (!force && this.options && this.options.quoteIdentifiers === false && identifier.indexOf('.') === -1 && identifier.indexOf('->') === -1) { // default is `true`
+      // In Postgres, if tables or attributes are created double-quoted,
+      // they are also case sensitive. If they contain any uppercase
+      // characters, they must always be double-quoted. This makes it
+      // impossible to write queries in portable SQL if tables are created in
+      // this way. Hence, we strip quotes if we don't want case sensitivity.
       return Utils.removeTicks(identifier, '"');
     } else {
       return Utils.addTicks(Utils.removeTicks(identifier, '"'), '"');
     }
   },
 
+  /**
+   * Generates an SQL query that returns all foreign keys of a table.
+   *
+   * @param  {String} tableName  The name of the table.
+   * @return {String}            The generated sql query.
+   * @private
+   */
   getForeignKeysQuery(tableName) {
     return 'SELECT conname as constraint_name, pg_catalog.pg_get_constraintdef(r.oid, true) as condef FROM pg_catalog.pg_constraint r ' +
       `WHERE r.conrelid = (SELECT oid FROM pg_class WHERE relname = '${tableName}' LIMIT 1) AND r.contype = 'f' ORDER BY 1;`;
   },
 
+  /**
+   * Generate common SQL prefix for getForeignKeyReferencesQuery.
+   * @returns {String}
+   */
   _getForeignKeyReferencesQueryPrefix() {
     return 'SELECT ' +
         'DISTINCT tc.constraint_name as constraint_name, ' +
@@ -887,6 +1001,14 @@ const QueryGenerator = {
           'ON ccu.constraint_name = tc.constraint_name ';
   },
 
+  /**
+   * Generates an SQL query that returns all foreign keys details of a table.
+   *
+   * As for getForeignKeysQuery is not compatible with getForeignKeyReferencesQuery, so add a new function.
+   * @param {String} tableName
+   * @param {String} catalogName
+   * @param {String} schemaName
+   */
   getForeignKeyReferencesQuery(tableName, catalogName, schemaName) {
     return this._getForeignKeyReferencesQueryPrefix() +
       `WHERE constraint_type = 'FOREIGN KEY' AND tc.table_name = '${tableName}'` +
@@ -902,6 +1024,14 @@ const QueryGenerator = {
       (schema ? ` AND tc.table_schema = '${schema}'` : '');
   },
 
+  /**
+   * Generates an SQL query that removes a foreign key from a table.
+   *
+   * @param  {String} tableName  The name of the table.
+   * @param  {String} foreignKey The name of the foreign key constraint.
+   * @return {String}            The generated sql query.
+   * @private
+   */
   dropForeignKeyQuery(tableName, foreignKey) {
     return 'ALTER TABLE ' + this.quoteTable(tableName) + ' DROP CONSTRAINT ' + this.quoteIdentifier(foreignKey) + ';';
   },
@@ -911,6 +1041,13 @@ const QueryGenerator = {
       return;
     }
 
+    // POSTGRES does not support setting AUTOCOMMIT = OFF as of 9.4.0
+    // Additionally it does not support AUTOCOMMIT at all starting at v9.5
+    // The assumption is that it won't be returning in future versions either
+    // If you are on a Pg version that is not semver compliant e.g. '9.5.0beta2', which fails due to the 'beta' qualification, then you need to pass
+    // the database version as "9.5.0" explicitly through the options param passed when creating the Sequelize instance under the key "databaseVersion"
+    // otherwise Pg version "9.4.0" is assumed by default as per Sequelize 3.14.2.
+    // For Pg versions that are semver compliant, this is auto-detected upon the first connection.
     if (!value || semver.gte(this.sequelize.options.databaseVersion, '9.4.0')) {
       return;
     }

@@ -136,121 +136,139 @@ internals.fail = function (request, boom, callback) {
 };
 
 
-internals.transmit = function (response, callback) {
+/**
+ * Determines whether the response should be treated as an empty response.
+ *
+ * @param {number} length - The content length.
+ * @param {number} statusCode - The current status code.
+ * @param {number} emptyStatusCode - The configured empty status code.
+ * @returns {boolean}
+ */
+function isEmptyResponse(length, statusCode, emptyStatusCode) {
+    return length === 0 &&
+        statusCode === 200 &&
+        emptyStatusCode === 204;
+}
 
-    const request = response.request;
-    const source = response._payload;
-    const length = parseInt(response.headers['content-length'], 10);
 
-    // Empty response
-    if (length === 0 &&
-        response.statusCode === 200 &&
-        request.route.settings.response.emptyStatusCode === 204) {
-        response.code(204);
-        delete response.headers['content-length'];
+/**
+ * Handles HTTP range requests.
+ *
+ * @param {Object} request - The request object.
+ * @param {Object} response - The response object.
+ * @param {number} length - The content length.
+ * @param {string} encoding - The selected encoding.
+ * @param {Function} callback - The callback to invoke on error.
+ * @returns {{continue: boolean, ranger: Object|null}}
+ */
+function handleRange(request, response, length, encoding, callback) {
+    if (!request.route.settings.response.ranges ||
+        request.method !== 'get' ||
+        response.statusCode !== 200 ||
+        length <= 0 ||
+        encoding) {
+        return { continue: true, ranger: null };
     }
 
-    const encoding = request.connection._compression.encoding(response);
-
-    // Range
-    let ranger = null;
-    if (internals.isRangeSupported(request, response, length, encoding)) {
-        if (request.headers.range) {
-            if (internals.isIfRangeValid(request, response)) {
-                const ranges = Ammo.header(request.headers.range, length);
-                if (!ranges) {
-                    const error = Boom.rangeNotSatisfiable();
-                    error.output.headers['content-range'] = 'bytes */' + length;
-                    return internals.fail(request, error, callback);
-                }
-                if (ranges.length === 1) {
-                    const range = ranges[0];
-                    ranger = new Ammo.Stream(range);
-                    response.code(206);
-                    response.bytes(range.to - range.from + 1);
-                    response._header('content-range', 'bytes ' + range.from + '-' + range.to + '/' + length);
-                }
-            }
-        }
+    if (!request.headers.range) {
         response._header('accept-ranges', 'bytes');
+        return { continue: true, ranger: null };
     }
 
-    // Content-Encoding
-    let compressor = null;
-    if (internals.isCompressionNeeded(encoding, length, response)) {
-        delete response.headers['content-length'];
-        response._header('content-encoding', encoding);
-        compressor = request.connection._compression.encoder(request, encoding);
+    if (request.headers['if-range'] &&
+        request.headers['if-range'] !== response.headers.etag) {
+        response._header('accept-ranges', 'bytes');
+        return { continue: true, ranger: null };
     }
 
-    internals.adjustEtag(response, encoding);
-
-    internals.handleConnectionClose(request, response);
-
-    const error = internals.writeHead(response);
-    if (error) {
-        return Hoek.nextTick(callback)(error);
+    const ranges = Ammo.header(request.headers.range, length);
+    if (!ranges) {
+        const error = Boom.rangeNotSatisfiable();
+        error.output.headers['content-range'] = 'bytes */' + length;
+        internals.fail(request, error, callback);
+        return { continue: false, ranger: null };
     }
 
-    internals.handleInjection(request, response);
+    if (ranges.length === 1) {
+        const range = ranges[0];
+        const ranger = new Ammo.Stream(range);
+        response.code(206);
+        response.bytes(range.to - range.from + 1);
+        response._header('content-range', 'bytes ' + range.from + '-' + range.to + '/' + length);
+        response._header('accept-ranges', 'bytes');
+        return { continue: true, ranger };
+    }
 
-    internals.writePayload(request, response, source, compressor, ranger, callback);
-};
-
-
-internals.isRangeSupported = function (request, response, length, encoding) {
-    return request.route.settings.response.ranges &&
-        request.method === 'get' &&
-        response.statusCode === 200 &&
-        length > 0 &&
-        !encoding;
-};
-
-
-internals.isIfRangeValid = function (request, response) {
-    return !request.headers['if-range'] || request.headers['if-range'] === response.headers.etag;
-};
+    response._header('accept-ranges', 'bytes');
+    return { continue: true, ranger: null };
+}
 
 
-internals.isCompressionNeeded = function (encoding, length, response) {
-    return encoding &&
-        length !== 0 &&
-        response.statusCode !== 206 &&
-        response._isPayloadSupported();
-};
+/**
+ * Handles content compression.
+ *
+ * @param {Object} request - The request object.
+ * @param {Object} response - The response object.
+ * @param {string} encoding - The selected encoding.
+ * @param {number} length - The content length.
+ * @returns {Object|null} The compressor stream or null.
+ */
+function handleCompression(request, response, encoding, length) {
+    if (!encoding ||
+        length === 0 ||
+        response.statusCode === 206 ||
+        !response._isPayloadSupported()) {
+        return null;
+    }
+
+    delete response.headers['content-length'];
+    response._header('content-encoding', encoding);
+
+    return request.connection._compression.encoder(request, encoding);
+}
 
 
-internals.adjustEtag = function (response, encoding) {
+/**
+ * Adjusts the ETag header if content encoding is present.
+ *
+ * @param {Object} response - The response object.
+ * @param {string} encoding - The selected encoding.
+ */
+function adjustEtagIfNeeded(response, encoding) {
     if ((response.headers['content-encoding'] || encoding) &&
         response.headers.etag &&
         response.settings.varyEtag) {
         response.headers.etag = response.headers.etag.slice(0, -1) + '-' + (response.headers['content-encoding'] || encoding) + '"';
     }
-};
+}
 
 
-internals.handleConnectionClose = function (request, response) {
+/**
+ * Handles connection close header logic.
+ *
+ * @param {Object} request - The request object.
+ * @param {Object} response - The response object.
+ */
+function handleConnectionClose(request, response) {
     const isInjection = Shot.isInjection(request.raw.req);
     if (!(isInjection || request.connection._started) ||
         (request._isPayloadPending && !request.raw.req._readableState.ended)) {
         response._header('connection', 'close');
     }
-};
+}
 
 
-internals.handleInjection = function (request, response) {
-    const isInjection = Shot.isInjection(request.raw.req);
-    if (isInjection) {
-        request.raw.res._hapi = { request };
-        if (response.variety === 'plain') {
-            request.raw.res._hapi.result = response._isPayloadSupported() ? response.source : null;
-        }
-    }
-};
-
-
-internals.writePayload = function (request, response, source, compressor, ranger, callback) {
-
+/**
+ * Writes the payload to the response stream.
+ *
+ * @param {Object} request - The request object.
+ * @param {Object} response - The response object.
+ * @param {Object} source - The payload source stream.
+ * @param {Function} callback - The callback to invoke on completion.
+ * @param {Object|null} compressor - The compressor stream or null.
+ * @param {Object|null} ranger - The ranger stream or null.
+ */
+function writePayload(request, response, source, callback, compressor, ranger) {
     const end = Hoek.once((err, event) => {
 
         source.removeListener('error', end);
@@ -267,16 +285,14 @@ internals.writePayload = function (request, response, source, compressor, ranger
 
             if (request.raw.res._hapi) {
                 request.raw.res.statusCode = 500;
-                request.raw.res._hapi.result = Boom.boomify(err).output.payload;           // Force injected response to error
+                request.raw.res._hapi.result = Boom.boomify(err).output.payload;
             }
 
             source.unpipe();
             Response.drain(source);
         }
 
-        if (!request.raw.res.finished &&
-            event !== 'aborted') {
-
+        if (!request.raw.res.finished && event !== 'aborted') {
             request.raw.res.end();
         }
 
@@ -284,7 +300,14 @@ internals.writePayload = function (request, response, source, compressor, ranger
             request.emit('disconnect');
         }
 
-        const tags = (err ? ['response', 'error'] : (event ? ['response', 'error', event] : ['response']));
+        let tags;
+        if (err) {
+            tags = ['response', 'error'];
+        } else if (event) {
+            tags = ['response', 'error', event];
+        } else {
+            tags = ['response'];
+        }
         request._log(tags, err);
         return callback();
     });
@@ -302,10 +325,51 @@ internals.writePayload = function (request, response, source, compressor, ranger
     request.raw.res.once('finish', end);
 
     const tap = response._tap();
-    const preview = (tap ? source.pipe(tap) : source);
-    const compressed = (compressor ? preview.pipe(compressor) : preview);
-    const ranged = (ranger ? compressed.pipe(ranger) : compressed);
+    const preview = tap ? source.pipe(tap) : source;
+    const compressed = compressor ? preview.pipe(compressor) : preview;
+    const ranged = ranger ? compressed.pipe(ranger) : compressed;
     ranged.pipe(request.raw.res);
+}
+
+
+internals.transmit = function (response, callback) {
+
+    const request = response.request;
+    const source = response._payload;
+    const length = parseInt(response.headers['content-length'], 10);
+
+    if (isEmptyResponse(length, response.statusCode, request.route.settings.response.emptyStatusCode)) {
+        response.code(204);
+        delete response.headers['content-length'];
+    }
+
+    const encoding = request.connection._compression.encoding(response);
+
+    const { continue: rangeContinue, ranger } = handleRange(request, response, length, encoding, callback);
+    if (!rangeContinue) {
+        return;
+    }
+
+    const compressor = handleCompression(request, response, encoding, length);
+
+    adjustEtagIfNeeded(response, encoding);
+
+    handleConnectionClose(request, response);
+
+    const error = internals.writeHead(response);
+    if (error) {
+        return Hoek.nextTick(callback)(error);
+    }
+
+    if (Shot.isInjection(request.raw.req)) {
+        request.raw.res._hapi = { request };
+
+        if (response.variety === 'plain') {
+            request.raw.res._hapi.result = response._isPayloadSupported() ? response.source : null;
+        }
+    }
+
+    writePayload(request, response, source, callback, compressor, ranger);
 };
 
 

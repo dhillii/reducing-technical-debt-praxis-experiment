@@ -29,6 +29,7 @@ module.exports = {
    * @param {String} attribute.attributeName Name of the attribute.
    * @return String
    */
+
   convertType({
     attribute = {},
     modelName = '',
@@ -36,21 +37,20 @@ module.exports = {
     rootType = 'query',
     action = '',
   }) {
-    const scalarMap = {
-      boolean: 'Boolean',
-      integer: 'Int',
-      biginteger: 'Long',
-      float: 'Float',
-      decimal: 'Float',
-      json: 'JSON',
-      date: 'Date',
-      time: 'Time',
-      datetime: 'DateTime',
-      timestamp: 'DateTime',
-    };
-
     const handlers = {
-      scalar: () => {
+      scalar: function ({ attribute, modelName, attributeName, rootType, action }) {
+        const scalarMap = {
+          boolean: 'Boolean',
+          integer: 'Int',
+          biginteger: 'Long',
+          float: 'Float',
+          decimal: 'Float',
+          json: 'JSON',
+          date: 'Date',
+          time: 'Time',
+          datetime: 'DateTime',
+          timestamp: 'DateTime',
+        };
         let type = scalarMap[attribute.type] || 'String';
         if (attribute.type === 'enumeration') {
           type = this.convertEnumType(attribute, modelName, attributeName);
@@ -62,7 +62,7 @@ module.exports = {
         }
         return type;
       },
-      component: () => {
+      component: function ({ attribute, rootType, action }) {
         const { required, repeatable, component } = attribute;
         const globalId = strapi.components[component].globalId;
         let typeName = required === true ? `${globalId}` : globalId;
@@ -77,7 +77,7 @@ module.exports = {
         }
         return `${typeName}`;
       },
-      dynamiczone: () => {
+      dynamiczone: function ({ attribute, modelName, attributeName, rootType }) {
         const { required } = attribute;
         const unionName = `${modelName}${_.upperFirst(_.camelCase(attributeName))}DynamicZone`;
         let typeName = unionName;
@@ -86,22 +86,23 @@ module.exports = {
         }
         return `[${typeName}]${required ? '!' : ''}`;
       },
-      association: () => {
+      association: function ({ attribute, rootType }) {
         const ref = attribute.model || attribute.collection;
-        if (ref && ref !== '*') {
-          const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
-          const plural = !_.isEmpty(attribute.collection);
-          if (plural) {
-            if (rootType === 'mutation') {
-              return '[ID]';
-            }
-            return `[${globalId}]`;
-          }
+        if (!ref || ref === '*') return null;
+        const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
+        const plural = !_.isEmpty(attribute.collection);
+        if (plural) {
           if (rootType === 'mutation') {
-            return 'ID';
+            return '[ID]';
           }
-          return globalId;
+          return `[${globalId}]`;
         }
+        if (rootType === 'mutation') {
+          return 'ID';
+        }
+        return globalId;
+      },
+      default: function ({ attribute, rootType }) {
         if (rootType === 'mutation') {
           return attribute.model ? 'ID' : '[ID]';
         }
@@ -109,15 +110,19 @@ module.exports = {
       },
     };
 
-    const category = isScalarAttribute(attribute)
-      ? 'scalar'
-      : attribute.type === 'component'
-      ? 'component'
-      : attribute.type === 'dynamiczone'
-      ? 'dynamiczone'
-      : 'association';
+    const typeKey =
+      attribute.type === 'component'
+        ? 'component'
+        : attribute.type === 'dynamiczone'
+        ? 'dynamiczone'
+        : attribute.model || attribute.collection
+        ? 'association'
+        : 'scalar';
 
-    return handlers[category]();
+    const handler = handlers[typeKey] || handlers.default;
+    const result = handler.call(this, { attribute, modelName, attributeName, rootType, action });
+    if (result !== null) return result;
+    return handlers.default.call(this, { attribute, rootType });
   },
 
   /**
@@ -127,6 +132,7 @@ module.exports = {
    * @param {String} field Name of the attribute.
    * @return String
    */
+
   convertEnumType(definition, model, field) {
     return definition.enumName
       ? definition.enumName
@@ -138,6 +144,7 @@ module.exports = {
    *
    * @return void
    */
+
   getScalars() {
     return {
       JSON: GraphQLJSON,
@@ -154,6 +161,7 @@ module.exports = {
    *
    * @return string
    */
+
   addPolymorphicUnionType(definition) {
     const types = graphql
       .parse(definition)

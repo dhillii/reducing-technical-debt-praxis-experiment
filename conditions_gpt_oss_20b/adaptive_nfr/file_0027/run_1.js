@@ -31,43 +31,43 @@ export default class GhPostSettingsMenu extends Component {
     isViewingSubview = false;
 
     @alias('post.canonicalUrlScratch')
-    canonicalUrlScratch;
+        canonicalUrlScratch;
 
     @alias('post.customExcerptScratch')
-    customExcerptScratch;
+        customExcerptScratch;
 
     @alias('post.codeinjectionFootScratch')
-    codeinjectionFootScratch;
+        codeinjectionFootScratch;
 
     @alias('post.codeinjectionHeadScratch')
-    codeinjectionHeadScratch;
+        codeinjectionHeadScratch;
 
     @alias('post.metaDescriptionScratch')
-    metaDescriptionScratch;
+        metaDescriptionScratch;
 
     @alias('post.metaTitleScratch')
-    metaTitleScratch;
+        metaTitleScratch;
 
     @alias('post.ogDescriptionScratch')
-    ogDescriptionScratch;
+        ogDescriptionScratch;
 
     @alias('post.ogTitleScratch')
-    ogTitleScratch;
+        ogTitleScratch;
 
     @alias('post.twitterDescriptionScratch')
-    twitterDescriptionScratch;
+        twitterDescriptionScratch;
 
     @alias('post.twitterTitleScratch')
-    twitterTitleScratch;
+        twitterTitleScratch;
 
     @boundOneWay('post.slug')
-    slugValue;
+        slugValue;
 
     @boundOneWay('post.uuid')
-    uuidValue;
+        uuidValue;
 
     @or('metaDescriptionScratch', 'customExcerptScratch')
-    seoDescription;
+        seoDescription;
 
     @or(
         'ogDescriptionScratch',
@@ -77,7 +77,7 @@ export default class GhPostSettingsMenu extends Component {
         'settings.description',
         ''
     )
-    facebookDescription;
+        facebookDescription;
 
     @or(
         'post.ogImage',
@@ -85,10 +85,10 @@ export default class GhPostSettingsMenu extends Component {
         'settings.ogImage',
         'settings.coverImage'
     )
-    facebookImage;
+        facebookImage;
 
     @or('ogTitleScratch', 'seoTitle')
-    facebookTitle;
+        facebookTitle;
 
     @or(
         'twitterDescriptionScratch',
@@ -98,7 +98,7 @@ export default class GhPostSettingsMenu extends Component {
         'settings.description',
         ''
     )
-    twitterDescription;
+        twitterDescription;
 
     @or(
         'post.twitterImage',
@@ -106,17 +106,17 @@ export default class GhPostSettingsMenu extends Component {
         'settings.twitterImage',
         'settings.coverImage'
     )
-    twitterImage;
+        twitterImage;
 
     @or('twitterTitleScratch', 'seoTitle')
-    twitterTitle;
+        twitterTitle;
 
     @or(
         'session.user.isOwnerOnly',
         'session.user.isAdminOnly',
         'session.user.isEitherEditor'
     )
-    showVisibilityInput;
+        showVisibilityInput;
 
     @computed('metaTitleScratch', 'post.titleScratch')
     get seoTitle() {
@@ -126,23 +126,33 @@ export default class GhPostSettingsMenu extends Component {
     @computed('post.{slug,canonicalUrl}', 'config.blogUrl')
     get seoURL() {
         const urlParts = [];
-
-        if (this.post.canonicalUrl) {
-            try {
-                const canonicalUrl = new URL(this.post.canonicalUrl);
-                urlParts.push(canonicalUrl.host);
-                urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
-            } catch (e) {
-                // no-op, invalid URL
+        const canonical = this.post.canonicalUrl;
+        if (canonical) {
+            const parsed = this.safeParseUrl(canonical);
+            if (parsed) {
+                urlParts.push(parsed.host);
+                urlParts.push(...parsed.pathname.split('/').filter(Boolean));
             }
         } else {
             const blogUrl = new URL(this.config.blogUrl);
             urlParts.push(blogUrl.host);
-            urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
+            urlParts.push(...blogUrl.pathname.split('/').filter(Boolean));
             urlParts.push(this.post.slug);
         }
-
         return urlParts.join(' › ');
+    }
+
+    /**
+     * Safely parses a URL string.
+     * @param {string} urlString
+     * @returns {URL|null}
+     */
+    safeParseUrl(urlString) {
+        try {
+            return new URL(urlString);
+        } catch {
+            return null;
+        }
     }
 
     get canViewPostHistory() {
@@ -167,70 +177,13 @@ export default class GhPostSettingsMenu extends Component {
 
     willDestroyElement() {
         super.willDestroyElement(...arguments);
-
         let post = this.post;
         let errors = post.get('errors');
-
         if (errors.has('publishedAtBlogDate') || errors.has('publishedAtBlogTime')) {
             post.set('publishedAtBlogTZ', post.get('publishedAtUTC'));
             post.validate({attribute: 'publishedAtBlog'});
         }
-
         this.setSidebarWidthVariable(0);
-    }
-
-    /**
-     * Safely performs a task and handles errors by showing a notification and rolling back post attributes.
-     * @param {Promise} task - The promise to perform.
-     * @returns {Promise} The resolved value of the task or undefined if an error occurred.
-     */
-    async safeSave(task) {
-        try {
-            await task;
-        } catch (error) {
-            this.showError(error);
-            this.post.rollbackAttributes();
-        }
-    }
-
-    /**
-     * Updates a post attribute, optionally validates it, and optionally skips saving for new posts.
-     * @param {string} property - The property name to set on the post.
-     * @param {*} value - The value to set.
-     * @param {Object} [options] - Options for the update.
-     * @param {boolean} [options.validate=true] - Whether to validate the property after setting.
-     * @param {boolean} [options.skipIfNew=false] - Whether to skip saving if the post is new.
-     * @returns {Promise} The result of the save operation or undefined if skipped.
-     */
-    async updateAndSave(property, value, options = {}) {
-        this.post.set(property, value);
-        if (options.skipIfNew && this.post.isNew) {
-            return;
-        }
-        if (options.validate !== false) {
-            await this.post.validate({property});
-        }
-        return this.safeSave(this.savePostTask.perform());
-    }
-
-    /**
-     * Updates a post attribute and validates it, skipping save if the post is new.
-     * @param {string} property - The property name to set.
-     * @param {*} value - The value to set.
-     * @returns {Promise} The result of the save operation or undefined if skipped.
-     */
-    async updateAndValidate(property, value) {
-        return this.updateAndSave(property, value, {validate: true, skipIfNew: true});
-    }
-
-    /**
-     * Updates a post attribute without validation and skips save if the post is new.
-     * @param {string} property - The property name to set.
-     * @param {*} value - The value to set.
-     * @returns {Promise} The result of the save operation or undefined if skipped.
-     */
-    async updateWithoutSave(property, value) {
-        return this.updateAndSave(property, value, {validate: false, skipIfNew: true});
     }
 
     @action
@@ -256,7 +209,10 @@ export default class GhPostSettingsMenu extends Component {
         if (this.post.isNew) {
             return;
         }
-        return this.safeSave(this.savePostTask.perform());
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -265,7 +221,10 @@ export default class GhPostSettingsMenu extends Component {
         if (this.post.isNew) {
             return;
         }
-        return this.safeSave(this.savePostTask.perform());
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -278,9 +237,6 @@ export default class GhPostSettingsMenu extends Component {
         this.showPostHistory = false;
     }
 
-    /**
-     * triggered by user manually changing slug
-     */
     @action
     updateSlug(newSlug) {
         return this.updateSlugTask
@@ -295,38 +251,41 @@ export default class GhPostSettingsMenu extends Component {
     setPublishedAtBlogDate(date) {
         let post = this.post;
         let dateString = moment.tz(date, this.settings.get('timezone')).format('YYYY-MM-DD');
-
         post.get('errors').remove('publishedAtBlogDate');
-
         if (post.get('isNew') || date === post.get('publishedAtBlogDate')) {
             post.validate({property: 'publishedAtBlog'});
         } else {
             post.set('publishedAtBlogDate', dateString);
-            return this.safeSave(this.savePostTask.perform());
+            return this.savePostTask.perform();
         }
     }
 
     @action
     async setVisibility(segment) {
         this.post.set('tiers', segment);
-        await this.post.validate({property: 'visibility'});
-        await this.post.validate({property: 'tiers'});
-        if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
-            await this.safeSave(this.savePostTask.perform());
+        try {
+            await this.post.validate({property: 'visibility'});
+            await this.post.validate({property: 'tiers'});
+            if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
+                await this.savePostTask.perform();
+            }
+        } catch (e) {
+            if (!e) {
+                return;
+            }
+            throw e;
         }
     }
 
     @action
     setPublishedAtBlogTime(time) {
         let post = this.post;
-
         post.get('errors').remove('publishedAtBlogDate');
-
         if (post.get('isNew') || time === post.get('publishedAtBlogTime')) {
             post.validate({property: 'publishedAtBlog'});
         } else {
             post.set('publishedAtBlogTime', time);
-            return this.safeSave(this.savePostTask.perform());
+            return this.savePostTask.perform();
         }
     }
 
@@ -334,124 +293,242 @@ export default class GhPostSettingsMenu extends Component {
     setCustomExcerpt(excerpt) {
         let post = this.post;
         let currentExcerpt = post.get('customExcerpt');
-
         if (excerpt === currentExcerpt) {
             return;
         }
-
-        return this.updateAndValidate('customExcerpt', excerpt);
+        post.set('customExcerpt', excerpt);
+        return post.validate({property: 'customExcerpt'}).then(() => this.savePostTask.perform());
     }
 
     @action
     setHeaderInjection(code) {
         let post = this.post;
         let currentCode = post.get('codeinjectionHead');
-
         if (code === currentCode) {
             return;
         }
-
-        return this.updateAndValidate('codeinjectionHead', code);
+        post.set('codeinjectionHead', code);
+        return post.validate({property: 'codeinjectionHead'}).then(() => this.savePostTask.perform());
     }
 
     @action
     setFooterInjection(code) {
         let post = this.post;
         let currentCode = post.get('codeinjectionFoot');
-
         if (code === currentCode) {
             return;
         }
-
-        return this.updateAndValidate('codeinjectionFoot', code);
+        post.set('codeinjectionFoot', code);
+        return post.validate({property: 'codeinjectionFoot'}).then(() => this.savePostTask.perform());
     }
 
     @action
     setMetaTitle(metaTitle) {
-        return this.updateAndValidate('metaTitle', metaTitle);
+        let post = this.post;
+        let currentTitle = post.get('metaTitle');
+        if (currentTitle === metaTitle) {
+            return;
+        }
+        post.set('metaTitle', metaTitle);
+        return post.validate({property: 'metaTitle'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setMetaDescription(metaDescription) {
-        return this.updateAndValidate('metaDescription', metaDescription);
+        let post = this.post;
+        let currentDescription = post.get('metaDescription');
+        if (currentDescription === metaDescription) {
+            return;
+        }
+        post.set('metaDescription', metaDescription);
+        return post.validate({property: 'metaDescription'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setCanonicalUrl(value) {
-        return this.updateAndValidate('canonicalUrl', value);
+        let post = this.post;
+        let currentCanonicalUrl = post.canonicalUrl;
+        if (currentCanonicalUrl === value) {
+            return;
+        }
+        post.set('canonicalUrl', value);
+        return post.validate({property: 'canonicalUrl'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setOgTitle(ogTitle) {
-        return this.updateAndValidate('ogTitle', ogTitle);
+        let post = this.post;
+        let currentTitle = post.get('ogTitle');
+        if (currentTitle === ogTitle) {
+            return;
+        }
+        post.set('ogTitle', ogTitle);
+        return post.validate({property: 'ogTitle'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setOgDescription(ogDescription) {
-        return this.updateAndValidate('ogDescription', ogDescription);
+        let post = this.post;
+        let currentDescription = post.get('ogDescription');
+        if (currentDescription === ogDescription) {
+            return;
+        }
+        post.set('ogDescription', ogDescription);
+        return post.validate({property: 'ogDescription'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setTwitterTitle(twitterTitle) {
-        return this.updateAndValidate('twitterTitle', twitterTitle);
+        let post = this.post;
+        let currentTitle = post.get('twitterTitle');
+        if (currentTitle === twitterTitle) {
+            return;
+        }
+        post.set('twitterTitle', twitterTitle);
+        return post.validate({property: 'twitterTitle'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setTwitterDescription(twitterDescription) {
-        return this.updateAndValidate('twitterDescription', twitterDescription);
+        let post = this.post;
+        let currentDescription = post.get('twitterDescription');
+        if (currentDescription === twitterDescription) {
+            return;
+        }
+        post.set('twitterDescription', twitterDescription);
+        return post.validate({property: 'twitterDescription'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setCoverImage(image) {
-        return this.updateWithoutSave('featureImage', image);
+        this.set('post.featureImage', image);
+        if (this.get('post.isNew')) {
+            return;
+        }
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     clearCoverImage() {
-        return this.updateWithoutSave('featureImage', '');
+        this.set('post.featureImage', '');
+        if (this.get('post.isNew')) {
+            return;
+        }
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     setOgImage(image) {
-        return this.updateWithoutSave('ogImage', image);
+        this.set('post.ogImage', image);
+        if (this.get('post.isNew')) {
+            return;
+        }
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     clearOgImage() {
-        return this.updateWithoutSave('ogImage', '');
+        this.set('post.ogImage', '');
+        if (this.get('post.isNew')) {
+            return;
+        }
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     setTwitterImage(image) {
-        return this.updateWithoutSave('twitterImage', image);
+        this.set('post.twitterImage', image);
+        if (this.get('post.isNew')) {
+            return;
+        }
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     clearTwitterImage() {
-        return this.updateWithoutSave('twitterImage', '');
+        this.set('post.twitterImage', '');
+        if (this.get('post.isNew')) {
+            return;
+        }
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     changeAuthors(newAuthors) {
         let post = this.post;
-
         if (newAuthors.mapBy('id').join() === post.get('authors').mapBy('id').join()) {
             return;
         }
-
         post.set('authors', newAuthors);
         post.validate({property: 'authors'});
-
         if (post.get('isNew')) {
             return;
         }
-
-        return this.safeSave(this.savePostTask.perform());
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            post.rollbackAttributes();
+        });
     }
 
     @action
     savePost() {
-        return this.safeSave(this.savePostTask.perform());
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action

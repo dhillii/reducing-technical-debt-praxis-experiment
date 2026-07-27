@@ -98,7 +98,7 @@ grunt.tasks = function(tasks, options, done) {
 
       // Display available options (for shell completion, etc).
       _options = [];
-      Object.keys(grunt.cli.optlist).forEach(long => {
+      Object.keys(grunt.cli.optlist).forEach(function(long) {
         const o = grunt.cli.optlist[long];
         _options.push('--' + (o.negate ? 'no-' : '') + long);
         if (o.short) { _options.push('-' + o.short); }
@@ -167,7 +167,7 @@ grunt.tasks = function(tasks, options, done) {
 
   // Execute all tasks, in order. Passing each task individually in a forEach
   // allows the error callback to execute multiple times.
-  tasks.forEach(name => task.run(name));
+  tasks.forEach(function(name) { task.run(name); });
   // Run tasks async internally to reduce call-stack, per:
   // https://github.com/gruntjs/grunt/pull/1026
   task.start({asyncDone: true});

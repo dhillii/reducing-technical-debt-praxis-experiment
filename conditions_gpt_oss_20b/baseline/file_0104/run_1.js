@@ -61,23 +61,25 @@
      * @return {this}                           - The AnchorJS object
      */
     this.add = function(selector) {
+      // Reapply options in case they were overwritten.
       _applyRemainingDefaultOptions(this.options);
 
-      const visible = this.options.visible === 'touch'
+      const visibleOptionToUse = this.options.visible === 'touch'
         ? (this.isTouchDevice() ? 'always' : 'hover')
         : this.options.visible;
 
       const sel = selector || 'h1, h2, h3, h4, h5, h6';
       const elements = _getElements(sel);
 
-      if (!elements.length) {
+      if (elements.length === 0) {
         return false;
       }
 
       _addBaselineStyles();
 
+      // Set of existing IDs to avoid duplicates.
       const existingIds = new Set(
-        [...document.querySelectorAll('[id]')].map(el => el.id)
+        Array.from(document.querySelectorAll('[id]')).map(el => el.id)
       );
 
       const newElements = [];
@@ -87,28 +89,28 @@
           return;
         }
 
-        let id = el.id;
-        if (!id) {
+        let elementID = el.id;
+        if (!elementID) {
           const base = this.urlify(el.textContent);
-          let candidate = base;
+          let unique = base;
           let counter = 0;
-          while (existingIds.has(candidate)) {
-            candidate = `${base}-${counter++}`;
+          while (existingIds.has(unique)) {
+            unique = `${base}-${counter++}`;
           }
-          id = candidate;
-          el.id = id;
-          existingIds.add(id);
+          existingIds.add(unique);
+          el.id = unique;
+          elementID = unique;
         }
 
-        const readable = id.replace(/-/g, ' ');
+        const readableID = elementID.replace(/-/g, ' ');
 
         const anchor = document.createElement('a');
         anchor.className = 'anchorjs-link ' + this.options.class;
-        anchor.href = `#${id}`;
-        anchor.setAttribute('aria-label', `Anchor link for: ${readable}`);
+        anchor.href = `#${elementID}`;
+        anchor.setAttribute('aria-label', `Anchor link for: ${readableID}`);
         anchor.setAttribute('data-anchorjs-icon', this.options.icon);
 
-        if (visible === 'always') {
+        if (visibleOptionToUse === 'always') {
           anchor.style.opacity = '1';
         }
 

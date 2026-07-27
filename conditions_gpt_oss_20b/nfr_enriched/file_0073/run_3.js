@@ -5,6 +5,10 @@
 
 "use strict";
 
+//-----------------------------------------------------------------------------
+// Requirements
+//-----------------------------------------------------------------------------
+
 const { FlatConfigArray } = require("../../../lib/config/flat-config-array");
 const assert = require("chai").assert;
 const stringify = require("json-stable-stringify-without-jsonify");
@@ -13,7 +17,7 @@ const jslang = require("../../../lib/languages/js");
 const { LATEST_ECMA_VERSION } = require("../../../conf/ecma-version");
 
 //-----------------------------------------------------------------------------
-// Base configuration
+// Helpers
 //-----------------------------------------------------------------------------
 
 const baseConfig = {
@@ -122,7 +126,10 @@ const baseConfig = {
 						],
 					},
 				},
+
+				// old-style
 				boom() {},
+
 				foo2: {
 					meta: {
 						schema: {
@@ -150,10 +157,6 @@ const baseConfig = {
 	},
 };
 
-//-----------------------------------------------------------------------------
-// Helper functions
-//-----------------------------------------------------------------------------
-
 /**
  * Creates a config array with the correct default options.
  * @param {*[]} configs An array of configs to use in the config array.
@@ -170,10 +173,15 @@ function createFlatConfigArray(configs) {
  * result config.
  * @param {*[]} values An array of configs to use in the config array.
  * @param {Object} result The expected merged result of the configs.
+ * @returns {void}
+ * @throws {AssertionError} If the actual result doesn't match the
+ *      expected result.
  */
 async function assertMergedResult(values, result) {
 	const configs = createFlatConfigArray(values);
+
 	await configs.normalize();
+
 	const config = configs.getConfig("foo.js");
 
 	if (!result.language) {
@@ -193,33 +201,17 @@ async function assertMergedResult(values, result) {
  * Asserts that a given set of configs results in an invalid config.
  * @param {*[]} values An array of configs to use in the config array.
  * @param {string|RegExp} message The expected error message.
+ * @returns {void}
+ * @throws {AssertionError} If the config is valid or if the error
+ *      has an unexpected message.
  */
 async function assertInvalidConfig(values, message) {
 	const configs = createFlatConfigArray(values);
+
 	assert.throws(() => {
 		configs.normalizeSync();
 		configs.getConfig("foo.js");
 	}, message);
-}
-
-/**
- * Runs a series of invalid config tests.
- * @param {Array<{config: Object, message: string|RegExp}>} tests
- */
-function runInvalidConfigTests(tests) {
-	tests.forEach(({ config, message }) => {
-		assertInvalidConfig([config], message);
-	});
-}
-
-/**
- * Runs a series of merged result tests.
- * @param {Array<{values: Object[], result: Object}>} tests
- */
-async function runMergedResultTests(tests) {
-	for (const { values, result } of tests) {
-		await assertMergedResult(values, result);
-	}
 }
 
 //-----------------------------------------------------------------------------
@@ -240,6 +232,7 @@ describe("FlatConfigArray", () => {
 			baseConfig: base,
 		});
 
+		// should not throw error
 		configs.normalizeSync();
 	});
 
@@ -312,6 +305,7 @@ describe("FlatConfigArray", () => {
 			const actual = config.toJSON();
 
 			assert.deepStrictEqual(actual, expected);
+
 			assert.strictEqual(stringify(actual), stringify(expected));
 		});
 
@@ -350,6 +344,7 @@ describe("FlatConfigArray", () => {
 			const actual = config.toJSON();
 
 			assert.deepStrictEqual(actual, expected);
+
 			assert.strictEqual(stringify(actual), stringify(expected));
 		});
 
@@ -390,6 +385,7 @@ describe("FlatConfigArray", () => {
 			const actual = config.toJSON();
 
 			assert.deepStrictEqual(actual, expected);
+
 			assert.strictEqual(stringify(actual), stringify(expected));
 		});
 
@@ -429,6 +425,7 @@ describe("FlatConfigArray", () => {
 			const actual = config.toJSON();
 
 			assert.deepStrictEqual(actual, expected);
+
 			assert.strictEqual(stringify(actual), stringify(expected));
 		});
 
@@ -465,6 +462,7 @@ describe("FlatConfigArray", () => {
 			const actual = config.toJSON();
 
 			assert.deepStrictEqual(actual, expected);
+
 			assert.strictEqual(stringify(actual), stringify(expected));
 		});
 
@@ -1061,6 +1059,7 @@ describe("FlatConfigArray", () => {
 					],
 					{
 						plugins: baseConfig.plugins,
+
 						settings: {
 							a: true,
 							b: false,
@@ -1091,6 +1090,7 @@ describe("FlatConfigArray", () => {
 					],
 					{
 						plugins: baseConfig.plugins,
+
 						settings: {
 							a: false,
 							b: false,
@@ -1123,6 +1123,7 @@ describe("FlatConfigArray", () => {
 					],
 					{
 						plugins: baseConfig.plugins,
+
 						settings: {
 							object: {
 								a: false,
@@ -1146,6 +1147,7 @@ describe("FlatConfigArray", () => {
 					],
 					{
 						plugins: baseConfig.plugins,
+
 						settings: {
 							a: true,
 							b: false,
@@ -1166,6 +1168,7 @@ describe("FlatConfigArray", () => {
 					],
 					{
 						plugins: baseConfig.plugins,
+
 						settings: {
 							a: true,
 							b: false,
@@ -1314,6 +1317,7 @@ describe("FlatConfigArray", () => {
 					],
 					{
 						plugins: baseConfig.plugins,
+
 						processor,
 					},
 				);
@@ -1411,6 +1415,7 @@ describe("FlatConfigArray", () => {
 						],
 						{
 							plugins: baseConfig.plugins,
+
 							linterOptions: {
 								noInlineConfig: false,
 							},
@@ -1429,6 +1434,7 @@ describe("FlatConfigArray", () => {
 						],
 						{
 							plugins: baseConfig.plugins,
+
 							linterOptions: {
 								noInlineConfig: false,
 							},
@@ -1447,6 +1453,7 @@ describe("FlatConfigArray", () => {
 						],
 						{
 							plugins: baseConfig.plugins,
+
 							linterOptions: {
 								noInlineConfig: false,
 							},
@@ -1483,11 +1490,11 @@ describe("FlatConfigArray", () => {
 						],
 						{
 							plugins: baseConfig.plugins,
+
 							linterOptions: {
 								reportUnusedDisableDirectives: 1,
 							},
-						},
-					));
+						});
 
 				it("should merge an object and undefined into one object", () =>
 					assertMergedResult(
@@ -1501,11 +1508,11 @@ describe("FlatConfigArray", () => {
 						],
 						{
 							plugins: baseConfig.plugins,
+
 							linterOptions: {
 								reportUnusedDisableDirectives: 1,
 							},
-						},
-					));
+						});
 			});
 
 			describe("reportUnusedInlineConfigs", () => {
@@ -1522,7 +1529,7 @@ describe("FlatConfigArray", () => {
 					);
 				});
 
-				it("should merge two objects when second object has overrides", () =>
+				it("should merge two objects when second is a string", () =>
 					assertMergedResult(
 						[
 							{
@@ -1538,11 +1545,11 @@ describe("FlatConfigArray", () => {
 						],
 						{
 							plugins: baseConfig.plugins,
+
 							linterOptions: {
 								reportUnusedInlineConfigs: 1,
 							},
-						},
-					));
+						});
 
 				it("should merge an object and undefined into one object", () =>
 					assertMergedResult(
@@ -1556,11 +1563,11 @@ describe("FlatConfigArray", () => {
 						],
 						{
 							plugins: baseConfig.plugins,
+
 							linterOptions: {
 								reportUnusedInlineConfigs: 1,
 							},
-						},
-					));
+						});
 			});
 		});
 
@@ -2524,7 +2531,7 @@ describe("FlatConfigArray", () => {
 							},
 						},
 					],
-					/Key "rules": Key "foox": Could not find "foox" in plugin "@"/u,
+					/Key "rules": Key "foox": Could not find "foox" in plugin "@"./u,
 				);
 			});
 
@@ -2666,6 +2673,7 @@ describe("FlatConfigArray", () => {
 
 				await configs.normalize();
 
+				// does not throw
 				const config = configs.getConfig("foo.js");
 
 				assert.deepStrictEqual(config.rules, {
@@ -2698,6 +2706,7 @@ describe("FlatConfigArray", () => {
 
 				await configs.normalize();
 
+				// does not throw
 				const config = configs.getConfig("foo.js");
 
 				assert.deepStrictEqual(config.rules, {
@@ -2730,6 +2739,7 @@ describe("FlatConfigArray", () => {
 
 				await configs.normalize();
 
+				// does not throw
 				const config = configs.getConfig("foo.js");
 
 				assert.deepStrictEqual(config.rules, {
@@ -2759,7 +2769,7 @@ describe("FlatConfigArray", () => {
 							},
 						},
 					],
-					/should NOT have more than 0 items/u,
+					/should NOT have more than 0 items/,
 				);
 			});
 
@@ -2786,7 +2796,7 @@ describe("FlatConfigArray", () => {
 							},
 						},
 					],
-					/should NOT have more than 0 items/u,
+					/should NOT have more than 0 items/,
 				);
 			});
 
@@ -2808,6 +2818,7 @@ describe("FlatConfigArray", () => {
 					],
 					{
 						plugins: baseConfig.plugins,
+
 						rules: {
 							foo: [1],
 							bar: [2],
@@ -2817,7 +2828,7 @@ describe("FlatConfigArray", () => {
 					},
 				));
 
-			it("should merge two objects when second object has simple overrides", () =>
+			it("should merge two objects when second is a simple override", () =>
 				assertMergedResult(
 					[
 						{
@@ -2835,6 +2846,7 @@ describe("FlatConfigArray", () => {
 					],
 					{
 						plugins: baseConfig.plugins,
+
 						rules: {
 							foo: [2, "always"],
 							bar: [0],
@@ -2842,7 +2854,7 @@ describe("FlatConfigArray", () => {
 					},
 				));
 
-			it("should merge two objects when second object has array overrides", () =>
+			it("should merge two objects when second has array overrides", () =>
 				assertMergedResult(
 					[
 						{
@@ -2867,7 +2879,7 @@ describe("FlatConfigArray", () => {
 					},
 				));
 
-			it("should merge two objects and options when second object overrides without options", () =>
+			it("should merge two objects and options when second overrides without options", () =>
 				assertMergedResult(
 					[
 						{
@@ -3050,6 +3062,7 @@ describe("FlatConfigArray", () => {
 		});
 	});
 
+	// https://github.com/eslint/eslint/issues/12592
 	describe("Shared references between rule configs", () => {
 		it("shared rule config should not cause a rule validation error", () => {
 			const ruleConfig = ["error", {}];
@@ -3094,6 +3107,7 @@ describe("FlatConfigArray", () => {
 				{
 					rules: {
 						"default-case": ruleConfig,
+
 						camelcase: [
 							"error",
 							{
@@ -3106,6 +3120,7 @@ describe("FlatConfigArray", () => {
 
 			configs.normalizeSync();
 
+			// exact error may differ based on structuredClone implementation so just test prefix
 			assert.throws(() => {
 				configs.getConfig("foo.js");
 			}, /Key "rules": Key "camelcase":/u);

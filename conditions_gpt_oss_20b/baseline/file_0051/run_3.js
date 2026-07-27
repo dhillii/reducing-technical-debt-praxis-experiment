@@ -2,15 +2,13 @@
 
 const grunt = require('../grunt');
 
-const config = function(prop, value) {
+const config = module.exports = function(prop, value) {
   if (arguments.length === 2) {
     return config.set(prop, value);
   } else {
     return config.get(prop);
   }
 };
-
-module.exports = config;
 
 config.data = {};
 

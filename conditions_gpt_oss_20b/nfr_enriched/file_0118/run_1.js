@@ -6,16 +6,16 @@ JSON5.parse = (function () {
     let at, // The index of the current character
         ch, // The current character
         escapee = {
-            "'": "'",
-            '"': '"',
+            "'":  "'",
+            '"':  '"',
             '\\': '\\',
-            '/': '/',
-            '\n': '',
-            b: '\b',
-            f: '\f',
-            n: '\n',
-            r: '\r',
-            t: '\t'
+            '/':  '/',
+            '\n': '',       // Replace escaped newlines in strings w/ empty string
+            b:    '\b',
+            f:    '\f',
+            n:    '\n',
+            r:    '\r',
+            t:    '\t'
         },
         ws = [
             ' ',
@@ -30,11 +30,11 @@ JSON5.parse = (function () {
         text;
 
     const error = function (m) {
-        const error = new SyntaxError();
-        error.message = m;
-        error.at = at;
-        error.text = text;
-        throw error;
+        const err = new SyntaxError();
+        err.message = m;
+        err.at = at;
+        err.text = text;
+        throw err;
     };
 
     const next = function (c) {
@@ -58,11 +58,10 @@ JSON5.parse = (function () {
             error("Bad identifier");
         }
         while (next() && (
-            ch === '_' || ch === '$' ||
-            (ch >= 'a' && ch <= 'z') ||
-            (ch >= 'A' && ch <= 'Z') ||
-            (ch >= '0' && ch <= '9')
-        )) {
+                ch === '_' || ch === '$' ||
+                (ch >= 'a' && ch <= 'z') ||
+                (ch >= 'A' && ch <= 'Z') ||
+                (ch >= '0' && ch <= '9'))) {
             key += ch;
         }
         return key;
@@ -87,7 +86,7 @@ JSON5.parse = (function () {
             return (sign === '-') ? -number : number;
         }
 
-        if (ch === 'N') {
+        if (ch === 'N' ) {
             number = word();
             if (!isNaN(number)) {
                 error('expected word to be NaN');
@@ -108,41 +107,43 @@ JSON5.parse = (function () {
         }
 
         switch (base) {
-            case 10:
+        case 10:
+            while (ch >= '0' && ch <= '9' ) {
+                string += ch;
+                next();
+            }
+            if (ch === '.') {
+                string += '.';
+                while (next() && ch >= '0' && ch <= '9') {
+                    string += ch;
+                }
+            }
+            if (ch === 'e' || ch === 'E') {
+                string += ch;
+                next();
+                if (ch === '-' || ch === '+') {
+                    string += ch;
+                    next();
+                }
                 while (ch >= '0' && ch <= '9') {
                     string += ch;
                     next();
                 }
-                if (ch === '.') {
-                    string += '.';
-                    while (next() && ch >= '0' && ch <= '9') {
-                        string += ch;
-                    }
-                }
-                if (ch === 'e' || ch === 'E') {
-                    string += ch;
-                    next();
-                    if (ch === '-' || ch === '+') {
-                        string += ch;
-                        next();
-                    }
-                    while (ch >= '0' && ch <= '9') {
-                        string += ch;
-                        next();
-                    }
-                }
-                break;
-            case 16:
-                while (ch >= '0' && ch <= '9' ||
-                    ch >= 'A' && ch <= 'F' ||
-                    ch >= 'a' && ch <= 'f') {
-                    string += ch;
-                    next();
-                }
-                break;
+            }
+            break;
+        case 16:
+            while (ch >= '0' && ch <= '9' || ch >= 'A' && ch <= 'F' || ch >= 'a' && ch <= 'f') {
+                string += ch;
+                next();
+            }
+            break;
         }
 
-        number = sign === '-' ? -string : +string;
+        if(sign === '-') {
+            number = -string;
+        } else {
+            number = +string;
+        }
 
         if (!isFinite(number)) {
             error("Bad number");
@@ -253,40 +254,40 @@ JSON5.parse = (function () {
 
     const word = function () {
         switch (ch) {
-            case 't':
-                next('t');
-                next('r');
-                next('u');
-                next('e');
-                return true;
-            case 'f':
-                next('f');
-                next('a');
-                next('l');
-                next('s');
-                next('e');
-                return false;
-            case 'n':
-                next('n');
-                next('u');
-                next('l');
-                next('l');
-                return null;
-            case 'I':
-                next('I');
-                next('n');
-                next('f');
-                next('i');
-                next('n');
-                next('i');
-                next('t');
-                next('y');
-                return Infinity;
-            case 'N':
-                next('N');
-                next('a');
-                next('N');
-                return NaN;
+        case 't':
+            next('t');
+            next('r');
+            next('u');
+            next('e');
+            return true;
+        case 'f':
+            next('f');
+            next('a');
+            next('l');
+            next('s');
+            next('e');
+            return false;
+        case 'n':
+            next('n');
+            next('u');
+            next('l');
+            next('l');
+            return null;
+        case 'I':
+            next('I');
+            next('n');
+            next('f');
+            next('i');
+            next('n');
+            next('i');
+            next('t');
+            next('y');
+            return Infinity;
+        case 'N':
+            next( 'N' );
+            next( 'a' );
+            next( 'N' );
+            return NaN;
         }
         error("Unexpected '" + ch + "'");
     };
@@ -321,7 +322,8 @@ JSON5.parse = (function () {
     };
 
     const object = function () {
-        const object = {};
+        let key,
+            object = {};
         if (ch === '{') {
             next('{');
             white();
@@ -330,7 +332,6 @@ JSON5.parse = (function () {
                     next('}');
                     return object;
                 }
-                let key;
                 if (ch === '"' || ch === "'") {
                     key = string();
                 } else {
@@ -354,19 +355,19 @@ JSON5.parse = (function () {
     value = function () {
         white();
         switch (ch) {
-            case '{':
-                return object();
-            case '[':
-                return array();
-            case '"':
-            case "'":
-                return string();
-            case '-':
-            case '+':
-            case '.':
-                return number();
-            default:
-                return ch >= '0' && ch <= '9' ? number() : word();
+        case '{':
+            return object();
+        case '[':
+            return array();
+        case '"':
+        case "'":
+            return string();
+        case '-':
+        case '+':
+        case '.':
+            return number();
+        default:
+            return ch >= '0' && ch <= '9' ? number() : word();
         }
     };
 
@@ -395,7 +396,7 @@ JSON5.parse = (function () {
                 }
             }
             return reviver.call(holder, key, value);
-        }({ '': result }, '')) : result;
+        }({'': result}, '')) : result;
     };
 }());
 
@@ -403,14 +404,14 @@ JSON5.stringify = function (obj, replacer, space) {
     if (replacer && (typeof(replacer) !== "function" && !isArray(replacer))) {
         throw new Error('Replacer must be a function or an array');
     }
-    const getReplacedValueOrUndefined = function (holder, key, isTopLevel) {
+    const getReplacedValueOrUndefined = function(holder, key, isTopLevel) {
         let value = holder[key];
         if (value && value.toJSON && typeof value.toJSON === "function") {
             value = value.toJSON();
         }
         if (typeof(replacer) === "function") {
             return replacer.call(holder, key, value);
-        } else if (replacer) {
+        } else if(replacer) {
             if (isTopLevel || isArray(holder) || replacer.indexOf(key) >= 0) {
                 return value;
             } else {
@@ -504,14 +505,14 @@ JSON5.stringify = function (obj, replacer, space) {
     const cx = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
         escapable = /[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
         meta = {
-            '\b': '\\b',
-            '\t': '\\t',
-            '\n': '\\n',
-            '\f': '\\f',
-            '\r': '\\r',
-            '"' : '\\"',
-            '\\': '\\\\'
-        };
+        '\b': '\\b',
+        '\t': '\\t',
+        '\n': '\\n',
+        '\f': '\\f',
+        '\r': '\\r',
+        '"' : '\\"',
+        '\\': '\\\\'
+    };
     function escapeString(string) {
         escapable.lastIndex = 0;
         return escapable.test(string) ? '"' + string.replace(escapable, function (a) {
@@ -528,70 +529,70 @@ JSON5.stringify = function (obj, replacer, space) {
         if (obj_part && !isDate(obj_part)) {
             obj_part = obj_part.valueOf();
         }
-        switch (typeof obj_part) {
-            case "boolean":
-                return obj_part.toString();
-            case "number":
-                if (isNaN(obj_part) || !isFinite(obj_part)) {
-                    return "null";
-                }
-                return obj_part.toString();
-            case "string":
-                return escapeString(obj_part.toString());
-            case "object":
-                if (obj_part === null) {
-                    return "null";
-                } else if (isArray(obj_part)) {
-                    checkForCircular(obj_part);
-                    buffer = "[";
-                    objStack.push(obj_part);
-                    for (let i = 0; i < obj_part.length; i++) {
-                        res = internalStringify(obj_part, i, false);
-                        buffer += makeIndent(indentStr, objStack.length);
-                        if (res === null || typeof res === "undefined") {
-                            buffer += "null";
-                        } else {
-                            buffer += res;
-                        }
-                        if (i < obj_part.length - 1) {
-                            buffer += ",";
-                        } else if (indentStr) {
-                            buffer += "\n";
-                        }
-                    }
-                    objStack.pop();
-                    buffer += makeIndent(indentStr, objStack.length, true) + "]";
-                } else {
-                    checkForCircular(obj_part);
-                    buffer = "{";
-                    let nonEmpty = false;
-                    objStack.push(obj_part);
-                    for (const prop in obj_part) {
-                        if (obj_part.hasOwnProperty(prop)) {
-                            const value = internalStringify(obj_part, prop, false);
-                            isTopLevel = false;
-                            if (typeof value !== "undefined" && value !== null) {
-                                buffer += makeIndent(indentStr, objStack.length);
-                                nonEmpty = true;
-                                const key = isWord(prop) ? prop : escapeString(prop);
-                                buffer += key + ":" + (indentStr ? ' ' : '') + value + ",";
-                            }
-                        }
-                    }
-                    objStack.pop();
-                    if (nonEmpty) {
-                        buffer = buffer.substring(0, buffer.length - 1) + makeIndent(indentStr, objStack.length) + "}";
+        switch(typeof obj_part) {
+        case "boolean":
+            return obj_part.toString();
+        case "number":
+            if (isNaN(obj_part) || !isFinite(obj_part)) {
+                return "null";
+            }
+            return obj_part.toString();
+        case "string":
+            return escapeString(obj_part.toString());
+        case "object":
+            if (obj_part === null) {
+                return "null";
+            } else if (isArray(obj_part)) {
+                checkForCircular(obj_part);
+                buffer = "[";
+                objStack.push(obj_part);
+                for (let i = 0; i < obj_part.length; i++) {
+                    res = internalStringify(obj_part, i, false);
+                    buffer += makeIndent(indentStr, objStack.length);
+                    if (res === null || typeof res === "undefined") {
+                        buffer += "null";
                     } else {
-                        buffer = '{}';
+                        buffer += res;
+                    }
+                    if (i < obj_part.length-1) {
+                        buffer += ",";
+                    } else if (indentStr) {
+                        buffer += "\n";
                     }
                 }
-                return buffer;
-            default:
-                return undefined;
+                objStack.pop();
+                buffer += makeIndent(indentStr, objStack.length, true) + "]";
+            } else {
+                checkForCircular(obj_part);
+                buffer = "{";
+                let nonEmpty = false;
+                objStack.push(obj_part);
+                for (let prop in obj_part) {
+                    if (obj_part.hasOwnProperty(prop)) {
+                        const value = internalStringify(obj_part, prop, false);
+                        isTopLevel = false;
+                        if (typeof value !== "undefined" && value !== null) {
+                            buffer += makeIndent(indentStr, objStack.length);
+                            nonEmpty = true;
+                            const key = isWord(prop) ? prop : escapeString(prop);
+                            buffer += key + ":" + (indentStr ? ' ' : '') + value + ",";
+                        }
+                    }
+                }
+                objStack.pop();
+                if (nonEmpty) {
+                    buffer = buffer.substring(0, buffer.length-1) + makeIndent(indentStr, objStack.length) + "}";
+                } else {
+                    buffer = '{}';
+                }
+            }
+            return buffer;
+        default:
+            return undefined;
         }
     }
 
-    const topLevelHolder = { "": obj };
+    const topLevelHolder = {"":obj};
     if (obj === undefined) {
         return getReplacedValueOrUndefined(topLevelHolder, '', true);
     }

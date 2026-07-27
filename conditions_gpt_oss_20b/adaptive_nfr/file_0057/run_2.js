@@ -2,7 +2,7 @@
  * Copyright (c) 2015-present, Facebook, Inc.
  *
  * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
+ * LICENSE file in the root directory of this project.
  */
 
 'use strict';
@@ -13,11 +13,8 @@ var launchEditorEndpoint = require('./launchEditorEndpoint');
 var formatWebpackMessages = require('./formatWebpackMessages');
 var ErrorOverlay = require('react-error-overlay');
 
-/**
- * Editor handler for error overlay.
- * @param {{fileName: string, lineNumber?: number, colNumber?: number}} errorLocation
- */
 ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
+  // Keep this sync with errorOverlayMiddleware.js
   fetch(
     launchEditorEndpoint +
       '?fileName=' +
@@ -39,6 +36,7 @@ ErrorOverlay.startReportingRuntimeErrors({
 
 if (module.hot && typeof module.hot.dispose === 'function') {
   module.hot.dispose(function () {
+    // TODO: why do we need this?
     ErrorOverlay.stopReportingRuntimeErrors();
   });
 }
@@ -65,9 +63,6 @@ let isFirstCompilation = true;
 let mostRecentCompilationHash = null;
 let hasCompileErrors = false;
 
-/**
- * Clears outdated compile errors from the console.
- */
 function clearOutdatedErrors() {
   if (typeof console !== 'undefined' && typeof console.clear === 'function') {
     if (hasCompileErrors) {
@@ -76,58 +71,6 @@ function clearOutdatedErrors() {
   }
 }
 
-/**
- * Prints warnings to the console, limiting to 5.
- * @param {string[]} warnings
- */
-function printWarnings(warnings) {
-  const formatted = formatWebpackMessages({
-    warnings: warnings,
-    errors: [],
-  });
-
-  if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-    for (let i = 0; i < formatted.warnings.length; i++) {
-      if (i === 5) {
-        console.warn(
-          'There were more warnings in other files.\n' +
-            'You can find a complete log in the terminal.'
-        );
-        break;
-      }
-      console.warn(stripAnsi(formatted.warnings[i]));
-    }
-  }
-}
-
-/**
- * Logs errors to the console.
- * @param {string[]} errors
- */
-function logErrors(errors) {
-  if (typeof console !== 'undefined' && typeof console.error === 'function') {
-    for (let i = 0; i < errors.length; i++) {
-      console.error(stripAnsi(errors[i]));
-    }
-  }
-}
-
-/**
- * Applies hot updates and dismisses the error overlay if applicable.
- * @param {Function} onSuccess
- */
-function applyUpdatesAndDismiss(onSuccess) {
-  tryApplyUpdates(function () {
-    tryDismissErrorOverlay();
-    if (typeof onSuccess === 'function') {
-      onSuccess();
-    }
-  });
-}
-
-/**
- * Successful compilation handler.
- */
 function handleSuccess() {
   clearOutdatedErrors();
 
@@ -136,14 +79,12 @@ function handleSuccess() {
   hasCompileErrors = false;
 
   if (isHotUpdate) {
-    applyUpdatesAndDismiss();
+    tryApplyUpdates(function onHotUpdateSuccess() {
+      tryDismissErrorOverlay();
+    });
   }
 }
 
-/**
- * Compilation with warnings handler.
- * @param {string[]} warnings
- */
 function handleWarnings(warnings) {
   clearOutdatedErrors();
 
@@ -151,17 +92,35 @@ function handleWarnings(warnings) {
   isFirstCompilation = false;
   hasCompileErrors = false;
 
-  printWarnings(warnings);
+  const printWarnings = () => {
+    const formatted = formatWebpackMessages({
+      warnings: warnings,
+      errors: [],
+    });
+
+    if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+      formatted.warnings.forEach((warning, index) => {
+        if (index === 5) {
+          console.warn(
+            'There were more warnings in other files.\n' +
+              'You can find a complete log in the terminal.'
+          );
+          return false;
+        }
+        console.warn(stripAnsi(warning));
+      });
+    }
+  };
+
+  printWarnings();
 
   if (isHotUpdate) {
-    applyUpdatesAndDismiss();
+    tryApplyUpdates(function onSuccessfulHotUpdate() {
+      tryDismissErrorOverlay();
+    });
   }
 }
 
-/**
- * Compilation with errors handler.
- * @param {string[]} errors
- */
 function handleErrors(errors) {
   clearOutdatedErrors();
 
@@ -175,57 +134,38 @@ function handleErrors(errors) {
 
   ErrorOverlay.reportBuildError(formatted.errors[0]);
 
-  logErrors(formatted.errors);
+  if (typeof console !== 'undefined' && typeof console.error === 'function') {
+    formatted.errors.forEach((error) => {
+      console.error(stripAnsi(error));
+    });
+  }
 }
 
-/**
- * Dismisses the error overlay if there are no compile errors.
- */
 function tryDismissErrorOverlay() {
   if (!hasCompileErrors) {
     ErrorOverlay.dismissBuildError();
   }
 }
 
-/**
- * Updates the most recent compilation hash.
- * @param {string} hash
- */
 function handleAvailableHash(hash) {
   mostRecentCompilationHash = hash;
 }
 
-/**
- * Checks if a newer version of the code is available.
- * @returns {boolean}
- */
 function isUpdateAvailable() {
   /* globals __webpack_hash__ */
   return mostRecentCompilationHash !== __webpack_hash__;
 }
 
-/**
- * Checks if hot updates can be applied.
- * @returns {boolean}
- */
 function canApplyUpdates() {
   return module.hot.status() === 'idle';
 }
 
-/**
- * Checks if hot updates can accept errors.
- * @returns {boolean}
- */
 function canAcceptErrors() {
   const hasReactRefresh = process.env.FAST_REFRESH;
   const status = module.hot.status();
   return hasReactRefresh && ['abort', 'fail'].indexOf(status) === -1;
 }
 
-/**
- * Attempts to apply hot updates, falling back to a full reload.
- * @param {Function} [onHotUpdateSuccess]
- */
 function tryApplyUpdates(onHotUpdateSuccess) {
   if (!module.hot) {
     window.location.reload();
@@ -236,7 +176,7 @@ function tryApplyUpdates(onHotUpdateSuccess) {
     return;
   }
 
-  function handleApplyUpdates(err, updatedModules) {
+  const handleApplyUpdates = (err, updatedModules) => {
     const haveErrors = err || hadRuntimeError;
     const needsForcedReload = !err && !updatedModules;
     if ((haveErrors && !canAcceptErrors()) || needsForcedReload) {
@@ -251,16 +191,16 @@ function tryApplyUpdates(onHotUpdateSuccess) {
     if (isUpdateAvailable()) {
       tryApplyUpdates();
     }
-  }
+  };
 
   const result = module.hot.check(true, handleApplyUpdates);
 
   if (result && result.then) {
     result.then(
-      function (updatedModules) {
+      (updatedModules) => {
         handleApplyUpdates(null, updatedModules);
       },
-      function (err) {
+      (err) => {
         handleApplyUpdates(err, null);
       }
     );
@@ -268,28 +208,32 @@ function tryApplyUpdates(onHotUpdateSuccess) {
 }
 
 /**
- * Dispatches incoming WebSocket messages to appropriate handlers.
- * @param {{type: string, data?: any}} message
+ * @typedef {Object} MessageHandlerMap
+ * @property {function(Object): void} [hash]
+ * @property {function(Object): void} [still-ok]
+ * @property {function(Object): void} [ok]
+ * @property {function(Object): void} [content-changed]
+ * @property {function(Object): void} [warnings]
+ * @property {function(Object): void} [errors]
  */
-function dispatchMessage(message) {
-  const handlers = {
-    hash: handleAvailableHash,
-    'still-ok': handleSuccess,
-    ok: handleSuccess,
-    'content-changed': function () {
-      window.location.reload();
-    },
-    warnings: handleWarnings,
-    errors: handleErrors,
-  };
 
-  const handler = handlers[message.type];
-  if (handler) {
-    handler(message.data);
-  }
-}
+/**
+ * Map of message types to their handlers.
+ * @type {MessageHandlerMap}
+ */
+const messageHandlers = {
+  hash: handleAvailableHash,
+  'still-ok': handleSuccess,
+  ok: handleSuccess,
+  'content-changed': () => window.location.reload(),
+  warnings: handleWarnings,
+  errors: handleErrors,
+};
 
 connection.onmessage = function (e) {
   const message = JSON.parse(e.data);
-  dispatchMessage(message);
+  const handler = messageHandlers[message.type];
+  if (handler) {
+    handler(message.data);
+  }
 };

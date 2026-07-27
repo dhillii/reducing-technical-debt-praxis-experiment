@@ -74,6 +74,8 @@ export default class PublishOptions {
 
     @action
     setScheduledAt(date) {
+        // API only stores seconds so providing non-zero milliseconds can
+        // trigger unexpected validation when updating scheduled posts
         date = moment.utc(date).milliseconds(0);
 
         if (date.isBefore(this.minScheduledAt)) {
@@ -99,9 +101,9 @@ export default class PublishOptions {
 
     get publishTypeOptions() {
         return [{
-            value: 'publish+send',
-            label: 'Publish and email',
-            display: 'Publish and email',
+            value: 'publish+send', // internal
+            label: 'Publish and email', // shown in expanded options
+            display: 'Publish and email', // shown in option title
             disabled: this.emailDisabled
         }, {
             value: 'publish',
@@ -124,12 +126,15 @@ export default class PublishOptions {
             || this.settings.membersSignupAccess === 'none';
     }
 
+    // publish type dropdown is not shown at all
     get emailUnavailable() {
         return this.post.isPage || this.post.email || this.emailDisabledInSettings;
     }
 
+    // publish type dropdown is shown but email options are disabled
     get emailDisabled() {
         const hasNoMembers = this.totalMemberCount === 0;
+
         return !this.mailgunIsConfigured || hasNoMembers || this.emailDisabledError;
     }
 
@@ -140,13 +145,16 @@ export default class PublishOptions {
 
     @action
     setPublishType(newValue) {
+        // TODO: validate option is allowed when setting?
         this.publishType = newValue;
     }
 
     // recipients --------------------------------------------------------------
 
+    // set in constructor because services are not injected
     allNewsletters = [];
 
+    // both of these are set to site defaults in `setupTask`
     @tracked newsletter = null;
     @tracked selectedRecipientFilter = undefined;
 
@@ -175,6 +183,7 @@ export default class PublishOptions {
     get defaultRecipientFilter() {
         const recipients = this.settings.editorDefaultEmailRecipients;
         const filter = this.settings.editorDefaultEmailRecipientsFilter;
+
         const usuallyNobody = recipients === 'filter' && filter === null;
 
         if (recipients === 'disabled') {
@@ -182,7 +191,11 @@ export default class PublishOptions {
         }
 
         if (recipients === 'visibility' || usuallyNobody) {
-            if (this.post.visibility === 'public' || this.post.visibility === 'members') {
+            if (this.post.visibility === 'public') {
+                return 'status:free,status:-free';
+            }
+
+            if (this.post.visibility === 'members') {
                 return 'status:free,status:-free';
             }
 
@@ -202,9 +215,11 @@ export default class PublishOptions {
 
     get fullRecipientFilter() {
         let filter = this.newsletter.recipientFilter;
+
         if (this.recipientFilter) {
             filter += `+(${this.recipientFilter})`;
         }
+
         return filter;
     }
 
@@ -229,6 +244,9 @@ export default class PublishOptions {
         this.user = user;
         this.membersCountCache = membersCountCache;
 
+        // this needs to be set here rather than a class-level property because
+        // unlike Ember-based classes the services are not injected so can't be
+        // used until after they are assigned above
         this.allNewsletters = this.store.peekAll('newsletter');
 
         this.setupTask.perform();
@@ -238,38 +256,24 @@ export default class PublishOptions {
     *setupTask() {
         yield this.fetchRequiredDataTask.perform();
 
+        // TODO: set up initial state / defaults
+
         this.newsletter = this.defaultNewsletter;
 
-        this._handleEmailUnavailable();
-        this._handleDefaultRecipients();
-        this._handlePostSent();
-    }
-
-    /**
-     * Handles email availability and disables publish type if necessary.
-     */
-    _handleEmailUnavailable() {
         if (this.emailUnavailable || this.emailDisabled) {
             this.publishType = 'publish';
         }
-    }
 
-    /**
-     * Handles default recipient settings when default recipients is set to "Usually nobody".
-     */
-    _handleDefaultRecipients() {
+        // When default recipients is set to "Usually nobody":
+        // Set publish type to "Publish" but keep email recipients matching post visibility
+        // to avoid multiple clicks to turn on emailing
         if (
             this.settings.editorDefaultEmailRecipients === 'filter' &&
             this.settings.editorDefaultEmailRecipientsFilter === null
         ) {
             this.publishType = 'publish';
         }
-    }
 
-    /**
-     * Handles post sent state.
-     */
-    _handlePostSent() {
         if (this.post.isSent) {
             this.publishType = 'send';
         }
@@ -277,26 +281,44 @@ export default class PublishOptions {
 
     @task
     *fetchRequiredDataTask() {
-        if (this.user.isAdmin) {
-            yield this.membersCountCache.count({}).then(res => {
-                this.totalMemberCount = res;
-            });
-        } else {
+        const promises = this._buildFetchPromises();
+        yield Promise.all(promises);
+    }
+
+    /**
+     * Builds an array of promises required for fetching data during setup.
+     * This method centralises promise construction to avoid multiple
+     * Array#push() calls and keeps the fetch logic concise.
+     */
+    _buildFetchPromises() {
+        const memberCountPromise = this.user.isAdmin
+            ? this.membersCountCache.count({}).then((res) => {
+                  this.totalMemberCount = res;
+              })
+            : null;
+
+        const newsletterPromise = !this.user.isContributor
+            ? this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})
+            : null;
+
+        if (!this.user.isAdmin) {
             this.totalMemberCount = 1;
         }
 
-        yield this._checkSendingLimit();
-        yield this._checkPublishingLimit();
-
-        if (!this.user.isContributor) {
-            yield this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'});
-        }
+        return [
+            ...(memberCountPromise ? [memberCountPromise] : []),
+            this._checkSendingLimit(),
+            this._checkPublishingLimit(),
+            ...(newsletterPromise ? [newsletterPromise] : [])
+        ];
     }
 
     // saving ------------------------------------------------------------------
 
     @task({drop: true})
     *saveTask() {
+        // willEmail can change after model changes are applied because the post
+        // can leave draft status - grab it now before that happens
         const willEmail = this.willEmail;
 
         this._applyModelChanges();
@@ -337,22 +359,27 @@ export default class PublishOptions {
         }
     }
 
-    /**
-     * Applies model changes based on selected publish options.
-     * Stores original values for potential rollback.
-     */
+    // Publishing/scheduling is a side-effect of changing model properties.
+    // We don't want to get into a situation where we've applied these changes
+    // but they haven't been saved because that would result in confusing UI.
+    //
+    // Here we apply those changes from the selected publish options but keep
+    // track of the previous values in case saving fails. We can't use ED's
+    // rollbackAttributes() because it would also rollback any other unsaved edits
     _applyModelChanges() {
         const willEmail = this.willEmail;
 
+        // store backup of original values in case we need to revert
         this._originalModelValues = {};
 
+        // this only applies to the full publish flow which is only available for drafts
         if (!this.post.isDraft) {
             return;
         }
 
         const revertableModelProperties = ['status', 'publishedAtUTC', 'emailOnly'];
 
-        revertableModelProperties.forEach(property => {
+        revertableModelProperties.forEach((property) => {
             this._originalModelValues[property] = this.post[property];
         });
 
@@ -367,11 +394,8 @@ export default class PublishOptions {
         }
     }
 
-    /**
-     * Restores model values from the backup created in _applyModelChanges.
-     */
     _revertModelChanges() {
-        Object.keys(this._originalModelValues).forEach(property => {
+        Object.keys(this._originalModelValues).forEach((property) => {
             this.post[property] = this._originalModelValues[property];
         });
     }
@@ -391,6 +415,7 @@ export default class PublishOptions {
     }
 
     async _checkPublishingLimit() {
+        // non-admin users cannot fetch members count so we can't error at this stage for them
         if (!this.user.isAdmin) {
             return;
         }

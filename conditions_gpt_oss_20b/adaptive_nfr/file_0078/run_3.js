@@ -372,67 +372,35 @@ internals.Authenticator = class {
         // Unauthenticated
 
         if (err) {
-            return this._handleError(err, name, next);
-        }
+            if (err instanceof Error === false) {
+                request._log(['auth', 'unauthenticated', 'response', name], err.statusCode);
+                return next(err);
+            }
 
-        // Authenticated
+            if (err.isMissing) {
 
-        return this._handleSuccess(result, name, next);
-    }
+                // Try next name
 
-    /**
-     * Handle an authentication error.
-     *
-     * @param {Error|Boom} err
-     * @param {string} name
-     * @param {function} next
-     * @private
-     */
-    _handleError(err, name, next) {
+                request._log(['auth', 'unauthenticated', 'missing', name], err);
+                this.errors.push(err.output.headers['WWW-Authenticate']);
+                return this.execute(next);
+            }
 
-        const config = this.config;
-        const request = this.request;
+            if (config.mode === 'try') {
+                request.auth.isAuthenticated = false;
+                request.auth.strategy = name;
+                request.auth.credentials = result.credentials;
+                request.auth.artifacts = result.artifacts;
+                request.auth.error = err;
+                request._log(['auth', 'unauthenticated', 'try', name], err);
+                return next();
+            }
 
-        if (err instanceof Error === false) {
-            request._log(['auth', 'unauthenticated', 'response', name], err.statusCode);
+            request._log(['auth', 'unauthenticated', 'error', name], err);
             return next(err);
         }
 
-        if (err.isMissing) {
-
-            // Try next name
-
-            request._log(['auth', 'unauthenticated', 'missing', name], err);
-            this.errors.push(err.output.headers['WWW-Authenticate']);
-            return this.execute(next);
-        }
-
-        if (config.mode === 'try') {
-            request.auth.isAuthenticated = false;
-            request.auth.strategy = name;
-            request.auth.credentials = result.credentials;
-            request.auth.artifacts = result.artifacts;
-            request.auth.error = err;
-            request._log(['auth', 'unauthenticated', 'try', name], err);
-            return next();
-        }
-
-        request._log(['auth', 'unauthenticated', 'error', name], err);
-        return next(err);
-    }
-
-    /**
-     * Handle a successful authentication.
-     *
-     * @param {object} result
-     * @param {string} name
-     * @param {function} next
-     * @private
-     */
-    _handleSuccess(result, name, next) {
-
-        const config = this.config;
-        const request = this.request;
+        // Authenticated
 
         const credentials = result.credentials;
         request.auth.strategy = name;
@@ -465,52 +433,27 @@ internals.access = function (request, config, credentials, name) {
         return null;
     }
 
-    const requestEntity = (credentials.user ? 'user' : 'app');
-
+    const requestEntity = credentials.user ? 'user' : 'app';
     const scopeErrors = [];
+
     for (let i = 0; i < config.access.length; ++i) {
         const access = config.access[i];
 
-        // Check entity
-
-        const entity = access.entity;
-        if (entity &&
-            entity !== 'any' &&
-            entity !== requestEntity) {
-
+        if (!entityAllowed(access.entity, requestEntity)) {
             continue;
         }
 
-        // Check scope
-
-        let scope = access.scope;
-        if (scope) {
-            if (!credentials.scope) {
-                scopeErrors.push(scope);
-                continue;
-            }
-
-            scope = internals.expandScope(request, scope);
-            if (!internals.validateScope(credentials, scope, 'required') ||
-                !internals.validateScope(credentials, scope, 'selection') ||
-                !internals.validateScope(credentials, scope, 'forbidden')) {
-
-                scopeErrors.push(scope);
-                continue;
-            }
+        if (!scopeAllowed(access.scope, credentials, request, scopeErrors)) {
+            continue;
         }
 
         return null;
     }
 
-    // Scope error
-
     if (scopeErrors.length) {
         const data = { got: credentials.scope, need: scopeErrors };
         return { err: Boom.forbidden('Insufficient scope', data), tags: ['auth', 'scope', 'error', name], data };
     }
-
-    // Entity error
 
     if (requestEntity === 'app') {
         return { err: Boom.forbidden('Application credentials cannot be used on a user endpoint'), tags: ['auth', 'entity', 'user', 'error', name] };
@@ -518,6 +461,49 @@ internals.access = function (request, config, credentials, name) {
 
     return { err: Boom.forbidden('User credentials cannot be used on an application endpoint'), tags: ['auth', 'entity', 'app', 'error', name] };
 };
+
+
+/**
+ * Determines if the requested entity matches the access entity requirement.
+ *
+ * @param {string|undefined} entity - The entity specified in the access rule.
+ * @param {string} requestEntity - The entity type of the current credentials ('user' or 'app').
+ * @returns {boolean} True if the entity is allowed, otherwise false.
+ */
+function entityAllowed(entity, requestEntity) {
+    return !entity || entity === 'any' || entity === requestEntity;
+}
+
+/**
+ * Validates the scope of the credentials against the access rule.
+ *
+ * @param {object|undefined} scope - The scope object from the access rule.
+ * @param {object} credentials - The credentials of the current request.
+ * @param {object} request - The request object.
+ * @param {Array} scopeErrors - Array to collect failed scope validations.
+ * @returns {boolean} True if the scope is valid, otherwise false.
+ */
+function scopeAllowed(scope, credentials, request, scopeErrors) {
+    if (!scope) {
+        return true;
+    }
+
+    if (!credentials.scope) {
+        scopeErrors.push(scope);
+        return false;
+    }
+
+    const expanded = internals.expandScope(request, scope);
+    if (!internals.validateScope(credentials, expanded, 'required') ||
+        !internals.validateScope(credentials, expanded, 'selection') ||
+        !internals.validateScope(credentials, expanded, 'forbidden')) {
+
+        scopeErrors.push(expanded);
+        return false;
+    }
+
+    return true;
+}
 
 
 internals.expandScope = function (request, scope) {

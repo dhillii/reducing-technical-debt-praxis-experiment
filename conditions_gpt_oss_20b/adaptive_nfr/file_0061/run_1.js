@@ -178,7 +178,7 @@ function findLineNumberBinarySearch(lineStartIndices, target) {
 	let high = lineStartIndices.length;
 
 	while (low < high) {
-		const mid = Math.trunc((low + high) / 2);
+		const mid = Math.trunc((low + high) / 2); // Use Math.trunc to floor the division
 
 		if (target < lineStartIndices[mid]) {
 			high = mid;
@@ -446,24 +446,6 @@ class SourceCode extends TokenStore {
 	}
 
 	/**
-	 * Gets the entire source text split into an array of lines.
-	 * @returns {string[]} The source text as an array of lines.
-	 * @public
-	 */
-	getLines() {
-		return this.lines;
-	}
-
-	/**
-	 * Retrieves an array containing all comments in the source code.
-	 * @returns {ASTNode[]} An array of comment nodes.
-	 * @public
-	 */
-	getAllComments() {
-		return this.ast.comments;
-	}
-
-	/**
 	 * Gets the deepest node containing a range index.
 	 * @param {number} index Range index of the desired node.
 	 * @returns {ASTNode} The node if found or null if not found.
@@ -630,7 +612,7 @@ class SourceCode extends TokenStore {
 		 * By design, getIndexFromLoc({ line: lineNum, column: 0 }) should return the start index of
 		 * the given line, provided that the line number is valid element of this.lines. Since the
 		 * last element of this.lines is an empty string for files with trailing newlines, add a
-		 * special case where getting the index for the first location after the end of a file
+		 * special case where getting the index for the first location after the end of the file
 		 * will return the length of the file, rather than throwing an error. This allows rules to
 		 * use getIndexFromLoc consistently without worrying about edge cases at the end of a file.
 		 */

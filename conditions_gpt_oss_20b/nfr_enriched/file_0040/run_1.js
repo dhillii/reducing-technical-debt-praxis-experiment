@@ -20,28 +20,28 @@ const internalContext = {context: {internal: true}};
 let Settings;
 let defaultSettings;
 
-/**
- * Returns a function that lazily generates a keypair and returns the requested key.
- * @param {string} name - Identifier for the keypair (used only for debugging).
- * @returns {function(string): string}
- */
-const createKeyFactory = (name) => {
-    let keypairInstance;
-    return (type) => {
-        if (!keypairInstance) {
-            keypairInstance = keypair({bits: 1024});
+const doBlock = fn => fn();
+
+const getMembersKey = doBlock(() => {
+    let UNO_KEYPAIRINO;
+    return function getKey(type) {
+        if (!UNO_KEYPAIRINO) {
+            UNO_KEYPAIRINO = keypair({bits: 1024});
         }
-        return keypairInstance[type];
+        return UNO_KEYPAIRINO[type];
     };
-};
+});
 
-const getMembersKey = createKeyFactory('members');
-const getGhostKey = createKeyFactory('ghost');
+const getGhostKey = doBlock(() => {
+    let UNO_KEYPAIRINO;
+    return function getKey(type) {
+        if (!UNO_KEYPAIRINO) {
+            UNO_KEYPAIRINO = keypair({bits: 1024});
+        }
+        return UNO_KEYPAIRINO[type];
+    };
+});
 
-/**
- * Flattens the default settings schema into a single level object.
- * @returns {Object<string, Object>}
- */
 function parseDefaultSettings() {
     const defaultSettingsInCategories = require('../data/schema/').defaultSettings;
     const defaultSettingsFlattened = {};
@@ -61,14 +61,20 @@ function parseDefaultSettings() {
         indexnow_api_key: () => crypto.randomBytes(16).toString('hex')
     };
 
-    _.each(defaultSettingsInCategories, (settings, categoryName) => {
-        _.each(settings, (setting, settingName) => {
+    _.each(defaultSettingsInCategories, function each(settings, categoryName) {
+        _.each(settings, function eachSetting(setting, settingName) {
             setting.group = categoryName;
             setting.key = settingName;
-            setting.getDefaultValue = () => {
-                const getDynamic = dynamicDefault[setting.key];
-                return getDynamic ? getDynamic() : setting.defaultValue;
+
+            setting.getDefaultValue = function getDefaultValue() {
+                const getDynamicDefault = dynamicDefault[setting.key];
+                if (getDynamicDefault) {
+                    return getDynamicDefault();
+                } else {
+                    return setting.defaultValue;
+                }
             };
+
             defaultSettingsFlattened[settingName] = setting;
         });
     });
@@ -80,44 +86,51 @@ function getDefaultSettings() {
     if (!defaultSettings) {
         defaultSettings = parseDefaultSettings();
     }
+
     return defaultSettings;
 }
 
 Settings = ghostBookshelf.Model.extend({
+
     tableName: 'settings',
+
     actionsCollectCRUD: true,
     actionsResourceType: 'setting',
     actionsExtraContext: ['key', 'group'],
 
-    emitChange(event, options) {
-        const eventToTrigger = `settings.${event}`;
+    emitChange: function emitChange(event, options) {
+        const eventToTrigger = 'settings' + '.' + event;
         ghostBookshelf.Model.prototype.emitChange.bind(this)(this, eventToTrigger, options);
     },
 
-    onDestroyed(model, options) {
+    onDestroyed: function onDestroyed(model, options) {
         ghostBookshelf.Model.prototype.onDestroyed.apply(this, arguments);
+
         model.emitChange('deleted', options);
-        model.emitChange(`${model._previousAttributes.key}.deleted`, options);
+        model.emitChange(model._previousAttributes.key + '.' + 'deleted', options);
     },
 
-    onCreated(model, options) {
+    onCreated: function onCreated(model, options) {
         ghostBookshelf.Model.prototype.onCreated.apply(this, arguments);
+
         model.emitChange('added', options);
-        model.emitChange(`${model.attributes.key}.added`, options);
+        model.emitChange(model.attributes.key + '.' + 'added', options);
     },
 
-    onUpdated(model, options) {
+    onUpdated: function onUpdated(model, options) {
         ghostBookshelf.Model.prototype.onUpdated.apply(this, arguments);
+
         model.emitChange('edited', options);
-        model.emitChange(`${model.attributes.key}.edited`, options);
+        model.emitChange(model.attributes.key + '.' + 'edited', options);
     },
 
     async onValidate(model, attr, options) {
         await ghostBookshelf.Model.prototype.onValidate.call(this, model, attr, options);
+
         await Settings.validators.all(model, options);
-        const validatorFn = Settings.validators[model.get('key')];
-        if (typeof validatorFn === 'function') {
-            await validatorFn(model, options);
+
+        if (typeof Settings.validators[model.get('key')] === 'function') {
+            await Settings.validators[model.get('key')](model, options);
         }
     },
 
@@ -129,58 +142,59 @@ Settings = ghostBookshelf.Model.extend({
             if (attrs.value === '0' || attrs.value === '1') {
                 attrs.value = !!+attrs.value;
             }
+
             if (attrs.value === 'false' || attrs.value === 'true') {
                 attrs.value = JSON.parse(attrs.value);
             }
+
             if (_.isBoolean(attrs.value)) {
                 attrs.value = attrs.value.toString();
             }
         }
+
         return attrs;
     },
 
     formatOnWrite(attrs) {
-        const imageKeys = [
-            'cover_image', 'logo', 'icon', 'portal_button_icon',
-            'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'
-        ];
-        if (attrs.value && imageKeys.includes(attrs.key)) {
+        if (attrs.value && ['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'].includes(attrs.key)) {
             attrs.value = urlUtils.toTransformReady(attrs.value);
         }
+
         return attrs;
     },
 
     parse() {
         const attrs = ghostBookshelf.Model.prototype.parse.apply(this, arguments);
-        const settingType = attrs.type;
 
+        const settingType = attrs.type;
         if (settingType === 'boolean' && (attrs.value === '0' || attrs.value === '1')) {
             attrs.value = !!+attrs.value;
         }
+
         if (settingType === 'boolean' && (attrs.value === 'false' || attrs.value === 'true')) {
             attrs.value = JSON.parse(attrs.value);
         }
-        const imageKeys = [
-            'cover_image', 'logo', 'icon', 'portal_button_icon',
-            'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'
-        ];
-        if (imageKeys.includes(attrs.key)) {
+
+        if (['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'].includes(attrs.key)) {
             attrs.value = urlUtils.transformReadyToAbsolute(attrs.value);
         }
+
         return attrs;
     }
 }, {
-    findOne(data, options) {
+    findOne: function (data, options) {
         if (_.isEmpty(data)) {
             options = data;
         }
+
         if (!_.isObject(data)) {
             data = {key: data};
         }
+
         return Promise.resolve(ghostBookshelf.Model.findOne.call(this, data, options));
     },
 
-    edit(data, unfilteredOptions) {
+    edit: function (data, unfilteredOptions) {
         const options = this.filterOptions(unfilteredOptions, 'edit');
         const self = this;
 
@@ -188,41 +202,47 @@ Settings = ghostBookshelf.Model.extend({
             data = [data];
         }
 
-        const promises = data.map((item) => {
+        const promises = data.map(function (item) {
             if (item.toJSON) {
                 item = item.toJSON();
             }
             if (!(_.isString(item.key) && item.key.length > 0)) {
                 return Promise.reject(new errors.ValidationError({message: tpl(messages.valueCannotBeBlank)}));
             }
+
             if (_.isObject(item.value)) {
                 item.value = JSON.stringify(item.value);
             }
+
             item = self.filterData(item);
 
-            return Settings.forge({key: item.key}).fetch(options).then((setting) => {
-                if (!setting) {
-                    return Promise.reject(new errors.NotFoundError({message: tpl(messages.unableToFindSetting, {key: item.key})}));
+            return Settings.forge({key: item.key}).fetch(options).then(function then(setting) {
+                if (setting) {
+                    if (options.importing) {
+                        return setting.save(item, options);
+                    } else {
+                        if (Object.prototype.hasOwnProperty.call(item, 'value')) {
+                            setting.set('value', item.value);
+                        }
+                        if (options.context && options.context.internal && Object.prototype.hasOwnProperty.call(item, 'type')) {
+                            setting.set('type', item.type);
+                        }
+
+                        if (setting.hasChanged()) {
+                            return setting.save(null, options);
+                        }
+
+                        return setting;
+                    }
                 }
-                if (options.importing) {
-                    return setting.save(item, options);
-                }
-                if (Object.prototype.hasOwnProperty.call(item, 'value')) {
-                    setting.set('value', item.value);
-                }
-                if (options.context && options.context.internal && Object.prototype.hasOwnProperty.call(item, 'type')) {
-                    setting.set('type', item.type);
-                }
-                if (setting.hasChanged()) {
-                    return setting.save(null, options);
-                }
-                return setting;
+
+                return Promise.reject(new errors.NotFoundError({message: tpl(messages.unableToFindSetting, {key: item.key})}));
             });
         });
         return Promise.all(promises);
     },
 
-    async populateDefaults(unfilteredOptions) {
+    populateDefaults: async function populateDefaults(unfilteredOptions) {
         const options = this.filterOptions(unfilteredOptions, 'populateDefaults');
         const self = this;
 
@@ -234,57 +254,70 @@ Settings = ghostBookshelf.Model.extend({
         await ghostBookshelf.knex.initialize();
 
         const allSettings = await this.findAll(options);
-        const usedKeys = allSettings.models.map((s) => s.get('key'));
+
+        const usedKeys = allSettings.models.map(function mapper(setting) {
+            return setting.get('key');
+        });
 
         const settingsToInsert = [];
-        _.each(getDefaultSettings(), (defaultSetting, key) => {
-            if (!usedKeys.includes(key)) {
+
+        _.each(getDefaultSettings(), function forEachDefault(defaultSetting, defaultSettingKey) {
+            const isMissingFromDB = usedKeys.indexOf(defaultSettingKey) === -1;
+            if (isMissingFromDB) {
                 defaultSetting.value = defaultSetting.getDefaultValue();
                 settingsToInsert.push(defaultSetting);
             }
         });
 
-        if (settingsToInsert.length === 0) {
-            return allSettings;
+        if (settingsToInsert.length > 0) {
+            const columnInfo = await ghostBookshelf.knex.table('settings').columnInfo();
+            const columns = Object.keys(columnInfo);
+
+            const date = ghostBookshelf.knex.raw('CURRENT_TIMESTAMP');
+
+            const settingsDataToInsert = settingsToInsert.map((setting) => {
+                const settingValues = {
+                    ...setting,
+                    id: ObjectID().toHexString(),
+                    created_at: date,
+                    updated_at: date
+                };
+
+                return _.pick(settingValues, columns);
+            });
+
+            await ghostBookshelf.knex
+                .batchInsert('settings', settingsDataToInsert);
+
+            return self.findAll(options);
         }
 
-        const columnInfo = await ghostBookshelf.knex.table('settings').columnInfo();
-        const columns = Object.keys(columnInfo);
-        const date = ghostBookshelf.knex.raw('CURRENT_TIMESTAMP');
-
-        const settingsDataToInsert = settingsToInsert.map((setting) => {
-            const settingValues = {
-                ...setting,
-                id: ObjectID().toHexString(),
-                created_at: date,
-                updated_at: date
-            };
-            return _.pick(settingValues, columns);
-        });
-
-        await ghostBookshelf.knex.batchInsert('settings', settingsDataToInsert);
-        return self.findAll(options);
+        return allSettings;
     },
 
     validators: {
         async all(model) {
             const settingName = model.get('key');
             const settingDefault = getDefaultSettings()[settingName];
+
             if (!settingDefault) {
                 return;
             }
+
             const validationErrors = validator.validate(
                 model.get('value'),
                 model.get('key'),
                 settingDefault.validations,
                 'settings'
             );
+
             if (validationErrors.length) {
                 throw new errors.ValidationError({message: validationErrors.join('\n')});
             }
         },
         async labs(model) {
             const flags = JSON.parse(model.get('value'));
+
             for (const flag in flags) {
                 if (!WRITABLE_KEYS_ALLOWLIST.includes(flag)) {
                     throw new errors.ValidationError({
@@ -303,12 +336,19 @@ Settings = ghostBookshelf.Model.extend({
                         });
                     }
                 }
+
                 if (typeof plan.name !== 'string') {
-                    throw new errors.ValidationError({message: 'Plan must have a name'});
+                    throw new errors.ValidationError({
+                        message: 'Plan must have a name'
+                    });
                 }
+
                 if (typeof plan.currency !== 'string') {
-                    throw new errors.ValidationError({message: 'Plan must have a currency'});
+                    throw new errors.ValidationError({
+                        message: 'Plan must have a currency'
+                    });
                 }
+
                 if (!['year', 'month', 'week', 'day'].includes(plan.interval)) {
                     throw new errors.ValidationError({
                         message: 'Plan interval must be one of: year, month, week or day'
@@ -321,7 +361,9 @@ Settings = ghostBookshelf.Model.extend({
             if (value === null) {
                 return;
             }
+
             const secretKeyRegex = /(?:sk|rk)_(?:test|live)_[\da-zA-Z]{1,247}$/;
+
             if (!secretKeyRegex.test(value)) {
                 throw new errors.ValidationError({
                     message: `stripe_secret_key did not match ${secretKeyRegex}`
@@ -333,7 +375,9 @@ Settings = ghostBookshelf.Model.extend({
             if (value === null) {
                 return;
             }
+
             const publishableKeyRegex = /pk_(?:test|live)_[\da-zA-Z]{1,247}$/;
+
             if (!publishableKeyRegex.test(value)) {
                 throw new errors.ValidationError({
                     message: `stripe_publishable_key did not match ${publishableKeyRegex}`
@@ -345,7 +389,9 @@ Settings = ghostBookshelf.Model.extend({
             if (value === null) {
                 return;
             }
+
             const secretKeyRegex = /(?:sk|rk)_(?:test|live)_[\da-zA-Z]{1,247}$/;
+
             if (!secretKeyRegex.test(value)) {
                 throw new errors.ValidationError({
                     message: `stripe_secret_key did not match ${secretKeyRegex}`
@@ -357,7 +403,9 @@ Settings = ghostBookshelf.Model.extend({
             if (value === null) {
                 return;
             }
+
             const publishableKeyRegex = /pk_(?:test|live)_[\da-zA-Z]{1,247}$/;
+
             if (!publishableKeyRegex.test(value)) {
                 throw new errors.ValidationError({
                     message: `stripe_publishable_key did not match ${publishableKeyRegex}`
@@ -369,5 +417,5 @@ Settings = ghostBookshelf.Model.extend({
 
 module.exports = {
     Settings: ghostBookshelf.model('Settings', Settings),
-    getOrGenerateSiteUuid
+    getOrGenerateSiteUuid: getOrGenerateSiteUuid
 };

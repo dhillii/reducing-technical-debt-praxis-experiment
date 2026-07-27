@@ -4,7 +4,6 @@ const grunt = require('../grunt');
 const path = require('path');
 
 let col1len = 0;
-
 exports.initCol1 = function (str) {
   col1len = Math.max(col1len, str.length);
 };

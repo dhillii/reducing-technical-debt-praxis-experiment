@@ -20,12 +20,9 @@ const initialState = fromJS({
 const handleAddComponentsToDynamicZone = (state, action) => {
   const { name, components, shouldAddComponents } = action;
   return state.updateIn(['modifiedData', name], list => {
-    let updatedList = list;
-    if (shouldAddComponents) {
-      updatedList = list.concat(components);
-    } else {
-      updatedList = list.filter(comp => components.indexOf(comp) === -1);
-    }
+    const updatedList = shouldAddComponents
+      ? list.concat(components)
+      : list.filter(comp => components.indexOf(comp) === -1);
     return List(makeUnique(updatedList.toJS()));
   });
 };
@@ -56,18 +53,14 @@ const handleOnChange = (state, action) => {
         .update('dominant', () => (value === 'manyToMany' ? true : null))
         .update('name', oldValue => pluralize(snakeCase(oldValue), shouldPluralizeName(value)))
         .update('targetAttribute', oldValue => {
-          if (['oneWay', 'manyWay'].includes(value)) {
-            return '-';
-          }
+          if (['oneWay', 'manyWay'].includes(value)) return '-';
           return pluralize(
             oldValue === '-' ? snakeCase(oneThatIsCreatingARelationWithAnother) : oldValue,
             shouldPluralizeTargetAttribute(value)
           );
         })
         .update('targetColumnName', oldValue => {
-          if (['oneWay', 'manyWay'].includes(value)) {
-            return null;
-          }
+          if (['oneWay', 'manyWay'].includes(value)) return null;
           return oldValue;
         });
     }
@@ -79,9 +72,7 @@ const handleOnChange = (state, action) => {
       return obj
         .update('target', () => value)
         .update('nature', currentNature => {
-          if (targetContentTypeAllowedRelations === null) {
-            return currentNature;
-          }
+          if (targetContentTypeAllowedRelations === null) return currentNature;
           if (!targetContentTypeAllowedRelations.includes(currentNature)) {
             didChangeNatureBecauseOfRestrictedRelation = true;
             return targetContentTypeAllowedRelations[0];
@@ -89,30 +80,25 @@ const handleOnChange = (state, action) => {
           return currentNature;
         })
         .update('name', () => {
-          if (didChangeNatureBecauseOfRestrictedRelation) {
-            return pluralize(
-              snakeCase(selectedContentTypeFriendlyName),
-              shouldPluralizeName(targetContentTypeAllowedRelations[0])
-            );
-          }
+          const targetName = didChangeNatureBecauseOfRestrictedRelation
+            ? targetContentTypeAllowedRelations[0]
+            : obj.get('nature');
           return pluralize(
             snakeCase(selectedContentTypeFriendlyName),
-            shouldPluralizeName(obj.get('nature'))
+            shouldPluralizeName(targetName)
           );
         })
         .update('targetAttribute', () => {
-          if (['oneWay', 'manyWay'].includes(obj.get('nature'))) {
-            return '-';
-          }
+          const currentNature = obj.get('nature');
+          if (['oneWay', 'manyWay'].includes(currentNature)) return '-';
           if (
             didChangeNatureBecauseOfRestrictedRelation &&
             ['oneWay', 'manyWay'].includes(targetContentTypeAllowedRelations[0])
-          ) {
+          )
             return '-';
-          }
           return pluralize(
             snakeCase(oneThatIsCreatingARelationWithAnother),
-            shouldPluralizeTargetAttribute(obj.get('nature'))
+            shouldPluralizeTargetAttribute(currentNature)
           );
         });
     }
@@ -127,9 +113,7 @@ const handleOnChange = (state, action) => {
 const handleOnChangeAllowedType = (state, action) => {
   if (action.name === 'all') {
     return state.updateIn(['modifiedData', 'allowedTypes'], () => {
-      if (action.value) {
-        return fromJS(['images', 'videos', 'files']);
-      }
+      if (action.value) return fromJS(['images', 'videos', 'files']);
       return null;
     });
   }
@@ -138,9 +122,7 @@ const handleOnChangeAllowedType = (state, action) => {
     let list = currentList || fromJS([]);
     if (list.includes(action.name)) {
       list = list.filter(v => v !== action.name);
-      if (list.size === 0) {
-        return null;
-      }
+      if (list.size === 0) return null;
       return list;
     }
     return list.push(action.name);
@@ -155,7 +137,7 @@ const handleResetProps = () => initialState;
 /**
  * Handles RESET_PROPS_AND_SET_FORM_FOR_ADDING_AN_EXISTING_COMPO action.
  */
-const handleResetPropsAndSetFormForAddingAnExistingCompo = (state, action) => {
+const handleResetPropsAndSetFormForAddingExistingCompo = (state, action) => {
   return initialState.update('modifiedData', () =>
     fromJS({ type: 'component', repeatable: true, ...action.options })
   );
@@ -164,13 +146,13 @@ const handleResetPropsAndSetFormForAddingAnExistingCompo = (state, action) => {
 /**
  * Handles RESET_PROPS_AND_SAVE_CURRENT_DATA action.
  */
-const handleResetPropsAndSaveCurrentData = (state, action) => {
+const handleResetPropsAndSaveCurrentData = state => {
   const componentToCreate = state.getIn(['modifiedData', 'componentToCreate']);
   const modifiedData = fromJS({
     name: componentToCreate.get('name'),
     type: 'component',
     repeatable: false,
-    ...action.options,
+    ...state.getIn(['modifiedData', 'options']),
     component: createComponentUid(
       componentToCreate.get('name'),
       componentToCreate.get('category')
@@ -234,18 +216,10 @@ const handleSetAttributeDataSchema = (state, action) => {
         componentToCreate: { type: 'component' },
       };
     } else {
-      dataToSet = {
-        ...options,
-        type: 'component',
-        repeatable: true,
-      };
+      dataToSet = { ...options, type: 'component', repeatable: true };
     }
   } else if (attributeType === 'dynamiczone') {
-    dataToSet = {
-      ...options,
-      type: 'dynamiczone',
-      components: [],
-    };
+    dataToSet = { ...options, type: 'dynamiczone', components: [] };
   } else if (attributeType === 'text') {
     dataToSet = { ...options, type: 'string' };
   } else if (attributeType === 'number' || attributeType === 'date') {
@@ -304,9 +278,9 @@ const reducer = (state = initialState, action) => {
     case actions.RESET_PROPS:
       return handleResetProps();
     case actions.RESET_PROPS_AND_SET_FORM_FOR_ADDING_AN_EXISTING_COMPO:
-      return handleResetPropsAndSetFormForAddingAnExistingCompo(state, action);
+      return handleResetPropsAndSetFormForAddingExistingCompo(state, action);
     case actions.RESET_PROPS_AND_SAVE_CURRENT_DATA:
-      return handleResetPropsAndSaveCurrentData(state, action);
+      return handleResetPropsAndSaveCurrentData(state);
     case actions.RESET_PROPS_AND_SET_THE_FORM_FOR_ADDING_A_COMPO_TO_A_DZ:
       return handleResetPropsAndSetTheFormForAddingACompoToADZ(state);
     case actions.SET_DATA_TO_EDIT:

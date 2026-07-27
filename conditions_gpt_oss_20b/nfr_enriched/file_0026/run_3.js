@@ -29,29 +29,26 @@ const VisitCountBadge = ({visits}: {visits: number}) => (
     </span>
 );
 
-/**
- * Returns a human‑readable label for a device value.
- * @param value - The raw device value from the API.
- * @returns A user‑friendly label.
- */
-const getDeviceLabel = (value: string): string => {
-    switch (value) {
-        case 'mobile-ios':
-            return 'iOS';
-        case 'mobile-android':
-            return 'Android';
-        case 'desktop':
-            return 'Desktop';
-        case 'bot':
-            return 'Bot';
-        case 'unknown':
-            return 'Unknown';
-        default:
-            return value;
-    }
+// Device label mapping to avoid nested ternary
+const DEVICE_LABELS: Record<string, string> = {
+    'mobile-ios': 'iOS',
+    'mobile-android': 'Android',
+    'desktop': 'Desktop',
+    'bot': 'Bot',
+    'unknown': 'Unknown'
 };
 
-// Configuration for each filter field type
+/**
+ * Returns a human‑readable label for a device value.
+ * Falls back to the raw value if no mapping exists.
+ */
+const getDeviceLabel = (value: string): string => {
+    return DEVICE_LABELS[value] ?? value;
+};
+
+/**
+ * Configuration for each filter field type
+ */
 interface FilterFieldDefinition {
     endpoint: string;
     valueKey: string;

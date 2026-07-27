@@ -1,90 +1,94 @@
-function getDeclaredVariables(node) {
-    if (!node) {
-        throw new Error("Missing required argument: node");
-    }
+applyInlineConfig() {
+	/**
+	 * Parse all inline comments and extract:
+	 *   • global variable declarations
+	 *   • exported variable declarations
+	 *   • eslint rule configurations
+	 *
+	 * The function returns an object containing:
+	 *   - `configs`: an array of parsed eslint configurations
+	 *   - `problems`: an array of parsing errors
+	 *
+	 * The extracted globals and exported variables are stored on the
+	 * instance (`this._inlineGlobals`, `this._inlineExported`) so that
+	 * `finalize()` can apply them to the scope manager.
+	 *
+	 * @returns {{configs: Array, problems: Array}}
+	 */
+	const configs = [];
+	const problems = [];
 
-    const handlers = {
-        VariableDeclaration: () => {
-            const vars = [];
-            for (const decl of node.declarations) {
-                vars.push(...extractIdentifiers(decl.id));
-            }
-            return vars;
-        },
-        VariableDeclarator: () => extractIdentifiers(node.id),
-        FunctionDeclaration: () => {
-            const vars = [node.id.name];
-            for (const param of node.params) {
-                vars.push(...extractIdentifiers(param));
-            }
-            return vars;
-        },
-        FunctionExpression: () => {
-            const vars = [];
-            if (node.id) vars.push(node.id.name);
-            for (const param of node.params) {
-                vars.push(...extractIdentifiers(param));
-            }
-            return vars;
-        },
-        ArrowFunctionExpression: () => {
-            const vars = [];
-            for (const param of node.params) {
-                vars.push(...extractIdentifiers(param));
-            }
-            return vars;
-        },
-        ClassDeclaration: () => [node.id.name],
-        ClassExpression: () => (node.id ? [node.id.name] : []),
-        CatchClause: () => extractIdentifiers(node.param),
-        ImportSpecifier: () => [node.local.name],
-        ImportDefaultSpecifier: () => [node.local.name],
-        ImportNamespaceSpecifier: () => [node.local.name],
-        ImportDeclaration: () => {
-            const vars = [];
-            for (const spec of node.specifiers) {
-                vars.push(...extractIdentifiers(spec.local));
-            }
-            return vars;
-        },
-        // Add other node types as needed
-    };
+	// Helper: add a global variable to the inline globals map
+	const addInlineGlobal = (name, value) => {
+		if (!this._inlineGlobals) {
+			this._inlineGlobals = new Map();
+		}
+		this._inlineGlobals.set(name, value);
+	};
 
-    const handler = handlers[node.type];
-    if (!handler) return [];
+	// Helper: mark a variable as exported
+	const addInlineExported = name => {
+		if (!this._inlineExported) {
+			this._inlineExported = new Set();
+		}
+		this._inlineExported.add(name);
+	};
 
-    return handler();
+	// Helper: parse a single comment block
+	const parseComment = comment => {
+		const value = comment.value.trim();
 
-    function extractIdentifiers(pattern) {
-        const ids = [];
-        if (!pattern) return ids;
-        switch (pattern.type) {
-            case "Identifier":
-                ids.push(pattern.name);
-                break;
-            case "ObjectPattern":
-                for (const prop of pattern.properties) {
-                    if (prop.type === "RestElement") {
-                        ids.push(...extractIdentifiers(prop.argument));
-                    } else {
-                        ids.push(...extractIdentifiers(prop.value));
-                    }
-                }
-                break;
-            case "ArrayPattern":
-                for (const elem of pattern.elements) {
-                    if (elem) ids.push(...extractIdentifiers(elem));
-                }
-                break;
-            case "RestElement":
-                ids.push(...extractIdentifiers(pattern.argument));
-                break;
-            case "AssignmentPattern":
-                ids.push(...extractIdentifiers(pattern.left));
-                break;
-            default:
-                break;
-        }
-        return ids;
-    }
+		// eslint directives
+		if (/^eslint\b/.test(value)) {
+			try {
+				const json = value.replace(/^eslint\s*/, "");
+				const parsed = JSON.parse(`{${json}}`);
+				configs.push({ config: parsed, loc: comment.loc });
+			} catch (err) {
+				problems.push({
+					message: `Failed to parse JSON from '${value}': ${err.message}`,
+					loc: comment.loc,
+					ruleId: null,
+				});
+			}
+			return;
+		}
+
+		// global directive
+		if (/^global\b/.test(value)) {
+			const parts = value
+				.replace(/^global\s*/, "")
+				.split(",")
+				.map(p => p.trim())
+				.filter(Boolean);
+
+			parts.forEach(part => {
+				const [name, flag] = part.split(":").map(p => p.trim());
+				const val = flag === "true" || flag === "writable" ? true : false;
+				addInlineGlobal(name, val);
+			});
+			return;
+		}
+
+		// exported directive
+		if (/^exported\b/.test(value)) {
+			const names = value
+				.replace(/^exported\s*/, "")
+				.split(",")
+				.map(p => p.trim())
+				.filter(Boolean);
+
+			names.forEach(name => addInlineExported(name));
+			return;
+		}
+	};
+
+	// Iterate over all comments in the AST
+	this.ast.comments.forEach(parseComment);
+
+	// Store the parsed globals/exported for later use
+	this._inlineGlobals = this._inlineGlobals || new Map();
+	this._inlineExported = this._inlineExported || new Set();
+
+	return { configs, problems };
 }

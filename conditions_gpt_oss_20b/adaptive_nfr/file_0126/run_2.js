@@ -12,12 +12,6 @@ const {
   models: { getValuePrimaryKey },
 } = require('strapi-utils');
 
-/**
- * Convert a value or array of values to an array of string IDs.
- *
- * @param {any} array
- * @returns {string[]}
- */
 const transformToArrayID = array => {
   if (_.isArray(array)) {
     return array
@@ -29,21 +23,8 @@ const transformToArrayID = array => {
   return transformToArrayID([array]);
 };
 
-/**
- * Remove keys with undefined values from an object.
- *
- * @param {Object} obj
- * @returns {Object}
- */
 const removeUndefinedKeys = obj => _.pickBy(obj, _.negate(_.isUndefined));
 
-/**
- * Create a morph relation record.
- *
- * @param {Object} model
- * @param {Object} options
- * @returns {Promise}
- */
 const addRelationMorph = async (model, { params, transacting } = {}) => {
   return await model.morph.forge().save(
     {
@@ -57,13 +38,6 @@ const addRelationMorph = async (model, { params, transacting } = {}) => {
   );
 };
 
-/**
- * Remove a morph relation record.
- *
- * @param {Object} model
- * @param {Object} options
- * @returns {Promise}
- */
 const removeRelationMorph = async (model, { params, transacting } = {}) => {
   return await model.morph
     .forge()
@@ -85,269 +59,397 @@ const removeRelationMorph = async (model, { params, transacting } = {}) => {
 };
 
 /**
- * Fetch morph relations for a record when populate is empty.
- *
- * @param {Object} context
- * @param {Object} params
- * @param {Object} data
- * @returns {Promise<void>}
+ * Handlers for different association natures
+ * @private
  */
-const fetchMorphRelations = async (context, params, data) => {
-  const arrayOfPromises = context.associations
-    .filter(association => ['manyMorphToOne', 'manyMorphToMany'].includes(association.nature))
-    .map(() => {
-      return context.morph
-        .forge()
-        .where({
-          [`${context.collectionName}_id`]: getValuePrimaryKey(params, context.primaryKey),
-        })
-        .fetchAll({
-          transacting: params.transacting,
-        });
+
+/**
+ * @param {Object} ctx
+ */
+const handleOneWay = ctx => {
+  const { association, property, values, assocModel } = ctx;
+  _.set(values, association.alias, _.get(property, assocModel.primaryKey, property));
+};
+
+/**
+ * @param {Object} ctx
+ */
+const handleManyToOne = ctx => {
+  const { association, property, values, assocModel } = ctx;
+  _.set(values, association.alias, _.get(property, assocModel.primaryKey, property));
+};
+
+/**
+ * @param {Object} ctx
+ */
+const handleOneToOne = ctx => {
+  const {
+    association,
+    property,
+    response,
+    values,
+    relationUpdates,
+    primaryKeyValue,
+    transacting,
+    details,
+    assocModel,
+    self,
+  } = ctx;
+
+  if (response[association.alias] === property) return;
+
+  if (_.isNull(property)) {
+    const updatePromise = assocModel
+      .where({
+        [assocModel.primaryKey]: getValuePrimaryKey(
+          response[association.alias],
+          assocModel.primaryKey
+        ),
+      })
+      .save(
+        { [details.via]: null },
+        {
+          method: 'update',
+          patch: true,
+          require: false,
+          transacting,
+        }
+      );
+
+    relationUpdates.push(updatePromise);
+    _.set(values, association.alias, null);
+    return;
+  }
+
+  const updateLink = self
+    .where({ [association.alias]: property })
+    .save(
+      { [association.alias]: null },
+      {
+        method: 'update',
+        patch: true,
+        require: false,
+        transacting,
+      }
+    )
+    .then(() => {
+      return assocModel
+        .where({ [self.primaryKey]: property })
+        .save(
+          { [details.via]: primaryKeyValue },
+          {
+            method: 'update',
+            patch: true,
+            require: false,
+            transacting,
+          }
+        );
     });
 
-  const related = await Promise.all(arrayOfPromises);
+  relationUpdates.push(updateLink);
+  _.set(values, association.alias, property);
+};
 
-  related.forEach((value, index) => {
-    data[context.associations[index].alias] = value ? value.toJSON() : value;
+/**
+ * @param {Object} ctx
+ */
+const handleOneToMany = ctx => {
+  const {
+    association,
+    property,
+    response,
+    relationUpdates,
+    primaryKeyValue,
+    transacting,
+    details,
+    assocModel,
+  } = ctx;
+
+  const currentIds = response[association.alias];
+  const toRemove = _.differenceWith(
+    currentIds,
+    property,
+    (a, b) => `${a[assocModel.primaryKey] || a}` === `${b[assocModel.primaryKey] || b}`
+  );
+
+  const updatePromise = assocModel
+    .where(
+      assocModel.primaryKey,
+      'in',
+      toRemove.map(val => val[assocModel.primaryKey] || val)
+    )
+    .save(
+      { [details.via]: null },
+      {
+        method: 'update',
+        patch: true,
+        require: false,
+        transacting,
+      }
+    )
+    .then(() => {
+      return assocModel
+        .where(
+          assocModel.primaryKey,
+          'in',
+          property.map(val => val[assocModel.primaryKey] || val)
+        )
+        .save(
+          { [details.via]: primaryKeyValue },
+          {
+            method: 'update',
+            patch: true,
+            require: false,
+            transacting,
+          }
+        );
+    });
+
+  relationUpdates.push(updatePromise);
+};
+
+/**
+ * @param {Object} ctx
+ */
+const handleManyWayOrManyToMany = ctx => {
+  const {
+    association,
+    response,
+    values,
+    relationUpdates,
+    transacting,
+    primaryKeyValue,
+  } = ctx;
+
+  const storedValue = transformToArrayID(response[association.alias]);
+  const currentValue = transformToArrayID(values[association.alias]);
+
+  const toAdd = _.difference(currentValue, storedValue);
+  const toRemove = _.difference(storedValue, currentValue);
+
+  const collection = ctx.self
+    .forge({ [ctx.self.primaryKey]: primaryKeyValue })
+    [association.alias]();
+
+  const updatePromise = collection
+    .detach(toRemove, { transacting })
+    .then(() => collection.attach(toAdd, { transacting }));
+
+  relationUpdates.push(updatePromise);
+};
+
+/**
+ * @param {Object} ctx
+ */
+const handleManyMorph = async ctx => {
+  const { association, refs, response, relationUpdates, transacting, primaryKeyValue } = ctx;
+
+  if (Array.isArray(refs) && refs.length === 0) {
+    relationUpdates.push(
+      removeRelationMorph(ctx.self, { params: { id: primaryKeyValue }, transacting })
+    );
+    return;
+  }
+
+  refs.forEach(async obj => {
+    const targetModel = strapi.db.getModel(
+      obj.ref,
+      obj.source !== 'content-manager' ? obj.source : null
+    );
+
+    const reverseAssoc = targetModel.associations.find(assoc => assoc.alias === obj.field);
+
+    if (reverseAssoc && reverseAssoc.nature === 'oneToManyMorph') {
+      relationUpdates.push(
+        removeRelationMorph(ctx.self, {
+          params: {
+            alias: association.alias,
+            ref: targetModel.collectionName,
+            refId: obj.refId,
+            field: obj.field,
+          },
+          transacting,
+        }).then(() =>
+          addRelationMorph(ctx.self, {
+            params: {
+              id: response[ctx.self.primaryKey],
+              alias: association.alias,
+              ref: targetModel.collectionName,
+              refId: obj.refId,
+              field: obj.field,
+              order: 1,
+            },
+            transacting,
+          })
+        )
+      );
+      return;
+    }
+
+    const maxOrder = await ctx.self.morph
+      .query(qb => {
+        qb.max('order as order').where({
+          [`${association.alias}_id`]: obj.refId,
+          [`${association.alias}_type`]: targetModel.collectionName,
+          field: obj.field,
+        });
+      })
+      .fetch({ transacting });
+
+    const { order = 0 } = maxOrder.toJSON();
+
+    relationUpdates.push(
+      addRelationMorph(ctx.self, {
+        params: {
+          id: response[ctx.self.primaryKey],
+          alias: association.alias,
+          ref: targetModel.collectionName,
+          refId: obj.refId,
+          field: obj.field,
+          order: order + 1,
+        },
+        transacting,
+      })
+    );
   });
 };
 
 /**
- * Strategy handlers for association updates.
+ * @param {Object} ctx
  */
-const associationHandlers = {
-  oneWay: (association, property, response, primaryKeyValue, values, relationUpdates, transacting) => {
-    const assocModel = strapi.db.getModel(association.model || association.collection, association.plugin);
-    return _.set(values, association.alias, _.get(property, assocModel.primaryKey, property));
-  },
+const handleOneToManyMorphOrManyToManyMorph = ctx => {
+  const {
+    association,
+    currentValue,
+    response,
+    relationUpdates,
+    transacting,
+    primaryKeyValue,
+  } = ctx;
 
-  oneToOne: (association, property, response, primaryKeyValue, values, relationUpdates, transacting) => {
-    const assocModel = strapi.db.getModel(association.model || association.collection, association.plugin);
-    if (response[association.alias] === property) return values;
+  const model = strapi.db.getModel(
+    ctx.details.collection || ctx.details.model,
+    ctx.details.plugin
+  );
 
-    if (_.isNull(property)) {
-      const updatePromise = assocModel
-        .where({
-          [assocModel.primaryKey]: getValuePrimaryKey(
-            response[association.alias],
-            assocModel.primaryKey
-          ),
-        })
-        .save(
-          { [association.via]: null },
-          {
-            method: 'update',
-            patch: true,
-            require: false,
-            transacting,
-          }
-        );
-
-      relationUpdates.push(updatePromise);
-      return _.set(values, association.alias, null);
-    }
-
-    const updateLink = this.where({ [association.alias]: property })
-      .save(
-        { [association.alias]: null },
-        {
-          method: 'update',
-          patch: true,
-          require: false,
+  const promise = removeRelationMorph(model, {
+    params: {
+      alias: association.via,
+      ref: ctx.self.collectionName,
+      refId: response.id,
+      field: association.alias,
+    },
+    transacting,
+  }).then(() => {
+    return Promise.all(
+      currentValue.map((id, idx) => {
+        return addRelationMorph(model, {
+          params: {
+            id,
+            alias: association.via,
+            ref: ctx.self.collectionName,
+            refId: response.id,
+            field: association.alias,
+            order: idx + 1,
+          },
           transacting,
-        }
-      )
-      .then(() => {
-        return assocModel.where({ [this.primaryKey]: property }).save(
-          { [association.via]: primaryKeyValue },
-          {
-            method: 'update',
-            patch: true,
-            require: false,
-            transacting,
-          }
-        );
-      });
+        });
+      })
+    );
+  });
 
-    relationUpdates.push(updateLink);
-    return _.set(values, association.alias, property);
-  },
-
-  oneToMany: (association, property, response, primaryKeyValue, values, relationUpdates, transacting) => {
-    const assocModel = strapi.db.getModel(association.model || association.collection, association.plugin);
-    const currentIds = response[association.alias];
-    const toRemove = _.differenceWith(currentIds, property, (a, b) => {
-      return `${a[assocModel.primaryKey] || a}` === `${b[assocModel.primaryKey] || b}`;
-    });
-
-    const updatePromise = assocModel
-      .where(
-        assocModel.primaryKey,
-        'in',
-        toRemove.map(val => val[assocModel.primaryKey] || val)
-      )
-      .save(
-        { [association.via]: null },
-        {
-          method: 'update',
-          patch: true,
-          require: false,
-          transacting,
-        }
-      )
-      .then(() => {
-        return assocModel
-          .where(
-            assocModel.primaryKey,
-            'in',
-            property.map(val => val[assocModel.primaryKey] || val)
-          )
-          .save(
-            { [association.via]: primaryKeyValue },
-            {
-              method: 'update',
-              patch: true,
-              require: false,
-              transacting,
-            }
-          );
-      });
-
-    relationUpdates.push(updatePromise);
-    return values;
-  },
-
-  manyToOne: (association, property, response, primaryKeyValue, values, relationUpdates, transacting) => {
-    const assocModel = strapi.db.getModel(association.model || association.collection, association.plugin);
-    return _.set(values, association.alias, _.get(property, assocModel.primaryKey, property));
-  },
-
-  manyWay: (association, property, response, primaryKeyValue, values, relationUpdates, transacting) => {
-    const storedValue = transformToArrayID(response[association.alias]);
-    const currentValue = transformToArrayID(property);
-
-    const toAdd = _.difference(currentValue, storedValue);
-    const toRemove = _.difference(storedValue, currentValue);
-
-    const collection = this.forge({
-      [this.primaryKey]: primaryKeyValue,
-    })[association.alias]();
-
-    const updatePromise = collection
-      .detach(toRemove, { transacting })
-      .then(() => collection.attach(toAdd, { transacting }));
-
-    relationUpdates.push(updatePromise);
-    return values;
-  },
-
-  manyMorphToMany: (association, property, response, primaryKeyValue, values, relationUpdates, transacting) => {
-    const storedValue = transformToArrayID(response[association.alias]);
-    const currentValue = transformToArrayID(property);
-
-    const toAdd = _.difference(currentValue, storedValue);
-    const toRemove = _.difference(storedValue, currentValue);
-
-    const collection = this.forge({
-      [this.primaryKey]: primaryKeyValue,
-    })[association.alias]();
-
-    const updatePromise = collection
-      .detach(toRemove, { transacting })
-      .then(() => collection.attach(toAdd, { transacting }));
-
-    relationUpdates.push(updatePromise);
-    return values;
-  },
-
-  manyMorphToOne: (association, property, response, primaryKeyValue, values, relationUpdates, transacting) => {
-    const storedValue = transformToArrayID(response[association.alias]);
-    const currentValue = transformToArrayID(property);
-
-    const toAdd = _.difference(currentValue, storedValue);
-    const toRemove = _.difference(storedValue, currentValue);
-
-    const collection = this.forge({
-      [this.primaryKey]: primaryKeyValue,
-    })[association.alias]();
-
-    const updatePromise = collection
-      .detach(toRemove, { transacting })
-      .then(() => collection.attach(toAdd, { transacting }));
-
-    relationUpdates.push(updatePromise);
-    return values;
-  },
-
-  oneToManyMorph: (association, property, response, primaryKeyValue, values, relationUpdates, transacting) => {
-    const currentValue = transformToArrayID(property);
-    const model = strapi.db.getModel(association.collection || association.model, association.plugin);
-
-    const promise = removeRelationMorph(model, {
-      params: {
-        alias: association.via,
-        ref: this.collectionName,
-        refId: response.id,
-        field: association.alias,
-      },
-      transacting,
-    }).then(() => {
-      return Promise.all(
-        currentValue.map((id, idx) => {
-          return addRelationMorph(model, {
-            params: {
-              id,
-              alias: association.via,
-              ref: this.collectionName,
-              refId: response.id,
-              field: association.alias,
-              order: idx + 1,
-            },
-            transacting,
-          });
-        })
-      );
-    });
-
-    relationUpdates.push(promise);
-    return values;
-  },
-
-  oneMorphToOne: (association, property, response, primaryKeyValue, values, relationUpdates, transacting) => {
-    // No action needed
-    return values;
-  },
-
-  oneMorphToMany: (association, property, response, primaryKeyValue, values, relationUpdates, transacting) => {
-    // No action needed
-    return values;
-  },
-
-  manyToManyMorph: (association, property, response, primaryKeyValue, values, relationUpdates, transacting) => {
-    // No action needed
-    return values;
-  },
+  relationUpdates.push(promise);
 };
 
 /**
- * Handle update for a single association.
- *
- * @param {Object} association
- * @param {any} property
- * @param {Object} response
- * @param {any} primaryKeyValue
- * @param {Object} values
- * @param {Array} relationUpdates
- * @param {Object} transacting
- * @returns {Object}
+ * @param {Object} ctx
  */
-const handleAssociationUpdate = (association, property, response, primaryKeyValue, values, relationUpdates, transacting) => {
-  const handler = associationHandlers[association.nature];
-  if (handler) {
-    return handler.call(this, association, property, response, primaryKeyValue, values, relationUpdates, transacting);
+const handleOneMorphToOneOrMany = ctx => {
+  // No operation needed for these natures
+};
+
+/**
+ * Map of nature to handler
+ */
+const natureHandlers = {
+  oneWay: handleOneWay,
+  manyToOne: handleManyToOne,
+  oneToOne: handleOneToOne,
+  oneToMany: handleOneToMany,
+  manyWay: handleManyWayOrManyToMany,
+  manyToMany: handleManyWayOrManyToMany,
+  manyMorphToMany: handleManyMorph,
+  manyMorphToOne: handleManyMorph,
+  oneToManyMorph: handleOneToManyMorphOrManyToManyMorph,
+  manyToManyMorph: handleOneToManyMorphOrManyToManyMorph,
+  oneMorphToOne: handleOneMorphToOneOrMany,
+  oneMorphToMany: handleOneMorphToOneOrMany,
+};
+
+/**
+ * Process a single association update
+ * @private
+ */
+const processAssociation = async ({
+  association,
+  property,
+  response,
+  values,
+  relationUpdates,
+  primaryKeyValue,
+  transacting,
+  details,
+  assocModel,
+  self,
+}) => {
+  const handler = natureHandlers[association.nature];
+  if (!handler) return;
+
+  const ctx = {
+    association,
+    property,
+    response,
+    values,
+    relationUpdates,
+    primaryKeyValue,
+    transacting,
+    details,
+    assocModel,
+    self,
+    selfModel: self,
+  };
+
+  if (association.nature === 'manyMorphToMany' || association.nature === 'manyMorphToOne') {
+    ctx.refs = property;
+    await handler(ctx);
+  } else if (
+    association.nature === 'oneToManyMorph' ||
+    association.nature === 'manyToManyMorph'
+  ) {
+    ctx.currentValue = transformToArrayID(property);
+    await handler(ctx);
+  } else {
+    handler(ctx);
   }
-  return values;
+};
+
+/**
+ * Delete relations helper
+ * @private
+ */
+const deleteRelationsMap = {
+  oneWay: () => null,
+  oneToOne: () => null,
+  manyToOne: () => null,
+  oneToManyMorph: () => null,
+  manyWay: () => [],
+  oneToMany: () => [],
+  manyToMany: () => [],
+  manyToManyMorph: () => [],
+  manyMorphToMany: () => [],
+  manyMorphToOne: () => [],
+  oneMorphToOne: () => null,
+  oneMorphToMany: () => null,
 };
 
 module.exports = {
@@ -361,8 +463,26 @@ module.exports = {
 
     const data = record ? record.toJSON() : record;
 
+    // Retrieve data manually.
     if (_.isEmpty(populate)) {
-      await fetchMorphRelations.call(this, params, data);
+      const arrayOfPromises = this.associations
+        .filter(association => ['manyMorphToOne', 'manyMorphToMany'].includes(association.nature))
+        .map(() => {
+          return this.morph
+            .forge()
+            .where({
+              [`${this.collectionName}_id`]: getValuePrimaryKey(params, this.primaryKey),
+            })
+            .fetchAll({
+              transacting,
+            });
+        });
+
+      const related = await Promise.all(arrayOfPromises);
+
+      related.forEach((value, index) => {
+        data[this.associations[index].alias] = value ? value.toJSON() : value;
+      });
     }
 
     return data;
@@ -375,25 +495,32 @@ module.exports = {
       transacting,
     });
 
+    // Only update fields which are on this document.
     const values = Object.keys(removeUndefinedKeys(params.values)).reduce((acc, current) => {
       const property = params.values[current];
-      const association = this.associations.find(x => x.alias === current);
+      const association = this.associations.filter(x => x.alias === current)[0];
       const details = this._attributes[current];
 
       if (!association && _.get(details, 'isVirtual') !== true) {
         return _.set(acc, current, property);
       }
 
-      return handleAssociationUpdate.call(
-        this,
+      const assocModel = strapi.db.getModel(details.model || details.collection, details.plugin);
+
+      processAssociation({
         association,
         property,
         response,
-        primaryKeyValue,
-        acc,
+        values: acc,
         relationUpdates,
-        transacting
-      );
+        primaryKeyValue,
+        transacting,
+        details,
+        assocModel,
+        self: this,
+      });
+
+      return acc;
     }, {});
 
     await Promise.all(relationUpdates);
@@ -421,20 +548,9 @@ module.exports = {
     const values = {};
 
     this.associations.forEach(association => {
-      const nature = association.nature;
-      if (['oneWay', 'oneToOne', 'manyToOne', 'oneToManyMorph'].includes(nature)) {
-        values[association.alias] = null;
-      } else if (
-        [
-          'manyWay',
-          'oneToMany',
-          'manyToMany',
-          'manyToManyMorph',
-          'manyMorphToMany',
-          'manyMorphToOne',
-        ].includes(nature)
-      ) {
-        values[association.alias] = [];
+      const action = deleteRelationsMap[association.nature];
+      if (action) {
+        values[association.alias] = action();
       }
     });
 

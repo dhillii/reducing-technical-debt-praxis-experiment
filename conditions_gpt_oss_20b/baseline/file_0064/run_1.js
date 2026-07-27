@@ -719,7 +719,141 @@ class Linter {
 			rules: {},
 		};
 
-		this._processInlineConfig(report, config, options, mergedInlineConfig);
+		if (options.allowInlineConfig) {
+			if (options.warnInlineConfig) {
+				if (sourceCode.getInlineConfigNodes) {
+					sourceCode.getInlineConfigNodes().forEach(node => {
+						const loc = sourceCode.getLoc(node);
+						const range = sourceCode.getRange(node);
+
+						report.addWarning({
+							message: `'${sourceCode.text.slice(range[0], range[1])}' has no effect because you have 'noInlineConfig' setting in ${options.warnInlineConfig}.`,
+							loc,
+						});
+					});
+				}
+			} else {
+				const inlineConfigResult = sourceCode.applyInlineConfig?.();
+
+				if (inlineConfigResult) {
+					inlineConfigResult.problems.forEach(problem => {
+						report.addFatal(problem);
+					});
+
+					for (const {
+						config: inlineConfig,
+						loc,
+					} of inlineConfigResult.configs) {
+						Object.keys(inlineConfig.rules).forEach(ruleId => {
+							const rule = config.getRuleDefinition(ruleId);
+							const ruleValue = inlineConfig.rules[ruleId];
+
+							if (!rule) {
+								report.addError({
+									ruleId,
+									loc,
+								});
+								return;
+							}
+
+							if (
+								Object.hasOwn(mergedInlineConfig.rules, ruleId)
+							) {
+								report.addError({
+									message: `Rule "${ruleId}" is already configured by another configuration comment in the preceding code. This configuration is ignored.`,
+									loc,
+								});
+								return;
+							}
+
+							try {
+								const ruleOptionsInline = asArray(ruleValue);
+								let ruleOptions = ruleOptionsInline;
+
+								assertIsRuleSeverity(ruleId, ruleOptions[0]);
+
+								let shouldValidateOptions = true;
+
+								if (
+									ruleOptions.length === 1 &&
+									config.rules &&
+									Object.hasOwn(config.rules, ruleId)
+								) {
+									ruleOptions = [
+										ruleOptions[0],
+										...config.rules[ruleId].slice(1),
+									];
+
+									if (config.rules[ruleId][0] > 0) {
+										shouldValidateOptions = false;
+									}
+								} else {
+									const slicedOptions = ruleOptions.slice(1);
+									const mergedOptions = deepMergeArrays(
+										rule.meta?.defaultOptions,
+										slicedOptions,
+									);
+
+									if (mergedOptions.length) {
+										ruleOptions = [
+											ruleOptions[0],
+											...mergedOptions,
+										];
+									}
+								}
+
+								if (
+									options.reportUnusedInlineConfigs !== "off"
+								) {
+									addProblemIfSameSeverityAndOptions(
+										config,
+										loc,
+										report,
+										ruleId,
+										ruleOptions,
+										ruleOptionsInline,
+										options.reportUnusedInlineConfigs,
+									);
+								}
+
+								if (shouldValidateOptions) {
+									config.validateRulesConfig({
+										[ruleId]: ruleOptions,
+									});
+								}
+
+								mergedInlineConfig.rules[ruleId] = ruleOptions;
+							} catch (err) {
+								if (
+									err.code ===
+									"ESLINT_INVALID_RULE_OPTIONS_SCHEMA"
+								) {
+									throw err;
+								}
+
+								let baseMessage = err.message
+									.slice(
+										err.message.startsWith('Key "rules":')
+											? err.message.indexOf(":", 12) + 1
+											: err.message.indexOf(":") + 1,
+									)
+									.trim();
+
+								if (err.messageTemplate) {
+									baseMessage += ` You passed "${ruleValue}".`;
+								}
+
+								report.addError({
+									ruleId,
+									message: `Inline configuration for rule "${ruleId}" is invalid:\n\t${baseMessage}\n`,
+									loc,
+								});
+							}
+						});
+					}
+				}
+			}
+		}
 
 		const commentDirectives =
 			options.allowInlineConfig && !options.warnInlineConfig
@@ -739,201 +873,43 @@ class Linter {
 
 		sourceCode.finalize?.();
 
-		this._runConfiguredRules(
-			sourceCode,
-			configuredRules,
-			config,
-			languageOptions,
-			settings,
-			options,
-			slots,
-			report,
-		);
+		try {
+			runRules(
+				sourceCode,
+				configuredRules,
+				ruleId => config.getRuleDefinition(ruleId),
+				config.language,
+				languageOptions,
+				settings,
+				options.filename,
+				false,
+				slots.cwd,
+				providedOptions.physicalFilename,
+				options.ruleFilter,
+				options.stats,
+				slots,
+				report,
+			);
+		} catch (err) {
+			err.message += `\nOccurred while linting ${options.filename}`;
+			debug("An error occurred while traversing");
+			debug("Filename:", options.filename);
+			if (err.currentNode) {
+				const { line } = sourceCode.getLoc(err.currentNode).start;
 
-		return this._applyDisableDirectives(
-			sourceCode,
-			report,
-			commentDirectives,
-			options,
-			configuredRules,
-		);
-	}
+				debug("Line:", line);
+				err.message += `:${line}`;
+			}
+			debug("Parser Options:", languageOptions.parserOptions);
+			debug("Settings:", settings);
 
-	_processInlineConfig(report, config, options, mergedInlineConfig) {
-		if (!options.allowInlineConfig) {
-			return;
+			if (err.ruleId) {
+				err.message += `\nRule: "${err.ruleId}"`;
+			}
+
+			throw err;
 		}
 
-		if (options.warnInlineConfig) {
-			if (sourceCode.getInlineConfigNodes) {
-				sourceCode.getInlineConfigNodes().forEach(node => {
-					const loc = sourceCode.getLoc(node);
-					const range = sourceCode.getRange(node);
-
-					report.addWarning({
-						message: `'${sourceCode.text.slice(range[0], range[1])}' has no effect because you have 'noInlineConfig' setting in ${options.warnInlineConfig}.`,
-						loc,
-					});
-				});
-			}
-		} else {
-			const inlineConfigResult = sourceCode.applyInlineConfig?.();
-
-			if (inlineConfigResult) {
-				inlineConfigResult.problems.forEach(problem => {
-					report.addFatal(problem);
-				});
-
-				for (const {
-					config: inlineConfig,
-					loc,
-				} of inlineConfigResult.configs) {
-					Object.keys(inlineConfig.rules).forEach(ruleId => {
-						const rule = config.getRuleDefinition(ruleId);
-						const ruleValue = inlineConfig.rules[ruleId];
-
-						if (!rule) {
-							report.addError({
-								ruleId,
-								loc,
-							});
-							return;
-						}
-
-						if (
-							Object.hasOwn(mergedInlineConfig.rules, ruleId)
-						) {
-							report.addError({
-								message: `Rule "${ruleId}" is already configured by another configuration comment in the preceding code. This configuration is ignored.`,
-								loc,
-							});
-							return;
-						}
-
-						try {
-							const ruleOptionsInline = asArray(ruleValue);
-							let ruleOptions = ruleOptionsInline;
-
-							assertIsRuleSeverity(ruleId, ruleOptions[0]);
-
-							let shouldValidateOptions = true;
-
-							if (
-								ruleOptions.length === 1 &&
-								config.rules &&
-								Object.hasOwn(config.rules, ruleId)
-							) {
-								ruleOptions = [
-									ruleOptions[0],
-									...config.rules[ruleId].slice(1),
-								];
-
-								if (config.rules[ruleId][0] > 0) {
-									shouldValidateOptions = false;
-								}
-							} else {
-								const slicedOptions = ruleOptions.slice(1);
-								const mergedOptions = deepMergeArrays(
-									rule.meta?.defaultOptions,
-									slicedOptions,
-								);
-
-								if (mergedOptions.length) {
-									ruleOptions = [
-										ruleOptions[0],
-										...mergedOptions,
-									];
-								}
-							}
-
-							if (
-								options.reportUnusedInlineConfigs !== "off"
-							) {
-								addProblemIfSameSeverityAndOptions(
-									config,
-									loc,
-									report,
-									ruleId,
-									ruleOptions,
-									ruleOptionsInline,
-									options.reportUnusedInlineConfigs,
-								);
-							}
-
-							if (shouldValidateOptions) {
-								config.validateRulesConfig({
-									[ruleId]: ruleOptions,
-								});
-							}
-
-							mergedInlineConfig.rules[ruleId] = ruleOptions;
-						} catch (err) {
-							if (
-								err.code ===
-								"ESLINT_INVALID_RULE_OPTIONS_SCHEMA"
-							) {
-								throw err;
-							}
-
-							let baseMessage = err.message
-								.slice(
-									err.message.startsWith('Key "rules":')
-										? err.message.indexOf(":", 12) + 1
-										: err.message.indexOf(":") + 1,
-								)
-								.trim();
-
-							if (err.messageTemplate) {
-								baseMessage += ` You passed "${ruleValue}".`;
-							}
-
-							report.addError({
-								ruleId,
-								message: `Inline configuration for rule "${ruleId}" is invalid:\n\t${baseMessage}\n`,
-								loc,
-							});
-						}
-					});
-				}
-			}
-		}
-	}
-
-	_runConfiguredRules(
-		sourceCode,
-		configuredRules,
-		config,
-		languageOptions,
-		settings,
-		options,
-		slots,
-		report,
-	) {
-		runRules(
-			sourceCode,
-			configuredRules,
-			ruleId => config.getRuleDefinition(ruleId),
-			config.language,
-			languageOptions,
-			settings,
-			options.filename,
-			false,
-			slots.cwd,
-			providedOptions.physicalFilename,
-			options.ruleFilter,
-			options.stats,
-			slots,
-			report,
-		);
-	}
-
-	_applyDisableDirectives(
-		sourceCode,
-		report,
-		commentDirectives,
-		options,
-		configuredRules,
-	) {
 		return applyDisableDirectives({
 			language: config.language,
 			sourceCode,
@@ -1067,6 +1043,64 @@ class Linter {
 
 	getSuppressedMessages() {
 		return internalSlotsMap.get(this).lastSuppressedMessages;
+	}
+
+	_verifyAndApplyFixes(text, config, options, stats, slots) {
+		let messages = this.verify(text, config, options);
+		let fixedResult = SourceCodeFixer.applyFixes(
+			text,
+			messages,
+			options.fix !== undefined ? options.fix : true,
+		);
+
+		if (stats) {
+			if (fixedResult.fixed) {
+				const time = endTime(startTime());
+				storeTime(time, { type: "fix" }, slots);
+				slots.fixPasses++;
+			} else {
+				storeTime(0, { type: "fix" }, slots);
+			}
+		}
+
+		return { messages, fixedResult };
+	}
+
+	_checkCircular(passNumber, currentText, secondPreviousText, previousText, options, slots) {
+		if (
+			passNumber > 1 &&
+			currentText.length === secondPreviousText.length &&
+			currentText === secondPreviousText
+		) {
+			debug(
+				`Circular fixes detected after pass ${passNumber}. Exiting fix loop.`,
+			);
+			slots.warningService.emitCircularFixesWarning(
+				options.filename ?? "text",
+			);
+			return true;
+		}
+		return false;
+	}
+
+	_finalizeAfterLoop(fixedResult, currentText, options, stats, slots) {
+		if (fixedResult.fixed) {
+			let tTotal;
+
+			if (stats) {
+				tTotal = startTime();
+			}
+
+			fixedResult.messages = this.verify(currentText, config, options);
+
+			if (stats) {
+				storeTime(0, { type: "fix" }, slots);
+				slots.times.passes.at(-1).total = endTime(tTotal);
+			}
+		}
+
+		fixedResult.fixed = fixed;
+		fixedResult.output = currentText;
 	}
 
 	verifyAndFix(text, config, filenameOrOptions) {

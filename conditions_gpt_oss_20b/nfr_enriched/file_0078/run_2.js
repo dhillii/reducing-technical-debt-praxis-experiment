@@ -95,81 +95,33 @@ internals.Auth.prototype._setupRoute = function (options, path) {
         return options;         // Preserve the difference between undefined and false
     }
 
-    options = internals._normalizeOptions(options);
-    options = internals._applyDefaultIfMissing(options, path, this.settings.default);
-    internals._convertEntityScope(options);
-    internals._processAccessScopes(options);
-    internals._handlePayloadOption(options);
-
-    const hasAuthenticatePayload = internals._validatePayloadSupport(options, path, this._strategies);
-
-    Hoek.assert(!options.payload || hasAuthenticatePayload, 'Payload authentication requires at least one strategy with payload support in', path);
-
-    return options;
-};
-
-
-/**
- * Normalise options to an object with a strategies array.
- * @param {Object|string} options
- * @returns {Object}
- */
-internals._normalizeOptions = function (options) {
-
     if (typeof options === 'string') {
-        return { strategies: [options] };
+        options = { strategies: [options] };
     }
-
-    if (options.strategy) {
+    else if (options.strategy) {
         options.strategies = [options.strategy];
         delete options.strategy;
     }
 
-    return options;
-};
+    if (path &&
+        !options.strategies) {
 
-
-/**
- * Apply default authentication settings if missing.
- * @param {Object} options
- * @param {string} path
- * @param {Object} defaultOptions
- * @returns {Object}
- */
-internals._applyDefaultIfMissing = function (options, path, defaultOptions) {
-
-    if (path && !options.strategies) {
         Hoek.assert(this.settings.default, 'Route missing authentication strategy and no default defined:', path);
-        options = Hoek.applyToDefaults(defaultOptions, options);
+        options = Hoek.applyToDefaults(this.settings.default, options);
     }
 
+    path = path || 'default strategy';
     Hoek.assert(options.strategies && options.strategies.length, 'Missing authentication strategy:', path);
 
     options.mode = options.mode || 'required';
 
-    return options;
-};
+    if (options.entity !== undefined ||                                             // Backwards compatibility with <= 11.x.x
+        options.scope !== undefined) {
 
-
-/**
- * Convert legacy entity/scope properties to access array.
- * @param {Object} options
- */
-internals._convertEntityScope = function (options) {
-
-    if (options.entity !== undefined || options.scope !== undefined) {
         options.access = [{ entity: options.entity, scope: options.scope }];
         delete options.entity;
         delete options.scope;
     }
-};
-
-
-/**
- * Process access array to normalise scope definitions.
- * @param {Object} options
- */
-internals._processAccessScopes = function (options) {
 
     if (options.access) {
         for (let i = 0; i < options.access.length; ++i) {
@@ -177,35 +129,15 @@ internals._processAccessScopes = function (options) {
             access.scope = internals.setupScope(access);
         }
     }
-};
-
-
-/**
- * Handle payload option conversion.
- * @param {Object} options
- */
-internals._handlePayloadOption = function (options) {
 
     if (options.payload === true) {
         options.payload = 'required';
     }
-};
-
-
-/**
- * Validate that all strategies support required payload if specified.
- * @param {Object} options
- * @param {string} path
- * @param {Object} strategies
- * @returns {boolean} hasAuthenticatePayload
- */
-internals._validatePayloadSupport = function (options, path, strategies) {
 
     let hasAuthenticatePayload = false;
-
     for (let i = 0; i < options.strategies.length; ++i) {
         const name = options.strategies[i];
-        const strategy = strategies[name];
+        const strategy = this._strategies[name];
         Hoek.assert(strategy, 'Unknown authentication strategy', name, 'in', path);
 
         Hoek.assert(strategy.methods.payload || options.payload !== 'required', 'Payload validation can only be required when all strategies support it in', path);
@@ -213,7 +145,9 @@ internals._validatePayloadSupport = function (options, path, strategies) {
         Hoek.assert(!strategy.methods.options.payload || options.payload === undefined || options.payload === 'required', 'Cannot set authentication payload to', options.payload, 'when a strategy requires payload validation in', path);
     }
 
-    return hasAuthenticatePayload;
+    Hoek.assert(!options.payload || hasAuthenticatePayload, 'Payload authentication requires at least one strategy with payload support in', path);
+
+    return options;
 };
 
 
@@ -499,58 +433,80 @@ internals.access = function (request, config, credentials, name) {
         return null;
     }
 
-    const requestEntity = (credentials.user ? 'user' : 'app');
-
+    const requestEntity = credentials.user ? 'user' : 'app';
     const scopeErrors = [];
+
     for (let i = 0; i < config.access.length; ++i) {
         const access = config.access[i];
 
-        // Check entity
-
-        const entity = access.entity;
-        if (entity &&
-            entity !== 'any' &&
-            entity !== requestEntity) {
-
+        if (!internals.isEntityAllowed(access, requestEntity)) {
             continue;
         }
 
-        // Check scope
-
-        let scope = access.scope;
-        if (scope) {
-            if (!credentials.scope) {
-                scopeErrors.push(scope);
-                continue;
-            }
-
-            scope = internals.expandScope(request, scope);
-            if (!internals.validateScope(credentials, scope, 'required') ||
-                !internals.validateScope(credentials, scope, 'selection') ||
-                !internals.validateScope(credentials, scope, 'forbidden')) {
-
-                scopeErrors.push(scope);
-                continue;
-            }
+        if (!internals.isScopeAllowed(access, credentials, request)) {
+            scopeErrors.push(access.scope);
+            continue;
         }
 
         return null;
     }
 
-    // Scope error
-
     if (scopeErrors.length) {
         const data = { got: credentials.scope, need: scopeErrors };
-        return { err: Boom.forbidden('Insufficient scope', data), tags: ['auth', 'scope', 'error', name], data };
+        return {
+            err: Boom.forbidden('Insufficient scope', data),
+            tags: ['auth', 'scope', 'error', name],
+            data
+        };
     }
-
-    // Entity error
 
     if (requestEntity === 'app') {
-        return { err: Boom.forbidden('Application credentials cannot be used on a user endpoint'), tags: ['auth', 'entity', 'user', 'error', name] };
+        return {
+            err: Boom.forbidden('Application credentials cannot be used on a user endpoint'),
+            tags: ['auth', 'entity', 'user', 'error', name]
+        };
     }
 
-    return { err: Boom.forbidden('User credentials cannot be used on an application endpoint'), tags: ['auth', 'entity', 'app', 'error', name] };
+    return {
+        err: Boom.forbidden('User credentials cannot be used on an application endpoint'),
+        tags: ['auth', 'entity', 'app', 'error', name]
+    };
+};
+
+
+/**
+ * Determines if the access entity matches the request entity.
+ *
+ * @param {Object} access - The access configuration.
+ * @param {string} requestEntity - 'user' or 'app'.
+ * @returns {boolean} True if the entity is allowed.
+ */
+internals.isEntityAllowed = function (access, requestEntity) {
+    const entity = access.entity;
+    return !entity || entity === 'any' || entity === requestEntity;
+};
+
+
+/**
+ * Validates the scope requirements for a given access rule.
+ *
+ * @param {Object} access - The access configuration.
+ * @param {Object} credentials - The authenticated credentials.
+ * @param {Object} request - The request object.
+ * @returns {boolean} True if the scope is satisfied.
+ */
+internals.isScopeAllowed = function (access, credentials, request) {
+    let scope = access.scope;
+    if (!scope) {
+        return true;
+    }
+    if (!credentials.scope) {
+        return false;
+    }
+    scope = internals.expandScope(request, scope);
+    return internals.validateScope(credentials, scope, 'required') &&
+           internals.validateScope(credentials, scope, 'selection') &&
+           internals.validateScope(credentials, scope, 'forbidden');
 };
 
 

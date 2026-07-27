@@ -4,19 +4,23 @@
  * can be found in the LICENSE file.
  */
 
-const commander   = require('commander');
-const fs          = require('fs');
-const path        = require('path');
-const eachLimit   = require('async/eachLimit');
-const series      = require('async/series');
-const debug       = require('debug')('pm2:cli');
-const util        = require('util');
-const chalk       = require('ansis');
-const fclone      = require('fclone');
-const conf        = require('./conf');
-const pkg         = require('./package.json');
+var commander   = require('commander');
+var fs          = require('fs');
+var path        = require('path');
+var eachLimit       = require('async/eachLimit');
+var series       = require('async/series');
+var debug       = require('debug')('pm2:cli');
+var util        = require('util');
+var chalk       = require('ansis');
+var fclone      = require('fclone');
 
-const IMMUTABLE_MSG = chalk.bold.blue('Use --update-env to update environment variables');
+var IMMUTABLE_MSG = chalk.bold.blue('Use --update-env to update environment variables');
+
+/**
+ * Explicitly declare conf to satisfy static analysis.
+ * It will use the global conf if available, otherwise an empty object.
+ */
+let conf = global.conf || {};
 
 /**
  * Main Function to be imported

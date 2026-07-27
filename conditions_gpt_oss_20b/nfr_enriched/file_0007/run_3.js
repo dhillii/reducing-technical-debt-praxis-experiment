@@ -53,7 +53,10 @@ const validators: Record<string, (u: Partial<User>) => string> = {
             validateFacebookUrl(facebook || '');
             return '';
         } catch (e) {
-            return e instanceof Error ? e.message : '';
+            if (e instanceof Error) {
+                return e.message;
+            }
+            return '';
         }
     },
     twitter: ({twitter}) => {
@@ -61,7 +64,10 @@ const validators: Record<string, (u: Partial<User>) => string> = {
             validateTwitterUrl(twitter || '');
             return '';
         } catch (e) {
-            return e instanceof Error ? e.message : '';
+            if (e instanceof Error) {
+                return e.message;
+            }
+            return '';
         }
     },
     threads: ({threads}) => {
@@ -69,7 +75,10 @@ const validators: Record<string, (u: Partial<User>) => string> = {
             validateThreadsUrl(threads || '');
             return '';
         } catch (e) {
-            return e instanceof Error ? e.message : '';
+            if (e instanceof Error) {
+                return e.message;
+            }
+            return '';
         }
     },
     bluesky: ({bluesky}) => {
@@ -77,7 +86,10 @@ const validators: Record<string, (u: Partial<User>) => string> = {
             validateBlueskyUrl(bluesky || '');
             return '';
         } catch (e) {
-            return e instanceof Error ? e.message : '';
+            if (e instanceof Error) {
+                return e.message;
+            }
+            return '';
         }
     },
     linkedin: ({linkedin}) => {
@@ -85,7 +97,10 @@ const validators: Record<string, (u: Partial<User>) => string> = {
             validateLinkedInUrl(linkedin || '');
             return '';
         } catch (e) {
-            return e instanceof Error ? e.message : '';
+            if (e instanceof Error) {
+                return e.message;
+            }
+            return '';
         }
     },
     instagram: ({instagram}) => {
@@ -93,7 +108,10 @@ const validators: Record<string, (u: Partial<User>) => string> = {
             validateInstagramUrl(instagram || '');
             return '';
         } catch (e) {
-            return e instanceof Error ? e.message : '';
+            if (e instanceof Error) {
+                return e.message;
+            }
+            return '';
         }
     },
     youtube: ({youtube}) => {
@@ -101,7 +119,10 @@ const validators: Record<string, (u: Partial<User>) => string> = {
             validateYouTubeUrl(youtube || '');
             return '';
         } catch (e) {
-            return e instanceof Error ? e.message : '';
+            if (e instanceof Error) {
+                return e.message;
+            }
+            return '';
         }
     },
     tiktok: ({tiktok}) => {
@@ -109,7 +130,10 @@ const validators: Record<string, (u: Partial<User>) => string> = {
             validateTikTokUrl(tiktok || '');
             return '';
         } catch (e) {
-            return e instanceof Error ? e.message : '';
+            if (e instanceof Error) {
+                return e.message;
+            }
+            return '';
         }
     },
     mastodon: ({mastodon}) => {
@@ -117,7 +141,10 @@ const validators: Record<string, (u: Partial<User>) => string> = {
             validateMastodonUrl(mastodon || '');
             return '';
         } catch (e) {
-            return e instanceof Error ? e.message : '';
+            if (e instanceof Error) {
+                return e.message;
+            }
+            return '';
         }
     }
 };
@@ -132,6 +159,15 @@ export interface UserDetailProps {
 
 const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {updateRoute, route} = useRouting();
+
+    const getTabFromPath = (path: string): string => {
+        const lastSegment = path.split('/').pop() || '';
+        if (lastSegment === 'social-links' || lastSegment === 'email-notifications') {
+            return lastSegment;
+        }
+        return 'profile';
+    };
+
     const {ownerUser} = useStaffUsers();
     const {currentUser} = useGlobalData();
     const handleError = useHandleError();
@@ -171,15 +207,8 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {mutateAsync: deleteUser} = useDeleteUser();
     const {mutateAsync: makeOwner} = useMakeOwner();
     const limiter = useLimiter();
-    const editor = usePinturaEditor();
 
-    const getTabFromPath = (path: string): string => {
-        const lastSegment = path.split('/').pop() || '';
-        if (lastSegment === 'social-links' || lastSegment === 'email-notifications') {
-            return lastSegment;
-        }
-        return 'profile';
-    };
+    const editor = usePinturaEditor();
 
     const navigateOnClose = useCallback(() => {
         if (canAccessSettings(currentUser)) {
@@ -189,16 +218,47 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     }, [currentUser, updateRoute]);
 
-    const getSuspendWarning = (_user: User): string => {
-        let warning = 'This user will no longer be able to log in but their posts will be kept.';
-        if (_user.status === 'inactive') {
-            warning = 'This user will be able to log in again and will have the same permissions they had previously.';
+    /**
+     * Determines if the user is a contributor with an inactive status.
+     */
+    const isContributorInactive = (u: User) => u.status === 'inactive' && u.roles[0].name !== 'Contributor';
+
+    /**
+     * Returns the appropriate warning text for suspending or unsuspending a user.
+     */
+    const getSuspendWarning = (u: User) => {
+        if (u.status === 'inactive') {
+            return 'This user will be able to log in again and will have the same permissions they had previously.';
         }
-        return warning;
+        return 'This user will no longer be able to log in but their posts will be kept.';
     };
 
+    /**
+     * Handles the suspend/unsuspend action after confirmation.
+     */
+    const handleSuspendAction = async (modal: any, u: User) => {
+        const updatedUserData = {
+            ...u,
+            status: u.status === 'inactive' ? 'active' : 'inactive'
+        };
+        try {
+            await updateUser(updatedUserData);
+            setFormState(() => updatedUserData);
+            modal?.remove();
+            showToast({
+                title: u.status === 'inactive' ? 'User un-suspended' : 'User suspended',
+                type: 'success'
+            });
+        } catch (e) {
+            handleError(e);
+        }
+    };
+
+    /**
+     * Shows the confirmation modal for suspending or unsuspending a user.
+     */
     const confirmSuspend = async (_user: User) => {
-        if (_user.status === 'inactive' && _user.roles[0].name !== 'Contributor') {
+        if (isContributorInactive(_user)) {
             try {
                 await limiter?.errorIfWouldGoOverLimit('staff');
             } catch (error) {
@@ -214,32 +274,19 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
             }
         }
 
+        const warningText = getSuspendWarning(_user);
         NiceModal.show(ConfirmationModal, {
             title: 'Are you sure you want to suspend this user?',
             prompt: (
                 <>
-                    <strong>WARNING:</strong> {getSuspendWarning(_user)}
+                    <strong>WARNING:</strong> {warningText}
                 </>
             ),
             okLabel: _user.status === 'inactive' ? 'Un-suspend' : 'Suspend',
             okRunningLabel: _user.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
             okColor: 'red',
             onOk: async (modal) => {
-                const updatedUserData = {
-                    ..._user,
-                    status: _user.status === 'inactive' ? 'active' : 'inactive'
-                };
-                try {
-                    await updateUser(updatedUserData);
-                    setFormState(() => updatedUserData);
-                    modal?.remove();
-                    showToast({
-                        title: _user.status === 'inactive' ? 'User un-suspended' : 'User suspended',
-                        type: 'success'
-                    });
-                } catch (e) {
-                    handleError(e);
-                }
+                await handleSuspendAction(modal, _user);
             }
         });
     };
@@ -296,10 +343,14 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const handleImageUpload = async (image: string, file: File) => {
         try {
             const imageUrl = getImageUrl(await uploadImage({file}));
-            updateForm((_user) => ({
-                ..._user,
-                [image]: imageUrl
-            }));
+            switch (image) {
+                case 'cover_image':
+                    updateForm((_user) => ({..._user, cover_image: imageUrl}));
+                    break;
+                case 'profile_image':
+                    updateForm((_user) => ({..._user, profile_image: imageUrl}));
+                    break;
+            }
         } catch (e) {
             const error = e as APIError;
             if (error.response!.status === 415) {
@@ -310,67 +361,64 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     };
 
     const handleImageDelete = (image: string) => {
-        updateForm((_user) => ({
-            ..._user,
-            [image]: ''
-        }));
+        switch (image) {
+            case 'cover_image':
+                updateForm((_user) => ({..._user, cover_image: ''}));
+                break;
+            case 'profile_image':
+                updateForm((_user) => ({..._user, profile_image: ''}));
+                break;
+        }
     };
 
-    const buildMenuItems = (): MenuItem[] => {
-        const items: MenuItem[] = [];
-        const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
-        if (!showMenu) {
-            return items;
-        }
+    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
+    let menuItems: MenuItem[] = [];
 
-        if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
-            items.push({
-                id: 'make-owner',
-                label: 'Make owner',
-                onClick: confirmMakeOwner
-            });
-        }
-
-        if (formState.id !== currentUser.id && (
-            (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
-            (isEditorUser(currentUser) && isAuthorOrContributor(user))
-        )) {
-            const suspendLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
-            items.push({
-                id: 'delete-user',
-                label: 'Delete user',
-                onClick: () => confirmDelete(user, {owner: ownerUser})
-            }, {
-                id: 'suspend-user',
-                label: suspendLabel,
-                onClick: () => confirmSuspend(formState)
-            });
-        }
-
-        items.push({
-            id: 'view-user-activity',
-            label: 'View user activity',
-            onClick: () => {
-                mainModal.remove();
-                updateRoute(`history/view/${formState.id}`);
-            }
+    if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
+        menuItems.push({
+            id: 'make-owner',
+            label: 'Make owner',
+            onClick: confirmMakeOwner
         });
+    }
 
-        return items;
-    };
+    if (formState.id !== currentUser.id && (
+        (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
+        (isEditorUser(currentUser) && isAuthorOrContributor(user))
+    )) {
+        const suspendUserLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
+        menuItems.push({
+            id: 'delete-user',
+            label: 'Delete user',
+            onClick: () => confirmDelete(user, {owner: ownerUser})
+        }, {
+            id: 'suspend-user',
+            label: suspendUserLabel,
+            onClick: () => confirmSuspend(formState)
+        });
+    }
+
+    menuItems.push({
+        id: 'view-user-activity',
+        label: 'View user activity',
+        onClick: () => {
+            mainModal.remove();
+            updateRoute(`history/view/${formState.id}`);
+        }
+    });
+
+    const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
+    const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
+    const suspendedText = formState.status === 'inactive' ? ' (Suspended)' : '';
+
+    const initialTab = getTabFromPath(route);
+    const [selectedTab, setSelectedTab] = useState<string>(initialTab);
 
     const handleTabChange = (newTabId: string) => {
         const urlSegment = newTabId === 'profile' ? '' : `/${newTabId}`;
         updateRoute(`staff/${user.slug}${urlSegment}`);
         setSelectedTab(newTabId);
     };
-
-    const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
-    const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
-    const suspendedText = formState.status === 'inactive' ? ' (Suspended)' : '';
-    const initialTab = getTabFromPath(route);
-    const [selectedTab, setSelectedTab] = useState<string>(initialTab);
-    const menuItems = buildMenuItems();
 
     return (
         <Modal
@@ -413,7 +461,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                             isEnabled: editor.isEnabled,
                                             openEditor: async () => editor.openEditor({
                                                 image: formState.profile_image || '',
-                                                handleSave: async (file: File) => {
+                                                handleSave: async (file:File) => {
                                                     handleImageUpload('profile_image', file);
                                                 }
                                             })
@@ -444,7 +492,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                             isEnabled: editor.isEnabled,
                                             openEditor: async () => editor.openEditor({
                                                 image: formState.cover_image || '',
-                                                handleSave: async (file: File) => {
+                                                handleSave: async (file:File) => {
                                                     handleImageUpload('cover_image', file);
                                                 }
                                             })
@@ -457,7 +505,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                                             handleImageUpload('cover_image', file);
                                         }}
                                     >Upload cover image</ImageUpload>
-                                    {menuItems.length > 0 && <div className="z-10">
+                                    {showMenu && <div className="z-10">
                                         <Menu
                                             items={menuItems}
                                             position='end'
@@ -526,11 +574,11 @@ const UserDetailModal: React.FC<RoutingModalProps> = ({params}) => {
         {enabled: !isCurrentUser && !!params?.slug}
     );
     const user = isCurrentUser ? currentUser : fetchedUserData?.users?.[0];
-
     if (user) {
         return <UserDetailModalContent user={user} />;
+    } else {
+        return null;
     }
-    return null;
 };
 
 export default NiceModal.create(UserDetailModal);

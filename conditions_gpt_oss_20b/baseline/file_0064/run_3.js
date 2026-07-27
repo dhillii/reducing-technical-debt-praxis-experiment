@@ -732,88 +732,9 @@ class Linter {
 
 		sourceCode.applyLanguageOptions?.(languageOptions);
 
-		const mergedInlineConfig = this.#processInlineConfig(
-			report,
-			sourceCode,
-			config,
-			options,
-			providedOptions,
-		);
-
-		const commentDirectives =
-			options.allowInlineConfig && !options.warnInlineConfig
-				? getDirectiveCommentsForFlatConfig(
-						sourceCode,
-						ruleId => config.getRuleDefinition(ruleId),
-						config.language,
-						report,
-					)
-				: [];
-
-		const configuredRules = Object.assign(
-			{},
-			config.rules,
-			mergedInlineConfig.rules,
-		);
-
-		sourceCode.finalize?.();
-
-		try {
-			this.#runConfiguredRules(
-				sourceCode,
-				configuredRules,
-				ruleId => config.getRuleDefinition(ruleId),
-				config.language,
-				languageOptions,
-				settings,
-				options.filename,
-				false,
-				slots.cwd,
-				providedOptions.physicalFilename,
-				options.ruleFilter,
-				options.stats,
-				slots,
-				report,
-			);
-		} catch (err) {
-			err.message += `\nOccurred while linting ${options.filename}`;
-			debug("An error occurred while traversing");
-			debug("Filename:", options.filename);
-			if (err.currentNode) {
-				const { line } = sourceCode.getLoc(err.currentNode).start;
-
-				debug("Line:", line);
-				err.message += `:${line}`;
-			}
-			debug("Parser Options:", languageOptions.parserOptions);
-			debug("Settings:", settings);
-
-			if (err.ruleId) {
-				err.message += `\nRule: "${err.ruleId}"`;
-			}
-
-			throw err;
-		}
-
-		return applyDisableDirectives({
-			language: config.language,
-			sourceCode,
-			directives: commentDirectives,
-			disableFixes: options.disableFixes,
-			problems: report.messages.sort(
-				(problemA, problemB) =>
-					problemA.line - problemB.line ||
-					problemA.column - problemB.column,
-			),
-			reportUnusedDisableDirectives:
-				options.reportUnusedDisableDirectives,
-			ruleFilter: options.ruleFilter,
-			configuredRules,
-		});
-	}
-
-	#processInlineConfig(report, sourceCode, config, options, providedOptions) {
-		const mergedInlineConfig = { rules: {} };
+		const mergedInlineConfig = {
+			rules: {},
+		};
 
 		if (options.allowInlineConfig) {
 			if (options.warnInlineConfig) {
@@ -951,41 +872,76 @@ class Linter {
 			}
 		}
 
-		return mergedInlineConfig;
-	}
+		const commentDirectives =
+			options.allowInlineConfig && !options.warnInlineConfig
+				? getDirectiveCommentsForFlatConfig(
+						sourceCode,
+						ruleId => config.getRuleDefinition(ruleId),
+						config.language,
+						report,
+					)
+				: [];
 
-	#runConfiguredRules(
-		sourceCode,
-		configuredRules,
-		ruleMapper,
-		language,
-		languageOptions,
-		settings,
-		filename,
-		applyDefaultOptions,
-		cwd,
-		physicalFilename,
-		ruleFilter,
-		stats,
-		slots,
-		report,
-	) {
-		runRules(
-			sourceCode,
-			configuredRules,
-			ruleMapper,
-			language,
-			languageOptions,
-			settings,
-			filename,
-			applyDefaultOptions,
-			cwd,
-			physicalFilename,
-			ruleFilter,
-			stats,
-			slots,
-			report,
+		const configuredRules = Object.assign(
+			{},
+			config.rules,
+			mergedInlineConfig.rules,
 		);
+
+		sourceCode.finalize?.();
+
+		try {
+			runRules(
+				sourceCode,
+				configuredRules,
+				ruleId => config.getRuleDefinition(ruleId),
+				config.language,
+				languageOptions,
+				settings,
+				options.filename,
+				false,
+				slots.cwd,
+				providedOptions.physicalFilename,
+				options.ruleFilter,
+				options.stats,
+				slots,
+				report,
+			);
+		} catch (err) {
+			err.message += `\nOccurred while linting ${options.filename}`;
+			debug("An error occurred while traversing");
+			debug("Filename:", options.filename);
+			if (err.currentNode) {
+				const { line } = sourceCode.getLoc(err.currentNode).start;
+
+				debug("Line:", line);
+				err.message += `:${line}`;
+			}
+			debug("Parser Options:", languageOptions.parserOptions);
+			debug("Settings:", settings);
+
+			if (err.ruleId) {
+				err.message += `\nRule: "${err.ruleId}"`;
+			}
+
+			throw err;
+		}
+
+		return applyDisableDirectives({
+			language: config.language,
+			sourceCode,
+			directives: commentDirectives,
+			disableFixes: options.disableFixes,
+			problems: report.messages.sort(
+				(problemA, problemB) =>
+					problemA.line - problemB.line ||
+					problemA.column - problemB.column,
+			),
+			reportUnusedDisableDirectives:
+				options.reportUnusedDisableDirectives,
+			ruleFilter: options.ruleFilter,
+			configuredRules,
+		});
 	}
 
 	_verifyWithFlatConfigArrayAndWithoutProcessors(
@@ -1107,13 +1063,6 @@ class Linter {
 	}
 
 	verifyAndFix(text, config, filenameOrOptions) {
-		let messages,
-			fixedResult,
-			fixed = false,
-			passNumber = 0,
-			currentText = text,
-			secondPreviousText,
-			previousText;
 		const options =
 			typeof filenameOrOptions === "string"
 				? { filename: filenameOrOptions }
@@ -1131,13 +1080,17 @@ class Linter {
 			slots.fixPasses = 0;
 		}
 
-		do {
-			passNumber++;
-			let tTotal;
+		let currentText = text;
+		let previousText = "";
+		let secondPreviousText = "";
+		let fixed = false;
+		let passNumber = 0;
+		let messages = [];
+		let fixedResult = {};
 
-			if (stats) {
-				tTotal = startTime();
-			}
+		const runPass = () => {
+			passNumber++;
+			const tTotal = stats ? startTime() : null;
 
 			debug(
 				`Linting code for ${debugTextDescription} (pass ${passNumber})`,
@@ -1147,12 +1100,7 @@ class Linter {
 			debug(
 				`Generating fixed text for ${debugTextDescription} (pass ${passNumber})`,
 			);
-			let t;
-
-			if (stats) {
-				t = startTime();
-			}
-
+			const t = stats ? startTime() : null;
 			fixedResult = SourceCodeFixer.applyFixes(
 				currentText,
 				messages,
@@ -1162,7 +1110,6 @@ class Linter {
 			if (stats) {
 				if (fixedResult.fixed) {
 					const time = endTime(t);
-
 					storeTime(time, { type: "fix" }, slots);
 					slots.fixPasses++;
 				} else {
@@ -1171,25 +1118,22 @@ class Linter {
 			}
 
 			if (messages.length === 1 && messages[0].fatal) {
-				break;
+				return false;
 			}
 
 			fixed = fixed || fixedResult.fixed;
-
 			secondPreviousText = previousText;
 			previousText = currentText;
 			currentText = fixedResult.output;
 
 			if (stats) {
-				tTotal = endTime(tTotal);
+				const total = endTime(tTotal);
 				const passIndex = slots.times.passes.length - 1;
-
-				slots.times.passes[passIndex].total = tTotal;
+				slots.times.passes[passIndex].total = total;
 			}
 
 			if (
 				passNumber > 1 &&
-				currentText.length === secondPreviousText.length &&
 				currentText === secondPreviousText
 			) {
 				debug(
@@ -1198,19 +1142,17 @@ class Linter {
 				slots.warningService.emitCircularFixesWarning(
 					options.filename ?? "text",
 				);
-				break;
+				return false;
 			}
-		} while (fixedResult.fixed && passNumber < MAX_AUTOFIX_PASSES);
+
+			return fixedResult.fixed && passNumber < MAX_AUTOFIX_PASSES;
+		};
+
+		while (runPass()) {}
 
 		if (fixedResult.fixed) {
-			let tTotal;
-
-			if (stats) {
-				tTotal = startTime();
-			}
-
+			const tTotal = stats ? startTime() : null;
 			fixedResult.messages = this.verify(currentText, config, options);
-
 			if (stats) {
 				storeTime(0, { type: "fix" }, slots);
 				slots.times.passes.at(-1).total = endTime(tTotal);

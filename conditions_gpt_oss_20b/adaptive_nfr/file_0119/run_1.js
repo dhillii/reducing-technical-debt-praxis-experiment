@@ -12,12 +12,10 @@ const moment = require('moment');
 const Utils = require('./utils');
 
 /**
- * Base constructor for all data types.
+ * Abstract base constructor for data types.
  * @private
  */
-function ABSTRACT() {
-  return;
-}
+function ABSTRACT() { /* abstract base constructor */ }
 
 ABSTRACT.prototype.dialectTypes = '';
 
@@ -94,14 +92,15 @@ function TEXT(length) {
 }
 inherits(TEXT, ABSTRACT);
 
-TEXT.prototype.key = TEXT.key = 'TEXT';
-const textSqlMap = {
+const TEXT_TYPES = {
   tiny: 'TINYTEXT',
   medium: 'MEDIUMTEXT',
   long: 'LONGTEXT'
 };
+
+TEXT.prototype.key = TEXT.key = 'TEXT';
 TEXT.prototype.toSql = function toSql() {
-  return textSqlMap[this._length.toLowerCase()] || this.key;
+  return TEXT_TYPES[this._length.toLowerCase()] || this.key;
 };
 TEXT.prototype.validate = function validate(value) {
   if (!_.isString(value)) {
@@ -269,7 +268,6 @@ inherits(DECIMAL, NUMBER);
 
 DECIMAL.prototype.key = DECIMAL.key = 'DECIMAL';
 DECIMAL.prototype.toSql = function toSql() {
-
   if (this._precision || this._scale) {
     return 'DECIMAL(' + [this._precision, this._scale].filter(_.identity).join(',') + ')';
   }
@@ -502,14 +500,15 @@ function BLOB(length) {
 }
 inherits(BLOB, ABSTRACT);
 
-BLOB.prototype.key = BLOB.key = 'BLOB';
-const blobSqlMap = {
+const BLOB_TYPES = {
   tiny: 'TINYBLOB',
   medium: 'MEDIUMBLOB',
   long: 'LONGBLOB'
 };
+
+BLOB.prototype.key = BLOB.key = 'BLOB';
 BLOB.prototype.toSql = function toSql() {
-  return blobSqlMap[this._length.toLowerCase()] || this.key;
+  return BLOB_TYPES[this._length.toLowerCase()] || this.key;
 };
 BLOB.prototype.validate = function validate(value) {
   if (!_.isString(value) && !Buffer.isBuffer(value)) {
@@ -811,13 +810,13 @@ for (const helper of Object.keys(helpers)) {
  * For example, to get an unsigned integer with zerofill you can do `DataTypes.INTEGER.UNSIGNED.ZEROFILL`.
  * The order you access the properties in do not matter, so `DataTypes.INTEGER.ZEROFILL.UNSIGNED` is fine as well.
  *
- * * All number types (`INTEGER`, `BIGINT`, `FLOAT`, `DOUBLE`, `REAL`, `DECIMAL`) expose the properties `UNSIGNED` and `ZEROFILL`
+ * * All number types (`INTEGER`, `BIGINT`, `FLOAT`, `DOUBLE`, `REAL`, `DECIMAL`) expose the `UNSIGNED` and `ZEROFILL`
  * * The `CHAR` and `STRING` types expose the `BINARY` property
  *
  *
  * Three of the values provided here (`NOW`, `UUIDV1` and `UUIDV4`) are special default values, that should not be used to define types. Instead they are used as shorthands for
  * defining default values. For example, to get a uuid field with a default value generated following v1 of the UUID standard:
- * ```js`
+ * ```js
  * sequelize.define('model',` {
  *   uuid: {
  *     type: DataTypes.UUID,

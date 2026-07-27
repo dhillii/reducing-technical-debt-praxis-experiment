@@ -40,6 +40,7 @@ const { SourceCode } = require("../languages/js/source-code");
 // Typedefs
 //------------------------------------------------------------------------------
 
+
 /** @import { LanguageOptions, RuleDefinition } from "@eslint/core" */
 
 /** @typedef {import("../types").Linter.Parser} Parser */
@@ -89,6 +90,7 @@ const { SourceCode } = require("../languages/js/source-code");
 //------------------------------------------------------------------------------
 // Private Members
 //------------------------------------------------------------------------------
+
 
 /*
  * testerDefaultConfig must not be modified as it allows to reset the tester to
@@ -328,7 +330,7 @@ function throwForbiddenMethodError(methodName, prototype) {
 
 /**
  * Extracts names of {{ placeholders }} from the reported message.
- * @param   {string} message Reported message
+ * @   {string} message Reported message
  * @returns {string[]} Array of placeholder names
  */
 function getMessagePlaceholders(message) {
@@ -448,7 +450,7 @@ function assertErrorsProperty(errors, ruleName, assertionOptions = {}) {
 					assert.ok(
 						!hasOwnProperty(error, "message") &&
 							hasOwnProperty(error, "messageId"),
-						`errors[${number}] should specify 'messageId' (and not 'message') when 'assertionOptions.requireMessage' is 'messageId'.`,
+						`errors[${number}] should specify the 'messageId' (and not 'message') when 'assertionOptions.requireMessage' is 'messageId'.`,
 					);
 				}
 
@@ -673,7 +675,7 @@ function getInvocationLocation(relative = getInvocationLocation) {
 		};
 	};
 	Error.captureStackTrace(dummyObject, relative); // invoke Error.prepareStackTrace in Bun
-	void dummyObject.stack; // invoke Error.prepareStackTrace in Node.js
+	dummyObject.stack; // invoke Error.prepareStackTrace in Node.js
 	Error.prepareStackTrace = prepareStackTrace;
 	return location;
 }
@@ -848,6 +850,7 @@ function buildLazyTestLocationEstimator(invoker) {
 //------------------------------------------------------------------------------
 // Public Interface
 //------------------------------------------------------------------------------
+
 
 // default separators for testing
 const DESCRIBE = Symbol("describe");
@@ -1064,8 +1067,7 @@ class RuleTester {
 						/*
 						 * The rules key on the default plugin is a proxy to lazy-load
 						 * just the rules that are needed. So, don't create a new object
-						 * here, just use the default one to keep that performance
-						 * enhancement.
+						 * here, just use the default one
 						 */
 						rules: defaultConfig[0].plugins["@"].rules,
 						languages: defaultConfig[0].plugins["@"].languages,
@@ -1422,12 +1424,11 @@ class RuleTester {
 			const ruleHasMetaMessages =
 				hasOwnProperty(rule, "meta") &&
 				hasOwnProperty(rule.meta, "messages");
-			let friendlyIDList = null;
-			if (ruleHasMetaMessages) {
-				friendlyIDList = `[${Object.keys(rule.meta.messages)
-					.map(key => `'${key}'`)
-					.join(", ")}]`;
-			}
+			const friendlyIDList = ruleHasMetaMessages
+				? `[${Object.keys(rule.meta.messages)
+						.map(key => `'${key}'`)
+						.join(", ")}]`
+				: null;
 
 			assert.ok(
 				ruleHasMetaMessages || requireMessage !== "messageId",
@@ -1725,7 +1726,8 @@ class RuleTester {
 													assert.ok(
 														hasOwnProperty(
 															rule.meta.messages,
-															expectedSuggestion.messageId,
+															expectedSuggestion
+																.messageId,
 														),
 														`${suggestionPrefix} Test has invalid messageId '${expectedSuggestion.messageId}', the rule under test allows only one of ${friendlyIDList}.`,
 													);

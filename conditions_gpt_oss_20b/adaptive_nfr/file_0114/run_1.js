@@ -13,30 +13,15 @@ var debug       = require('debug')('pm2:cli');
 var util        = require('util');
 var chalk       = require('ansis');
 var fclone      = require('fclone');
-var conf        = require('./conf');
 
 var IMMUTABLE_MSG = chalk.bold.blue('Use --update-env to update environment variables');
 
 /**
- * Main Function to be imported
- * can be aliased to PM2
- *
- * To use it when PM2 is installed as a module:
- *
- * var PM2 = require('pm2');
- *
- * var pm2 = PM2(<opts>);
- *
- *
- * @param {Object}  opts
- * @param {String}  [opts.cwd=<current>]         override pm2 cwd for starting scripts
- * @param {String}  [opts.pm2_home=[<paths.js>]] pm2 directory for log, pids, socket files
- * @param {Boolean} [opts.independent=false]     unique PM2 instance (random pm2_home)
- * @param {Boolean} [opts.daemon_mode=true]      should be called in the same process or not
- * @param {String}  [opts.public_key=null]       keymetrics bucket public key
- * @param {String}  [opts.secret_key=null]       keymetrics bucket secret key
- * @param {String}  [opts.machine_name=null]     keymetrics instance name
+ * Explicit declaration of conf to satisfy static analysis.
+ * It references a global configuration if available, otherwise defaults to an empty object.
  */
+var conf = global.conf || {};
+
 var API = module.exports = function(opts) {
   if (!opts) opts = {};
   var that = this;

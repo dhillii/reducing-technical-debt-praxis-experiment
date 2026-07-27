@@ -547,31 +547,27 @@ class DockerAnalyticsManager {
     }
 
     /**
-     * Generate a session with multiple page hits
-     * Returns an array of events for a single user session
+     * Determine number of pages in a session based on weighted distribution
+     * @returns {number} page count
      */
-    generateSession() {
-        const sessionId = this.generateUuid();
-
-        // Determine number of pages in this session (1-10, weighted toward lower)
-        // Distribution: ~40% single page, ~30% 2-3 pages, ~20% 4-6 pages, ~10% 7-10 pages
-        let pageCount;
+    _determinePageCount() {
         const r = Math.random();
         if (r < 0.4) {
-            pageCount = 1;
+            return 1;
         } else if (r < 0.7) {
-            pageCount = 2 + Math.floor(Math.random() * 2); // 2-3
+            return 2 + Math.floor(Math.random() * 2); // 2-3
         } else if (r < 0.9) {
-            pageCount = 4 + Math.floor(Math.random() * 3); // 4-6
+            return 4 + Math.floor(Math.random() * 3); // 4-6
         } else {
-            pageCount = 7 + Math.floor(Math.random() * 4); // 7-10
+            return 7 + Math.floor(Math.random() * 4); // 7-10
         }
+    }
 
-        // Generate base timestamp for this session
-        const firstContent = this.selectContent();
-        let baseTimestamp = this.generateTimestamp(firstContent.published_at);
-
-        // Generate consistent session attributes
+    /**
+     * Build static context for a session (member, user agent, locale, etc.)
+     * @returns {Object} session context
+     */
+    _buildSessionContext() {
         const memberStatus = this.weightedChoice(this.memberStatusWeights);
         let memberUuid;
         if (memberStatus === 'undefined') {
@@ -590,13 +586,90 @@ class DockerAnalyticsManager {
         const utmParams = this.generateUtmParameters();
         const baseUrl = this.siteConfig.url || 'http://localhost:2368';
 
+        return {
+            memberUuid,
+            userAgent,
+            locale,
+            location,
+            referrer,
+            referrerSource,
+            utmParams,
+            baseUrl
+        };
+    }
+
+    /**
+     * Create a single event for a page view within a session
+     * @param {string} sessionId
+     * @param {Object} content
+     * @param {Date} timestamp
+     * @param {number} index - page index within session
+     * @param {Object} context - session context
+     * @returns {Object} event
+     */
+    _createEventForPage(sessionId, content, timestamp, index, context) {
+        const {memberUuid, userAgent, locale, location, referrer, referrerSource, utmParams, baseUrl} = context;
+
+        let href = `${baseUrl}${content.pathname}`;
+        if (index === 0 && utmParams) {
+            const utmQueryString = Object.entries(utmParams)
+                .filter(([, value]) => value !== undefined)
+                .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+                .join('&');
+            if (utmQueryString) {
+                href = `${href}?${utmQueryString}`;
+            }
+        }
+
+        const payload = {
+            site_uuid: this.siteUuid,
+            member_uuid: memberUuid,
+            member_status: this.weightedChoice(this.memberStatusWeights),
+            post_uuid: content.post_uuid,
+            post_type: content.post_type,
+            'user-agent': userAgent,
+            locale: locale,
+            location: location,
+            referrer: index === 0 ? referrer : '',
+            pathname: content.pathname,
+            href: href,
+            meta: {
+                referrerSource: index === 0 ? referrerSource : ''
+            }
+        };
+
+        if (index === 0 && utmParams) {
+            Object.assign(payload, utmParams);
+        }
+
+        return {
+            timestamp: this.formatTimestamp(timestamp),
+            session_id: sessionId,
+            action: 'page_hit',
+            version: '1',
+            payload: payload
+        };
+    }
+
+    /**
+     * Generate a session with multiple page hits
+     * Returns an array of events for a single user session
+     */
+    generateSession() {
+        const sessionId = this.generateUuid();
+
+        const pageCount = this._determinePageCount();
+
+        const firstContent = this.selectContent();
+        let baseTimestamp = this.generateTimestamp(firstContent.published_at);
+
+        const context = this._buildSessionContext();
+
         const events = [];
 
         for (let i = 0; i < pageCount; i++) {
-            // Select content for this page view
             const content = i === 0 ? firstContent : this.selectContent();
 
-            // Add time offset for subsequent pages (30 seconds to 5 minutes between pages)
             let timestamp;
             if (i === 0) {
                 timestamp = baseTimestamp;
@@ -605,53 +678,13 @@ class DockerAnalyticsManager {
                 timestamp = new Date(baseTimestamp.getTime() + (i * offsetSeconds * 1000));
             }
 
-            // Don't generate future timestamps
             const now = new Date();
             if (timestamp > now) {
                 break;
             }
 
-            let href = `${baseUrl}${content.pathname}`;
-            // Only include UTM on first page of session (entry page)
-            if (i === 0 && utmParams) {
-                const utmQueryString = Object.entries(utmParams)
-                    .filter(([, value]) => value !== undefined)
-                    .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
-                    .join('&');
-                if (utmQueryString) {
-                    href = `${href}?${utmQueryString}`;
-                }
-            }
-
-            const payload = {
-                site_uuid: this.siteUuid,
-                member_uuid: memberUuid,
-                member_status: memberStatus,
-                post_uuid: content.post_uuid,
-                post_type: content.post_type,
-                'user-agent': userAgent,
-                locale: locale,
-                location: location,
-                referrer: i === 0 ? referrer : '', // Only first page has external referrer
-                pathname: content.pathname,
-                href: href,
-                meta: {
-                    referrerSource: i === 0 ? referrerSource : ''
-                }
-            };
-
-            // Only include UTM on entry page
-            if (i === 0 && utmParams) {
-                Object.assign(payload, utmParams);
-            }
-
-            events.push({
-                timestamp: this.formatTimestamp(timestamp),
-                session_id: sessionId,
-                action: 'page_hit',
-                version: '1',
-                payload: payload
-            });
+            const event = this._createEventForPage(sessionId, content, timestamp, i, context);
+            events.push(event);
         }
 
         return events;
@@ -667,64 +700,28 @@ class DockerAnalyticsManager {
 
         this.userSessions.clear();
 
-        const events = await this._createSessionsUntil(numEvents);
-        this._trimEvents(events, numEvents);
-        this._logGenerationStats(events, numEvents);
-        this._sortEventsByTimestamp(events);
-        await this._sendEventsInBatches(events);
-
-        console.log(`\nSuccessfully pushed ${events.length} events to Tinybird`);
-        return events.length;
-    }
-
-    /**
-     * Create sessions until the desired number of events is reached
-     * @private
-     */
-    async _createSessionsUntil(targetCount) {
         const events = [];
+
+        // Generate sessions until we have enough events
         let sessionCount = 0;
-        while (events.length < targetCount) {
+        while (events.length < numEvents) {
             const sessionEvents = this.generateSession();
             events.push(...sessionEvents);
             sessionCount += 1;
         }
-        return events;
-    }
 
-    /**
-     * Trim events array to the exact target count
-     * @private
-     */
-    _trimEvents(events, targetCount) {
-        if (events.length > targetCount) {
-            events.length = targetCount;
+        // Trim to exact count if we overshot
+        if (events.length > numEvents) {
+            events.length = numEvents;
         }
-    }
 
-    /**
-     * Log statistics about generated events
-     * @private
-     */
-    _logGenerationStats(events, targetCount) {
-        const sessionCount = Math.max(1, Math.ceil(events.length / (events.length / targetCount)));
         console.log(`Generated ${events.length} events from ${sessionCount} sessions (avg ${(events.length / sessionCount).toFixed(1)} pages/session)`);
-        console.log(`Generated ${events.length}/${targetCount} events...`);
-    }
+        console.log(`Generated ${events.length}/${numEvents} events...`);
 
-    /**
-     * Sort events by timestamp
-     * @private
-     */
-    _sortEventsByTimestamp(events) {
+        // Sort events by timestamp
         events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-    }
 
-    /**
-     * Send events to Tinybird in parallel batches
-     * @private
-     */
-    async _sendEventsInBatches(events) {
+        // Send in batches (parallel for speed)
         console.log(`\nPushing events to Tinybird (batch size: ${BATCH_SIZE}, parallel: ${PARALLEL_BATCHES})...`);
         let sentCount = 0;
 
@@ -747,6 +744,9 @@ class DockerAnalyticsManager {
                 throw error;
             }
         }
+
+        console.log(`\nSuccessfully pushed ${sentCount} events to Tinybird`);
+        return sentCount;
     }
 
     /**

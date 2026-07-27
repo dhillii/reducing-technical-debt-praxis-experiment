@@ -24,6 +24,8 @@ function isJSONContentType(header) {
 }
 
 function getJSONPayload(payload) {
+    // ember-simple-auth prevents ember-ajax parsing response as JSON but
+    // we need a JSON object to test against
     if (typeof payload === 'string') {
         try {
             payload = JSON.parse(payload);
@@ -337,13 +339,34 @@ class ajaxService extends AjaxService {
     }
 
     /**
-     * Handles the response from the server, mapping error codes to custom error classes.
+     * Determine if the response represents a known error type and return the corresponding error instance.
      * @param {number} status
      * @param {Object} headers
      * @param {Object} payload
-     * @param {Object} request
-     * @returns {AjaxError|AcceptedResponse|*}
+     * @returns {AjaxError|null}
      */
+    _getErrorInstance(status, headers, payload) {
+        const handlers = [
+            {check: () => this.isTwoFactorTokenRequiredError(status, headers, payload), create: () => new TwoFactorTokenRequiredError(payload)},
+            {check: () => this.isVersionMismatchError(status, headers, payload), create: () => new VersionMismatchError(payload)},
+            {check: () => this.isServerUnreachableError(status, headers, payload), create: () => new ServerUnreachableError(payload)},
+            {check: () => this.isRequestEntityTooLargeError(status, headers, payload), create: () => new RequestEntityTooLargeError(payload)},
+            {check: () => this.isUnsupportedMediaTypeError(status, headers, payload), create: () => new UnsupportedMediaTypeError(payload)},
+            {check: () => this.isMaintenanceError(status, headers, payload), create: () => new MaintenanceError(payload)},
+            {check: () => this.isThemeValidationError(status, headers, payload), create: () => new ThemeValidationError(payload)},
+            {check: () => this.isHostLimitError(status, headers, payload), create: () => new HostLimitError(payload)},
+            {check: () => this.isEmailError(status, headers, payload), create: () => new EmailError(payload)},
+            {check: () => this.isAcceptedResponse(status), create: () => new AcceptedResponse(payload)}
+        ];
+
+        for (let i = 0; i < handlers.length; i++) {
+            if (handlers[i].check()) {
+                return handlers[i].create();
+            }
+        }
+        return null;
+    }
+
     handleResponse(status, headers, payload, request) {
         // set some context variables for Sentry in case there is an error
         Sentry.setContext('ajax', {
@@ -355,30 +378,24 @@ class ajaxService extends AjaxService {
         Sentry.setTag('ajax_url', request.url.slice(0, 200)); // the max length of a tag value is 200 characters
         Sentry.setTag('ajax_method', request.method);
 
-        // Map of error handlers
-        const errorHandlers = [
-            {predicate: (s, h, p) => this.isTwoFactorTokenRequiredError(s, h, p), ctor: TwoFactorTokenRequiredError},
-            {predicate: (s, h, p) => this.isVersionMismatchError(s, h, p), ctor: VersionMismatchError},
-            {predicate: (s, h, p) => this.isServerUnreachableError(s, h, p), ctor: ServerUnreachableError},
-            {predicate: (s, h, p) => this.isRequestEntityTooLargeError(s, h, p), ctor: RequestEntityTooLargeError},
-            {predicate: (s, h, p) => this.isUnsupportedMediaTypeError(s, h, p), ctor: UnsupportedMediaTypeError},
-            {predicate: (s, h, p) => this.isMaintenanceError(s, h, p), ctor: MaintenanceError},
-            {predicate: (s, h, p) => this.isThemeValidationError(s, h, p), ctor: ThemeValidationError},
-            {predicate: (s, h, p) => this.isHostLimitError(s, h, p), ctor: HostLimitError},
-            {predicate: (s, h, p) => this.isEmailError(s, h, p), ctor: EmailError},
-            {predicate: (s, h, p) => this.isAcceptedResponse(s, h, p), ctor: AcceptedResponse}
-        ];
+        if (headers['content-version']) {
+            const contentVersion = semverCoerce(headers['content-version']);
+            const appVersion = semverCoerce(config.APP.version);
 
-        for (const {predicate, ctor} of errorHandlers) {
-            if (predicate(status, headers, payload)) {
-                return new ctor(payload);
+            if (semverLt(appVersion, contentVersion) && !this.feature.inAdminForward) {
+                this.upgradeStatus.refreshRequired = true;
             }
         }
 
-        const isGhostRequest = GHOST_REQUEST.test(request.url);
-        const isAuthenticated = this.get('session.isAuthenticated');
-        const isUnauthorized = this.isUnauthorizedError(status, headers, payload);
-        const isForbidden = isForbiddenError(status, headers, payload);
+        const errorInstance = this._getErrorInstance(status, headers, payload);
+        if (errorInstance) {
+            return errorInstance;
+        }
+
+        let isGhostRequest = GHOST_REQUEST.test(request.url);
+        let isAuthenticated = this.get('session.isAuthenticated');
+        let isUnauthorized = this.isUnauthorizedError(status, headers, payload);
+        let isForbidden = isForbiddenError(status, headers, payload);
 
         // used when reporting connection errors, helps distinguish CDN
         if (isGhostRequest) {

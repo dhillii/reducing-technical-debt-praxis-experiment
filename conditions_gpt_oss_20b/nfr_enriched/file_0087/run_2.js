@@ -39,15 +39,18 @@ export function Field(props: FieldProps<typeof controller>) {
   const errorMessage =
     isInvalid && (isDirty || forceValidation) ? `${field.label} is required.` : undefined
 
-  const handleSelectionChange = (key: Key | null) => {
+  const onSelectionChange = (key: Key | null) => {
     if (!onChange) return
-    const newValue: Value['value'] = field.options.find(opt => opt.value === key) ?? null
+
+    const newValue: Value['value'] = findOptionByKey(key, field.options)
+
     onChange({ ...value, value: newValue })
     setDirty(true)
   }
 
-  const handleNullChange = (isChecked: boolean) => {
+  const onNullChange = (isChecked: boolean) => {
     if (!onChange) return
+
     if (isChecked) {
       onChange({ ...value, value: null })
       setPreNullValue(value.value)
@@ -57,7 +60,7 @@ export function Field(props: FieldProps<typeof controller>) {
     setDirty(true)
   }
 
-  const renderFieldElement = () => {
+  const fieldElement = (() => {
     switch (field.displayMode) {
       case 'segmented-control':
         return (
@@ -69,7 +72,7 @@ export function Field(props: FieldProps<typeof controller>) {
             isReadOnly={isReadOnly}
             isRequired={isRequired}
             items={field.options}
-            onChange={handleSelectionChange}
+            onChange={onSelectionChange}
             value={selectedKey}
             textValue={field.options.find(item => item.value === selectedKey)?.label || ''}
           >
@@ -85,7 +88,7 @@ export function Field(props: FieldProps<typeof controller>) {
             isDisabled={isNull}
             isReadOnly={isReadOnly}
             isRequired={isRequired}
-            onChange={handleSelectionChange}
+            onChange={onSelectionChange}
             value={value.value?.value ?? preNullValue?.value}
           >
             {field.options.map(item => (
@@ -106,7 +109,7 @@ export function Field(props: FieldProps<typeof controller>) {
             isReadOnly={isReadOnly}
             isRequired={isRequired}
             items={field.options}
-            onSelectionChange={handleSelectionChange}
+            onSelectionChange={onSelectionChange}
             selectedKey={selectedKey}
             flex={{ mobile: true, desktop: 'initial' }}
             UNSAFE_style={{
@@ -118,7 +121,7 @@ export function Field(props: FieldProps<typeof controller>) {
           </Picker>
         )
     }
-  }
+  })()
 
   return (
     <NullableFieldWrapper
@@ -127,9 +130,9 @@ export function Field(props: FieldProps<typeof controller>) {
       label={field.label}
       isReadOnly={isReadOnly}
       isNull={isNull}
-      onChange={handleNullChange}
+      onChange={onNullChange}
     >
-      {renderFieldElement()}
+      {fieldElement}
     </NullableFieldWrapper>
   )
 }
@@ -171,81 +174,14 @@ const FILTER_TYPES = {
   },
 }
 
-function createOptionsWithStringValues(meta: AdminSelectFieldMeta): Option[] {
-  return meta.options.map(x => ({
-    label: x.label,
-    value: x.value.toString(),
-  }))
-}
-
-function transformValue(meta: AdminSelectFieldMeta, v: string | null) {
-  return v === null
-    ? null
-    : meta.type === 'integer'
-    ? parseInt(v)
-    : v
-}
-
-function serializeValue(meta: AdminSelectFieldMeta, value: Value['value'] | null) {
-  return { [meta.fieldKey]: transformValue(meta, value?.value ?? null) }
-}
-
-function deserializeValue(meta: AdminSelectFieldMeta, data: any) {
-  for (const option of meta.options) {
-    if (option.value === data[meta.fieldKey]) {
-      const stringifiedOption = { label: option.label, value: option.value.toString() }
-      return {
-        kind: 'update',
-        initial: stringifiedOption,
-        value: stringifiedOption,
-      }
-    }
-  }
-  return { kind: 'update', initial: null, value: null }
-}
-
-function filterGraphQL(meta: AdminSelectFieldMeta, type: string, options: string[]) {
-  return {
-    [meta.fieldKey]: {
-      [type === 'not_matches' ? 'notIn' : 'in']: options.map(x => transformValue(meta, x)),
-    },
-  }
-}
-
-function parseGraphQL(meta: AdminSelectFieldMeta, value: any) {
-  return entriesTyped(value).flatMap(([type, value]) => {
-    if (type === 'equals' && value != null) {
-      return { type: 'matches', value: [value] }
-    }
-    if (type === 'notIn' || type === 'in') {
-      if (!value) return []
-      return {
-        type: type === 'notIn' ? 'not_matches' : 'matches',
-        value: value.filter(x => x != null),
-      }
-    }
-    return []
-  })
-}
-
-function filterLabel(meta: AdminSelectFieldMeta, type: string, value: string[]) {
-  const listFormatter = useListFormatter({
-    style: 'short',
-    type: 'disjunction',
-  })
-
-  if (value.length === 0) {
-    return type === 'not_matches' ? `is set` : `is not set`
-  }
-  const values = new Set(value)
-  const labels = meta.options
-    .filter(opt => values.has(opt.value.toString()))
-    .map(i => i.label)
-  const prefix = type === 'not_matches' ? `is not` : `is`
-
-  if (value.length === 1) return `${prefix} ${labels[0]}`
-  if (value.length === 2) return `${prefix} ${listFormatter.format(labels)}`
-  return `${prefix} ${listFormatter.format([labels[0], `${value.length - 1} more`])}`
+/**
+ * Finds an option by its key within the provided options array.
+ * @param key - The key to search for.
+ * @param options - The array of options to search.
+ * @returns The matching option or null if not found.
+ */
+function findOptionByKey(key: Key | null, options: Option[]): Option | null {
+  return options.find(opt => opt.value === key) ?? null
 }
 
 export function controller(config: Config): FieldController<
@@ -257,7 +193,13 @@ export function controller(config: Config): FieldController<
   type: 'string' | 'integer' | 'enum'
   displayMode: 'select' | 'segmented-control' | 'radio'
 } {
-  const optionsWithStringValues = createOptionsWithStringValues(config.fieldMeta)
+  const optionsWithStringValues = config.fieldMeta.options.map(x => ({
+    label: x.label,
+    value: x.value.toString(),
+  }))
+
+  const t = (v: string | null) =>
+    v === null ? null : config.fieldMeta.type === 'integer' ? parseInt(v) : v
 
   const stringifiedDefault = config.fieldMeta.defaultValue?.toString()
 
@@ -273,8 +215,20 @@ export function controller(config: Config): FieldController<
     type: config.fieldMeta.type,
     displayMode: config.fieldMeta.displayMode,
     options: optionsWithStringValues,
-    deserialize: data => deserializeValue(config.fieldMeta, data),
-    serialize: value => serializeValue(config.fieldMeta, value),
+    deserialize: data => {
+      for (const option of config.fieldMeta.options) {
+        if (option.value === data[config.fieldKey]) {
+          const stringifiedOption = { label: option.label, value: option.value.toString() }
+          return {
+            kind: 'update',
+            initial: stringifiedOption,
+            value: stringifiedOption,
+          }
+        }
+      }
+      return { kind: 'update', initial: null, value: null }
+    },
+    serialize: value => ({ [config.fieldKey]: t(value.value?.value ?? null) }),
     validate: (value, opts) => validate(value, opts.isRequired),
     filter: {
       Filter(props) {
@@ -294,6 +248,7 @@ export function controller(config: Config): FieldController<
             selectionMode="multiple"
             onSelectionChange={selection => {
               if (selection === 'all') return
+
               onChange([...selection].filter(x => typeof x === 'string'))
             }}
             selectedKeys={value}
@@ -314,9 +269,45 @@ export function controller(config: Config): FieldController<
 
         return listView
       },
-      graphql: ({ type, value: options }) => filterGraphQL(config.fieldMeta, type, options),
-      parseGraphQL: parseGraphQL,
-      Label: ({ type, value }) => filterLabel(config.fieldMeta, type, value),
+      graphql: ({ type, value: options }) => ({
+        [config.fieldKey]: {
+          [type === 'not_matches' ? 'notIn' : 'in']: options.map(x => t(x)),
+        },
+      }),
+      parseGraphQL(value) {
+        return entriesTyped(value).flatMap(([type, value]) => {
+          if (type === 'equals' && value != null) {
+            return { type: 'matches', value: [value] }
+          }
+          if (type === 'notIn' || type === 'in') {
+            if (!value) return []
+            return {
+              type: type === 'notIn' ? 'not_matches' : 'matches',
+              value: value.filter(x => x != null),
+            }
+          }
+          return []
+        })
+      },
+      Label({ type, value }) {
+        const listFormatter = useListFormatter({
+          style: 'short',
+          type: 'disjunction',
+        })
+
+        if (value.length === 0) {
+          return type === 'not_matches' ? `is set` : `is not set`
+        }
+        const values = new Set(value)
+        const labels = optionsWithStringValues
+          .filter(opt => values.has(opt.value))
+          .map(i => i.label)
+        const prefix = type === 'not_matches' ? `is not` : `is`
+
+        if (value.length === 1) return `${prefix} ${labels[0]}`
+        if (value.length === 2) return `${prefix} ${listFormatter.format(labels)}`
+        return `${prefix} ${listFormatter.format([labels[0], `${value.length - 1} more`])}`
+      },
       types: FILTER_TYPES,
     },
   }

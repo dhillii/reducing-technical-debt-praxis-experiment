@@ -10,10 +10,6 @@ const config = require('../app-config').config,
     PgpMailer = require('pgpmailer'),
     ImapClient = require('imap-client');
 
-//
-// Constants
-//
-
 const FOLDER_DB_TYPE = 'folders';
 
 const SYNC_TYPE_NEW = 'new';
@@ -35,10 +31,6 @@ const MSG_PART_TYPE_SIGNED = 'signed';
 const MSG_PART_TYPE_TEXT = 'text';
 const MSG_PART_TYPE_HTML = 'html';
 
-//
-// Email Service
-//
-
 /**
  * High-level data access object that orchestrates everything around the handling of encrypted mails:
  * PGP de-/encryption, receiving via IMAP, sending via SMTP, MIME parsing, local db persistence
@@ -50,19 +42,16 @@ const MSG_PART_TYPE_HTML = 'html';
  * @param {Object} mailreader Parses MIME messages received from IMAP
  */
 function Email(keychain, pgp, accountStore, pgpbuilder, mailreader, dialog, appConfig, auth) {
-    this._keychain = keychain;
-    this._pgp = pgp;
-    this._devicestorage = accountStore;
-    this._pgpbuilder = pgpbuilder;
-    this._mailreader = mailreader;
-    this._dialog = dialog;
-    this._appConfig = appConfig;
-    this._auth = auth;
+    const self = this;
+    self._keychain = keychain;
+    self._pgp = pgp;
+    self._devicestorage = accountStore;
+    self._pgpbuilder = pgpbuilder;
+    self._mailreader = mailreader;
+    self._dialog = dialog;
+    self._appConfig = appConfig;
+    self._auth = auth;
 }
-
-//
-// Public API
-//
 
 /**
  * Initializes the email dao:
@@ -780,10 +769,10 @@ Email.prototype.refreshOutbox = function() {
         folder: outbox,
         exactmatch: false
     }).then(function(storedMessages) {
-        const storedUids = _.pluck(storedMessages, MSG_ATTR_UID);
-        const memoryUids = _.pluck(outbox.messages, MSG_ATTR_UID);
-        const newUids = _.difference(storedUids, memoryUids); // uids of messages that are not yet in memory
-        const removedUids = _.difference(memoryUids, storedUids); // uids of messages that are no longer stored on the disk
+        const storedUids = _.pluck(storedMessages, MSG_ATTR_UID),
+            memoryUids = _.pluck(outbox.messages, MSG_ATTR_UID),
+            newUids = _.difference(storedUids, memoryUids), // uids of messages that are not yet in memory
+            removedUids = _.difference(memoryUids, storedUids); // uids of messages that are no longer stored on the disk
 
         // add new messages that are not yet in memory
         _.filter(storedMessages, function(msg) {
@@ -804,13 +793,16 @@ Email.prototype.refreshOutbox = function() {
     });
 };
 
+
+
 //
 // Event Handlers
 //
 
 /**
  * This handler should be invoked when navigator.onLine === true. It will try to connect a
- * given instance of the imap-client to be used for testing purposes only
+ * given instance of the imap client. If the connection attempt was successful, it will
+ * update the locally available folders with the newly received IMAP folder listing.
  *
  * @param {Object} imap an instance of the imap-client to be used for testing purposes only
  */
@@ -863,6 +855,7 @@ Email.prototype.onConnect = function(imap) {
                 return a - b;
             });
             const lastUid = uids[uids.length - 1];
+
 
             mailboxCache[folder.path] = {
                 exists: lastUid,
@@ -1063,8 +1056,8 @@ Email.prototype._updateFolders = function() {
 
     // fetch list from imap server
     return self._imapClient.listWellKnownFolders().then(function(wellKnownFolders) {
-        let foldersChanged = false; // indicates if we need to persist anything to disk
-        let imapFolders = []; // aggregate all the imap folders
+        let foldersChanged = false, // indicates if we need to persist anything to disk
+            imapFolders = []; // aggregate all the imap folders
 
         // initialize the folders to something meaningful if that hasn't already happened
         self._account.folders = self._account.folders || [];
@@ -1499,9 +1492,9 @@ Email.prototype._localStoreMessages = function(options) {
  * @param {Array} options.messages The messages to store
  */
 Email.prototype._localDeleteMessage = function(options) {
-    const path = options.folder.path;
-    const uid = options.uid;
-    const id = options.id;
+    const path = options.folder.path,
+        uid = options.uid,
+        id = options.id;
 
     if (!path || !(uid || id)) {
         return new Promise(function() {
@@ -1558,7 +1551,7 @@ Email.prototype._extractBody = function(message) {
             message.bodyParts = [{
                 type: MSG_PART_TYPE_ENCRYPTED,
                 content: pgpInlineMatch[0],
-                _isPgpInline = true // used internally to avoid trying to parse non-MIME text with the mailreader
+                _isPgpInline: true // used internally to avoid trying to parse non-MIME text with the mailreader
             }];
             return;
         }
@@ -1569,8 +1562,7 @@ Email.prototype._extractBody = function(message) {
             // PGP/INLINE signed
             message.signed = true;
             message.clearSignedMessage = clearSignedMatch[0];
-            const content = (clearSignedMatch[1] || '').replace(/^- /gm, ''); // remove dash scrolling
-            message.body = content;
+            body = (clearSignedMatch[1] || '').replace(/^- /gm, ''); // remove dash escaping https://tools.ietf.org/html/rfc4880#section-7.1
         }
 
         if (!message.signed) {
@@ -1588,12 +1580,11 @@ Email.prototype._extractBody = function(message) {
 
     function setBody(body, root) {
         message.body = body;
-        message.html = _.pluck(filterBodyParts(root, MSG_PART_TYPE_HTML), MSG_PART_ATTR_CONTENT).join('\n');
-        message.attachments = _.reject(filterBodyParts(root, MSG_PART_TYPE_ATTACHMENT), function(attmt) {
-            // remove the pgp-signature from the attachments
-            return attmt.mimeType === "application/pgp-signature";
-        });
-        inlineExternalImages(message);
+        if (!message.clearSignedMessage) {
+            message.attachments = filterBodyParts(root, MSG_PART_TYPE_ATTACHMENT);
+            message.html = _.pluck(filterBodyParts(root, MSG_PART_TYPE_HTML), MSG_PART_ATTR_CONTENT).join('\n');
+            inlineExternalImages(message);
+        }
     }
 };
 
@@ -1663,10 +1654,6 @@ Email.prototype.checkOnline = function() {
     }
 };
 
-//
-// External Heler Methods
-//
-
 /**
  * Checks whether we need to upload to the sent folder after sending an email.
  *
@@ -1689,10 +1676,6 @@ Email.prototype.checkIgnoreUploadOnSent = function(hostname) {
 Email.prototype.isOnline = function() {
     return navigator.onLine;
 };
-
-//
-// Helper Functions
-//
 
 /**
  * Updates a folder's unread count:
@@ -1734,8 +1717,8 @@ function filterBodyParts(bodyParts, type, result) {
  */
 function inlineExternalImages(message) {
     message.html = message.html.replace(/(<img[^>]+\bsrc=['"])cid:([^'">]+)(['"])/ig, function(match, prefix, src, suffix) {
-        let localSource = '';
-        let payload = '';
+        let localSource = '',
+            payload = '';
 
         const internalReference = _.findWhere(message.attachments, {
             id: src

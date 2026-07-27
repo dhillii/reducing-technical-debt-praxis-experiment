@@ -86,101 +86,6 @@ const capitalizeWords = (str: string): string => str
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 
-/**
- * Mapping of font names to Tailwind CSS class names for heading fonts.
- */
-const HEADING_FONT_CLASSES: Record<string, string> = {
-    'Cardo': 'font-cardo font-bold',
-    'Manrope': 'font-manrope font-bold',
-    'Merriweather': 'font-merriweather font-bold',
-    'Nunito': 'font-nunito font-semibold',
-    'Old Standard TT': 'font-old-standard-tt font-bold',
-    'Prata': 'font-prata font-normal',
-    'Roboto': 'font-roboto font-bold',
-    'Rufina': 'font-rufina font-bold',
-    'Tenor Sans': 'font-tenor-sans font-normal',
-    'Chakra Petch': 'font-chakra-petch font-normal',
-    'Fira Mono': 'font-fira-mono font-bold',
-    'Fira Sans': 'font-fira-sans font-bold',
-    'IBM Plex Serif': 'font-ibm-plex-serif font-bold',
-    'Inter': 'font-inter font-bold',
-    'JetBrains Mono': 'font-jetbrains-mono font-bold',
-    'Lora': 'font-lora font-bold',
-    'Noto Sans': 'font-noto-sans font-bold',
-    'Noto Serif': 'font-noto-serif font-bold',
-    'Poppins': 'font-poppins font-bold',
-    'Space Grotesk': 'font-space-grotesk font-bold',
-    'Space Mono': 'font-space-mono font-bold'
-};
-
-/**
- * Mapping of font names to Tailwind CSS class names for body fonts.
- */
-const BODY_FONT_CLASSES: Record<string, string> = {
-    'Cardo': 'font-cardo',
-    'Manrope': 'font-manrope',
-    'Merriweather': 'font-merriweather',
-    'Nunito': 'font-nunito font-semibold',
-    'Old Standard TT': 'font-old-standard-tt',
-    'Prata': 'font-prata',
-    'Roboto': 'font-roboto',
-    'Rufina': 'font-rufina',
-    'Tenor Sans': 'font-tenor-sans',
-    'Chakra Petch': 'font-chakra-petch',
-    'Fira Mono': 'font-fira-mono',
-    'Fira Sans': 'font-fira-sans',
-    'IBM Plex Serif': 'font-ibm-plex-serif',
-    'Inter': 'font-inter',
-    'JetBrains Mono': 'font-jetbrains-mono',
-    'Lora': 'font-lora',
-    'Noto Sans': 'font-noto-sans',
-    'Noto Serif': 'font-noto-serif',
-    'Poppins': 'font-poppins',
-    'Space Grotesk': 'font-space-grotesk',
-    'Space Mono': 'font-space-mono'
-};
-
-/**
- * Returns the Tailwind CSS class name for a given font.
- * @param fontName - The name of the font.
- * @param heading - Whether the font is used for headings.
- */
-const getFontClassName = (fontName: string, heading: boolean): string => {
-    if (fontName === DEFAULT_FONT) return '';
-    const map = heading ? HEADING_FONT_CLASSES : BODY_FONT_CLASSES;
-    return map[fontName] ?? '';
-};
-
-/**
- * Creates a handler for font selection.
- * @param fontType - 'heading' or 'body'
- * @param setFont - state setter for the selected font
- * @param updateSetting - function to update the setting
- * @param defaultFont - default font name
- * @param themeNameVersion - creator string for default font
- * @param fontArray - array of font objects to find creator
- */
-const createFontSelectHandler = (
-    fontType: 'heading' | 'body',
-    setFont: React.Dispatch<React.SetStateAction<{name: string; creator: string}>>,
-    updateSetting: (key: string, value: SettingValue) => void,
-    defaultFont: string,
-    themeNameVersion: string,
-    fontArray: {name: string; creator: string}[]
-) => {
-    return (option: {value?: string} | null | undefined) => {
-        const value = option?.value;
-        if (value === defaultFont) {
-            setFont({name: defaultFont, creator: themeNameVersion});
-            updateSetting(`${fontType}_font`, '');
-        } else {
-            const font = fontArray.find(f => f.name === value);
-            setFont({name: value || '', creator: font?.creator || ''});
-            updateSetting(`${fontType}_font`, value || '');
-        }
-    };
-};
-
 const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (key: string, value: SettingValue) => void }> = ({values,updateSetting}) => {
     const {mutateAsync: uploadImage} = useUploadImage();
     const {settings} = useGlobalData();
@@ -198,18 +103,66 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
     const [headingFont, setHeadingFont] = useState(CUSTOM_FONTS.heading.find(f => f.name === values.headingFont) || {name: DEFAULT_FONT, creator: themeNameVersion});
     const [bodyFont, setBodyFont] = useState(CUSTOM_FONTS.heading.find(f => f.name === values.bodyFont) || {name: DEFAULT_FONT, creator: themeNameVersion});
 
+    /**
+     * Mapping of font names to Tailwind CSS class names and weight classes.
+     * @private
+     */
+    const FONT_MAP: Record<string, {base: string; headingWeight: string; bodyWeight: string}> = {
+        'Cardo': {base: 'font-cardo', headingWeight: 'font-bold', bodyWeight: 'font-bold'},
+        'Manrope': {base: 'font-manrope', headingWeight: 'font-bold', bodyWeight: 'font-bold'},
+        'Merriweather': {base: 'font-merriweather', headingWeight: 'font-bold', bodyWeight: 'font-bold'},
+        'Nunito': {base: 'font-nunito', headingWeight: 'font-semibold', bodyWeight: ''},
+        'Old Standard TT': {base: 'font-old-standard-tt', headingWeight: 'font-bold', bodyWeight: 'font-bold'},
+        'Prata': {base: 'font-prata', headingWeight: 'font-normal', bodyWeight: ''},
+        'Roboto': {base: 'font-roboto', headingWeight: 'font-bold', bodyWeight: 'font-bold'},
+        'Rufina': {base: 'font-rufina', headingWeight: 'font-bold', bodyWeight: 'font-bold'},
+        'Tenor Sans': {base: 'font-tenor-sans', headingWeight: 'font-normal', bodyWeight: ''},
+        'Chakra Petch': {base: 'font-chakra-petch', headingWeight: 'font-normal', bodyWeight: ''},
+        'Fira Mono': {base: 'font-fira-mono', headingWeight: 'font-bold', bodyWeight: ''},
+        'Fira Sans': {base: 'font-fira-sans', headingWeight: 'font-bold', bodyWeight: ''},
+        'IBM Plex Serif': {base: 'font-ibm-plex-serif', headingWeight: 'font-bold', bodyWeight: ''},
+        'Inter': {base: 'font-inter', headingWeight: 'font-bold', bodyWeight: 'font-bold'},
+        'JetBrains Mono': {base: 'font-jetbrains-mono', headingWeight: 'font-bold', bodyWeight: 'font-bold'},
+        'Lora': {base: 'font-lora', headingWeight: 'font-bold', bodyWeight: 'font-bold'},
+        'Noto Sans': {base: 'font-noto-sans', headingWeight: 'font-bold', bodyWeight: 'font-bold'},
+        'Noto Serif': {base: 'font-noto-serif', headingWeight: 'font-bold', bodyWeight: 'font-bold'},
+        'Poppins': {base: 'font-poppins', headingWeight: 'font-bold', bodyWeight: 'font-bold'},
+        'Space Grotesk': {base: 'font-space-grotesk', headingWeight: 'font-bold', bodyWeight: 'font-bold'},
+        'Space Mono': {base: 'font-space-mono', headingWeight: 'font-bold', bodyWeight: 'font-bold'}
+    };
+
+    /**
+     * Returns the Tailwind CSS class name for a given font.
+     * @param fontName - The name of the font.
+     * @param heading - Whether the font is used for a heading (true) or body (false).
+     * @returns The combined class name string.
+     */
+    const fontClassName = (fontName: string, heading: boolean = true): string => {
+        const entry = FONT_MAP[fontName];
+        if (!entry) return '';
+        const weight = heading ? entry.headingWeight : entry.bodyWeight;
+        return clsx(entry.base, weight);
+    };
+
     // Populate the heading and body font options
     const customHeadingFonts: HeadingFontOption[] = CUSTOM_FONTS.heading.map((x) => {
-        const className = getFontClassName(x.name, true);
+        const className = fontClassName(x.name, true);
         return {label: x.name, value: x.name, creator: x.creator, className};
     });
     customHeadingFonts.unshift({label: DEFAULT_FONT, value: DEFAULT_FONT, creator: themeNameVersion, className: 'font-sans font-normal'});
 
     const customBodyFonts: BodyFontOption[] = CUSTOM_FONTS.body.map((x) => {
-        const className = getFontClassName(x.name, false);
+        const className = fontClassName(x.name, false);
         return {label: x.name, value: x.name, creator: x.creator, className};
     });
     customBodyFonts.unshift({label: DEFAULT_FONT, value: DEFAULT_FONT, creator: themeNameVersion, className: 'font-sans font-normal'});
+
+    const selectFont = (fontName: string, heading: boolean) => {
+        if (fontName === DEFAULT_FONT) {
+            return '';
+        }
+        return fontClassName(fontName, heading);
+    };
 
     const selectedHeadingFont = {label: headingFont.name, value: headingFont.name, creator: headingFont.creator};
     const selectedBodyFont = {label: bodyFont.name, value: bodyFont.name, creator: bodyFont.creator};
@@ -223,6 +176,7 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
                     testId='accent-color-picker'
                     title={<div>Accent color</div>}
                     value={values.accentColor}
+                    // we debounce this because the color picker fires a lot of events.
                     onChange={value => updateSetting('accent_color', value)}
                 />
                 <div className='flex items-start justify-between'>
@@ -299,19 +253,21 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
                         id='cover'
                         imageURL={values.coverImage || ''}
                         openUnsplash={() => setShowUnsplash(true)}
-                        pintura={{
-                            isEnabled: editor.isEnabled,
-                            openEditor: async () => editor.openEditor({
-                                image: values.coverImage || '',
-                                handleSave: async (file:File) => {
-                                    try {
-                                        updateSetting('cover_image', getImageUrl(await uploadImage({file})));
-                                    } catch (e) {
-                                        handleError(e);
+                        pintura={
+                            {
+                                isEnabled: editor.isEnabled,
+                                openEditor: async () => editor.openEditor({
+                                    image: values.coverImage || '',
+                                    handleSave: async (file:File) => {
+                                        try {
+                                            updateSetting('cover_image', getImageUrl(await uploadImage({file})));
+                                        } catch (e) {
+                                            handleError(e);
+                                        }
                                     }
-                                }
-                            })
-                        }}
+                                })
+                            }
+                        }
                         unsplashButtonClassName='!bg-transparent !h-6 !top-1.5 !w-6 !right-1.5 z-50'
                         unsplashEnabled={unsplashEnabled}
                         width='160px'
@@ -350,7 +306,7 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
             </Form>
             <Form className='-mt-4' gap='sm' margins='lg' title='Typography'>
                 <Select
-                    className={getFontClassName(selectedHeadingFont.label, true)}
+                    className={selectFont(selectedHeadingFont.label, true)}
                     components={{Option, SingleValue}}
                     controlClasses={{control: '!min-h-16 !pl-2', option: '!pl-2'}}
                     hint={''}
@@ -359,10 +315,18 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
                     selectedOption={selectedHeadingFont}
                     testId='heading-font-select'
                     title={'Heading font'}
-                    onSelect={createFontSelectHandler('heading', setHeadingFont, updateSetting, DEFAULT_FONT, themeNameVersion, CUSTOM_FONTS.heading)}
+                    onSelect={(option) => {
+                        if (option?.value === DEFAULT_FONT) {
+                            setHeadingFont({name: DEFAULT_FONT, creator: themeNameVersion});
+                            updateSetting('heading_font', '');
+                        } else {
+                            setHeadingFont({name: option?.value || '', creator: CUSTOM_FONTS.heading.find(f => f.name === option?.value)?.creator || ''});
+                            updateSetting('heading_font', option?.value || '');
+                        }
+                    }}
                 />
                 <Select
-                    className={getFontClassName(selectedBodyFont.label, false)}
+                    className={selectFont(selectedBodyFont.label, false)}
                     components={{Option, SingleValue}}
                     controlClasses={{control: '!min-h-16 !pl-2', option: '!pl-2'}}
                     hint={''}
@@ -373,7 +337,15 @@ const GlobalSettings: React.FC<{ values: GlobalSettingValues, updateSetting: (ke
                     selectedOption={selectedBodyFont}
                     testId='body-font-select'
                     title={'Body font'}
-                    onSelect={createFontSelectHandler('body', setBodyFont, updateSetting, DEFAULT_FONT, themeNameVersion, CUSTOM_FONTS.body)}
+                    onSelect={(option) => {
+                        if (option?.value === DEFAULT_FONT) {
+                            setBodyFont({name: DEFAULT_FONT, creator: themeNameVersion});
+                            updateSetting('body_font', '');
+                        } else {
+                            setBodyFont({name: option?.value || '', creator: CUSTOM_FONTS.body.find(f => f.name === option?.value)?.creator || ''});
+                            updateSetting('body_font', option?.value || '');
+                        }
+                    }}
                 />
             </Form>
         </>

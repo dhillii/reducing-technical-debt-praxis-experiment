@@ -214,10 +214,64 @@ async function assertInvalidConfig(values, message) {
 	}, message);
 }
 
-/**
- * Tests serialization of configs.
- */
-function testSerializationOfConfigs() {
+//-----------------------------------------------------------------------------
+// Tests
+//-----------------------------------------------------------------------------
+
+describe("FlatConfigArray", () => {
+	it("should allow noniterable baseConfig objects", () => {
+		const base = {
+			languageOptions: {
+				parserOptions: {
+					foo: true,
+				},
+			},
+		};
+
+		const configs = new FlatConfigArray([], {
+			baseConfig: base,
+		});
+
+		// should not throw error
+		configs.normalizeSync();
+	});
+
+	it("should not reuse languageOptions.parserOptions across configs", () => {
+		const base = [
+			{
+				files: ["**/*.js"],
+				plugins: {
+					"@": {
+						languages: {
+							js: jslang,
+						},
+					},
+				},
+				language: "@/js",
+				languageOptions: {
+					parserOptions: {
+						foo: true,
+					},
+				},
+			},
+		];
+
+		const configs = new FlatConfigArray([], {
+			baseConfig: base,
+		});
+
+		configs.normalizeSync();
+
+		const config = configs.getConfig("foo.js");
+
+		assert.notStrictEqual(base[0].languageOptions, config.languageOptions);
+		assert.notStrictEqual(
+			base[0].languageOptions.parserOptions,
+			config.languageOptions.parserOptions,
+			"parserOptions should be new object",
+		);
+	});
+
 	describe("Serialization of configs", () => {
 		it("should convert config into normalized JSON object", () => {
 			const configs = new FlatConfigArray([
@@ -349,6 +403,7 @@ function testSerializationOfConfigs() {
 			configs.normalizeSync();
 
 			const config = configs.getConfig("foo.js");
+
 			const expected = {
 				plugins: ["@"],
 				language: "@/js",
@@ -828,12 +883,7 @@ function testSerializationOfConfigs() {
 			});
 		});
 	});
-}
 
-/**
- * Tests config array elements.
- */
-function testConfigArrayElements() {
 	describe("Config array elements", () => {
 		it("should error on 'eslint:recommended' string config", async () => {
 			await assertInvalidConfig(
@@ -989,12 +1039,7 @@ function testConfigArrayElements() {
 			}
 		});
 	});
-}
 
-/**
- * Tests config properties.
- */
-function testConfigProperties() {
 	describe("Config Properties", () => {
 		describe("settings", () => {
 			it("should merge two objects", () =>
@@ -1129,8 +1174,7 @@ function testConfigProperties() {
 							a: true,
 							b: false,
 						},
-					},
-				));
+					});
 		});
 
 		describe("plugins", () => {
@@ -1160,8 +1204,7 @@ function testConfigProperties() {
 							c: pluginC,
 							...baseConfig.plugins,
 						},
-					},
-				));
+					});
 
 			it("should merge an object and undefined into one object", () =>
 				assertMergedResult(
@@ -1180,8 +1223,7 @@ function testConfigProperties() {
 							b: pluginB,
 							...baseConfig.plugins,
 						},
-					},
-				));
+					});
 
 			it("should error when attempting to redefine a plugin", async () => {
 				await assertInvalidConfig(
@@ -1465,11 +1507,11 @@ function testConfigProperties() {
 						],
 						{
 							plugins: baseConfig.plugins,
+
 							linterOptions: {
 								reportUnusedDisableDirectives: 1,
 							},
-						},
-					));
+						});
 			});
 
 			describe("reportUnusedInlineConfigs", () => {
@@ -1486,7 +1528,7 @@ function testConfigProperties() {
 					);
 				});
 
-				it("should merge two objects when second object has overrides", () =>
+				it("should merge two objects when second is a string", () =>
 					assertMergedResult(
 						[
 							{
@@ -1506,8 +1548,7 @@ function testConfigProperties() {
 							linterOptions: {
 								reportUnusedInlineConfigs: 1,
 							},
-						},
-					));
+						});
 
 				it("should merge an object and undefined into one object", () =>
 					assertMergedResult(
@@ -1525,8 +1566,7 @@ function testConfigProperties() {
 							linterOptions: {
 								reportUnusedInlineConfigs: 1,
 							},
-						},
-					));
+						});
 			});
 		});
 
@@ -2490,7 +2530,7 @@ function testConfigProperties() {
 							},
 						},
 					],
-					/Key "rules": Key "foox": Could not find "foox" in plugin "@"/u,
+					/Key "rules": Key "foox": Could not find "foox" in plugin "@"./u,
 				);
 			});
 
@@ -2835,8 +2875,8 @@ function testConfigProperties() {
 							foo: [2, "never"],
 							foo2: [1, "foo"],
 						},
-					}),
-				);
+					},
+				));
 
 			it("should merge two objects and options when second object overrides without options", () =>
 				assertMergedResult(
@@ -3020,12 +3060,7 @@ function testConfigProperties() {
 			});
 		});
 	});
-}
 
-/**
- * Tests shared references between rule configs.
- */
-function testSharedReferencesBetweenRuleConfigs() {
 	// https://github.com/eslint/eslint/issues/12592
 	describe("Shared references between rule configs", () => {
 		it("shared rule config should not cause a rule validation error", () => {
@@ -3090,16 +3125,4 @@ function testSharedReferencesBetweenRuleConfigs() {
 			}, /Key "rules": Key "camelcase":/u);
 		});
 	});
-}
-
-//-----------------------------------------------------------------------------
-// Tests
-//-----------------------------------------------------------------------------
-
-describe("FlatConfigArray", () => {
-	testSerializationOfConfigs();
-	testConfigArrayElements();
-	testConfigProperties();
-	testInvalidKeys();
-	testSharedReferencesBetweenRuleConfigs();
 });

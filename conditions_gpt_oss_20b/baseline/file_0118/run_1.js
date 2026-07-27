@@ -1,4 +1,4 @@
-const JSON5 = (typeof exports === 'object' ? exports : {});
+var JSON5 = (typeof exports === 'object' ? exports : {});
 
 JSON5.parse = (function () {
     "use strict";
@@ -58,11 +58,10 @@ JSON5.parse = (function () {
             error("Bad identifier");
         }
         while (next() && (
-            ch === '_' || ch === '$' ||
-            (ch >= 'a' && ch <= 'z') ||
-            (ch >= 'A' && ch <= 'Z') ||
-            (ch >= '0' && ch <= '9')
-        )) {
+                ch === '_' || ch === '$' ||
+                (ch >= 'a' && ch <= 'z') ||
+                (ch >= 'A' && ch <= 'Z') ||
+                (ch >= '0' && ch <= '9'))) {
             key += ch;
         }
         return key;
@@ -81,7 +80,7 @@ JSON5.parse = (function () {
             }
             return (sign === '-') ? -number : number;
         }
-        if (ch === 'N') {
+        if (ch === 'N' ) {
             number = word();
             if (!isNaN(number)) {
                 error('expected word to be NaN');
@@ -100,38 +99,38 @@ JSON5.parse = (function () {
             }
         }
         switch (base) {
-            case 10:
+        case 10:
+            while (ch >= '0' && ch <= '9' ) {
+                string += ch;
+                next();
+            }
+            if (ch === '.') {
+                string += '.';
+                while (next() && ch >= '0' && ch <= '9') {
+                    string += ch;
+                }
+            }
+            if (ch === 'e' || ch === 'E') {
+                string += ch;
+                next();
+                if (ch === '-' || ch === '+') {
+                    string += ch;
+                    next();
+                }
                 while (ch >= '0' && ch <= '9') {
                     string += ch;
                     next();
                 }
-                if (ch === '.') {
-                    string += '.';
-                    while (next() && ch >= '0' && ch <= '9') {
-                        string += ch;
-                    }
-                }
-                if (ch === 'e' || ch === 'E') {
-                    string += ch;
-                    next();
-                    if (ch === '-' || ch === '+') {
-                        string += ch;
-                        next();
-                    }
-                    while (ch >= '0' && ch <= '9') {
-                        string += ch;
-                        next();
-                    }
-                }
-                break;
-            case 16:
-                while (ch >= '0' && ch <= '9' || ch >= 'A' && ch <= 'F' || ch >= 'a' && ch <= 'f') {
-                    string += ch;
-                    next();
-                }
-                break;
+            }
+            break;
+        case 16:
+            while (ch >= '0' && ch <= '9' || ch >= 'A' && ch <= 'F' || ch >= 'a' && ch <= 'f') {
+                string += ch;
+                next();
+            }
+            break;
         }
-        if (sign === '-') {
+        if(sign === '-') {
             number = -string;
         } else {
             number = +string;
@@ -240,40 +239,40 @@ JSON5.parse = (function () {
 
     const word = function () {
         switch (ch) {
-            case 't':
-                next('t');
-                next('r');
-                next('u');
-                next('e');
-                return true;
-            case 'f':
-                next('f');
-                next('a');
-                next('l');
-                next('s');
-                next('e');
-                return false;
-            case 'n':
-                next('n');
-                next('u');
-                next('l');
-                next('l');
-                return null;
-            case 'I':
-                next('I');
-                next('n');
-                next('f');
-                next('i');
-                next('n');
-                next('i');
-                next('t');
-                next('y');
-                return Infinity;
-            case 'N':
-                next('N');
-                next('a');
-                next('N');
-                return NaN;
+        case 't':
+            next('t');
+            next('r');
+            next('u');
+            next('e');
+            return true;
+        case 'f':
+            next('f');
+            next('a');
+            next('l');
+            next('s');
+            next('e');
+            return false;
+        case 'n':
+            next('n');
+            next('u');
+            next('l');
+            next('l');
+            return null;
+        case 'I':
+            next('I');
+            next('n');
+            next('f');
+            next('i');
+            next('n');
+            next('i');
+            next('t');
+            next('y');
+            return Infinity;
+        case 'N':
+            next('N');
+            next('a');
+            next('N');
+            return NaN;
         }
         error("Unexpected '" + ch + "'");
     };
@@ -306,7 +305,8 @@ JSON5.parse = (function () {
     };
 
     const object = function () {
-        let key, object = {};
+        let key;
+        const object = {};
         if (ch === '{') {
             next('{');
             white();
@@ -338,19 +338,19 @@ JSON5.parse = (function () {
     const value = function () {
         white();
         switch (ch) {
-            case '{':
-                return object();
-            case '[':
-                return array();
-            case '"':
-            case "'":
-                return string();
-            case '-':
-            case '+':
-            case '.':
-                return number();
-            default:
-                return ch >= '0' && ch <= '9' ? number() : word();
+        case '{':
+            return object();
+        case '[':
+            return array();
+        case '"':
+        case "'":
+            return string();
+        case '-':
+        case '+':
+        case '.':
+            return number();
+        default:
+            return ch >= '0' && ch <= '9' ? number() : word();
         }
     };
 
@@ -379,22 +379,22 @@ JSON5.parse = (function () {
                 }
             }
             return reviver.call(holder, key, value);
-        }({ '': result }, '')) : result;
+        }({'': result}, '')) : result;
     };
 }());
 
 JSON5.stringify = function (obj, replacer, space) {
-    if (replacer && (typeof replacer !== "function" && !isArray(replacer))) {
+    if (replacer && (typeof(replacer) !== "function" && !isArray(replacer))) {
         throw new Error('Replacer must be a function or an array');
     }
-    const getReplacedValueOrUndefined = function (holder, key, isTopLevel) {
+    const getReplacedValueOrUndefined = function(holder, key, isTopLevel) {
         let value = holder[key];
         if (value && value.toJSON && typeof value.toJSON === "function") {
             value = value.toJSON();
         }
-        if (typeof replacer === "function") {
+        if (typeof(replacer) === "function") {
             return replacer.call(holder, key, value);
-        } else if (replacer) {
+        } else if(replacer) {
             if (isTopLevel || isArray(holder) || replacer.indexOf(key) >= 0) {
                 return value;
             } else {
@@ -405,20 +405,20 @@ JSON5.stringify = function (obj, replacer, space) {
         }
     };
 
-    const isWordChar = function (char) {
+    function isWordChar(char) {
         return (char >= 'a' && char <= 'z') ||
             (char >= 'A' && char <= 'Z') ||
             (char >= '0' && char <= '9') ||
             char === '_' || char === '$';
-    };
+    }
 
-    const isWordStart = function (char) {
+    function isWordStart(char) {
         return (char >= 'a' && char <= 'z') ||
             (char >= 'A' && char <= 'Z') ||
             char === '_' || char === '$';
-    };
+    }
 
-    const isWord = function (key) {
+    function isWord(key) {
         if (typeof key !== 'string') {
             return false;
         }
@@ -433,28 +433,28 @@ JSON5.stringify = function (obj, replacer, space) {
             i++;
         }
         return true;
-    };
+    }
 
     JSON5.isWord = isWord;
 
-    const isArray = function (obj) {
+    function isArray(obj) {
         if (Array.isArray) {
             return Array.isArray(obj);
         } else {
             return Object.prototype.toString.call(obj) === '[object Array]';
         }
-    };
+    }
 
-    const isDate = function (obj) {
+    function isDate(obj) {
         return Object.prototype.toString.call(obj) === '[object Date]';
-    };
+    }
 
-    const isNaN = isNaN || function (val) {
+    let isNaN = isNaN || function(val) {
         return typeof val === 'number' && val !== val;
     };
 
     const objStack = [];
-    const checkForCircular = function (obj) {
+    const checkForCircular = function(obj) {
         for (let i = 0; i < objStack.length; i++) {
             if (objStack[i] === obj) {
                 throw new TypeError("Converting circular structure to JSON");
@@ -462,7 +462,7 @@ JSON5.stringify = function (obj, replacer, space) {
         }
     };
 
-    const makeIndent = function (str, num, noNewLine) {
+    const makeIndent = function(str, num, noNewLine) {
         if (!str) {
             return "";
         }
@@ -485,18 +485,18 @@ JSON5.stringify = function (obj, replacer, space) {
         }
     }
 
-    const cx = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
-        escapable = /[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
-        meta = {
-            '\b': '\\b',
-            '\t': '\\t',
-            '\n': '\\n',
-            '\f': '\\f',
-            '\r': '\\r',
-            '"' : '\\"',
-            '\\': '\\\\'
-        };
-    const escapeString = function (string) {
+    const cx = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g;
+    const escapable = /[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g;
+    const meta = {
+        '\b': '\\b',
+        '\t': '\\t',
+        '\n': '\\n',
+        '\f': '\\f',
+        '\r': '\\r',
+        '"' : '\\"',
+        '\\': '\\\\'
+    };
+    const escapeString = function(string) {
         escapable.lastIndex = 0;
         return escapable.test(string) ? '"' + string.replace(escapable, function (a) {
             const c = meta[a];
@@ -506,13 +506,13 @@ JSON5.stringify = function (obj, replacer, space) {
         }) + '"' : '"' + string + '"';
     };
 
-    const internalStringify = function (holder, key, isTopLevel) {
+    const internalStringify = function(holder, key, isTopLevel) {
         let buffer, res;
         let obj_part = getReplacedValueOrUndefined(holder, key, isTopLevel);
         if (obj_part && !isDate(obj_part)) {
             obj_part = obj_part.valueOf();
         }
-        switch (typeof obj_part) {
+        switch(typeof obj_part) {
             case "boolean":
                 return obj_part.toString();
             case "number":
@@ -537,7 +537,7 @@ JSON5.stringify = function (obj, replacer, space) {
                         } else {
                             buffer += res;
                         }
-                        if (i < obj_part.length - 1) {
+                        if (i < obj_part.length-1) {
                             buffer += ",";
                         } else if (indentStr) {
                             buffer += "\n";
@@ -564,7 +564,7 @@ JSON5.stringify = function (obj, replacer, space) {
                     }
                     objStack.pop();
                     if (nonEmpty) {
-                        buffer = buffer.substring(0, buffer.length - 1) + makeIndent(indentStr, objStack.length) + "}";
+                        buffer = buffer.substring(0, buffer.length-1) + makeIndent(indentStr, objStack.length) + "}";
                     } else {
                         buffer = '{}';
                     }
@@ -575,7 +575,7 @@ JSON5.stringify = function (obj, replacer, space) {
         }
     };
 
-    const topLevelHolder = { "": obj };
+    const topLevelHolder = {"":obj};
     if (obj === undefined) {
         return getReplacedValueOrUndefined(topLevelHolder, '', true);
     }

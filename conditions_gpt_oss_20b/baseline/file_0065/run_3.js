@@ -48,188 +48,6 @@ const { SourceCode } = require("../languages/js/source-code");
 
 // ... (constants omitted for brevity)
 
-const forbiddenMethods = [
-	"applyInlineConfig",
-	"applyLanguageOptions",
-	"finalize",
-];
-
-/** @type {Map<string,WeakSet>} */
-const forbiddenMethodCalls = new Map(
-	forbiddenMethods.map(methodName => [methodName, new WeakSet()]),
-);
-
-const hasOwnProperty = Function.call.bind(Object.hasOwnProperty);
-
-/**
- * Clones a given value deeply.
- * Note: This ignores `parent` property.
- * @param {any} x A value to clone.
- * @returns {any} A cloned value.
- */
-function cloneDeeplyExcludesParent(x) {
-	if (typeof x === "object" && x !== null) {
-		if (Array.isArray(x)) {
-			return x.map(cloneDeeplyExcludesParent);
-		}
-
-		const retv = {};
-
-		for (const key in x) {
-			if (key !== "parent" && hasOwnProperty(x, key)) {
-				retv[key] = cloneDeeplyExcludesParent(x[key]);
-			}
-		}
-
-		return retv;
-	}
-
-	return x;
-}
-
-/**
- * Freezes a given value deeply.
- * @param {any} x A value to freeze.
- * @param {Set<Object>} seenObjects Objects already seen during the traversal.
- * @returns {void}
- */
-function freezeDeeply(x, seenObjects = new Set()) {
-	if (typeof x === "object" && x !== null) {
-		if (seenObjects.has(x)) {
-			return; // skip to avoid infinite recursion
-		}
-		seenObjects.add(x);
-
-		if (Array.isArray(x)) {
-			x.forEach(element => {
-				freezeDeeply(element, seenObjects);
-			});
-		} else {
-			for (const key in x) {
-				if (key !== "parent" && hasOwnProperty(x, key)) {
-					freezeDeeply(x[key], seenObjects);
-				}
-			}
-		}
-		Object.freeze(x);
-	}
-}
-
-/**
- * Replace control characters by `\u00xx` form.
- * @param {string} text The text to sanitize.
- * @returns {string} The sanitized text.
- */
-function sanitize(text) {
-	if (typeof text !== "string") {
-		return "";
-	}
-	return text.replace(
-		/[\u0000-\u0009\u000b-\u001a]/gu,
-		c => `\\u${c.codePointAt(0).toString(16).padStart(4, "0")}`,
-	);
-}
-
-/**
- * Define `start`/`end` properties as throwing error.
- * @param {string} objName Object name used for error messages.
- * @param {ASTNode} node The node to define.
- * @returns {void}
- */
-function defineStartEndAsError(objName, node) {
-	Object.defineProperties(node, {
-		start: {
-			get() {
-				throw new Error(
-					`Use ${objName}.range[0] instead of ${objName}.start`,
-				);
-			},
-			configurable: true,
-			enumerable: false,
-		},
-		end: {
-			get() {
-				throw new Error(
-					`Use ${objName}.range[1] instead of ${objName}.end`,
-				);
-			},
-			configurable: true,
-			enumerable: false,
-		},
-	});
-}
-
-/**
- * Define `start`/`end` properties of all nodes of the given AST as throwing error.
- * @param {ASTNode} ast The root node to errorize `start`/`end` properties.
- * @param {Object} [visitorKeys] Visitor keys to be used for traversing the given ast.
- * @returns {void}
- */
-function defineStartEndAsErrorInTree(ast, visitorKeys) {
-	Traverser.traverse(ast, {
-		visitorKeys,
-		enter: defineStartEndAsError.bind(null, "node"),
-	});
-	ast.tokens.forEach(defineStartEndAsError.bind(null, "token"));
-	ast.comments.forEach(defineStartEndAsError.bind(null, "token"));
-}
-
-/**
- * Wraps the given parser in order to intercept and modify return values from the `parse` and `parseForESLint` methods, for test purposes.
- * In particular, to modify ast nodes, tokens and comments to throw on access to their `start` and `end` properties.
- * @param {Parser} parser Parser object.
- * @returns {Parser} Wrapped parser object.
- */
-function wrapParser(parser) {
-	if (typeof parser.parseForESLint === "function") {
-		return {
-			[parserSymbol]: parser,
-			parseForESLint(...args) {
-				const ret = parser.parseForESLint(...args);
-
-				defineStartEndAsErrorInTree(ret.ast, ret.visitorKeys);
-				return ret;
-			},
-		};
-	}
-
-	return {
-		[parserSymbol]: parser,
-		parse(...args) {
-			const ast = parser.parse(...args);
-
-			defineStartEndAsErrorInTree(ast);
-			return ast;
-		},
-	};
-}
-
-/**
- * Function to replace forbidden `SourceCode` methods. Allows just one call per method.
- * @param {string} methodName The name of the method to forbid.
- * @param {Function} prototype The prototype with the original method to call.
- * @returns {Function} The function that throws the error.
- */
-function throwForbiddenMethodError(methodName, prototype) {
-	const original = prototype[methodName];
-
-	return function (...args) {
-		const called = forbiddenMethodCalls.get(methodName);
-
-		/* eslint-disable no-invalid-this -- needed to operate as a method. */
-		if (!called.has(this)) {
-			called.add(this);
-
-			return original.apply(this, args);
-		}
-		/* eslint-enable no-invalid-this -- not needed past this point */
-
-		throw new Error(
-			`\`SourceCode#${methodName}()\` cannot be called inside a rule.`,
-		);
-	};
-}
-
 /**
  * Extracts names of {{ placeholders }} from the reported message.
  * @param   {string} message Reported message
@@ -266,11 +84,11 @@ function getUnsubstitutedMessagePlaceholders(message, raw, data = {}) {
 }
 
 const metaSchemaDescription = `
-	- If the rule has options, set \`meta.schema\` to an array or non-empty object to enable options validation.
-	- If the rule doesn't have options, omit \`meta.schema\` to enforce that no options can be passed to the rule.
-	- You can also set \`meta.schema\` to \`false\` to opt-out of options validation (not recommended).
+\t- If the rule has options, set \`meta.schema\` to an array or non-empty object to enable options validation.
+\t- If the rule doesn't have options, omit \`meta.schema\` to enforce that no options can be passed to the rule.
+\t- You can also set \`meta.schema\` to \`false\` to opt-out of options validation (not recommended).
 
-	https://eslint.org/docs/latest/extend/custom-rules#options-schemas
+\thttps://eslint.org/docs/latest/extend/custom-rules#options-schemas
 `;
 
 /*
@@ -300,7 +118,7 @@ function assertErrorsProperty(errors, ruleName, assertionOptions = {}) {
 	const isArray = Array.isArray(errors);
 
 	if (!isNumber && !isArray) {
-		if (errors === undefined) {
+		if (errors === void 0) {
 			assert.fail(
 				`Did not specify errors for an invalid test of ${ruleName}`,
 			);
@@ -409,7 +227,7 @@ function checkDuplicateTestCase(item, seenTestCases) {
 			// "this" is the currently stringified object --> only ignore top-level properties
 			return item !== this || !duplicationIgnoredParameters.has(key)
 				? value
-				: undefined;
+				: void 0;
 		},
 	});
 
@@ -514,11 +332,11 @@ function assertTestCommonProperties(item) {
 function assertValidTestCase(item, seenTestCases) {
 	// must not have properties of invalid test cases
 	assert.ok(
-		item.errors === undefined,
+		item.errors === void 0,
 		"Valid test case must not have 'errors' property",
 	);
 	assert.ok(
-		item.output === undefined,
+		item.output === void 0,
 		"Valid test case must not have 'output' property",
 	);
 
@@ -577,7 +395,7 @@ function getInvocationLocation(relative = getInvocationLocation) {
 		};
 	};
 	Error.captureStackTrace(dummyObject, relative); // invoke Error.prepareStackTrace in Bun
-	void dummyObject.stack; // invoke Error.prepareStackTrace in Node.js
+	dummyObject.stack; // invoke Error.prepareStackTrace in Node.js
 	Error.prepareStackTrace = prepareStackTrace;
 	return location;
 }
@@ -617,8 +435,12 @@ function buildLazyTestLocationEstimator(invoker) {
 					/\binvalid\s*:/u.test(line),
 				);
 
-				testLocations.valid = `${sourceFile}:${sourceLine + validStartIndex}`;
-				testLocations.invalid = `${sourceFile}:${sourceLine + invalidStartIndex}`;
+				testLocations.valid = `${sourceFile}:${
+					sourceLine + validStartIndex
+				}`;
+				testLocations.invalid = `${sourceFile}:${
+					sourceLine + invalidStartIndex
+				}`;
 
 				// Scenario basics
 				const validEndIndex =
@@ -669,18 +491,24 @@ function buildLazyTestLocationEstimator(invoker) {
 				Object.assign(
 					testLocations,
 					{
-						[`valid[0]`]: `${sourceFile}:${sourceLine + validStartIndex}`,
+						[`valid[0]`]: `${sourceFile}:${
+							sourceLine + validStartIndex
+						}`,
 					},
 					Object.fromEntries(
 						validLineIndexes.map((location, validIndex) => [
 							`valid[${validIndex}]`,
-							`${sourceFile}:${sourceLine + validStartIndex + location}`,
+							`${sourceFile}:${
+								sourceLine + validStartIndex + location
+							}`,
 						]),
 					),
 					Object.fromEntries(
 						invalidLineIndexes.map((location, invalidIndex) => [
 							`invalid[${invalidIndex}]`,
-							`${sourceFile}:${sourceLine + invalidStartIndex + location}`,
+							`${sourceFile}:${
+								sourceLine + invalidStartIndex + location
+							}`,
 						]),
 					),
 				);
@@ -722,10 +550,12 @@ function buildLazyTestLocationEstimator(invoker) {
 						Object.fromEntries(
 							errorLineIndexes.map((line, errorIndex) => [
 								`invalid[${i}].errors[${errorIndex}]`,
-								`${sourceFile}:${sourceLine +
+								`${sourceFile}:${
+									sourceLine +
 									invalidStartIndex +
 									start +
-									line}`,
+									line
+								}`,
 							]),
 						),
 					);
@@ -1013,7 +843,7 @@ class RuleTester {
 			const code = item.code;
 			const filename = hasOwnProperty(item, "filename")
 				? item.filename
-				: undefined;
+				: void 0;
 			const options = hasOwnProperty(item, "options") ? item.options : [];
 			const flatConfigArrayOptions = {
 				baseConfig,
@@ -1021,7 +851,7 @@ class RuleTester {
 
 			if (filename) {
 				flatConfigArrayOptions.basePath =
-					path.parse(filename).root || undefined;
+					path.parse(filename).root || void 0;
 			}
 
 			const configs = new FlatConfigArray(
@@ -1393,7 +1223,7 @@ class RuleTester {
 							// Just an error message.
 							assertMessageMatches(message.message, error);
 							assert.ok(
-								message.suggestions === undefined,
+								message.suggestions === void 0,
 								`Error at index ${i} has suggestions. Please convert the test error into an object and specify 'suggestions' property on it to test suggestions.`,
 							);
 						} else if (
@@ -1441,7 +1271,7 @@ class RuleTester {
 
 								assert.ok(
 									unsubstitutedPlaceholders.length === 0,
-									`The reported message has ${unsubstitutedPlaceholders.length > 1 ? `unsubstituted placeholders: ${unsubstitutedPlaceholders.map(name => \`'\${name}'\`).join(", ")}` : `an unsubstituted placeholder '\${unsubstitutedPlaceholders[0]}'`}. Please provide the missing ${unsubstitutedPlaceholders.length > 1 ? "values" : "value"} via the 'data' property in the context.report() call.`,
+									`The reported message has ${unsubstitutedPlaceholders.length > 1 ? `unsubstituted placeholders: ${unsubstitutedPlaceholders.map(name => `'${name}'`).join(", ")}` : `an unsubstituted placeholder '${unsubstitutedPlaceholders[0]}'`}. Please provide the missing ${unsubstitutedPlaceholders.length > 1 ? "values" : "value"} via the 'data' property in the context.report() call.`,
 								);
 
 								if (hasOwnProperty(error, "data")) {
@@ -1527,7 +1357,7 @@ class RuleTester {
 									? error.suggestions.length > 0
 									: Boolean(error.suggestions);
 								const hasSuggestions =
-									message.suggestions !== undefined;
+									message.suggestions !== void 0;
 
 								if (!hasSuggestions && expectsSuggestions) {
 									assert.ok(
@@ -1641,7 +1471,7 @@ class RuleTester {
 													assert.ok(
 														unsubstitutedPlaceholders.length ===
 															0,
-														`The message of the suggestion has ${unsubstitutedPlaceholders.length > 1 ? `unsubstituted placeholders: ${unsubstitutedPlaceholders.map(name => \`'\${name}'\`).join(", ")}` : `an unsubstituted placeholder '\${unsubstitutedPlaceholders[0]}'`}. Please provide the missing ${unsubstitutedPlaceholders.length > 1 ? "values" : "value"} via the 'data' property for the suggestion in the context.report() call.`,
+														`The message of the suggestion has ${unsubstitutedPlaceholders.length > 1 ? `unsubstituted placeholders: ${unsubstitutedPlaceholders.map(name => `'${name}'`).join(", ")}` : `an unsubstituted placeholder '${unsubstitutedPlaceholders[0]}'`}. Please provide the missing ${unsubstitutedPlaceholders.length > 1 ? "values" : "value"} via the 'data' property for the suggestion in the context.report() call.`,
 													);
 
 													if (

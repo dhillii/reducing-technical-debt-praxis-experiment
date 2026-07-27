@@ -46,6 +46,9 @@ type ItemPageProps = {
   listKey: string
 }
 
+/**
+ * Hook that returns a stable callback reference.
+ */
 function useEventCallback<Func extends (...args: any[]) => unknown>(callback: Func): Func {
   const callbackRef = useRef(callback)
   const cb = useCallback((...args: any[]) => {
@@ -58,7 +61,7 @@ function useEventCallback<Func extends (...args: any[]) => unknown>(callback: Fu
 }
 
 /**
- * Handles the delete mutation and navigation.
+ * Delete button with confirmation dialog.
  */
 function DeleteButton({
   list,
@@ -80,24 +83,6 @@ function DeleteButton({
     { variables: { id: itemId } }
   )
 
-  const handleDelete = useCallback(async () => {
-    try {
-      await deleteItem()
-    } catch (err: any) {
-      toastQueue.critical('Unable to delete item', {
-        actionLabel: 'Details',
-        onAction: () => setErrorDialogValue(err),
-        shouldCloseOnAction: true,
-      })
-      return
-    }
-
-    toastQueue.neutral(`${list.singular} deleted.`, {
-      timeout: 5000,
-    })
-    router.push(list.isSingleton ? '/' : `/${list.path}`)
-  }, [deleteItem, list, itemId, router])
-
   return (
     <Fragment>
       <DialogTrigger>
@@ -107,7 +92,23 @@ function DeleteButton({
           title="Delete item"
           cancelLabel="Cancel"
           primaryActionLabel="Yes, delete"
-          onPrimaryAction={handleDelete}
+          onPrimaryAction={async () => {
+            try {
+              await deleteItem()
+            } catch (err: any) {
+              toastQueue.critical('Unable to delete item', {
+                actionLabel: 'Details',
+                onAction: () => setErrorDialogValue(err),
+                shouldCloseOnAction: true,
+              })
+              return
+            }
+
+            toastQueue.neutral(`${list.singular} deleted.`, {
+              timeout: 5000,
+            })
+            router.push(list.isSingleton ? '/' : `/${list.path}`)
+          }}
         >
           <Text>
             Are you sure you want to delete <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>
@@ -125,6 +126,9 @@ function DeleteButton({
   )
 }
 
+/**
+ * Placeholder for not found items.
+ */
 function ItemNotFound(props: PropsWithChildren) {
   return (
     <VStack
@@ -145,6 +149,9 @@ function ItemNotFound(props: PropsWithChildren) {
   )
 }
 
+/**
+ * Reset button with confirmation dialog.
+ */
 function ResetButton(props: { onReset: () => void; hasChanges?: boolean }) {
   return (
     <DialogTrigger>
@@ -164,6 +171,9 @@ function ResetButton(props: { onReset: () => void; hasChanges?: boolean }) {
   )
 }
 
+/**
+ * Form for editing an item.
+ */
 function ItemForm({
   listKey,
   initialValue,
@@ -303,12 +313,15 @@ function ItemForm({
   )
 }
 
+/**
+ * Exported factory for item page component.
+ */
 export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
 
 /**
- * Returns the appropriate message for a missing item.
+ * Component that renders the appropriate not‑found UI based on list configuration.
  */
-function getMissingItemMessage({
+function ItemNotFoundContent({
   list,
   itemId,
   item,
@@ -321,52 +334,41 @@ function getMissingItemMessage({
   isSingleton: boolean
   hideCreate: boolean
 }) {
-  if (list.isSingleton) {
+  if (item != null) {
+    return null
+  }
+
+  if (isSingleton) {
     if (itemId === '1') {
       return (
-        <Fragment>
+        <ItemNotFound>
           <Text>“{list.label}” doesn’t exist, or you don’t have access to it.</Text>
           {!hideCreate && <CreateButtonLink list={list} />}
-        </Fragment>
+        </ItemNotFound>
       )
     }
     return (
-      <Fragment>
+      <ItemNotFound>
         <Text>
           An item with ID <strong>“{itemId}”</strong> does not exist.
         </Text>
-      </Fragment>
+      </ItemNotFound>
     )
   }
+
   return (
-    <Fragment>
+    <ItemNotFound>
       <Text>
         The item with ID <strong>“{itemId}”</strong> doesn’t exist, or you don’t have
         access to it.
       </Text>
-    </Fragment>
+    </ItemNotFound>
   )
 }
 
 /**
- * Handles navigation after an action.
+ * Main item page component.
  */
-function useActionNavigator(list: ListMeta, refetch: () => void) {
-  return useCallback(
-    (action: ActionMeta, resultId: string | null) => {
-      const { navigation } = action.itemView
-      if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
-        refetch()
-      } else if (navigation === 'follow' && resultId) {
-        router.push(`/${list.path}/${resultId}`)
-      } else {
-        router.push(list.isSingleton ? '/' : `/${list.path}`)
-      }
-    },
-    [list, refetch]
-  )
-}
-
 function ItemPage({ listKey }: ItemPageProps) {
   const list = useList(listKey)
   const id_ = useRouter().query.id
@@ -379,18 +381,12 @@ function ItemPage({ listKey }: ItemPageProps) {
   const pageLoading = loading || itemId === undefined
   const pageLabel = itemLabel || itemId
   const pageTitle = list.isSingleton || typeof pageLabel !== 'string' ? list.label : pageLabel
-
   const initialValue = useMemo(() => {
     if (!item) return null
     return deserializeItemToValue(list.fields, item)
   }, [list.fields, data?.item])
 
-  const {
-    actionsInContext,
-    fieldModes,
-    fieldPositions,
-    isRequireds,
-  } = useMemo(() => {
+  const { actionsInContext, fieldModes, fieldPositions, isRequireds } = useMemo(() => {
     const actionModes = Object.fromEntries(
       Object.entries(list.actions).map(([k, v]) => [k, v.itemView.actionMode])
     )
@@ -439,7 +435,17 @@ function ItemPage({ listKey }: ItemPageProps) {
     }
   }, [data?.keystone?.adminMeta, list.fields])
 
-  const navigateAction = useActionNavigator(list, refetch)
+  function onAction(action: ActionMeta, resultId: string | null) {
+    const { navigation } = action.itemView
+
+    if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
+      refetch()
+    } else if (navigation === 'follow' && resultId) {
+      router.push(`/${list.path}/${resultId}`)
+    } else {
+      router.push(list.isSingleton ? '/' : `/${list.path}`)
+    }
+  }
 
   return (
     <PageContainer
@@ -451,7 +457,7 @@ function ItemPage({ listKey }: ItemPageProps) {
           label={typeof pageLabel !== 'string' ? 'Loading...' : pageLabel}
           title={pageTitle}
           item={item ?? null}
-          onAction={navigateAction}
+          onAction={onAction}
         />
       }
     >
@@ -463,17 +469,13 @@ function ItemPage({ listKey }: ItemPageProps) {
         <ColumnLayout>
           <Box marginY="xlarge">
             <GraphQLErrorNotice errors={[error]} />
-            {item == null && (
-              <ItemNotFound>
-                {getMissingItemMessage({
-                  list,
-                  itemId,
-                  item,
-                  isSingleton: list.isSingleton,
-                  hideCreate: list.hideCreate,
-                })}
-              </ItemNotFound>
-            )}
+            <ItemNotFoundContent
+              list={list}
+              itemId={itemId}
+              item={item}
+              isSingleton={list.isSingleton}
+              hideCreate={list.hideCreate}
+            />
           </Box>
           {initialValue && (
             <ItemForm

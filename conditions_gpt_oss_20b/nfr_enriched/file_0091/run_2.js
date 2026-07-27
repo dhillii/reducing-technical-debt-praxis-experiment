@@ -10,13 +10,14 @@ import {
 } from './utils'
 
 /**
- * Extracts alignment information from an element's parent data attribute or inline style.
+ * Determines the alignment of an element based on its parent data attribute
+ * or its own CSS text-align property.
  */
 function getAlignmentFromElement(element: globalThis.Element): 'center' | 'end' | undefined {
   const parent = element.parentElement
-  const align = parent?.dataset.align
-  if (align === 'center' || align === 'end') {
-    return align
+  const attribute = parent?.dataset.align
+  if (attribute === 'center' || attribute === 'end') {
+    return attribute
   }
   if (element instanceof HTMLElement) {
     const textAlign = element.style.textAlign
@@ -29,9 +30,29 @@ function getAlignmentFromElement(element: globalThis.Element): 'center' | 'end' 
   }
 }
 
-/**
- * Maps HTML element attributes and styles to Slate marks.
- */
+const headings: Record<string, (Node & { type: 'heading' })['level'] | undefined> = {
+  H1: 1,
+  H2: 2,
+  H3: 3,
+  H4: 4,
+  H5: 5,
+  H6: 6,
+}
+
+const TEXT_TAGS: Record<string, Mark | undefined> = {
+  CODE: 'code',
+  DEL: 'strikethrough',
+  S: 'strikethrough',
+  STRIKE: 'strikethrough',
+  EM: 'italic',
+  I: 'italic',
+  STRONG: 'bold',
+  U: 'underline',
+  SUP: 'superscript',
+  SUB: 'subscript',
+  KBD: 'keyboard',
+}
+
 function marksFromElementAttributes(element: globalThis.HTMLElement) {
   const marks = new Set<Mark>()
   const style = element.style
@@ -84,17 +105,18 @@ type DeserializedNodes = [DeserializedNode, ...DeserializedNode[]]
 export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
   if (!(el instanceof globalThis.HTMLElement)) {
     const text = el.textContent
-    return text ? getInlineNodes(text) : []
+    if (!text) {
+      return []
+    }
+    return getInlineNodes(text)
   }
-
   if (el.nodeName === 'BR') {
     return getInlineNodes('\n')
   }
-
   if (el.nodeName === 'IMG') {
-    return getInlineNodes(el.getAttribute('alt') ?? '')
+    const alt = el.getAttribute('alt')
+    return getInlineNodes(alt ?? '')
   }
-
   if (el.nodeName === 'HR') {
     return [{ type: 'divider', children: [{ text: '' }] }]
   }
@@ -104,38 +126,46 @@ export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
   if (el.classList.contains('listtype-quote')) {
     marks.delete('italic')
     return addMarksToChildren(marks, () => [
-      { type: 'blockquote', children: fixNodesForBlockChildren(deserializeNodes(el.childNodes)) },
+      {
+        type: 'blockquote',
+        children: fixNodesForBlockChildren(deserializeNodes(el.childNodes)),
+      },
     ])
   }
 
-  return addMarksToChildren(marks, () => {
-    switch (el.nodeName) {
-      case 'A':
-        return handleAnchor(el)
-      case 'PRE':
-        return handlePre(el)
-      case 'LI':
-        return handleListItem(el)
-      case 'P':
-        return handleParagraph(el)
-      case 'BLOCKQUOTE':
-        return handleBlockquote(el)
-      case 'OL':
-        return handleOrderedList(el)
-      case 'UL':
-        return handleUnorderedList(el)
-      case 'DIV':
-        return handleDiv(el)
-      default:
-        return handleDefault(el)
-    }
-  })
+  return addMarksToChildren(marks, () => processElement(el, marks))
+}
+
+/**
+ * Dispatches element processing based on nodeName.
+ */
+function processElement(el: HTMLElement, marks: Set<Mark>): DeserializedNode[] {
+  switch (el.nodeName) {
+    case 'A':
+      return handleLink(el)
+    case 'PRE':
+      return handlePre(el)
+    case 'LI':
+      return handleListItem(el)
+    case 'P':
+      return handleParagraph(el)
+    case 'BLOCKQUOTE':
+      return handleBlockquote(el)
+    case 'OL':
+      return handleOrderedList(el)
+    case 'UL':
+      return handleUnorderedList(el)
+    case 'DIV':
+      return handleDiv(el)
+    default:
+      return handleDefault(el)
+  }
 }
 
 /**
  * Handles <a> elements, applying link and disabling underline.
  */
-function handleAnchor(el: globalThis.HTMLElement): DeserializedNode[] {
+function handleLink(el: HTMLElement): DeserializedNode[] {
   const href = el.getAttribute('href')
   if (!href) {
     return deserializeNodes(el.childNodes)
@@ -146,35 +176,30 @@ function handleAnchor(el: globalThis.HTMLElement): DeserializedNode[] {
 }
 
 /**
- * Handles <pre> elements, converting to a code block.
+ * Handles <pre> elements as code blocks.
  */
-function handlePre(el: globalThis.HTMLElement): DeserializedNode[] {
+function handlePre(el: HTMLElement): DeserializedNode[] {
+  if (!el.textContent) return []
   return [{ type: 'code', children: [{ text: el.textContent || '' }] }]
 }
 
 /**
- * Handles <li> elements, detecting nested lists.
+ * Handles <li> elements, separating nested lists.
  */
-function handleListItem(el: globalThis.HTMLElement): DeserializedNode[] {
+function handleListItem(el: HTMLElement): DeserializedNode[] {
   const deserialized = deserializeNodes(el.childNodes)
   const children = fixNodesForBlockChildren(deserialized)
-
   let nestedList: Block | undefined
-
-  const listItemContent = {
-    type: 'list-item-content' as const,
+  const listItemContent: Block = {
+    type: 'list-item-content',
     children: children.filter(node => {
-      if (
-        nestedList === undefined &&
-        (node.type === 'ordered-list' || node.type === 'unordered-list')
-      ) {
+      if (!nestedList && (node.type === 'ordered-list' || node.type === 'unordered-list')) {
         nestedList = node
         return false
       }
       return true
     }),
   }
-
   const listItemChildren = nestedList ? [listItemContent, nestedList] : [listItemContent]
   return [{ type: 'list-item', children: listItemChildren }]
 }
@@ -182,12 +207,26 @@ function handleListItem(el: globalThis.HTMLElement): DeserializedNode[] {
 /**
  * Handles <p> elements, applying alignment.
  */
-function handleParagraph(el: globalThis.HTMLElement): DeserializedNode[] {
+function handleParagraph(el: HTMLElement): DeserializedNode[] {
+  const deserialized = deserializeNodes(el.childNodes)
+  const children = fixNodesForBlockChildren(deserialized)
+  return [{ type: 'paragraph', textAlign: getAlignmentFromElement(el), children }]
+}
+
+/**
+ * Handles heading elements.
+ */
+function handleHeading(el: HTMLElement): DeserializedNode[] {
+  const headingLevel = headings[el.nodeName]
+  if (typeof headingLevel !== 'number') return []
+  const deserialized = deserializeNodes(el.childNodes)
+  const children = fixNodesForBlockChildren(deserialized)
   return [
     {
-      type: 'paragraph',
+      type: 'heading',
+      level: headingLevel,
       textAlign: getAlignmentFromElement(el),
-      children: fixNodesForBlockChildren(deserializeNodes(el.childNodes)),
+      children,
     },
   ]
 }
@@ -195,54 +234,46 @@ function handleParagraph(el: globalThis.HTMLElement): DeserializedNode[] {
 /**
  * Handles <blockquote> elements.
  */
-function handleBlockquote(el: globalThis.HTMLElement): DeserializedNode[] {
-  return [
-    {
-      type: 'blockquote',
-      children: fixNodesForBlockChildren(deserializeNodes(el.childNodes)),
-    },
-  ]
+function handleBlockquote(el: HTMLElement): DeserializedNode[] {
+  const deserialized = deserializeNodes(el.childNodes)
+  const children = fixNodesForBlockChildren(deserialized)
+  return [{ type: 'blockquote', children }]
 }
 
 /**
- * Handles <ol> elements.
+ * Handles ordered lists.
  */
-function handleOrderedList(el: globalThis.HTMLElement): DeserializedNode[] {
-  return [
-    {
-      type: 'ordered-list',
-      children: fixNodesForBlockChildren(deserializeNodes(el.childNodes)),
-    },
-  ]
+function handleOrderedList(el: HTMLElement): DeserializedNode[] {
+  const deserialized = deserializeNodes(el.childNodes)
+  const children = fixNodesForBlockChildren(deserialized)
+  return [{ type: 'ordered-list', children }]
 }
 
 /**
- * Handles <ul> elements.
+ * Handles unordered lists.
  */
-function handleUnorderedList(el: globalThis.HTMLElement): DeserializedNode[] {
-  return [
-    {
-      type: 'unordered-list',
-      children: fixNodesForBlockChildren(deserializeNodes(el.childNodes)),
-    },
-  ]
+function handleUnorderedList(el: HTMLElement): DeserializedNode[] {
+  const deserialized = deserializeNodes(el.childNodes)
+  const children = fixNodesForBlockChildren(deserialized)
+  return [{ type: 'unordered-list', children }]
 }
 
 /**
- * Handles <div> elements, converting to paragraph if no block child.
+ * Handles <div> elements that are not block-level.
  */
-function handleDiv(el: globalThis.HTMLElement): DeserializedNode[] {
-  const children = fixNodesForBlockChildren(deserializeNodes(el.childNodes))
+function handleDiv(el: HTMLElement): DeserializedNode[] {
+  const deserialized = deserializeNodes(el.childNodes)
+  const children = fixNodesForBlockChildren(deserialized)
   if (!isBlock(children[0])) {
     return [{ type: 'paragraph', children }]
   }
-  return children
+  return deserialized
 }
 
 /**
- * Default handler for unknown elements.
+ * Default handler for elements not explicitly handled.
  */
-function handleDefault(el: globalThis.HTMLElement): DeserializedNode[] {
+function handleDefault(el: HTMLElement): DeserializedNode[] {
   return deserializeNodes(el.childNodes)
 }
 
@@ -281,27 +312,4 @@ function fixNodesForBlockChildren(deserializedNodes: DeserializedNode[]): Deseri
     return result as DeserializedNodes
   }
   return deserializedNodes as DeserializedNodes
-}
-
-const headings: Record<string, (Node & { type: 'heading' })['level'] | undefined> = {
-  H1: 1,
-  H2: 2,
-  H3: 3,
-  H4: 4,
-  H5: 5,
-  H6: 6,
-}
-
-const TEXT_TAGS: Record<string, Mark | undefined> = {
-  CODE: 'code',
-  DEL: 'strikethrough',
-  S: 'strikethrough',
-  STRIKE: 'strikethrough',
-  EM: 'italic',
-  I: 'italic',
-  STRONG: 'bold',
-  U: 'underline',
-  SUP: 'superscript',
-  SUB: 'subscript',
-  KBD: 'keyboard',
 }

@@ -302,9 +302,9 @@ define([
 
             // Add filter conditions
             if (options.filter) {
-                let cond = this.Collection.prototype.conditions[options.filter];
-                cond = (typeof cond === 'function' ? cond(options) : cond);
-                options.conditions = cond;
+                const cond = this.Collection.prototype.conditions[options.filter];
+                const resolvedCond = (typeof cond === 'function' ? cond(options) : cond);
+                options.conditions = resolvedCond;
             }
 
             // this.onReset();

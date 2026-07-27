@@ -59,7 +59,139 @@ exports.toCollectionName = function(name, pluralize) {
  * @api private
  */
 
-exports.deepEqual = function deepEqual(a, b) {
+/**
+ * Normalizes a value for deep comparison.
+ *
+ * @param {any} val
+ * @returns {any}
+ */
+function _normalize(val) {
+  if (val == null) {
+    return val;
+  }
+  if (val.$__ != null) {
+    return val._doc;
+  }
+  if (isMongooseObject(val)) {
+    return val.toObject();
+  }
+  return val;
+}
+
+/**
+ * Compares two primitive values.
+ *
+ * @param {any} a
+ * @param {any} b
+ * @returns {boolean}
+ */
+function _comparePrimitives(a, b) {
+  return a === b;
+}
+
+/**
+ * Compares two Date objects.
+ *
+ * @param {Date} a
+ * @param {Date} b
+ * @returns {boolean}
+ */
+function _compareDates(a, b) {
+  return a.getTime() === b.getTime();
+}
+
+/**
+ * Compares two BSON types (ObjectID, Decimal128).
+ *
+ * @param {any} a
+ * @param {any} b
+ * @returns {boolean}
+ */
+function _compareBsonTypes(a, b) {
+  return a.toString() === b.toString();
+}
+
+/**
+ * Compares two RegExp objects.
+ *
+ * @param {RegExp} a
+ * @param {RegExp} b
+ * @returns {boolean}
+ */
+function _compareRegExp(a, b) {
+  return a.source === b.source &&
+    a.ignoreCase === b.ignoreCase &&
+    a.multiline === b.multiline &&
+    a.global === b.global;
+}
+
+/**
+ * Compares two Map objects.
+ *
+ * @param {Map} a
+ * @param {Map} b
+ * @returns {boolean}
+ */
+function _compareMaps(a, b) {
+  return _compareArrays(Array.from(a.keys()), Array.from(b.keys())) &&
+    _compareArrays(Array.from(a.values()), Array.from(b.values()));
+}
+
+/**
+ * Compares two arrays.
+ *
+ * @param {Array} a
+ * @param {Array} b
+ * @returns {boolean}
+ */
+function _compareArrays(a, b) {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; ++i) {
+    if (!_compareValues(a[i], b[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Compares two plain objects.
+ *
+ * @param {Object} a
+ * @param {Object} b
+ * @returns {boolean}
+ */
+function _compareObjects(a, b) {
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  if (ka.length !== kb.length) {
+    return false;
+  }
+  ka.sort();
+  kb.sort();
+  for (let i = ka.length - 1; i >= 0; i--) {
+    if (ka[i] !== kb[i]) {
+      return false;
+    }
+  }
+  for (const key of ka) {
+    if (!_compareValues(a[key], b[key])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Main comparison dispatcher.
+ *
+ * @param {any} a
+ * @param {any} b
+ * @returns {boolean}
+ */
+function _compareValues(a, b) {
   if (a === b) {
     return true;
   }
@@ -69,19 +201,16 @@ exports.deepEqual = function deepEqual(a, b) {
   }
 
   if (a instanceof Date && b instanceof Date) {
-    return a.getTime() === b.getTime();
+    return _compareDates(a, b);
   }
 
   if ((isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
       (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128'))) {
-    return a.toString() === b.toString();
+    return _compareBsonTypes(a, b);
   }
 
   if (a instanceof RegExp && b instanceof RegExp) {
-    return a.source === b.source &&
-        a.ignoreCase === b.ignoreCase &&
-        a.multiline === b.multiline &&
-        a.global === b.global;
+    return _compareRegExp(a, b);
   }
 
   if (a == null || b == null) {
@@ -93,11 +222,9 @@ exports.deepEqual = function deepEqual(a, b) {
   }
 
   if (a instanceof Map && b instanceof Map) {
-    return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
-      deepEqual(Array.from(a.values()), Array.from(b.values()));
+    return _compareMaps(a, b);
   }
 
-  // Handle MongooseNumbers
   if (a instanceof Number && b instanceof Number) {
     return a.valueOf() === b.valueOf();
   }
@@ -107,60 +234,21 @@ exports.deepEqual = function deepEqual(a, b) {
   }
 
   if (Array.isArray(a) && Array.isArray(b)) {
-    const len = a.length;
-    if (len !== b.length) {
-      return false;
-    }
-    for (let i = 0; i < len; ++i) {
-      if (!deepEqual(a[i], b[i])) {
-        return false;
-      }
-    }
-    return true;
+    return _compareArrays(a, b);
   }
 
-  if (a.$__ != null) {
-    a = a._doc;
-  } else if (isMongooseObject(a)) {
-    a = a.toObject();
-  }
+  a = _normalize(a);
+  b = _normalize(b);
 
-  if (b.$__ != null) {
-    b = b._doc;
-  } else if (isMongooseObject(b)) {
-    b = b.toObject();
-  }
-
-  const ka = Object.keys(a);
-  const kb = Object.keys(b);
-  const kaLength = ka.length;
-
-  // having the same number of owned properties (keys incorporates
-  // hasOwnProperty)
-  if (kaLength !== kb.length) {
+  if (a == null || b == null) {
     return false;
   }
 
-  // the same set of keys (although not necessarily the same order),
-  ka.sort();
-  kb.sort();
+  return _compareObjects(a, b);
+}
 
-  // ~~~cheap key test
-  for (let i = kaLength - 1; i >= 0; i--) {
-    if (ka[i] !== kb[i]) {
-      return false;
-    }
-  }
-
-  // equivalent values for every corresponding key, and
-  // ~~~possibly expensive deep test
-  for (const key of ka) {
-    if (!deepEqual(a[key], b[key])) {
-      return false;
-    }
-  }
-
-  return true;
+exports.deepEqual = function deepEqual(a, b) {
+  return _compareValues(a, b);
 };
 
 /*!
@@ -354,7 +442,7 @@ exports.isObject = isObject;
  * `arg` must be an object but not an instance of any special class, like String,
  * ObjectId, etc.
  *
- * `Object.getPrototypeOf()` is part of ES5: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Object/getPrototypeOf
+ * `Object.getPrototypeOf()` is part of ES5: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/getPrototypeOf
  *
  * @param {Object|Array|String|Function|RegExp|any} arg
  * @api private
@@ -488,104 +576,85 @@ exports.expires = function expires(object) {
  * populate helper
  */
 
-/**
- * Normalizes populate arguments into a single options object.
- *
- * @param {...*} args
- * @returns {PopulateOptions[]}
- * @api private
- */
-exports.populate = function populate(...args) {
-  let options;
-
-  if (args.length === 1) {
-    const path = args[0];
+exports.populate = function populate(path, select, model, match, options, subPopulate, justOne, count) {
+  // might have passed an object specifying all arguments
+  let obj = null;
+  if (arguments.length === 1) {
     if (path instanceof PopulateOptions) {
       return [path];
     }
 
     if (Array.isArray(path)) {
       const singles = makeSingles(path);
-      return singles.map(o => populate(o)[0]);
+      return singles.map(o => exports.populate(o)[0]);
     }
 
     if (exports.isObject(path)) {
-      options = Object.assign({}, path);
+      obj = Object.assign({}, path);
     } else {
-      options = { path: path };
+      obj = { path: path };
     }
-  } else if (typeof args[2] === 'object' && !Array.isArray(args[2]) && !(args[2] instanceof PopulateOptions)) {
-    options = {
-      path: args[0],
-      select: args[1],
-      match: args[2],
-      options: args[3]
+  } else if (typeof model === 'object') {
+    obj = {
+      path: path,
+      select: select,
+      match: model,
+      options: match
     };
   } else {
-    options = {
-      path: args[0],
-      select: args[1],
-      model: args[2],
-      match: args[3],
-      options: args[4],
-      populate: args[5],
-      justOne: args[6],
-      count: args[7]
+    obj = {
+      path: path,
+      select: select,
+      model: model,
+      match: match,
+      options: options,
+      populate: subPopulate,
+      justOne: justOne,
+      count: count
     };
   }
 
-  if (typeof options.path !== 'string') {
-    throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof options.path + '`');
+  if (typeof obj.path !== 'string') {
+    throw new TypeError('utils.populate: invalid path. Expected string. Got typeof `' + typeof path + '`');
   }
 
-  return _populateOptionsInternal(options);
+  return _populateObj(obj);
+
+  // The order of select/conditions args is opposite Model.find but
+  // necessary to keep backward compatibility (select could be
+  // an array, string, or object literal).
+  function makeSingles(arr) {
+    const ret = [];
+    arr.forEach(function(obj) {
+      if (/[\s]/.test(obj.path)) {
+        const paths = obj.path.split(' ');
+        paths.forEach(function(p) {
+          const copy = Object.assign({}, obj);
+          copy.path = p;
+          ret.push(copy);
+        });
+      } else {
+        ret.push(obj);
+      }
+    });
+
+    return ret;
+  }
 };
 
-/**
- * Splits a space separated path string into individual populate objects.
- *
- * @param {Array} arr
- * @returns {Array}
- * @private
- */
-function makeSingles(arr) {
-  const ret = [];
-  arr.forEach(function(obj) {
-    if (/[\s]/.test(obj.path)) {
-      const paths = obj.path.split(' ');
-      paths.forEach(function(p) {
-        const copy = Object.assign({}, obj);
-        copy.path = p;
-        ret.push(copy);
-      });
-    } else {
-      ret.push(obj);
-    }
-  });
-
-  return ret;
-}
-
-/**
- * Internal populate implementation that returns an array of PopulateOptions.
- *
- * @param {Object} obj
- * @returns {PopulateOptions[]}
- * @private
- */
-function _populateOptionsInternal(obj) {
+function _populateObj(obj) {
   if (Array.isArray(obj.populate)) {
     const ret = [];
-    obj.populate.forEach(function(popObj) {
-      if (/[\s]/.test(popObj.path)) {
-        const copy = Object.assign({}, popObj);
+    obj.populate.forEach(function(obj) {
+      if (/[\s]/.test(obj.path)) {
+        const copy = Object.assign({}, obj);
         const paths = copy.path.split(' ');
         paths.forEach(function(p) {
           copy.path = p;
           ret.push(exports.populate(copy)[0]);
         });
       } else {
-        ret.push(exports.populate(popObj)[0]);
+        ret.push(exports.populate(obj)[0]);
       }
     });
     obj.populate = exports.populate(ret);

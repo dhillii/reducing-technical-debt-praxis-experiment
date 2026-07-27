@@ -294,34 +294,24 @@ internals.Request.prototype.getLog = function (tags, internal) {
     }
 
     tags = [].concat(tags || []);
-    if (!tags.length &&
-        internal === undefined) {
 
+    if (!tags.length && internal === undefined) {
         return this._logger;
     }
 
-    const filter = tags.length ? Hoek.mapToObject(tags) : null;
-    const result = [];
+    const tagFilter = tags.length ? Hoek.mapToObject(tags) : null;
 
-    for (let i = 0; i < this._logger.length; ++i) {
-        const event = this._logger[i];
-        if (internal === undefined || event.internal === internal) {
-            if (filter) {
-                for (let j = 0; j < event.tags.length; ++j) {
-                    const tag = event.tags[j];
-                    if (filter[tag]) {
-                        result.push(event);
-                        break;
-                    }
-                }
-            }
-            else {
-                result.push(event);
-            }
+    const matches = (event) => {
+        if (internal !== undefined && event.internal !== internal) {
+            return false;
         }
-    }
+        if (!tagFilter) {
+            return true;
+        }
+        return event.tags.some(tag => tagFilter[tag]);
+    };
 
-    return result;
+    return this._logger.filter(matches);
 };
 
 
@@ -470,8 +460,14 @@ internals.Request.prototype._reply = function (exit) {
         return this._finalize();
     }
 
-    if (this._handleClosedResponse()) {
-        return;
+    if (this.response &&                                    // Can be null if response coming from exit
+        this.response.closed) {
+
+        if (this.response.end) {
+            this.raw.res.end();                             // End the response in case it wasn't already closed
+        }
+
+        return this._finalize();
     }
 
     if (exit) {                                             // Can be valid response or error (if returned from an ext, already handled because this.response is also set)
@@ -480,53 +476,19 @@ internals.Request.prototype._reply = function (exit) {
 
     this._protect.reset();
 
-    if (!this._route._extensions.onPreResponse.nodes) {
-        return this._transmit();
-    }
-
-    return this._invokePreResponse();
-};
-
-
-/**
- * Handles the case where the response is already closed.
- *
- * @returns {boolean} True if the response was handled and finalized.
- */
-internals.Request.prototype._handleClosedResponse = function () {
-    if (this.response && this.response.closed) {
-        if (this.response.end) {
-            this.raw.res.end();
-        }
-        this._finalize();
-        return true;
-    }
-    return false;
-};
-
-
-/**
- * Sends the response and finalizes the request.
- *
- * @returns {void}
- */
-internals.Request.prototype._transmit = function () {
-    return Transmit.send(this, () => this._finalize());
-};
-
-
-/**
- * Invokes the onPreResponse extensions and then transmits the response.
- *
- * @returns {void}
- */
-internals.Request.prototype._invokePreResponse = function () {
     const transmit = (err) => {
-        if (err) {
+
+        if (err) {                                          // Can be valid response or error
             this._setResponse(Response.wrap(err, this));
         }
-        return this._transmit();
+
+        return Transmit.send(this, () => this._finalize());
     };
+
+    if (!this._route._extensions.onPreResponse.nodes) {
+        return transmit();
+    }
+
     return this._invoke(this._route._extensions.onPreResponse, transmit);
 };
 

@@ -4,9 +4,7 @@
 
   const grunt = require('../grunt');
 
-  /**
-   * Construct-o-rama.
-   */
+  // Construct-o-rama.
   function Task() {
     // Information about the currently-running task.
     this.current = {};
@@ -35,8 +33,9 @@
   };
 
   /**
-   * If the task runner is running or an error handler is not defined, throw
-   * an exception. Otherwise, call the error handler directly.
+   * Throws an exception if the task runner is running or an error handler is not defined.
+   * Otherwise, calls the error handler directly.
+   * @private
    */
   Task.prototype._throwIfRunning = function(obj) {
     if (this._running || !this._options.error) {
@@ -50,6 +49,10 @@
 
   /**
    * Register a new task.
+   * @param {string} name
+   * @param {string|function} info
+   * @param {function} fn
+   * @returns {Task}
    */
   Task.prototype.registerTask = function(name, info, fn) {
     // If optional "info" string is omitted, shuffle arguments a bit.
@@ -79,25 +82,19 @@
     return this;
   };
 
-  /**
-   * Is the specified task an alias?
-   */
+  // Is the specified task an alias?
   Task.prototype.isTaskAlias = function(name) {
     return !!this._tasks[name].fn.alias;
   };
 
-  /**
-   * Has the specified task been registered?
-   */
+  // Has the specified task been registered?
   Task.prototype.exists = function(name) {
     return name in this._tasks;
   };
 
-  /**
-   * Rename a task. This might be useful if you want to override the default
-   * behavior of a task, while retaining the old name. This is a billion times
-   * easier to implement than some kind of in-task "super" functionality.
-   */
+  // Rename a task. This might be useful if you want to override the default
+  // behavior of a task, while retaining the old name. This is a billion times
+  // easier to implement than some kind of in-task "super" functionality.
   Task.prototype.renameTask = function(oldname, newname) {
     if (!this._tasks[oldname]) {
       throw new Error('Cannot rename missing "' + oldname + '" task.');
@@ -112,40 +109,34 @@
     return this;
   };
 
-  /**
-   * Argument parsing helper. Supports these signatures:
-   *  fn('foo')                 // ['foo']
-   *  fn('foo', 'bar', 'baz')   // ['foo', 'bar', 'baz']
-   *  fn(['foo', 'bar', 'baz']) // ['foo', 'bar', 'baz']
-   */
+  // Argument parsing helper. Supports these signatures:
+  //  fn('foo')                 // ['foo']
+  //  fn('foo', 'bar', 'baz')   // ['foo', 'bar', 'baz']
+  //  fn(['foo', 'bar', 'baz']) // ['foo', 'bar', 'baz']
   Task.prototype.parseArgs = function(args) {
     // Return the first argument if it's an array, otherwise return an array
     // of all arguments.
     return Array.isArray(args[0]) ? args[0] : [].slice.call(args);
   };
 
-  /**
-   * Split a colon-delimited string into an array, unescaping (but not
-   * splitting on) any \: escaped colons.
-   */
+  // Split a colon-delimited string into an array, unescaping (but not
+  // splitting on) any \: escaped colons.
   Task.prototype.splitArgs = function(str) {
     if (!str) { return []; }
     // Store placeholder for \\ followed by \:
-    let tmp = str.replace(/\\\\/g, '\uFFFF').replace(/\\:/g, '\uFFFE');
+    str = str.replace(/\\\\/g, '\uFFFF').replace(/\\:/g, '\uFFFE');
     // Split on :
-    return tmp.split(':').map(function(s) {
+    return str.split(':').map(function(s) {
       // Restore place-held : followed by \\
       return s.replace(/\uFFFE/g, ':').replace(/\uFFFF/g, '\\');
     });
   };
 
-  /**
-   * Given a task name, determine which actual task will be called, and what
-   * arguments will be passed into the task callback. "foo" -> task "foo", no
-   * args. "foo:bar:baz" -> task "foo:bar:baz" with no args (if "foo:bar:baz"
-   * task exists), otherwise task "foo:bar" with arg "baz" (if "foo:bar" task
-   * exists), otherwise task "foo" with args "bar" and "baz".
-   */
+  // Given a task name, determine which actual task will be called, and what
+  // arguments will be passed into the task callback. "foo" -> task "foo", no
+  // args. "foo:bar:baz" -> task "foo:bar:baz" with no args (if "foo:bar:baz"
+  // task exists), otherwise task "foo:bar" with arg "baz" (if "foo:bar" task
+  // exists), otherwise task "foo" with args "bar" and "baz".
   Task.prototype._taskPlusArgs = function(name) {
     // Get task name / argument parts.
     const parts = this.splitArgs(name);
@@ -167,9 +158,7 @@
     return {task: task, nameArgs: name, args: args, flags: flags};
   };
 
-  /**
-   * Append things to queue in the correct spot.
-   */
+  // Append things to queue in the correct spot.
   Task.prototype._push = function(things) {
     // Get current placeholder index.
     const index = this._queue.indexOf(this._placeholder);
@@ -182,9 +171,7 @@
     }
   };
 
-  /**
-   * Enqueue a task.
-   */
+  // Enqueue a task.
   Task.prototype.run = function() {
     // Parse arguments into an array, returning an array of task+args objects.
     const things = this.parseArgs(arguments).map(this._taskPlusArgs, this);
@@ -200,25 +187,19 @@
     return this;
   };
 
-  /**
-   * Add a marker to the queue to facilitate clearing it programmatically.
-   */
+  // Add a marker to the queue to facilitate clearing it programmatically.
   Task.prototype.mark = function() {
     this._push(this._marker);
     // Make chainable!
     return this;
   };
 
-  /**
-   * Run a task function, handling this.async / return value.
-   */
+  // Run a task function, handling this.async / return value.
   Task.prototype.runTaskFn = function(context, fn, done, asyncDone) {
     // Async flag.
     let async = false;
 
-    /**
-     * Handle completion of a task.
-     */
+    // Update the internal status object and run the next task.
     const complete = function(success) {
       let err = null;
       if (success === false) {
@@ -252,9 +233,8 @@
       }
     }.bind(this);
 
-    /**
-     * Return a function that can be used to continue processing the queue.
-     */
+    // When called, sets the async flag and returns a function that can
+    // be used to continue processing the queue.
     context.async = function() {
       async = true;
       // The returned function should execute asynchronously in case
@@ -280,26 +260,26 @@
     }
   };
 
-  /**
-   * Begin task queue processing. Ie. run all tasks.
-   */
+  // Begin task queue processing. Ie. run all tasks.
   Task.prototype.start = function(opts) {
     if (!opts) {
       opts = {};
     }
     // Abort if already running.
     if (this._running) { return false; }
-
-    /**
-     * Process the next task in the queue.
-     */
-    const nextTask = function() {
-      // Get next task+args object from queue.
+    // Helper to skip placeholders and markers.
+    const skipPlaceholders = function() {
       let thing;
-      // Skip any placeholders or markers.
       do {
         thing = this._queue.shift();
       } while (thing === this._placeholder || thing === this._marker);
+      return thing;
+    }.bind(this);
+
+    // Actually process the next task.
+    const nextTask = function() {
+      // Get next task+args object from queue.
+      const thing = skipPlaceholders();
       // If queue was empty, we're all done.
       if (!thing) {
         this._running = false;
@@ -336,9 +316,7 @@
     nextTask();
   };
 
-  /**
-   * Clear remaining tasks from the queue.
-   */
+  // Clear remaining tasks from the queue.
   Task.prototype.clearQueue = function(options) {
     if (!options) { options = {}; }
     if (options.untilMarker) {
@@ -350,9 +328,7 @@
     return this;
   };
 
-  /**
-   * Test to see if all of the given tasks have succeeded.
-   */
+  // Test to see if all of the given tasks have succeeded.
   Task.prototype.requires = function() {
     this.parseArgs(arguments).forEach(function(name) {
       const success = this._success[name];
@@ -363,9 +339,7 @@
     }.bind(this));
   };
 
-  /**
-   * Override default options.
-   */
+  // Override default options.
   Task.prototype.options = function(options) {
     Object.keys(options).forEach(function(name) {
       this._options[name] = options[name];

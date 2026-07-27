@@ -64,7 +64,7 @@ html[dir="rtl"] .gh-portal-back-sitetitle {
 
 .gh-portal-signup-header .gh-portal-main-title,
 .gh-portal-signin-header .gh-portal-main-title {
-    margin-top: 12px;
+    margin-top: 12x;
 }
 
 .gh-portal-signup-logo + .gh-portal-main-title {
@@ -110,19 +110,6 @@ html[dir="rtl"] .gh-portal-back-sitetitle {
     .preview .gh-portal-products + .gh-portal-signup-message {
         margin-bottom: 40px;
     }
-}
-
-.gh-portal-signup-message button {
-    font-size: 1.4rem;
-    font-weight: 600;
-    margin-inline-start: 4px !important;
-    margin-bottom: -1px;
-}
-
-.gh-portal-signup-message button span {
-    display: inline-block;
-    padding-bottom: 2px;
-    margin-bottom: -2px;
 }
 
 .gh-portal-signup-message button {

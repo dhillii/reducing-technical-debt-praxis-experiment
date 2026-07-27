@@ -24,6 +24,8 @@ function isJSONContentType(header) {
 }
 
 function getJSONPayload(payload) {
+    // ember-simple-auth prevents ember-ajax parsing response as JSON but
+    // we need a JSON object to test against
     if (typeof payload === 'string') {
         try {
             payload = JSON.parse(payload);
@@ -356,31 +358,29 @@ class ajaxService extends AjaxService {
             }
         }
 
-        // Error handling strategy
-        const errorConstructors = [
-            () => this.isTwoFactorTokenRequiredError(status, payload) ? TwoFactorTokenRequiredError : null,
-            () => this.isVersionMismatchError(status, payload) ? VersionMismatchError : null,
-            () => this.isServerUnreachableError(status) ? ServerUnreachableError : null,
-            () => this.isRequestEntityTooLargeError(status) ? RequestEntityTooLargeError : null,
-            () => this.isUnsupportedMediaTypeError(status) ? UnsupportedMediaTypeError : null,
-            () => this.isMaintenanceError(status, payload) ? MaintenanceError : null,
-            () => this.isThemeValidationError(status, payload) ? ThemeValidationError : null,
-            () => this.isHostLimitError(status, payload) ? HostLimitError : null,
-            () => this.isEmailError(status, payload) ? EmailError : null,
-            () => this.isAcceptedResponse(status) ? AcceptedResponse : null
+        const errorHandlers = [
+            { test: (s, h, p) => this.isTwoFactorTokenRequiredError(s, h, p), handler: (p) => new TwoFactorTokenRequiredError(p) },
+            { test: (s, h, p) => this.isVersionMismatchError(s, h, p), handler: (p) => new VersionMismatchError(p) },
+            { test: (s, h, p) => this.isServerUnreachableError(s, h, p), handler: (p) => new ServerUnreachableError(p) },
+            { test: (s, h, p) => this.isRequestEntityTooLargeError(s, h, p), handler: (p) => new RequestEntityTooLargeError(p) },
+            { test: (s, h, p) => this.isUnsupportedMediaTypeError(s, h, p), handler: (p) => new UnsupportedMediaTypeError(p) },
+            { test: (s, h, p) => this.isMaintenanceError(s, h, p), handler: (p) => new MaintenanceError(p) },
+            { test: (s, h, p) => this.isThemeValidationError(s, h, p), handler: (p) => new ThemeValidationError(p) },
+            { test: (s, h, p) => this.isHostLimitError(s, h, p), handler: (p) => new HostLimitError(p) },
+            { test: (s, h, p) => this.isEmailError(s, h, p), handler: (p) => new EmailError(p) },
+            { test: (s) => this.isAcceptedResponse(s), handler: (p) => new AcceptedResponse(p) }
         ];
 
-        for (let ctorFn of errorConstructors) {
-            const ctor = ctorFn();
-            if (ctor) {
-                return new ctor(payload);
+        for (const {test, handler} of errorHandlers) {
+            if (test(status, headers, payload)) {
+                return handler(payload);
             }
         }
 
-        let isGhostRequest = GHOST_REQUEST.test(request.url);
-        let isAuthenticated = this.get('session.isAuthenticated');
-        let isUnauthorized = this.isUnauthorizedError(status, headers, payload);
-        let isForbidden = isForbiddenError(status, headers, payload);
+        const isGhostRequest = GHOST_REQUEST.test(request.url);
+        const isAuthenticated = this.get('session.isAuthenticated');
+        const isUnauthorized = this.isUnauthorizedError(status, headers, payload);
+        const isForbidden = isForbiddenError(status, headers, payload);
 
         // used when reporting connection errors, helps distinguish CDN
         if (isGhostRequest) {

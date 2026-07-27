@@ -31,12 +31,14 @@ function FastClick(layer, options) {
 	 */
 	this.trackingClick = false;
 
+
 	/**
 	 * Timestamp for when click tracking started.
 	 *
 	 * @type number
 	 */
 	this.trackingClickStart = 0;
+
 
 	/**
 	 * The element being tracked for a click.
@@ -45,12 +47,14 @@ function FastClick(layer, options) {
 	 */
 	this.targetElement = null;
 
+
 	/**
 	 * X-coordinate of touch start event.
 	 *
 	 * @type number
 	 */
 	this.touchStartX = 0;
+
 
 	/**
 	 * Y-coordinate of touch start event.
@@ -59,6 +63,7 @@ function FastClick(layer, options) {
 	 */
 	this.touchStartY = 0;
 
+
 	/**
 	 * ID of the last touch, retrieved from Touch.identifier.
 	 *
@@ -66,12 +71,14 @@ function FastClick(layer, options) {
 	 */
 	this.lastTouchIdentifier = 0;
 
+
 	/**
 	 * Touchmove boundary, beyond which a click will be cancelled.
 	 *
 	 * @type number
 	 */
 	this.touchBoundary = options.touchBoundary || 10;
+
 
 	/**
 	 * The FastClick layer.
@@ -95,6 +102,7 @@ function FastClick(layer, options) {
 	function bind(method, context) {
 		return function() { return method.apply(context, arguments); };
 	}
+
 
 	var methods = ['onMouse', 'onClick', 'onTouchStart', 'onTouchMove', 'onTouchEnd', 'onTouchCancel'];
 	var context = this;
@@ -451,7 +459,19 @@ FastClick.prototype.touchHasMoved = function(event) {
 
 
 /**
- * Update the last position.
+ * Determine if the target element has changed during a touchmove event.
+ *
+ * @param {Event} event
+ * @returns {boolean}
+ */
+FastClick.prototype.isTargetChanged = function(event) {
+	'use strict';
+	return this.targetElement !== this.getTargetElementFromEventTarget(event.target);
+};
+
+
+/**
+ * On touch move, determine whether to cancel click tracking.
  *
  * @param {Event} event
  * @returns {boolean}
@@ -459,13 +479,13 @@ FastClick.prototype.touchHasMoved = function(event) {
 FastClick.prototype.onTouchMove = function(event) {
 	'use strict';
 	if (!this.trackingClick) {
-		return false;
+		return true;
 	}
 
-	// If the touch has moved, cancel the click tracking
-	if (this.targetElement !== this.getTargetElementFromEventTarget(event.target) || this.touchHasMoved(event)) {
+	if (this.isTargetChanged(event) || this.touchHasMoved(event)) {
 		this.trackingClick = false;
 		this.targetElement = null;
+		return false;
 	}
 
 	return true;
@@ -498,7 +518,10 @@ FastClick.prototype.findControl = function(labelElement) {
 
 
 /**
- * @param {EventTarget|Element} targetElement
+ * On touch end, determine whether to send a click event at once.
+ *
+ * @param {Event} event
+ * @returns {boolean}
  */
 FastClick.prototype.onTouchEnd = function(event) {
 	'use strict';

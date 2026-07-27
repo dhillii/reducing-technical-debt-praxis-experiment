@@ -185,13 +185,13 @@ Runner.prototype.checkGlobals = function (test) {
   if (this.ignoreLeaks) {
     return;
   }
-  let ok = this._globals;
+  const ok = this._globals;
 
   const globals = this.globalProps();
   let leaks;
 
   if (test) {
-    ok = ok.concat(test._allowedGlobals || []);
+    ok.concat(test._allowedGlobals || []);
   }
 
   if (this.prevGlobalsLength === globals.length) {
@@ -783,4 +783,42 @@ function extraGlobals () {
   }
 
   return [];
+}
+
+/**
+ * Cleans up the references to all the deferred functions
+ * (before/after/beforeEach/afterEach) and tests of a Suite.
+ * These must be deleted otherwise a memory leak can happen,
+ * as those functions may reference variables from closures,
+ * thus those variables can never be garbage collected as long
+ * as the deferred functions exist.
+ *
+ * @param {Suite} suite
+ */
+function cleanSuiteReferences (suite) {
+  function cleanArrReferences (arr) {
+    for (let i = 0; i < arr.length; i++) {
+      delete arr[i].fn;
+    }
+  }
+
+  if (Array.isArray(suite._beforeAll)) {
+    cleanArrReferences(suite._beforeAll);
+  }
+
+  if (Array.isArray(suite._beforeEach)) {
+    cleanArrReferences(suite._beforeEach);
+  }
+
+  if (Array.isArray(suite._afterAll)) {
+    cleanArrReferences(suite._afterAll);
+  }
+
+  if (Array.isArray(suite._afterEach)) {
+    cleanArrReferences(suite._afterEach);
+  }
+
+  for (let i = 0; i < suite.tests.length; i++) {
+    delete suite.tests[i].fn;
+  }
 }

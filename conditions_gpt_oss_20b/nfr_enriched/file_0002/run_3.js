@@ -22,8 +22,6 @@ interface NewNoteModalProps extends ComponentPropsWithoutRef<typeof Dialog> {
     onOpenChange?: (open: boolean) => void;
 }
 
-const MAX_CONTENT_LENGTH = 500;
-
 const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, onReplyError, onOpenChange, ...props}) => {
     const {data: user} = useUserDataForUser('index');
     const noteMutation = useNoteMutationForUser('index', user);
@@ -42,6 +40,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     const [isPosting, setIsPosting] = useState(false);
     const [isSticky, setIsSticky] = useState(false);
     const navigate = useNavigateWithBasePath();
+    const MAX_CONTENT_LENGTH = 500;
 
     // Sync external open prop with internal state
     useEffect(() => {
@@ -64,57 +63,24 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const isDisabled = !content.trim() || !user || isPosting || content.length > MAX_CONTENT_LENGTH;
 
-    const resetState = useCallback(() => {
-        setContent('');
-        setImagePreview(null);
-        setUploadedImageUrl(null);
-        setAltText('');
-        setShowAltInput(false);
-        if (imagePreview) {
-            URL.revokeObjectURL(imagePreview);
-        }
-        if (imageInputRef.current) {
-            imageInputRef.current.value = '';
-        }
-    }, [imagePreview]);
-
-    const handleDialogOpenChange = useCallback((open: boolean) => {
-        if (open) {
-            resetState();
-        }
-        setIsOpen(open);
-        onOpenChange?.(open);
-    }, [resetState, onOpenChange]);
-
-    const getPlaceholder = useCallback(() => {
-        if (!replyTo) {
-            return "What's new?";
-        }
-        const attributedTo = replyTo.object.attributedTo || {};
-        if (typeof attributedTo === 'object' && 'preferredUsername' in attributedTo && 'id' in attributedTo) {
-            return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
-        }
-        return "What's new?";
-    }, [replyTo]);
-
-    const handleReplyPost = useCallback(async () => {
+    const postReplyAsync = async (): Promise<void> => {
         await replyMutation.mutateAsync({
             inReplyTo: replyTo!.object.id,
             content: content.trim(),
             imageUrl: uploadedImageUrl ?? undefined,
-            altText: altText ?? undefined
+            altText: altText || undefined
         });
         onReply?.();
-    }, [replyMutation, replyTo, content, uploadedImageUrl, altText, onReply]);
+    };
 
-    const handleNotePost = useCallback(async () => {
+    const postNoteAsync = async (): Promise<void> => {
         await noteMutation.mutateAsync({
             content: content.trim(),
             imageUrl: uploadedImageUrl ?? undefined,
-            altText: altText ?? undefined
+            altText: altText || undefined
         });
         navigate('/notes');
-    }, [noteMutation, content, uploadedImageUrl, altText, navigate]);
+    };
 
     const handlePost = useCallback(async () => {
         const trimmedContent = content.trim();
@@ -124,9 +90,9 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         try {
             setIsPosting(true);
             if (replyTo) {
-                await handleReplyPost();
+                await postReplyAsync();
             } else {
-                await handleNotePost();
+                await postNoteAsync();
             }
             setIsOpen(false);
             onOpenChange?.(false);
@@ -138,7 +104,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         } finally {
             setIsPosting(false);
         }
-    }, [content, user, replyTo, handleReplyPost, handleNotePost, onOpenChange, onReplyError]);
+    }, [content, user, replyTo, onReply, onReplyError, onOpenChange]);
 
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setContent(e.target.value);
@@ -151,6 +117,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [content]);
 
+    // Focus textarea when modal opens
     useEffect(() => {
         const modalIsOpen = props.open !== undefined ? props.open : isOpen;
         if (modalIsOpen && textareaRef.current) {
@@ -161,6 +128,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [isOpen, props.open]);
 
+    // Focus alt text input when it becomes visible
     useEffect(() => {
         if (showAltInput && altTextInputRef.current) {
             const timeoutId = setTimeout(() => {
@@ -186,36 +154,28 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [isOpen, props.open, isDisabled, isImageUploading, handlePost]);
 
-    const getImageFromClipboard = (e: React.ClipboardEvent | ClipboardEvent): File | null => {
+    const handlePaste = useCallback(async (e: React.ClipboardEvent | ClipboardEvent) => {
         const items = e.clipboardData?.items;
         if (!items) {
-            return null;
+            return;
         }
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
             if (item.type.indexOf('image') !== -1) {
+                e.preventDefault();
                 const file = item.getAsFile();
                 if (file) {
-                    return file;
+                    if (file.size > MAX_FILE_SIZE) {
+                        toast.error(FILE_SIZE_ERROR_MESSAGE);
+                        return;
+                    }
+                    const previewUrl = URL.createObjectURL(file);
+                    setImagePreview(previewUrl);
+                    await handleImageUpload(file);
                 }
+                break;
             }
         }
-        return null;
-    };
-
-    const handlePaste = useCallback(async (e: React.ClipboardEvent | ClipboardEvent) => {
-        const file = getImageFromClipboard(e);
-        if (!file) {
-            return;
-        }
-        e.preventDefault();
-        if (file.size > MAX_FILE_SIZE) {
-            toast.error(FILE_SIZE_ERROR_MESSAGE);
-            return;
-        }
-        const previewUrl = URL.createObjectURL(file);
-        setImagePreview(previewUrl);
-        await handleImageUpload(file);
     }, []);
 
     useEffect(() => {
@@ -243,7 +203,6 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                         errorMessage = 'The file type is not supported.';
                         break;
                     default:
-                        break;
                 }
             }
             toast.error(errorMessage);
@@ -298,15 +257,48 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         };
     }, [imagePreview]);
 
-    const placeholder = getPlaceholder();
+    const getPlaceholder = (): string => {
+        let placeholder = "What's new?";
+        if (replyTo) {
+            const attributedTo = replyTo.object.attributedTo || {};
+            if (typeof attributedTo === 'object' && 'preferredUsername' in attributedTo && 'id' in attributedTo) {
+                placeholder = `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
+            }
+        }
+        return placeholder;
+    };
+
+    const handleDialogOpenChange = (open: boolean) => {
+        if (open) {
+            setContent('');
+            setImagePreview(null);
+            setUploadedImageUrl(null);
+            setAltText('');
+            setShowAltInput(false);
+            if (imagePreview) {
+                URL.revokeObjectURL(imagePreview);
+            }
+            if (imageInputRef.current) {
+                imageInputRef.current.value = '';
+            }
+        }
+        setIsOpen(open);
+        onOpenChange?.(open);
+    };
 
     return (
-        <Dialog open={props.open !== undefined ? props.open : isOpen} onOpenChange={handleDialogOpenChange} {...(props.open !== undefined ? {} : props)}>
-            <DialogTrigger asChild>
-                {children}
-            </DialogTrigger>
-            <DialogContent className={`max-h-[80vh] min-h-[240px] gap-0 overflow-y-auto pb-0`} data-testid="new-note-modal" onClick={e => e.stopPropagation()}>
-                <DialogHeader className='hidden'>
+        <Dialog
+            open={props.open !== undefined ? props.open : isOpen}
+            onOpenChange={handleDialogOpenChange}
+            {...(props.open !== undefined ? {} : props)}
+        >
+            <DialogTrigger asChild>{children}</DialogTrigger>
+            <DialogContent
+                className={`max-h-[80vh] min-h-[240px] gap-0 overflow-y-auto pb-0`}
+                data-testid="new-note-modal"
+                onClick={e => e.stopPropagation()}
+            >
+                <DialogHeader className="hidden">
                     <DialogTitle>{replyTo ? 'Reply' : 'New note'}</DialogTitle>
                     <DialogDescription>Post your thoughts to the Social web</DialogDescription>
                 </DialogHeader>
@@ -316,7 +308,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                         allowDelete={false}
                         commentCount={replyTo.object.replyCount ?? 0}
                         isCompact={true}
-                        layout='reply'
+                        layout="reply"
                         likeCount={replyTo.object.likeCount ?? 0}
                         object={replyTo.object}
                         repostCount={replyTo.object.repostCount ?? 0}
@@ -324,24 +316,30 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                         onClick={() => {}}
                     />
                 )}
-                <div className={`flex ${!imagePreview ? 'min-h-36' : ''} cursor-text items-start gap-3`} onClick={handleContentClick}>
-                    <div className='sticky top-0'>
+                <div
+                    className={`flex ${!imagePreview ? 'min-h-36' : ''} cursor-text items-start gap-3`}
+                    onClick={handleContentClick}
+                >
+                    <div className="sticky top-0">
                         <APAvatar author={user as ActorProperties} />
                     </div>
                     <FormPrimitive.Root asChild>
-                        <div className='-mt-0.5 flex w-full flex-col gap-0.5'>
-                            {isLoadingAccount ?
-                                <Skeleton className='w-10' /> :
-                                <span className='min-w-0 truncate whitespace-nowrap font-semibold text-black break-anywhere dark:text-white'>{account?.name}</span>
-                            }
-                            <FormPrimitive.Field name='content' asChild>
+                        <div className="-mt-0.5 flex w-full flex-col gap-0.5">
+                            {isLoadingAccount ? (
+                                <Skeleton className="w-10" />
+                            ) : (
+                                <span className="min-w-0 truncate whitespace-nowrap font-semibold text-black break-anywhere dark:text-white">
+                                    {account?.name}
+                                </span>
+                            )}
+                            <FormPrimitive.Field name="content" asChild>
                                 <FormPrimitive.Control asChild>
                                     <textarea
                                         ref={textareaRef}
                                         autoFocus={true}
-                                        className='ap-textarea w-full resize-none bg-transparent text-[1.5rem] break-anywhere'
+                                        className="ap-textarea w-full resize-none bg-transparent text-[1.5rem] break-anywhere"
                                         data-testid="note-textarea"
-                                        placeholder={placeholder}
+                                        placeholder={getPlaceholder()}
                                         rows={1}
                                         value={content}
                                         onChange={handleChange}
@@ -349,12 +347,12 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                                     />
                                 </FormPrimitive.Control>
                             </FormPrimitive.Field>
-                            <FormPrimitive.Field name='image' asChild>
+                            <FormPrimitive.Field name="image" asChild>
                                 <FormPrimitive.Control asChild>
                                     <input
                                         ref={imageInputRef}
                                         accept="image/jpeg,image/png,image/webp,image/gif"
-                                        className='hidden'
+                                        className="hidden"
                                         type="file"
                                         onChange={handleImageChange}
                                     />
@@ -363,38 +361,79 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                         </div>
                     </FormPrimitive.Root>
                 </div>
-                {imagePreview &&
-                    <div className='group relative mt-6 flex min-h-[200px] w-full items-center justify-center'>
-                        <img alt='Image attachment preview' className={`max-h-[320px] w-full rounded-sm object-cover outline outline-1 -outline-offset-1 outline-black/10 ${isImageUploading && 'opacity-10'}`} src={imagePreview} />
-                        {isImageUploading &&
-                            <div className='absolute leading-[0]'>
-                                <LoadingIndicator size='md' />
+                {imagePreview && (
+                    <div className="group relative mt-6 flex min-h-[200px] w-full items-center justify-center">
+                        <img
+                            alt="Image attachment preview"
+                            className={`max-h-[320px] w-full rounded-sm object-cover outline outline-1 -outline-offset-1 outline-black/10 ${
+                                isImageUploading && 'opacity-10'
+                            }`}
+                            src={imagePreview}
+                        />
+                        {isImageUploading && (
+                            <div className="absolute leading-[0]">
+                                <LoadingIndicator size="md" />
                             </div>
-                        }
-                        <Button className='absolute right-3 top-3 size-8 bg-black/60 text-white opacity-0 hover:bg-black/80 group-hover:opacity-100' onClick={handleClearImage}><LucideIcon.Trash2 /></Button>
-                        {!isImageUploading && <Button className={`absolute bottom-3 left-3 h-6 px-2 py-0 text-white ${!showAltInput ? 'bg-black/60 hover:bg-black/80' : 'bg-green-500 hover:bg-green-500'}`} onClick={handleToggleAltInput}>Alt</Button>}
+                        )}
+                        <Button
+                            className="absolute right-3 top-3 size-8 bg-black/60 text-white opacity-0 hover:bg-black/80 group-hover:opacity-100"
+                            onClick={handleClearImage}
+                        >
+                            <LucideIcon.Trash2 />
+                        </Button>
+                        {!isImageUploading && (
+                            <Button
+                                className={`absolute bottom-3 left-3 h-6 px-2 py-0 text-white ${
+                                    !showAltInput ? 'bg-black/60 hover:bg-black/80' : 'bg-green-500 hover:bg-green-500'
+                                }`}
+                                onClick={handleToggleAltInput}
+                            >
+                                Alt
+                            </Button>
+                        )}
                     </div>
-                }
-                {imagePreview && !isImageUploading && showAltInput &&
-                    <div className='mt-1'>
+                )}
+                {imagePreview && !isImageUploading && showAltInput && (
+                    <div className="mt-1">
                         <Input
                             ref={altTextInputRef}
-                            className='w-full border-0 bg-transparent px-0 focus-visible:border-0 focus-visible:bg-transparent focus-visible:shadow-none focus-visible:outline-0 dark:bg-[#101114] dark:text-white dark:placeholder:text-gray-800'
-                            placeholder='Type alt text for image (optional)'
-                            type='text'
+                            className="w-full border-0 bg-transparent px-0 focus-visible:border-0 focus-visible:bg-transparent focus-visible:shadow-none focus-visible:outline-0 dark:bg-[#101114] dark:text-white dark:placeholder:text-gray-800"
+                            placeholder="Type alt text for image (optional)"
+                            type="text"
                             value={altText}
                             onChange={e => setAltText(e.target.value)}
                         />
                     </div>
-                }
-                <DialogFooter className={`${isSticky ? 'sticky' : 'static'} bottom-0 flex-row bg-background py-6 dark:bg-[#101114]`}>
-                    <Button className='mr-auto w-[34px] !min-w-0' variant='outline' onClick={() => imageInputRef.current?.click()}><LucideIcon.Image /></Button>
-                    <div className='flex items-center space-x-3'>
-                        <div className={`text-sm ${content.length >= MAX_CONTENT_LENGTH ? 'text-red-500' : content.length >= MAX_CONTENT_LENGTH * 0.9 ? 'text-yellow-600' : 'text-gray-500'}`}>
+                )}
+                <DialogFooter
+                    className={`${isSticky ? 'sticky' : 'static'} bottom-0 flex-row bg-background py-6 dark:bg-[#101114]`}
+                >
+                    <Button
+                        className="mr-auto w-[34px] !min-w-0"
+                        variant="outline"
+                        onClick={() => imageInputRef.current?.click()}
+                    >
+                        <LucideIcon.Image />
+                    </Button>
+                    <div className="flex items-center space-x-3">
+                        <div
+                            className={`text-sm ${
+                                content.length >= MAX_CONTENT_LENGTH
+                                    ? 'text-red-500'
+                                    : content.length >= MAX_CONTENT_LENGTH * 0.9
+                                    ? 'text-yellow-600'
+                                    : 'text-gray-500'
+                            }`}
+                        >
                             {content.length}/{MAX_CONTENT_LENGTH}
                         </div>
-                        <Button className='min-w-16' data-testid="post-button" disabled={isDisabled || isImageUploading} onClick={handlePost}>
-                            {isPosting ? <LoadingIndicator color='light' size='sm' /> : 'Post'}
+                        <Button
+                            className="min-w-16"
+                            data-testid="post-button"
+                            disabled={isDisabled || isImageUploading}
+                            onClick={handlePost}
+                        >
+                            {isPosting ? <LoadingIndicator color="light" size="sm" /> : 'Post'}
                         </Button>
                     </div>
                 </DialogFooter>

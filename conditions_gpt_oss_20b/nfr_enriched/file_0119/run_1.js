@@ -12,8 +12,8 @@ const moment = require('moment');
 const Utils = require('./utils');
 
 function ABSTRACT() {
-  // Abstract base class for data types
-  return;
+  // Mark as abstract base type; no-op constructor
+  this._abstract = true;
 }
 
 ABSTRACT.prototype.dialectTypes = '';

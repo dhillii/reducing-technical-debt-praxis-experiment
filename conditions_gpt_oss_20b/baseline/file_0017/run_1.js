@@ -77,11 +77,6 @@ const Header = ({showConfirmation, confirmationType}) => {
     );
 };
 
-Header.propTypes = {
-    showConfirmation: PropTypes.bool,
-    confirmationType: PropTypes.string
-};
-
 const CancelSubscriptionButton = ({member, onCancelSubscription, action, brandColor}) => {
     const {site} = useContext(AppContext);
     if (!member.paid) {
@@ -126,13 +121,6 @@ const CancelSubscriptionButton = ({member, onCancelSubscription, action, brandCo
     );
 };
 
-CancelSubscriptionButton.propTypes = {
-    member: PropTypes.object.isRequired,
-    onCancelSubscription: PropTypes.func.isRequired,
-    action: PropTypes.string,
-    brandColor: PropTypes.string
-};
-
 const PlanConfirmationSection = ({plan, type, onConfirm}) => {
     const {site, action, member, brandColor} = useContext(AppContext);
     const [reason, setReason] = useState('');
@@ -149,7 +137,6 @@ const PlanConfirmationSection = ({plan, type, onConfirm}) => {
     const planStartMessage = `${plan.currency_symbol}${priceString}/${t(plan.interval)} – ${planStartingMessage}`;
     const product = getProductFromPrice({site, priceId: plan?.id});
     const priceLabel = hasMultipleProductsFeature({site}) ? product?.name : t('Price');
-
     if (type === 'changePlan') {
         return (
             <div className='gh-portal-logged-out-form-container'>
@@ -227,17 +214,6 @@ const PlanConfirmationSection = ({plan, type, onConfirm}) => {
     }
 };
 
-PlanConfirmationSection.propTypes = {
-    plan: PropTypes.shape({
-        price: PropTypes.number,
-        currency_symbol: PropTypes.string,
-        interval: PropTypes.string,
-        id: PropTypes.string
-    }).isRequired,
-    type: PropTypes.string.isRequired,
-    onConfirm: PropTypes.func.isRequired
-};
-
 const ChangePlanSection = ({plans, selectedPlan, onPlanSelect, onCancelSubscription}) => {
     const {member, action, brandColor} = useContext(AppContext);
     return (
@@ -256,13 +232,6 @@ const ChangePlanSection = ({plans, selectedPlan, onPlanSelect, onCancelSubscript
     );
 };
 
-ChangePlanSection.propTypes = {
-    plans: PropTypes.array.isRequired,
-    selectedPlan: PropTypes.string,
-    onPlanSelect: PropTypes.func.isRequired,
-    onCancelSubscription: PropTypes.func.isRequired
-};
-
 function PlansOrProductSection({selectedPlan, onPlanSelect, onPlanCheckout, changePlan = false}) {
     const {site, member} = useContext(AppContext);
     const products = getUpgradeProducts({site, member});
@@ -278,13 +247,6 @@ function PlansOrProductSection({selectedPlan, onPlanSelect, onPlanCheckout, chan
         />
     );
 }
-
-PlansOrProductSection.propTypes = {
-    selectedPlan: PropTypes.string,
-    onPlanSelect: PropTypes.func.isRequired,
-    onPlanCheckout: PropTypes.func,
-    changePlan: PropTypes.bool
-};
 
 function getOfferMessage(offer, originalPrice, currency, amountOff) {
     if (offer.type === 'free_months') {
@@ -418,13 +380,6 @@ const UpgradePlanSection = ({
     );
 };
 
-UpgradePlanSection.propTypes = {
-    plans: PropTypes.array.isRequired,
-    selectedPlan: PropTypes.string,
-    onPlanSelect: PropTypes.func.isRequired,
-    onPlanCheckout: PropTypes.func.isRequired
-};
-
 const PlansContainer = ({
     plans, selectedPlan, confirmationPlan, confirmationType, showConfirmation = false,
     pendingOffer, onPlanSelect, onPlanCheckout, onConfirm, onCancelSubscription,
@@ -474,21 +429,6 @@ const PlansContainer = ({
     );
 };
 
-PlansContainer.propTypes = {
-    plans: PropTypes.array.isRequired,
-    selectedPlan: PropTypes.string,
-    confirmationPlan: PropTypes.object,
-    confirmationType: PropTypes.string,
-    showConfirmation: PropTypes.bool,
-    pendingOffer: PropTypes.object,
-    onPlanSelect: PropTypes.func.isRequired,
-    onPlanCheckout: PropTypes.func.isRequired,
-    onConfirm: PropTypes.func.isRequired,
-    onCancelSubscription: PropTypes.func.isRequired,
-    onAcceptRetentionOffer: PropTypes.func.isRequired,
-    onDeclineRetentionOffer: PropTypes.func.isRequired
-};
-
 export default class AccountPlanPage extends React.Component {
     static contextType = AppContext;
 
@@ -526,7 +466,9 @@ export default class AccountPlanPage extends React.Component {
             this.prices = getFilteredPrices({prices: this.prices, currency: activePrice.currency});
         }
 
-        let selectedPrice = activePrice ? this.prices.find((d) => d.id === activePrice.id) : null;
+        let selectedPrice = activePrice ? this.prices.find((d) => {
+            return (d.id === activePrice.id);
+        }) : null;
 
         if (!isPaidMember({member}) && this.prices.length > 0) {
             selectedPrice = this.prices[0];
@@ -587,9 +529,11 @@ export default class AccountPlanPage extends React.Component {
 
         if (!isPaidMember({member}) || isComplimentaryMember({member})) {
             this.timeoutId = setTimeout(() => {
-                this.setState(() => ({
-                    selectedPlan: priceId
-                }));
+                this.setState(() => {
+                    return {
+                        selectedPlan: priceId
+                    };
+                });
             }, 5);
         } else {
             const confirmationPrice = this.prices.find(d => d.id === priceId);

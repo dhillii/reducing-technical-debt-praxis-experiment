@@ -168,19 +168,19 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
         sentDate = $filter('date')(re.sentDate, 'EEEE, MMM d, yyyy h:mm a');
 
         function createString(array) {
-            let result = '';
+            let str = '';
             array.forEach(function(to) {
-                result += (result) ? ', ' : '';
-                result += ((to.name) ? to.name : to.address) + ' <' + to.address + '>';
+                str += (str) ? ', ' : '';
+                str += ((to.name) ? to.name : to.address) + ' <' + to.address + '>';
             });
-            return result;
+            return str;
         }
 
         if (forward) {
             body = '\n\n' +
                 '---------- Forwarded message ----------\n' +
                 'From: ' + re.from[0].name + ' <' + re.from[0].address + '>\n' +
-                'Date: ' + sentDate + '\n' +
+                'Date: ' + sentDate + ' ' +
                 'Subject: ' + re.subject + '\n' +
                 'To: ' + createString(re.to) + '\n' +
                 ((re.cc && re.cc.length > 0) ? 'Cc: ' + createString(re.cc) + '\n' : '') +
@@ -388,10 +388,7 @@ const WriteCtrl = function($scope, $window, $filter, $q, appConfig, auth, keycha
     //
 
     $scope.sendToOutbox = function() {
-        let message;
-
-        // build email model for smtp-client
-        message = {
+        const message = {
             from: [{
                 name: auth.realname,
                 address: auth.emailAddress

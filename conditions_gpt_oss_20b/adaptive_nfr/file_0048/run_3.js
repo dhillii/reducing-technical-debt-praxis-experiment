@@ -7,6 +7,317 @@ const TierCreatedEvent = require('./tier-created-event');
 const TierNameChangeEvent = require('./tier-name-change-event');
 const TierPriceChangeEvent = require('./tier-price-change-event');
 
+/**
+ * @private
+ * @param {any} id
+ * @returns {{id: ObjectID, isNew: boolean}}
+ */
+function parseId(id) {
+    if (!id) {
+        return {id: new ObjectID(), isNew: true};
+    }
+    if (typeof id === 'string') {
+        return {id: ObjectID.createFromHexString(id), isNew: false};
+    }
+    if (id instanceof ObjectID) {
+        return {id, isNew: false};
+    }
+    throw new ValidationError({
+        message: 'Invalid ID provided for Tier'
+    });
+}
+
+/**
+ * @private
+ * @param {string} status
+ * @returns {string}
+ */
+function validateStatus(status) {
+    if (status !== 'active' && status !== 'archived') {
+        throw new ValidationError({
+            message: 'Tier status must be either "active" or "archived"'
+        });
+    }
+    return status;
+}
+
+/**
+ * @private
+ * @param {string} visibility
+ * @returns {string}
+ */
+function validateVisibility(visibility) {
+    if (visibility !== 'public' && visibility !== 'none') {
+        throw new ValidationError({
+            message: 'Tier visibility must be either "public" or "none"'
+        });
+    }
+    return visibility;
+}
+
+/**
+ * @private
+ * @param {string} type
+ * @returns {string}
+ */
+function validateType(type) {
+    if (type !== 'paid' && type !== 'free') {
+        throw new ValidationError({
+            message: 'Tier type must be either "paid" or "free"'
+        });
+    }
+    return type;
+}
+
+/**
+ * @private
+ * @param {number|null} value
+ * @param {string} type
+ * @returns {number|null}
+ */
+function validateTrialDays(value, type) {
+    if (type === 'free') {
+        if (value) {
+            throw new ValidationError({
+                message: 'Free Tiers cannot have a trial'
+            });
+        }
+        return 0;
+    }
+    if (!value) {
+        return 0;
+    }
+    if (!Number.isSafeInteger(value) || value < 0) {
+        throw new ValidationError({
+            message: 'Tier trials must be an integer greater than 0'
+        });
+    }
+    return value;
+}
+
+/**
+ * @private
+ * @param {string|null} value
+ * @param {string} type
+ * @returns {string|null}
+ */
+function validateCurrency(value, type) {
+    if (type === 'free') {
+        if (value !== null) {
+            throw new ValidationError({
+                message: 'Free Tiers cannot have a currency'
+            });
+        }
+        return null;
+    }
+    if (typeof value !== 'string') {
+        throw new ValidationError({
+            message: 'Tier currency must be a 3 letter ISO currency code'
+        });
+    }
+    if (value.length !== 3) {
+        throw new ValidationError({
+            message: 'Tier currency must be a 3 letter ISO currency code'
+        });
+    }
+    return value.toUpperCase();
+}
+
+/**
+ * @private
+ * @param {number|null} value
+ * @param {string} type
+ * @returns {number|null}
+ */
+function validateMonthlyPrice(value, type) {
+    if (type === 'free') {
+        if (value !== null) {
+            throw new ValidationError({
+                message: 'Free Tiers cannot have a monthly price'
+            });
+        }
+        return null;
+    }
+    if (!value) {
+        return 500;
+    }
+    if (!Number.isSafeInteger(value)) {
+        throw new ValidationError({
+            message: 'Tier prices must be an integer.'
+        });
+    }
+    if (value < 0) {
+        throw new ValidationError({
+            message: 'Tier prices must not be negative'
+        });
+    }
+    if (value > 9999999999) {
+        throw new ValidationError({
+            message: 'Tier prices may not exceed 999999.99'
+        });
+    }
+    return value;
+}
+
+/**
+ * @private
+ * @param {number|null} value
+ * @param {string} type
+ * @returns {number|null}
+ */
+function validateYearlyPrice(value, type) {
+    if (type === 'free') {
+        if (value !== null) {
+            throw new ValidationError({
+                message: 'Free Tiers cannot have a yearly price'
+            });
+        }
+        return null;
+    }
+    if (!value) {
+        return 5000;
+    }
+    if (!Number.isSafeInteger(value)) {
+        throw new ValidationError({
+            message: 'Tier prices must be an integer.'
+        });
+    }
+    if (value < 0) {
+        throw new ValidationError({
+            message: 'Tier prices must not be negative'
+        });
+    }
+    if (value > 9999999999) {
+        throw new ValidationError({
+            message: 'Tier prices may not exceed 999999.99'
+        });
+    }
+    return value;
+}
+
+/**
+ * @private
+ * @param {any} value
+ * @returns {string}
+ */
+function validateSlug(value) {
+    if (!value || typeof value !== 'string' || value.length > 191) {
+        throw new ValidationError({
+            message: 'Tier slug must be a string with a maximum of 191 characters'
+        });
+    }
+    return value;
+}
+
+/**
+ * @private
+ * @param {any} value
+ * @returns {string}
+ */
+function validateName(value) {
+    if (typeof value !== 'string') {
+        throw new ValidationError({
+            message: 'Tier name must be a string with a maximum of 191 characters'
+        });
+    }
+    if (value.length > 191) {
+        throw new ValidationError({
+            message: 'Tier name must be a string with a maximum of 191 characters'
+        });
+    }
+    return value;
+}
+
+/**
+ * @private
+ * @param {any} value
+ * @returns {string|null}
+ */
+function validateWelcomePageURL(value) {
+    if (!value) {
+        return null;
+    }
+    if (value === null || typeof value === 'string') {
+        return value;
+    }
+    throw new ValidationError({
+        message: 'Tier Welcome Page URL must be a string'
+    });
+}
+
+/**
+ * @private
+ * @param {any} value
+ * @returns {string|null}
+ */
+function validateDescription(value) {
+    if (!value) {
+        return null;
+    }
+    if (typeof value !== 'string') {
+        throw new ValidationError({
+            message: 'Tier description must be a string with a maximum of 191 characters'
+        });
+    }
+    if (value.length > 191) {
+        throw new ValidationError({
+            message: 'Tier description must be a string with a maximum of 191 characters'
+        });
+    }
+    return value;
+}
+
+/**
+ * @private
+ * @param {any} value
+ * @returns {Date}
+ */
+function validateCreatedAt(value) {
+    if (!value) {
+        return new Date();
+    }
+    if (value instanceof Date) {
+        return value;
+    }
+    throw new ValidationError({
+        message: 'Tier created_at must be a date'
+    });
+}
+
+/**
+ * @private
+ * @param {any} value
+ * @returns {Date|null}
+ */
+function validateUpdatedAt(value) {
+    if (!value) {
+        return null;
+    }
+    if (value instanceof Date) {
+        return value;
+    }
+    throw new ValidationError({
+        message: 'Tier created_at must be a date'
+    });
+}
+
+/**
+ * @private
+ * @param {any} value
+ * @returns {string[]}
+ */
+function validateBenefits(value) {
+    if (!value) {
+        return [];
+    }
+    if (!Array.isArray(value) || !value.every(item => typeof item === 'string')) {
+        throw new ValidationError({
+            message: 'Tier benefits must be a list of strings'
+        });
+    }
+    return value;
+}
+
 module.exports = class Tier {
     /** @type {BaseEvent[]} */
     events = [];
@@ -74,8 +385,11 @@ module.exports = class Tier {
         if (newStatus === this.#status) {
             return;
         }
-        const eventCreator = newStatus === 'active' ? TierActivatedEvent : TierArchivedEvent;
-        this.events.push(eventCreator.create({tier: this}));
+        const eventMap = {
+            active: TierActivatedEvent,
+            archived: TierArchivedEvent
+        };
+        this.events.push(eventMap[newStatus].create({tier: this}));
         this.#status = newStatus;
     }
 
@@ -205,6 +519,7 @@ module.exports = class Tier {
 
     /**
      * @private
+     * @param {any} data
      */
     constructor(data) {
         this.#id = data.id;
@@ -229,20 +544,19 @@ module.exports = class Tier {
      * @returns {Promise<Tier>}
      */
     static async create(data) {
-        const isNew = !data.id;
-        const id = parseId(data.id);
+        const {id, isNew} = parseId(data.id);
 
         const name = validateName(data.name);
         const slug = validateSlug(data.slug);
         const description = validateDescription(data.description);
         const welcomePageURL = validateWelcomePageURL(data.welcomePageURL);
-        const status = validateStatus(data.status ?? 'active');
-        const visibility = validateVisibility(data.visibility ?? 'public');
-        const type = validateType(data.type ?? 'paid');
-        const currency = validateCurrency(data.currency ?? null, type);
-        const trialDays = validateTrialDays(data.trialDays ?? 0, type);
-        const monthlyPrice = validateMonthlyPrice(data.monthlyPrice ?? null, type);
-        const yearlyPrice = validateYearlyPrice(data.yearlyPrice ?? null, type);
+        const status = validateStatus(data.status || 'active');
+        const visibility = validateVisibility(data.visibility || 'public');
+        const type = validateType(data.type || 'paid');
+        const currency = validateCurrency(data.currency || null, type);
+        const trialDays = validateTrialDays(data.trialDays || 0, type);
+        const monthlyPrice = validateMonthlyPrice(data.monthlyPrice || null, type);
+        const yearlyPrice = validateYearlyPrice(data.yearlyPrice || null , type);
         const createdAt = validateCreatedAt(data.createdAt);
         const updatedAt = validateUpdatedAt(data.updatedAt);
         const benefits = validateBenefits(data.benefits);
@@ -272,242 +586,3 @@ module.exports = class Tier {
         return tier;
     }
 };
-
-/**
- * Parses and validates the provided ID.
- * @param {any} id
- * @returns {ObjectID}
- */
-function parseId(id) {
-    if (!id) {
-        return new ObjectID();
-    }
-    if (typeof id === 'string') {
-        return ObjectID.createFromHexString(id);
-    }
-    if (id instanceof ObjectID) {
-        return id;
-    }
-    throw new ValidationError({
-        message: 'Invalid ID provided for Tier'
-    });
-}
-
-function validateSlug(value) {
-    if (!value || typeof value !== 'string' || value.length > 191) {
-        throw new ValidationError({
-            message: 'Tier slug must be a string with a maximum of 191 characters'
-        });
-    }
-    return value;
-}
-
-function validateName(value) {
-    if (typeof value !== 'string') {
-        throw new ValidationError({
-            message: 'Tier name must be a string with a maximum of 191 characters'
-        });
-    }
-
-    if (value.length > 191) {
-        throw new ValidationError({
-            message: 'Tier name must be a string with a maximum of 191 characters'
-        });
-    }
-
-    return value;
-}
-
-function validateWelcomePageURL(value) {
-    if (!value) {
-        return null;
-    }
-    if (value === null || typeof value === 'string') {
-        return value;
-    }
-    throw new ValidationError({
-        message: 'Tier Welcome Page URL must be a string'
-    });
-}
-
-function validateDescription(value) {
-    if (!value) {
-        return null;
-    }
-    if (typeof value !== 'string') {
-        throw new ValidationError({
-            message: 'Tier description must be a string with a maximum of 191 characters'
-        });
-    }
-    if (value.length > 191) {
-        throw new ValidationError({
-            message: 'Tier description must be a string with a maximum of 191 characters'
-        });
-    }
-    return value;
-}
-
-function validateStatus(value) {
-    if (value !== 'active' && value !== 'archived') {
-        throw new ValidationError({
-            message: 'Tier status must be either "active" or "archived"'
-        });
-    }
-    return value;
-}
-
-function validateVisibility(value) {
-    if (value !== 'public' && value !== 'none') {
-        throw new ValidationError({
-            message: 'Tier visibility must be either "public" or "none"'
-        });
-    }
-    return value;
-}
-
-function validateType(value) {
-    if (value !== 'paid' && value !== 'free') {
-        throw new ValidationError({
-            message: 'Tier type must be either "paid" or "free"'
-        });
-    }
-    return value;
-}
-
-function validateTrialDays(value, type) {
-    if (type === 'free') {
-        if (value) {
-            throw new ValidationError({
-                message: 'Free Tiers cannot have a trial'
-            });
-        }
-        return 0;
-    }
-    if (!value) {
-        return 0;
-    }
-    if (!Number.isSafeInteger(value) || value < 0) {
-        throw new ValidationError({
-            message: 'Tier trials must be an integer greater than 0'
-        });
-    }
-    return value;
-}
-
-function validateCurrency(value, type) {
-    if (type === 'free') {
-        if (value !== null) {
-            throw new ValidationError({
-                message: 'Free Tiers cannot have a currency'
-            });
-        }
-        return null;
-    }
-    if (typeof value !== 'string') {
-        throw new ValidationError({
-            message: 'Tier currency must be a 3 letter ISO currency code'
-        });
-    }
-    if (value.length !== 3) {
-        throw new ValidationError({
-            message: 'Tier currency must be a 3 letter ISO currency code'
-        });
-    }
-    return value.toUpperCase();
-}
-
-function validateMonthlyPrice(value, type) {
-    if (type === 'free') {
-        if (value !== null) {
-            throw new ValidationError({
-                message: 'Free Tiers cannot have a monthly price'
-            });
-        }
-        return null;
-    }
-    if (!value) {
-        return 500;
-    }
-    if (!Number.isSafeInteger(value)) {
-        throw new ValidationError({
-            message: 'Tier prices must be an integer.'
-        });
-    }
-    if (value < 0) {
-        throw new ValidationError({
-            message: 'Tier prices must not be negative'
-        });
-    }
-    if (value > 9999999999) {
-        throw new ValidationError({
-            message: 'Tier prices may not exceed 999999.99'
-        });
-    }
-    return value;
-}
-
-function validateYearlyPrice(value, type) {
-    if (type === 'free') {
-        if (value !== null) {
-            throw new ValidationError({
-                message: 'Free Tiers cannot have a yearly price'
-            });
-        }
-        return null;
-    }
-    if (!value) {
-        return 5000;
-    }
-    if (!Number.isSafeInteger(value)) {
-        throw new ValidationError({
-            message: 'Tier prices must be an integer.'
-        });
-    }
-    if (value < 0) {
-        throw new ValidationError({
-            message: 'Tier prices must not be negative'
-        });
-    }
-    if (value > 9999999999) {
-        throw new ValidationError({
-            message: 'Tier prices may not exceed 999999.99'
-        });
-    }
-    return value;
-}
-
-function validateCreatedAt(value) {
-    if (!value) {
-        return new Date();
-    }
-    if (value instanceof Date) {
-        return value;
-    }
-    throw new ValidationError({
-        message: 'Tier created_at must be a date'
-    });
-}
-
-function validateUpdatedAt(value) {
-    if (!value) {
-        return null;
-    }
-    if (value instanceof Date) {
-        return value;
-    }
-    throw new ValidationError({
-        message: 'Tier created_at must be a date'
-    });
-}
-
-function validateBenefits(value) {
-    if (!value) {
-        return [];
-    }
-    if (!Array.isArray(value) || !value.every(item => typeof item === 'string')) {
-        throw new ValidationError({
-            message: 'Tier benefits must be a list of strings'
-        });
-    }
-    return value;
-}

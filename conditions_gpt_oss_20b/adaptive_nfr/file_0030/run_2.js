@@ -287,7 +287,7 @@ export default class MembersController extends Controller {
 
         let searchQuery = searchParam ? {search: searchParam} : {};
 
-        return { filter: filters.join('+'), ...searchQuery };
+        return {filter: filters.join('+'), ...searchQuery};
     }
 
     // Actions -----------------------------------------------------------------
@@ -470,7 +470,7 @@ export default class MembersController extends Controller {
             onComplete: () => {
                 // reset, clear filters, and reload list and counts
                 this.store.unloadAll('member');
-                this.router.transitionTo('members.index', {queryParams: { ...resetQueryParams('members.index') }});
+                this.router.transitionTo('members.index', {queryParams: {...resetQueryParams('members.index')}});
                 this.membersStats.invalidate();
                 this.membersStats.fetchCounts();
             }
@@ -532,7 +532,14 @@ export default class MembersController extends Controller {
             const order = orderParam ? `${orderParam} desc` : `created_at desc`;
             const includes = ['labels', 'tiers'];
 
-            query = { include: includes.join(','), order, limit: range.length, page: range.page, ...searchQuery, ...query };
+            query = {
+                include: includes.join(','),
+                order,
+                limit: range.length,
+                page: range.page,
+                ...searchQuery,
+                ...query
+            };
 
             return this.store.query('member', query).then((result) => {
                 return {

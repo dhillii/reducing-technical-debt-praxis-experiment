@@ -208,6 +208,7 @@ export default class KoenigLexicalEditor extends Component {
             return null;
         }
 
+        // load the script from admin root if relative
         if (importUrl.startsWith('/')) {
             importUrl = window.location.origin + this.ghostPaths.adminRoot.replace(/\/$/, '') + importUrl;
         }
@@ -221,6 +222,7 @@ export default class KoenigLexicalEditor extends Component {
             return null;
         }
 
+        // load the css from admin root if relative
         if (cssImportUrl.startsWith('/')) {
             cssImportUrl = window.location.origin + this.ghostPaths.adminRoot.replace(/\/$/, '') + cssImportUrl;
         }
@@ -229,6 +231,7 @@ export default class KoenigLexicalEditor extends Component {
 
     @action
     onError(error) {
+        // ensure we're still showing errors in development
         console.error(error); // eslint-disable-line
 
         if (this.config.sentry_dsn) {
@@ -241,6 +244,7 @@ export default class KoenigLexicalEditor extends Component {
                 }
             });
         }
+        // don't rethrow, Lexical will attempt to gracefully recover
     }
 
     @task({restartable: false})
@@ -249,7 +253,11 @@ export default class KoenigLexicalEditor extends Component {
             return this.offers;
         }
 
+        // Only fetch active signup offers for use in link dropdowns
+        // - Archived offers (status:archived) should not appear
+        // - Retention offers (redemption_type:retention) are only triggered during cancellation flows, not via offer links
         this.offers = yield this.store.query('offer', {filter: 'status:active+redemption_type:signup'});
+
         return this.offers;
     }
 
@@ -263,133 +271,153 @@ export default class KoenigLexicalEditor extends Component {
         return this.labels;
     }
 
-    // ------------------------------------------------------------------
-    // Helper methods for React component
-    // ------------------------------------------------------------------
-
-    fetchEmbed(url, {type}) {
-        const oembedEndpoint = this.ghostPaths.url.api('oembed');
-        return this.ajax.request(oembedEndpoint, {
-            data: {url, type}
-        });
-    }
-
-    async fetchAutocompleteLinks() {
-        const defaults = [
-            {label: 'Homepage', value: window.location.origin + '/'},
-            {label: 'Free signup', value: '#/portal/signup/free'}
-        ];
-
-        const memberLinks = () => {
-            if (this.membersUtils.paidMembersEnabled) {
-                return [
-                    {label: 'Paid signup', value: '#/portal/signup'},
-                    {label: 'Upgrade or change plan', value: '#/portal/account/plans'}
-                ];
-            }
-            return [];
+    ReactComponent = (props) => {
+        const fetchEmbed = async (url, {type}) => {
+            let oembedEndpoint = this.ghostPaths.url.api('oembed');
+            let response = await this.ajax.request(oembedEndpoint, {
+                data: {url, type}
+            });
+            return response;
         };
 
-        const donationLink = () => {
-            if (this.settings.donationsEnabled) {
-                return [{label: 'Tips and donations', value: '#/portal/support'}];
-            }
-            return [];
+        const fetchAutocompleteLinks = async () => {
+            const defaults = [
+                {label: 'Homepage', value: window.location.origin + '/'},
+                {label: 'Free signup', value: '#/portal/signup/free'}
+            ];
+
+            const memberLinks = () => {
+                let links = [];
+                if (this.membersUtils.paidMembersEnabled) {
+                    links = [
+                        {
+                            label: 'Paid signup',
+                            value: '#/portal/signup'
+                        },
+                        {
+                            label: 'Upgrade or change plan',
+                            value: '#/portal/account/plans'
+                        }];
+                }
+
+                return links;
+            };
+
+            const donationLink = () => {
+                if (this.settings.donationsEnabled) {
+                    return [{
+                        label: 'Tips and donations',
+                        value: '#/portal/support'
+                    }];
+                }
+
+                return [];
+            };
+
+            const recommendationLink = () => {
+                if (this.settings.recommendationsEnabled) {
+                    return [{
+                        label: 'Recommendations',
+                        value: '#/portal/recommendations'
+                    }];
+                }
+
+                return [];
+            };
+
+            const offersLinks = await offerUrls.call(this);
+
+            return [...defaults, ...memberLinks(), ...donationLink(), ...recommendationLink(), ...offersLinks];
         };
 
-        const recommendationLink = () => {
-            if (this.settings.recommendationsEnabled) {
-                return [{label: 'Recommendations', value: '#/portal/recommendations'}];
+        const fetchLabels = async () => {
+            let labels = [];
+            try {
+                labels = await this.fetchLabelsTask.perform();
+            } catch (e) {
+                // Do not throw cancellation errors
+                if (didCancel(e)) {
+                    return;
+                }
+
+                throw e;
             }
-            return [];
-        };
 
-        const offersLinks = await offerUrls.call(this);
-
-        return [...defaults, ...memberLinks(), ...donationLink(), ...recommendationLink(), ...offersLinks];
-    }
-
-    async fetchLabels() {
-        try {
-            const labels = await this.fetchLabelsTask.perform();
             return labels.map(label => label.name);
-        } catch (e) {
-            if (didCancel(e)) {
-                return;
-            }
-            throw e;
-        }
-    }
+        };
 
-    async searchLinks(term) {
-        if (!term) {
-            if (this.defaultLinks) {
+        const searchLinks = async (term) => {
+            // when no term is present we should show latest 5 posts
+            if (!term) {
+                // we cache the default links to avoid fetching them every time
+                if (this.defaultLinks) {
+                    return this.defaultLinks;
+                }
+
+                const posts = await this.store.query('post', {filter: 'status:published', fields: 'id,url,title,visibility,published_at', order: 'published_at desc', limit: 5});
+                // NOTE: these posts are Ember Data models, not plain objects like the search results
+                const results = posts.toArray().map(post => ({
+                    groupName: 'Latest posts',
+                    id: post.id,
+                    title: post.title,
+                    url: post.url,
+                    visibility: post.visibility,
+                    publishedAt: post.publishedAtUTC.toISOString()
+                }));
+
+                results.forEach(item => decoratePostSearchResult(item, this.settings));
+
+                this.defaultLinks = [{
+                    label: 'Latest posts',
+                    items: results
+                }];
                 return this.defaultLinks;
             }
 
-            const posts = await this.store.query('post', {
-                filter: 'status:published',
-                fields: 'id,url,title,visibility,published_at',
-                order: 'published_at desc',
-                limit: 5
-            });
+            let results = [];
 
-            const results = posts.toArray().map(post => ({
-                groupName: 'Latest posts',
-                id: post.id,
-                title: post.title,
-                url: post.url,
-                visibility: post.visibility,
-                publishedAt: post.publishedAtUTC.toISOString()
-            }));
-
-            results.forEach(item => decoratePostSearchResult(item, this.settings));
-
-            this.defaultLinks = [{label: 'Latest posts', items: results}];
-            return this.defaultLinks;
-        }
-
-        let results = [];
-        try {
-            results = await this.search.searchTask.perform(term);
-        } catch (error) {
-            if (!didCancel(error)) {
-                throw error;
-            }
-            return;
-        }
-
-        const filteredResults = [];
-        results.forEach(group => {
-            let items = group.options;
-
-            if (group.groupName === 'Posts' || group.groupName === 'Pages') {
-                items = items.filter(i => i.status === 'published');
-            }
-
-            if (group.groupName === 'Staff') {
-                items = items.filter(i => !/\/404\//.test(i.url));
-            }
-
-            if (items.length === 0) {
+            try {
+                results = await this.search.searchTask.perform(term);
+            } catch (error) {
+                // don't surface task cancellation errors
+                if (!didCancel(error)) {
+                    throw error;
+                }
                 return;
             }
 
-            if (group.groupName === 'Posts' || group.groupName === 'Pages') {
-                items.forEach(item => decoratePostSearchResult(item, this.settings));
-            }
+            // only published posts/pages and staff with posts have URLs
+            const filteredResults = [];
+            results.forEach((group) => {
+                let items = group.options;
 
-            filteredResults.push({
-                label: group.groupName,
-                items
+                if (group.groupName === 'Posts' || group.groupName === 'Pages') {
+                    items = items.filter(i => i.status === 'published');
+                }
+
+                if (group.groupName === 'Staff') {
+                    items = items.filter(i => !/\/404\//.test(i.url));
+                }
+
+                if (items.length === 0) {
+                    return;
+                }
+
+                // update the group items with metadata
+                if (group.groupName === 'Posts' || group.groupName === 'Pages') {
+                    items.forEach(item => decoratePostSearchResult(item, this.settings));
+                }
+
+                filteredResults.push({
+                    label: group.groupName,
+                    items
+                });
             });
-        });
 
-        return filteredResults;
-    }
+            return filteredResults;
+        };
 
-    unsplashConfig() {
-        return {
+        const unsplashConfig = {
             defaultHeaders: {
                 Authorization: `Client-ID 8672af113b0a8573edae3aa3713886265d9bb741d707f6c01a486cde8c278980`,
                 'Accept-Version': 'v1',
@@ -398,49 +426,191 @@ export default class KoenigLexicalEditor extends Component {
                 'X-Unsplash-Cache': true
             }
         };
-    }
 
-    checkStripeEnabled() {
-        const hasDirectKeys = !!(this.settings.stripeSecretKey && this.settings.stripePublishableKey);
-        const hasConnectKeys = !!(this.settings.stripeConnectSecretKey && this.settings.stripeConnectPublishableKey);
+        const checkStripeEnabled = () => {
+            const hasDirectKeys = !!(this.settings.stripeSecretKey && this.settings.stripePublishableKey);
+            const hasConnectKeys = !!(this.settings.stripeConnectSecretKey && this.settings.stripeConnectPublishableKey);
 
-        if (this.config.stripeDirect) {
-            return hasDirectKeys;
-        }
-        return hasDirectKeys || hasConnectKeys;
-    }
+            if (this.config.stripeDirect) {
+                return hasDirectKeys;
+            }
+            return hasDirectKeys || hasConnectKeys;
+        };
 
-    defaultCardConfig(props) {
-        const unsplash = this.settings.unsplash ? this.unsplashConfig().defaultHeaders : null;
-        const tenor = this.config.tenor?.googleApiKey ? this.config.tenor : null;
-
-        const baseConfig = {
-            unsplash,
-            tenor,
-            fetchAutocompleteLinks: this.fetchAutocompleteLinks.bind(this),
-            fetchEmbed: this.fetchEmbed.bind(this),
-            fetchLabels: this.fetchLabels.bind(this),
+        const defaultCardConfig = {
+            unsplash: this.settings.unsplash ? unsplashConfig.defaultHeaders : null,
+            tenor: this.config.tenor?.googleApiKey ? this.config.tenor : null,
+            fetchAutocompleteLinks,
+            fetchEmbed,
+            fetchLabels,
             renderLabels: !this.session.user.isContributor,
             feature: {
                 transistor: this.feature.transistor
             },
-            deprecated: {
-                headerV1: true
+            deprecated: { // todo fix typo
+                headerV1: true // if false, shows header v1 in the menu
             },
             membersEnabled: this.settings.membersSignupAccess === 'all',
-            searchLinks: this.searchLinks.bind(this),
+            searchLinks,
             siteTitle: this.settings.title,
             siteDescription: this.settings.description,
             siteUrl: this.config.getSiteUrl('/'),
-            stripeEnabled: this.checkStripeEnabled()
+            stripeEnabled: checkStripeEnabled() // returns a boolean
         };
+        const cardConfig = Object.assign({}, defaultCardConfig, props.cardConfig, {pinturaConfig: this.pinturaConfig});
 
-        return Object.assign({}, baseConfig, props.cardConfig, {pinturaConfig: this.pinturaConfig});
-    }
+        /**
+         * Creates an XMLHttpRequest with progress tracking.
+         * @param {File} file - The file being uploaded.
+         * @param {Map} progressTracker - Map tracking progress per file.
+         * @param {Function} updateProgress - Callback to update overall progress.
+         * @returns {XMLHttpRequest}
+         */
+        function createXhr(file, progressTracker, updateProgress) {
+            const xhr = new window.XMLHttpRequest();
 
-    useFileUpload(type = 'image') {
-        const self = this;
-        return () => {
+            xhr.upload.addEventListener('progress', (event) => {
+                if (event.lengthComputable) {
+                    progressTracker.current.set(file, (event.loaded / event.total) * 100);
+                    updateProgress();
+                }
+            }, false);
+
+            return xhr;
+        }
+
+        /**
+         * Validates a single file against allowed extensions.
+         * @param {File} file
+         * @param {string} type
+         * @returns {boolean|string} true if valid, otherwise error message.
+         */
+        function defaultValidator(file, type) {
+            if (type === 'file') {
+                return true;
+            }
+            let extensions = fileTypes[type].extensions;
+            let [, extension] = (/(?:\.([^.]+))?$/).exec(file.name);
+
+            if (!extensions) {
+                return true;
+            }
+
+            if (!Array.isArray(extensions)) {
+                extensions = extensions.split(',');
+            }
+
+            if (!extension || extensions.indexOf(extension.toLowerCase()) === -1) {
+                let validExtensions = `.${extensions.join(', .').toUpperCase()}`;
+                return `The file type you uploaded is not supported. Please use ${validExtensions}`;
+            }
+
+            return true;
+        }
+
+        /**
+         * Validates an array of files.
+         * @param {File[]} files
+         * @param {string} type
+         * @returns {{fileName: string, message: string}[]}
+         */
+        function validateFiles(files, type) {
+            const validationResult = [];
+
+            for (let i = 0; i < files.length; i += 1) {
+                const file = files[i];
+                const result = defaultValidator(file, type);
+                if (result === true) {
+                    continue;
+                }
+
+                validationResult.push({fileName: file.name, message: result});
+            }
+
+            return validationResult;
+        }
+
+        /**
+         * Uploads a single file.
+         * @param {File} file
+         * @param {Object} options
+         * @param {string} type
+         * @param {Object} ajax
+         * @param {Object} ghostPaths
+         * @param {Object} fileTypes
+         * @param {Map} progressTracker
+         * @param {Function} updateProgress
+         * @returns {Promise<{url: string, fileName: string}>}
+         */
+        async function uploadSingleFile(file, options, type, ajax, ghostPaths, fileTypes, progressTracker, updateProgress) {
+            progressTracker.current.set(file, 0);
+
+            const fileFormData = new FormData();
+            fileFormData.append('file', file, file.name);
+
+            Object.keys(options.formData || {}).forEach((key) => {
+                fileFormData.append(key, options.formData[key]);
+            });
+
+            const url = `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
+
+            try {
+                const requestMethod = fileTypes[type].requestMethod || 'post';
+                const response = await ajax[requestMethod](url, {
+                    data: fileFormData,
+                    processData: false,
+                    contentType: false,
+                    dataType: 'text',
+                    xhr: () => createXhr(file, progressTracker, updateProgress)
+                });
+
+                // force tracker progress to 100% in case we didn't get a final event
+                progressTracker.current.set(file, 100);
+                updateProgress();
+
+                let uploadResponse;
+                let responseUrl;
+
+                try {
+                    uploadResponse = JSON.parse(response);
+                } catch (error) {
+                    if (!(error instanceof SyntaxError)) {
+                        throw error;
+                    }
+                }
+
+                if (uploadResponse) {
+                    const resource = uploadResponse[fileTypes[type].resourceName];
+                    if (resource && Array.isArray(resource) && resource[0]) {
+                        responseUrl = resource[0].url;
+                    }
+                }
+
+                return {
+                    url: responseUrl,
+                    fileName: file.name
+                };
+            } catch (error) {
+                console.error(error); // eslint-disable-line
+
+                let message = error.payload?.errors?.[0]?.message || '';
+                let context = error.payload?.errors?.[0]?.context || '';
+
+                if (!message) {
+                    message = error.message;
+                }
+
+                const errorResult = {
+                    message,
+                    context,
+                    fileName: file.name
+                };
+
+                throw errorResult;
+            }
+        }
+
+        const useFileUpload = (type = 'image') => {
             const [progress, setProgress] = React.useState(0);
             const [isLoading, setLoading] = React.useState(false);
             const [errors, setErrors] = React.useState([]);
@@ -455,207 +625,94 @@ export default class KoenigLexicalEditor extends Component {
                 }
 
                 let totalProgress = 0;
+
                 progressTracker.current.forEach(value => totalProgress += value);
+
                 setProgress(Math.round(totalProgress / progressTracker.current.size));
             }
 
-            function defaultValidator(file) {
-                if (type === 'file') {
-                    return true;
-                }
-                let extensions = fileTypes[type].extensions;
-                let [, extension] = (/(?:\.([^.]+))?$/).exec(file.name);
-
-                if (!extensions) {
-                    return true;
-                }
-
-                if (!Array.isArray(extensions)) {
-                    extensions = extensions.split(',');
-                }
-
-                if (!extension || extensions.indexOf(extension.toLowerCase()) === -1) {
-                    let validExtensions = `.${extensions.join(', .').toUpperCase()}`;
-                    return `The file type you uploaded is not supported. Please use ${validExtensions}`;
-                }
-
-                return true;
-            }
-
-            function validate(files = []) {
-                const validationResult = [];
-                for (let i = 0; i < files.length; i += 1) {
-                    const file = files[i];
-                    const result = defaultValidator(file);
-                    if (result === true) {
-                        continue;
-                    }
-                    validationResult.push({fileName: file.name, message: result});
-                }
-                return validationResult;
-            }
-
-            async function _uploadFile(file, {formData = {}} = {}) {
-                progressTracker.current[file] = 0;
-
-                const fileFormData = new FormData();
-                fileFormData.append('file', file, file.name);
-
-                Object.keys(formData || {}).forEach(key => {
-                    fileFormData.append(key, formData[key]);
-                });
-
-                const url = `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
-
-                try {
-                    const requestMethod = fileTypes[type].requestMethod || 'post';
-                    const response = await self.ajax[requestMethod](url, {
-                        data: fileFormData,
-                        processData: false,
-                        contentType: false,
-                        dataType: 'text',
-                        xhr: () => {
-                            const xhr = new window.XMLHttpRequest();
-                            xhr.upload.addEventListener('progress', event => {
-                                if (event.lengthComputable) {
-                                    progressTracker.current.set(file, (event.loaded / event.total) * 100);
-                                    updateProgress();
-                                }
-                            }, false);
-                            return xhr;
-                        }
-                    });
-
-                    progressTracker.current.set(file, 100);
-                    updateProgress();
-
-                    let uploadResponse;
-                    let responseUrl;
-
-                    try {
-                        uploadResponse = JSON.parse(response);
-                    } catch (error) {
-                        if (!(error instanceof SyntaxError)) {
-                            throw error;
-                        }
-                    }
-
-                    if (uploadResponse) {
-                        const resource = uploadResponse[fileTypes[type].resourceName];
-                        if (resource && Array.isArray(resource) && resource[0]) {
-                            responseUrl = resource[0].url;
-                        }
-                    }
-
-                    return {
-                        url: responseUrl,
-                        fileName: file.name
-                    };
-                } catch (error) {
-                    console.error(error); // eslint-disable-line
-
-                    let message = error.payload?.errors?.[0]?.message || '';
-                    let context = error.payload?.errors?.[0]?.context || '';
-
-                    if (!message) {
-                        message = error.message;
-                    }
-
-                    const errorResult = {
-                        message,
-                        context,
-                        fileName: file.name
-                    };
-
-                    throw errorResult;
-                }
-            }
-
-            async function upload(files = [], options = {}) {
+            const upload = async (files = [], options = {}) => {
                 setFilesNumber(files.length);
                 setLoading(true);
 
-                const validationResult = validate(files);
+                const validationResult = validateFiles(files, type);
 
                 if (validationResult.length) {
                     setErrors(validationResult);
                     setLoading(false);
                     setProgress(100);
+
                     return null;
                 }
 
-                const uploadPromises = files.map(file => _uploadFile(file, options));
+                const uploadPromises = [];
+
+                for (let i = 0; i < files.length; i += 1) {
+                    const file = files[i];
+                    uploadPromises.push(uploadSingleFile(file, options, type, this.ajax, this.ghostPaths, fileTypes, progressTracker, updateProgress));
+                }
 
                 try {
                     const uploadResult = await Promise.all(uploadPromises);
                     setProgress(100);
                     progressTracker.current.clear();
+
                     setLoading(false);
+
                     setErrors([]);
+
                     return uploadResult;
                 } catch (error) {
-                    console.error(error); // eslint-disable-line
+                    console.error(error); // eslint-disable-line no-console
+
                     setErrors([...errors, error]);
                     setLoading(false);
                     setProgress(100);
                     progressTracker.current.clear();
+
                     return null;
                 }
-            }
+            };
 
             return {progress, isLoading, upload, errors, filesNumber};
         };
-    }
 
-    KGEditorComponent() {
-        const self = this;
-        return ({isInitInstance}) => {
+        const KGEditorComponent = ({isInitInstance}) => {
             return (
                 <div data-secondary-instance={isInitInstance ? true : false} style={isInitInstance ? {display: 'none'} : {}}>
                     <KoenigComposer
-                        editorResource={self.editorResource}
-                        cardConfig={self.cardConfig}
-                        fileUploader={{useFileUpload: self.useFileUpload, fileTypes}}
-                        initialEditorState={self.args.lexical}
-                        onError={self.onError}
-                        darkMode={self.feature.nightShift}
+                        editorResource={this.editorResource}
+                        cardConfig={cardConfig}
+                        fileUploader={{useFileUpload, fileTypes}}
+                        initialEditorState={this.args.lexical}
+                        onError={this.onError}
+                        darkMode={this.feature.nightShift}
                         isTKEnabled={true}
                     >
                         <KoenigEditor
-                            editorResource={self.editorResource}
-                            cursorDidExitAtTop={isInitInstance ? null : self.args.cursorDidExitAtTop}
-                            placeholderText={isInitInstance ? null : self.args.placeholderText}
-                            darkMode={isInitInstance ? null : self.feature.nightShift}
-                            onChange={isInitInstance ? self.args.updateSecondaryInstanceModel : self.args.onChange}
-                            registerAPI={isInitInstance ? self.args.registerSecondaryAPI : self.args.registerAPI}
+                            editorResource={this.editorResource}
+                            cursorDidExitAtTop={isInitInstance ? null : this.args.cursorDidExitAtTop}
+                            placeholderText={isInitInstance ? null : this.args.placeholderText}
+                            darkMode={isInitInstance ? null : this.feature.nightShift}
+                            onChange={isInitInstance ? this.args.updateSecondaryInstanceModel : this.args.onChange}
+                            registerAPI={isInitInstance ? this.args.registerSecondaryAPI : this.args.registerAPI}
                         />
-                        <WordCountPlugin editorResource={self.editorResource} onChange={isInitInstance ? () => {} : self.args.updateWordCount} />
-                        <TKCountPlugin editorResource={self.editorResource} onChange={isInitInstance ? () => {} : self.args.updatePostTkCount} />
+                        <WordCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updateWordCount} />
+                        <TKCountPlugin editorResource={this.editorResource} onChange={isInitInstance ? () => {} : this.args.updatePostTkCount} />
                     </KoenigComposer>
                 </div>
             );
         };
-    }
 
-    // ------------------------------------------------------------------
-    // Render method
-    // ------------------------------------------------------------------
-
-    get cardConfig() {
-        return this.defaultCardConfig(this.args);
-    }
-
-    render() {
-        const KGEditor = this.KGEditorComponent();
         return (
             <div className={['koenig-react-editor', 'koenig-lexical', this.args.className].filter(Boolean).join(' ')}>
                 <ErrorHandler config={this.config}>
                     <Suspense fallback={<p className="koenig-react-editor-loading">Loading editor...</p>}>
-                        <KGEditor />
-                        <KGEditor isInitInstance={true} />
+                        <KGEditorComponent />
+                        <KGEditorComponent isInitInstance={true} />
                     </Suspense>
                 </ErrorHandler>
             </div>
         );
-    }
+    };
 }

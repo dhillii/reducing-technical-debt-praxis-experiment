@@ -43,14 +43,53 @@ export const isValidDomain = (value: string) => {
 /* -------------------------------------------------------------------------- */
 
 export const kebabToPascalCase = (str: string): string => {
-    const processed = str.replace(/[-_]([a-z0-9])/gi, (_, char) => char.toUpperCase());
+    const processed = str
+        .replace(/[-_]([a-z0-9])/gi, (_, char) => char.toUpperCase());
     return processed.charAt(0).toUpperCase() + processed.slice(1);
 };
 
 const isAnchorLink = (url: string) => url.startsWith('#');
 const isProtocolRelative = (url: string) => url.startsWith('//');
+const isEmailUrl = (url: string) => isEmail(url);
 const isAbsoluteUrl = (url: string) => /^[a-zA-Z0-9-]+:/.test(url);
-const startsWithSlashOrQuestion = (url: string) => url.startsWith('/') || url.startsWith('?');
+const startsWithSlashOrQuestion = (url: string) => /^(\/|\?)/.test(url);
+
+const ensureTrailingSlash = (url: string) => {
+    if (!url.endsWith('/') && !/[.#?]/.test(url)) {
+        return `${url}/`;
+    }
+    return url;
+};
+
+const makeAbsoluteIfNeeded = (url: string, baseUrl?: string) => {
+    if (!baseUrl && !url.startsWith('http')) {
+        return `https://${url}`;
+    }
+    return url;
+};
+
+const parseUrl = (url: string, baseUrl?: string) => {
+    try {
+        return new URL(url, baseUrl);
+    } catch {
+        return null;
+    }
+};
+
+const computeRelativePath = (parsedUrl: URL, baseUrl: string) => {
+    const base = new URL(baseUrl);
+    let path = parsedUrl.pathname;
+
+    if (path.startsWith(base.pathname)) {
+        path = path.slice(base.pathname.length);
+    }
+
+    if (!path.startsWith('/')) {
+        path = `/${path}`;
+    }
+
+    return path;
+};
 
 export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) => {
     if (nullable && !value) {
@@ -66,7 +105,7 @@ export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) =
         return {save: '', display: ''};
     }
 
-    if (isEmail(url)) {
+    if (isEmailUrl(url)) {
         return {save: `mailto:${url}`, display: `mailto:${url}`};
     }
 
@@ -74,18 +113,14 @@ export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) =
         return {save: url, display: url};
     }
 
-    if (!baseUrl && !url.startsWith('http')) {
-        url = `https://${url}`;
-    }
+    url = makeAbsoluteIfNeeded(url, baseUrl);
 
     if (!isAbsoluteUrl(url) && !startsWithSlashOrQuestion(url)) {
         return {save: url, display: url};
     }
 
-    let parsedUrl: URL;
-    try {
-        parsedUrl = new URL(url, baseUrl);
-    } catch {
+    const parsedUrl = parseUrl(url, baseUrl);
+    if (!parsedUrl) {
         return {save: url, display: url};
     }
 
@@ -93,28 +128,21 @@ export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) =
         return {save: parsedUrl.toString(), display: parsedUrl.toString()};
     }
 
-    const base = new URL(baseUrl);
-    const isSameHost = parsedUrl.host === base.host;
-    const isRelativeToBase = parsedUrl.pathname.startsWith(base.pathname);
+    let relativePath = computeRelativePath(parsedUrl, baseUrl);
 
-    if (isSameHost && isRelativeToBase) {
-        let relativePath = parsedUrl.pathname.slice(base.pathname.length);
-        if (!relativePath.startsWith('/')) {
-            relativePath = '/' + relativePath;
-        }
-        url = relativePath + parsedUrl.search + parsedUrl.hash;
-    }
+    relativePath = ensureTrailingSlash(relativePath);
 
-    if (!url.endsWith('/') && !/[.#?]/.test(url)) {
-        url += '/';
-    }
-
-    return {save: url, display: displayFromBase(url, baseUrl)};
+    return {save: relativePath, display: displayFromBase(relativePath, baseUrl)};
 };
 
 const displayFromBase = (url: string, baseUrl: string) => {
-    const base = new URL(baseUrl);
-    return new URL(url, base).toString();
+    if (!baseUrl.endsWith('/')) {
+        baseUrl += '/';
+    }
+    if (url.startsWith('/')) {
+        url = url.substring(1);
+    }
+    return new URL(url, baseUrl).toString();
 };
 
 export const formatQueryDate = (date: Moment) => {
@@ -125,18 +153,19 @@ export const formatDisplayDate = (dateString: string, timezone?: string): string
     if (dateString instanceof Date) {
         dateString = dateString.toISOString();
     }
-    if (!dateString || typeof dateString !== 'string') {
+    if (!dateString || dateString.length === 0 || typeof dateString !== 'string') {
         return '';
     }
 
     const hasTime = dateString.includes(':');
-    const isISO = dateString.includes('T') || dateString.includes('Z');
+    const isISOFormat = dateString.includes('T') || dateString.includes('Z');
 
-    let day: number, month: number, year: number, isToday: boolean, isCurrentYear: boolean;
+    let day, month, year, isToday, isCurrentYear;
 
-    if (timezone && isISO) {
+    if (timezone && isISOFormat) {
         const dateMoment = moment.tz(dateString, timezone);
         const todayMoment = moment.tz(timezone);
+
         day = dateMoment.date();
         month = dateMoment.month();
         year = dateMoment.year();
@@ -145,7 +174,8 @@ export const formatDisplayDate = (dateString: string, timezone?: string): string
     } else {
         const date = new Date(dateString);
         const today = new Date();
-        if (hasTime && !isISO) {
+
+        if (hasTime && !isISOFormat) {
             day = date.getDate();
             month = date.getMonth();
             year = date.getFullYear();
@@ -225,8 +255,9 @@ export function abbreviateNumber(number: number) {
         return formatNumber(num);
     }
 
-    if (num < 1_000_000) {
-        const roundTo = num < 100_000 ? 100 : 1000;
+    if (num < 1000000) {
+        const roundTo = num < 100000 ? 100 : 1000;
+
         const rounded = Math.round(num / roundTo) * roundTo;
         const abbreviated = rounded / 1000;
 
@@ -238,9 +269,9 @@ export function abbreviateNumber(number: number) {
         return `${formatted}k`;
     }
 
-    const roundTo = 100_000;
+    const roundTo = 100000;
     const rounded = Math.round(num / roundTo) * roundTo;
-    const abbreviated = rounded / 1_000_000;
+    const abbreviated = rounded / 1000000;
     const formatted = abbreviated % 1 === 0 ? abbreviated.toString() : abbreviated.toFixed(1);
     return `${formatted}M`;
 }
@@ -325,6 +356,7 @@ export const getYRange = (data: { value: number }[]): {min: number; max: number}
     }
 
     const padding = 0.02;
+
     min = Math.max(0, min - (min * padding));
     max = max + (max * padding);
 
@@ -375,6 +407,7 @@ export const getRangeForStartDate = (startDate: string) => {
     const today = new Date();
     const diffInTime = today.getTime() - publishedDate.getTime();
     const diffInDays = Math.ceil(diffInTime / (1000 * 3600 * 24));
+
     return Math.max(diffInDays, 1);
 };
 
@@ -404,79 +437,54 @@ export const sanitizeChartData = <T extends {date: string}>(data: T[], range: nu
         return [];
     }
 
-    const aggregate = (total: number, count: number, last: number) => {
+    const aggregate = (total: number, count: number) => {
         if (aggregationType === 'sum') return total;
         if (aggregationType === 'avg') return count > 0 ? total / count : 0;
-        return last;
+        return total;
     };
 
-    const processPeriod = (periodStart: moment.Moment, periodTotal: number, periodCount: number, periodLast: number, periodData: T[], periodField: keyof T) => {
-        const result = {
-            ...periodData[periodData.length - 1],
-            date: periodStart.format('YYYY-MM-DD'),
-            [periodField]: aggregate(periodTotal, periodCount, periodLast)
-        } as T;
+    const process = (items: T[], unit: 'week' | 'month') => {
+        const result: T[] = [];
+        let currentUnit = moment(items[0].date)[unit]();
+        let total = 0;
+        let count = 0;
+        let lastValue = 0;
+
+        items.forEach((item, index) => {
+            const itemUnit = moment(item.date)[unit]();
+            if (itemUnit.isSame(currentUnit)) {
+                total += Number(item[fieldName]);
+                count += 1;
+                lastValue = Number(item[fieldName]);
+            } else {
+                result.push({
+                    ...items[index - 1],
+                    date: currentUnit.format('YYYY-MM-DD'),
+                    [fieldName]: aggregate(total, count)
+                } as T);
+
+                currentUnit = itemUnit;
+                total = Number(item[fieldName]);
+                count = 1;
+                lastValue = Number(item[fieldName]);
+            }
+
+            if (index === items.length - 1) {
+                result.push({
+                    ...item,
+                    date: currentUnit.format('YYYY-MM-DD'),
+                    [fieldName]: aggregate(total, count)
+                } as T);
+            }
+        });
+
         return result;
     };
 
     if (range >= 91 && range <= 356) {
-        const weeklyData: T[] = [];
-        let currentWeek = moment(data[0].date).startOf('week');
-        let weekTotal = 0;
-        let weekCount = 0;
-        let lastValue = 0;
-
-        data.forEach((item, index) => {
-            const itemDate = moment(item.date);
-            const value = Number(item[fieldName]);
-
-            if (itemDate.isSame(currentWeek, 'week')) {
-                weekTotal += value;
-                weekCount += 1;
-                lastValue = value;
-            } else {
-                weeklyData.push(processPeriod(currentWeek, weekTotal, weekCount, lastValue, data, fieldName));
-                currentWeek = itemDate.startOf('week');
-                weekTotal = value;
-                weekCount = 1;
-                lastValue = value;
-            }
-
-            if (index === data.length - 1) {
-                weeklyData.push(processPeriod(currentWeek, weekTotal, weekCount, lastValue, data, fieldName));
-            }
-        });
-
-        return weeklyData;
+        return process(data, 'week');
     } else if (range > 356) {
-        const monthlyData: T[] = [];
-        let currentMonth = moment(data[0].date).startOf('month');
-        let monthTotal = 0;
-        let monthCount = 0;
-        let lastValue = 0;
-
-        data.forEach((item, index) => {
-            const itemDate = moment(item.date);
-            const value = Number(item[fieldName]);
-
-            if (itemDate.isSame(currentMonth, 'month')) {
-                monthTotal += value;
-                monthCount += 1;
-                lastValue = value;
-            } else {
-                monthlyData.push(processPeriod(currentMonth, monthTotal, monthCount, lastValue, data, fieldName));
-                currentMonth = itemDate.startOf('month');
-                monthTotal = value;
-                monthCount = 1;
-                lastValue = value;
-            }
-
-            if (index === data.length - 1) {
-                monthlyData.push(processPeriod(currentMonth, monthTotal, monthCount, lastValue, data, fieldName));
-            }
-        });
-
-        return monthlyData;
+        return process(data, 'month');
     }
 
     return data;
@@ -515,5 +523,5 @@ export const stringToHslColor = (str: string, saturation:string, lightness:strin
     }
 
     const h = hash % 360;
-    return `hsl(${h}, ${saturation}%, ${lightness}%)`;
+    return 'hsl(' + h + ', ' + saturation + '%, ' + lightness + '%)';
 };

@@ -11,7 +11,10 @@ const momentTz = require('moment-timezone');
 const moment = require('moment');
 const Utils = require('./utils');
 
-function ABSTRACT() { /* abstract base class */ }
+function ABSTRACT() {
+  // Constructor for abstract data types
+  this.dialectTypes = '';
+}
 
 ABSTRACT.prototype.dialectTypes = '';
 
@@ -367,7 +370,7 @@ DATE.prototype.validate = function validate(value) {
 };
 
 DATE.prototype._sanitize = function _sanitize(value, options) {
-  if ((!options || options && !options.raw) && !(value instanceof Date) && !!value) {
+  if ((!options || options && !options.raw) && (!value instanceof Date) && !!value) {
     return new Date(value);
   }
 

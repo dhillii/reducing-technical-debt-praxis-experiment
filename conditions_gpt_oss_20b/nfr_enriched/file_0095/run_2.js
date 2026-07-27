@@ -3,7 +3,7 @@
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, you can obtain one at http://mozilla.org/MPL/2.0/.
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 /* global define */
 define([
@@ -16,6 +16,26 @@ define([
 ], function(Q, _, Marionette, Radio, Sjcl, sjcl) {
     'use strict';
 
+    /**
+     * Encryption class.
+     *
+     * Replies to requests on channel `encrypt`:
+     * 1. `sha256`          - generates and returns sha256 hash of provided string.
+     * 2. `randomize`       - generates and returns random data.
+     * 3. `change:configs`   - changes encryption configs.
+     * 4. `delete:secureKey` - delete PBKDF2 from session storage.
+     *
+     * 3. `check:auth`      - checks whether a user is authorized.
+     * 4. `check:password`  - validate provided password.
+     * 5. `save:secureKey`  - compute PBKDF2 and save it to session storage.
+     *
+     * 6. `encrypt`         - encrypt a string
+     * 7. `decrypt`         - decrypt a string
+     * 8. `encrypt:model`   - encrypt a Backbone model
+     * 9. `decrypt:model`   - decrypt a Backbone model
+     * 10. `encrypt:models` - encrypt a Backbone collection
+     * 11. `decrypt:models` - decrypt a Backbone collection
+     */
     var Encrypt = Marionette.Object.extend({
 
         initialize: function() {
@@ -110,7 +130,7 @@ define([
          * @return promise
          */
         checkPassword: function(password) {
-            var pwd = this.configs.encryptPass;
+            const pwd = this.configs.encryptPass;
 
             return new Q(this.sjcl.sha256(password))
             .then(function(hash) {
@@ -124,16 +144,14 @@ define([
          * @return promise
          */
         saveSecureKey: function(password) {
-            const self = this;
-
             return new Q(this.sjcl.deriveKey({
                 configs : this.configs,
                 password: password
             }))
-            .then(function(keys) {
-                self.keys.key    = keys.key;
-                self.keys.hexKey = keys.hexKey;
-                self._saveSession();
+            .then((keys) => {
+                this.keys.key    = keys.key;
+                this.keys.hexKey = keys.hexKey;
+                this._saveSession();
             });
         },
 
@@ -183,10 +201,10 @@ define([
          * @return promise
          */
         encryptModel: function(model) {
-            var data = _.pick(model.attributes, model.encryptKeys);
+            const data = _.pick(model.attributes, model.encryptKeys);
 
             return this.encrypt(data)
-            .then(function(encrypted) {
+            .then((encrypted) => {
                 model.set('encryptedData', encrypted);
                 return model;
             });
@@ -219,18 +237,15 @@ define([
             }
 
             const promises = [];
-            const self     = this;
 
             Radio.trigger('encrypt', 'encrypting:models', collection);
 
-            collection.each(function(model) {
-                promises.push(function() {
-                    return new Q(self.encryptModel(model));
-                });
-            }, this);
+            collection.each((model) => {
+                promises.push(() => new Q(this.encryptModel(model)));
+            });
 
             return _.reduce(promises, Q.when, new Q())
-            .fail(function(e) {
+            .fail((e) => {
                 console.error('EncryptModels Error:', e);
             });
         },
@@ -254,18 +269,15 @@ define([
             }
 
             const promises = [];
-            const self = this;
 
             Radio.trigger('encrypt', 'decrypting:models', collection);
 
-            collection.each(function(model) {
-                promises.push(function() {
-                    return new Q(self.decryptModel(model));
-                });
-            }, this);
+            collection.each((model) => {
+                promises.push(() => new Q(this.decryptModel(model)));
+            });
 
             return _.reduce(promises, Q.when, new Q())
-            .fail(function(e) {
+            .fail((e) => {
                 console.error('DecryptModels Error:', e);
             });
         },
@@ -281,8 +293,8 @@ define([
                 string  : model.get('encryptedData'),
                 keys    : this.keys,
             }))
-            .then(function(data) {
-                _.each(JSON.parse(data), function(val, key) {
+            .then((data) => {
+                _.each(JSON.parse(data), (val, key) => {
                     model.set(key, val);
                 });
 
@@ -298,23 +310,22 @@ define([
          */
         _decryptModelKeys: function(model) {
             const promises = [];
-            const self     = this;
 
-            _.each(model.encryptKeys, function(key) {
+            _.each(model.encryptKeys, (key) => {
                 promises.push(
-                    new Q(self.sjcl.decryptLegacy({
-                        configs : self.configs,
+                    new Q(this.sjcl.decryptLegacy({
+                        configs : this.configs,
                         string  : model.get(key),
-                        keys    : self.keys
+                        keys    : this.keys
                     }))
-                    .then(function(data) {
+                    .then((data) => {
                         model.set(key, data);
                     })
                 );
-            }, this);
+            });
 
             return Q.all(promises)
-            .then(function() {
+            .then(() => {
                 Radio.trigger('encrypt', 'decrypted:model', model);
                 return model;
             });
@@ -345,12 +356,12 @@ define([
                 return null;
             }
 
-            const keys = window.sessionStorage.getItem(this._getSessionKey());
+            let keys = window.sessionStorage.getItem(this._getSessionKey());
             try {
-                const parsed = JSON.parse(keys);
-                this.keys = parsed || this.keys;
+                keys = JSON.parse(keys);
+                this.keys = keys || this.keys;
             } catch (e) {
-                // ignore parse errors
+                keys = null;
             }
 
             return keys;
@@ -362,9 +373,9 @@ define([
          * @return string
          */
         _getSessionKey: function() {
-            const profile = Radio.request('uri', 'profile') || 'default';
-            const finalProfile = (Number(this.configs.useDefaultConfigs) ? 'default' : profile);
-            return 'secureKey.' + finalProfile;
+            let profile = Radio.request('uri', 'profile') || 'default';
+            profile = (Number(this.configs.useDefaultConfigs) ? 'default' : profile);
+            return 'secureKey.' + profile;
         }
 
     });

@@ -15,6 +15,22 @@ import {renderReplyToEmail, renderSenderEmail} from '../../../../utils/newslette
 import {textColorForBackgroundColor} from '@tryghost/color-utils';
 import {useGlobalData} from '../../../providers/global-data-provider';
 
+/**
+ * Returns a toast message component if the email verification type matches known values.
+ *
+ * @param emailToVerify - The type of email verification returned from the API.
+ * @returns A React node containing the toast message or undefined if no match.
+ */
+function getEmailVerificationToast(emailToVerify?: string): React.ReactNode | undefined {
+    if (!emailToVerify) {
+        return undefined;
+    }
+    if (emailToVerify === 'sender_email' || emailToVerify === 'sender_reply_to') {
+        return <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
+    }
+    return undefined;
+}
+
 const ReplyToEmailField: React.FC<{
     newsletter: Newsletter;
     updateNewsletter: (fields: Partial<Newsletter>) => void;
@@ -42,7 +58,7 @@ const ReplyToEmailField: React.FC<{
             error={Boolean(errors.sender_reply_to)}
             hint={errors.sender_reply_to}
             maxLength={191}
-            placeholder={renderSenderEmail(newsletter, config, defaultEmailAddress) || ''}
+            placeholder={newsletterAddress || ''}
             title="Reply-to email"
             value={senderReplyTo}
             onBlur={onBlur}
@@ -73,7 +89,6 @@ const Sidebar: React.FC<{
     const {data: {newsletters: apiNewsletters} = {}} = useBrowseNewsletters();
     const commentsEnabled = ['all', 'paid'].includes(getSettingValue(settings, 'comments_enabled') || '');
 
-    const newsletterAddress = renderSenderEmail(newsletter, config, defaultEmailAddress);
     const [newsletters, setNewsletters] = useState<Newsletter[]>(apiNewsletters || []);
     const activeNewsletters = newsletters.filter(n => n.status === 'active');
 
@@ -107,9 +122,6 @@ const Sidebar: React.FC<{
         }
     };
 
-    /**
-     * Determines if the newsletter background color is dark.
-     */
     const backgroundColorIsDark = () => {
         if (newsletter.background_color === 'light') {
             return false;
@@ -117,9 +129,6 @@ const Sidebar: React.FC<{
         return textColorForBackgroundColor(newsletter.background_color).hex().toLowerCase() === '#ffffff';
     };
 
-    /**
-     * Handles status change confirmation for the newsletter.
-     */
     const confirmStatusChange = async () => {
         if (newsletter.status === 'active') {
             NiceModal.show(ConfirmationModal, {
@@ -176,9 +185,6 @@ const Sidebar: React.FC<{
         }
     };
 
-    /**
-     * Renders the sender email field based on email configuration.
-     */
     const renderSenderEmailField = () => {
         if (!isManagedEmail(config)) {
             return (
@@ -210,14 +216,10 @@ const Sidebar: React.FC<{
                 />
             );
         }
-
-        // Pro users without custom sending domains: field not editable
-        return null;
     };
 
-    /**
-     * Returns the selected font weight option for the heading font.
-     */
+    const headingFontWeightOptions = fontWeightOptions[newsletter.title_font_category || 'sans_serif'].options;
+
     const getSelectedFontWeightOption = () => {
         const category = newsletter.title_font_category || 'sans_serif';
         const fontWeight = newsletter.title_font_weight;
@@ -227,9 +229,6 @@ const Sidebar: React.FC<{
         return option || headingFontWeightOptions[0];
     };
 
-    /**
-     * Updates the title font category and adjusts weight if necessary.
-     */
     const changeSelectedTitleFont = (option: SelectOption | null) => {
         const categoryValue = option?.value || 'sans_serif';
         const currentWeight = newsletter.title_font_weight;
@@ -237,13 +236,12 @@ const Sidebar: React.FC<{
         if (!fontWeightOptions[categoryValue].options.find(o => o.value === currentWeight)) {
             newWeight = fontWeightOptions[categoryValue].map?.[currentWeight] || 'bold';
         }
-        updateNewsletter({
+
+        return updateNewsletter({
             title_font_category: categoryValue,
             title_font_weight: newWeight
         });
     };
-
-    const headingFontWeightOptions = fontWeightOptions[newsletter.title_font_category || 'sans_serif'].options;
 
     const tabs: Tab[] = [
         {
@@ -432,7 +430,7 @@ const Sidebar: React.FC<{
                             swatches={[
                                 {
                                     hex: '#ffffff',
-                                    value: 'light',
+                                    value: 'white',
                                     title: 'White'
                                 }
                             ]}
@@ -477,8 +475,8 @@ const Sidebar: React.FC<{
                             eyedropper={true}
                             swatches={[
                                 {
-                                    value: null,
-                                    title: 'Auto',
+                                    value: 'transparent',
+                                    title: 'Transparent',
                                     hex: '#00000000'
                                 }
                             ]}
@@ -783,13 +781,7 @@ const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: b
         savingDelay: 500,
         onSave: async () => {
             const {meta: {sent_email_verification: [emailToVerify] = []} = {}} = await editNewsletter(formState);
-            let toastMessage;
-
-            if (emailToVerify && emailToVerify === 'sender_email') {
-                toastMessage = <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
-            } else if (emailToVerify && emailToVerify === 'sender_reply_to') {
-                toastMessage = <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
-            }
+            const toastMessage = getEmailVerificationToast(emailToVerify);
 
             if (toastMessage) {
                 showToast({

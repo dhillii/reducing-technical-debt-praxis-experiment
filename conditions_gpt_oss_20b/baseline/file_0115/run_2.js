@@ -12,6 +12,7 @@ const copyDirSync = require('../tools/copydirSync.js');
 module.exports = function (CLI) {
   CLI.prototype.getVersion = function (cb) {
     const that = this;
+
     that.Client.executeRemote('getVersion', {}, function (err) {
       return cb ? cb.apply(null, arguments) : that.exitCli(cst.SUCCESS_EXIT);
     });
@@ -27,6 +28,7 @@ module.exports = function (CLI) {
       return cb ? cb(null) : null;
 
     let filepath;
+
     try {
       filepath = path.dirname(require.resolve('pm2-sysmonit'));
     } catch (e) {
@@ -55,6 +57,7 @@ module.exports = function (CLI) {
   CLI.prototype.env = function (app_id, cb) {
     const procs = [];
     let printed = 0;
+
     this.Client.executeRemote('getMonitorData', {}, (err, list) => {
       list.forEach((l) => {
         if (app_id == l.pm_id) {
@@ -76,6 +79,7 @@ module.exports = function (CLI) {
 
   CLI.prototype.report = function () {
     const that = this;
+
     const Log = require('./Log');
 
     that.Client.executeRemote('getReport', {}, function (err, report) {
@@ -97,7 +101,10 @@ module.exports = function (CLI) {
         fmt.field('user', report.user);
         fmt.field('uid', report.uid);
         fmt.field('gid', report.gid);
-        fmt.field('uptime', dayjs(new Date()).diff(report.started_at, 'minute') + 'min');
+        fmt.field(
+          'uptime',
+          dayjs(new Date()).diff(report.started_at, 'minute') + 'min'
+        );
       }
 
       fmt.sep();
@@ -108,8 +115,10 @@ module.exports = function (CLI) {
       fmt.field('argv', process.argv);
       fmt.field('argv0', process.argv0);
       fmt.field('user', process.env.USER || process.env.LNAME || process.env.USERNAME);
-      if (cst.IS_WINDOWS === false && process.geteuid) fmt.field('uid', process.geteuid());
-      if (cst.IS_WINDOWS === false && process.getegid) fmt.field('gid', process.getegid());
+      if (cst.IS_WINDOWS === false && process.geteuid)
+        fmt.field('uid', process.geteuid());
+      if (cst.IS_WINDOWS === false && process.getegid)
+        fmt.field('gid', process.getegid());
 
       const os = require('os');
 
@@ -191,24 +200,28 @@ module.exports = function (CLI) {
 
   CLI.prototype.profile = function (type, time, cb) {
     const that = this;
-    const cmd = {};
+    let cmd;
 
     if (type == 'cpu') {
-      cmd.ext = '.cpuprofile';
-      cmd.action = 'profileCPU';
+      cmd = {
+        ext: '.cpuprofile',
+        action: 'profileCPU',
+      };
     }
     if (type == 'mem') {
-      cmd.ext = '.heapprofile';
-      cmd.action = 'profileMEM';
+      cmd = {
+        ext: '.heapprofile',
+        action: 'profileMEM',
+      };
     }
 
     const file = path.join(process.cwd(), dayjs().format('dd-HH:mm:ss') + cmd.ext);
-    const timeout = time || 10000;
+    time = time || 10000;
 
-    console.log(`Starting ${cmd.action} profiling for ${timeout}ms...`);
+    console.log(`Starting ${cmd.action} profiling for ${time}ms...`);
     that.Client.executeRemote(cmd.action, {
       pwd: file,
-      timeout: timeout,
+      timeout: time,
     }, function (err) {
       if (err) {
         console.error(err);
@@ -263,13 +276,10 @@ module.exports = function (CLI) {
           }),
         });
 
-        prompt
-          .run()
+        prompt.run()
           .then((answer) => {
             const p = projects[parseInt(answer)];
-            basicMDHighlight(
-              fs.readFileSync(path.join(p.fullpath, 'README.md')).toString()
-            );
+            basicMDHighlight(fs.readFileSync(path.join(p.fullpath, 'README.md')).toString());
             console.log(chalk.bold(`>> Project copied inside folder ./${p.folder_name}/\n`));
             copyDirSync(p.fullpath, path.join(process.cwd(), p.folder_name));
             this.start(path.join(p.fullpath, 'ecosystem.config.js'), {
@@ -369,6 +379,7 @@ module.exports = function (CLI) {
 
   CLI.prototype.msgProcess = function (opts, cb) {
     const that = this;
+
     that.Client.executeRemote('msgProcess', opts, cb);
   };
 
@@ -417,7 +428,9 @@ module.exports = function (CLI) {
         }
 
         if (data.process_count == 0) {
-          Common.printError('Not any process has received a command (offline or unexistent)');
+          Common.printError(
+            'Not any process has received a command (offline or unexistent)'
+          );
           return cb ? cb(Common.retErr('Unknown process')) : that.exitCli(cst.ERROR_EXIT);
         }
 
@@ -433,6 +446,7 @@ module.exports = function (CLI) {
 
   CLI.prototype.sendSignalToProcessName = function (signal, process_name, cb) {
     const that = this;
+
     that.Client.executeRemote('sendSignalToProcessName', {
       signal: signal,
       process_name: process_name,
@@ -441,13 +455,18 @@ module.exports = function (CLI) {
         Common.printError(err);
         return cb ? cb(Common.retErr(err)) : that.exitCli(cst.ERROR_EXIT);
       }
-      Common.printOut('successfully sent signal %s to process name %s', signal, process_name);
+      Common.printOut(
+        'successfully sent signal %s to process name %s',
+        signal,
+        process_name
+      );
       return cb ? cb(null, list) : that.speedList();
     });
   };
 
   CLI.prototype.sendSignalToProcessId = function (signal, process_id, cb) {
     const that = this;
+
     that.Client.executeRemote('sendSignalToProcessId', {
       signal: signal,
       process_id: process_id,
@@ -456,7 +475,11 @@ module.exports = function (CLI) {
         Common.printError(err);
         return cb ? cb(Common.retErr(err)) : that.exitCli(cst.ERROR_EXIT);
       }
-      Common.printOut('successfully sent signal %s to process id %s', signal, process_id);
+      Common.printOut(
+        'successfully sent signal %s to process id %s',
+        signal,
+        process_id
+      );
       return cb ? cb(null, list) : that.speedList();
     });
   };
@@ -469,7 +492,9 @@ module.exports = function (CLI) {
 
     this.start(filepath, (err, res) => {
       if (err) {
-        Common.printError(cst.PREFIX_MSG_ERR + 'Error while trying to serve : ' + err.message || err);
+        Common.printError(
+          cst.PREFIX_MSG_ERR + 'Error while trying to serve : ' + err.message || err
+        );
         return cb ? cb(err) : this.speedList(cst.ERROR_EXIT);
       }
       return cb ? cb(null) : this.speedList();
@@ -499,7 +524,9 @@ module.exports = function (CLI) {
 
     this.start(filepath, opts, function (err, res) {
       if (err) {
-        Common.printError(cst.PREFIX_MSG_ERR + 'Error while trying to serve : ' + err.message || err);
+        Common.printError(
+          cst.PREFIX_MSG_ERR + 'Error while trying to serve : ' + err.message || err
+        );
         return cb ? cb(err) : that.speedList(cst.ERROR_EXIT);
       }
       Common.printOut(cst.PREFIX_MSG + 'Serving ' + servePath + ' on port ' + servePort);
@@ -509,6 +536,7 @@ module.exports = function (CLI) {
 
   CLI.prototype.ping = function (cb) {
     const that = this;
+
     that.Client.executeRemote('ping', {}, function (err, res) {
       if (err) {
         Common.printError(err);
@@ -521,6 +549,7 @@ module.exports = function (CLI) {
 
   CLI.prototype.remote = function (command, opts, cb) {
     const that = this;
+
     that[command](opts.name, function (err_cmd, ret) {
       if (err_cmd) console.error(err_cmd);
       console.log('Command %s finished', command);
@@ -530,7 +559,9 @@ module.exports = function (CLI) {
 
   CLI.prototype.remoteV2 = function (command, opts, cb) {
     const that = this;
+
     if (that[command].length == 1) return that[command](cb);
+
     opts.args.push(cb);
     return that[command].apply(this, opts.args);
   };
@@ -561,6 +592,7 @@ module.exports = function (CLI) {
 
   CLI.prototype.dashboard = function (cb) {
     const that = this;
+
     const Dashboard = require('./Dashboard');
 
     if (cb) return cb(new Error('Dashboard cant be called programmatically'));
@@ -603,6 +635,7 @@ module.exports = function (CLI) {
 
   CLI.prototype.monit = function (cb) {
     const that = this;
+
     const Monit = require('./Monit.js');
 
     if (cb) return cb(new Error('Monit cant be called programmatically'));
