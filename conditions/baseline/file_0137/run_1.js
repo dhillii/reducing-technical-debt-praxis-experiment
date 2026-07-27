@@ -49,21 +49,6 @@ const combineFilters = params => {
   }
 };
 
-const uploadFormats = async (fileData, formats) => {
-  if (Array.isArray(formats) && formats.length > 0) {
-    for (const format of formats) {
-      if (!format) continue;
-
-      const { key, file } = format;
-
-      await strapi.plugins.upload.provider.upload(file);
-      delete file.buffer;
-
-      _.set(fileData, ['formats', key], file);
-    }
-  }
-};
-
 module.exports = {
   formatFileInfo({ filename, type, size }, fileInfo = {}, metas = {}) {
     const ext = path.extname(filename);
@@ -151,7 +136,7 @@ module.exports = {
       return this.uploadFileAndPersist(fileData, { user });
     };
 
-    return Promise.all(
+    return await Promise.all(
       fileArray.map((file, idx) => doUpload(file, fileInfoArray[idx] || {}))
     );
   },
@@ -175,7 +160,18 @@ module.exports = {
     }
 
     const formats = await generateResponsiveFormats(fileData);
-    await uploadFormats(fileData, formats);
+    if (Array.isArray(formats) && formats.length > 0) {
+      for (const format of formats) {
+        if (!format) continue;
+
+        const { key, file } = format;
+
+        await strapi.plugins.upload.provider.upload(file);
+        delete file.buffer;
+
+        _.set(fileData, ['formats', key], file);
+      }
+    }
 
     const { width, height } = await getDimensions(fileData.buffer);
 
@@ -224,11 +220,13 @@ module.exports = {
     const { fileInfo } = data;
     const fileData = await this.enhanceFile(file, fileInfo);
 
+    // keep a constant hash
     _.assign(fileData, {
       hash: dbFile.hash,
       ext: dbFile.ext,
     });
 
+    // execute delete function of the provider
     if (dbFile.provider === config.provider) {
       await strapi.plugins.upload.provider.delete(dbFile);
 
@@ -243,6 +241,7 @@ module.exports = {
 
     await strapi.plugins.upload.provider.upload(fileData);
 
+    // clear old formats
     _.set(fileData, 'formats', {});
 
     const thumbnailFile = await generateThumbnail(fileData);
@@ -253,7 +252,18 @@ module.exports = {
     }
 
     const formats = await generateResponsiveFormats(fileData);
-    await uploadFormats(fileData, formats);
+    if (Array.isArray(formats) && formats.length > 0) {
+      for (const format of formats) {
+        if (!format) continue;
+
+        const { key, file } = format;
+
+        await strapi.plugins.upload.provider.upload(file);
+        delete file.buffer;
+
+        _.set(fileData, ['formats', key], file);
+      }
+    }
 
     const { width, height } = await getDimensions(fileData.buffer);
     delete fileData.buffer;
@@ -319,6 +329,7 @@ module.exports = {
   async remove(file) {
     const config = strapi.plugins.upload.config;
 
+    // execute delete function of the provider
     if (file.provider === config.provider) {
       await strapi.plugins.upload.provider.delete(file);
 

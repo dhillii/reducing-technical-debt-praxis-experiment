@@ -13,7 +13,24 @@ export type TierFormState = Partial<Omit<Tier, 'trial_days'>> & {
     trial_days: string;
 };
 
-/** Determines the left button properties based on tier state */
+/**
+ * Determines the modal title based on tier state
+ * @param tier - The tier being edited, or undefined for new tier
+ * @returns The appropriate modal title
+ */
+const getModalTitle = (tier: Tier | undefined): string => {
+    if (!tier) {
+        return 'New tier';
+    }
+    return tier.active ? 'Edit tier' : 'Edit archived tier';
+};
+
+/**
+ * Determines left button props based on tier state
+ * @param tier - The tier being edited
+ * @param onStatusChange - Callback for status change confirmation
+ * @returns Button props or empty object
+ */
 const getLeftButtonProps = (tier: Tier | undefined, onStatusChange: () => void): ButtonProps => {
     if (!tier) {
         return {};
@@ -40,61 +57,26 @@ const getLeftButtonProps = (tier: Tier | undefined, onStatusChange: () => void):
     return {};
 };
 
-/** Determines the modal title based on tier state */
-const getModalTitle = (tier: Tier | undefined): string => {
-    if (!tier) {
-        return 'New tier';
-    }
-    return tier.active ? 'Edit tier' : 'Edit archived tier';
-};
-
-/** Generates confirmation modal content for tier status change */
-const getStatusChangeContent = (tier: Tier) => {
+/**
+ * Generates confirmation modal content for tier status changes
+ * @param tier - The tier being modified
+ * @returns Object containing title, prompt, okLabel, and okColor
+ */
+const getTierStatusChangeContent = (tier: Tier) => {
     const isArchiving = tier.active;
-    return {
-        title: isArchiving ? 'Archive tier' : 'Reactivate tier',
-        prompt: isArchiving ? (
-            <>
-                <div className='mb-6'>Members will no longer be able to subscribe to <strong>{tier.name}</strong> and it will be removed from the list of available tiers in portal.</div>
-                <div>Existing members on this tier will remain unchanged. Offers using this tier will be disabled.</div>
-            </>
-        ) : (
-            <>
-                <div className='mb-6'>Reactivating <strong>{tier.name}</strong> will re-enable it as an option in portal and allow new members to subscribe to this tier.</div>
-                <div>Existing members will remain unchanged.</div>
-            </>
-        ),
-        okLabel: isArchiving ? 'Archive' : 'Reactivate',
-        okColor: isArchiving ? 'red' : 'black'
-    };
-};
+    const promptTitle = isArchiving ? 'Archive tier' : 'Reactivate tier';
+    const okLabel = isArchiving ? 'Archive' : 'Reactivate';
+    const okColor = isArchiving ? 'red' : 'black';
 
-/** Updates portal plans based on free tier visibility */
-const updatePortalPlansIfNeeded = async (
-    visible: boolean,
-    portalPlans: string[],
-    editSettings: (settings: Array<{key: string; value: string}>) => Promise<void>
-): Promise<void> => {
-    let shouldSave = false;
+    const prompt = isArchiving ? <>
+        <div className='mb-6'>Members will no longer be able to subscribe to <strong>{tier.name}</strong> and it will be removed from the list of available tiers in portal.</div>
+        <div>Existing members on this tier will remain unchanged. Offers using this tier will be disabled.</div>
+    </> : <>
+        <div className='mb-6'>Reactivating <strong>{tier.name}</strong> will re-enable it as an option in portal and allow new members to subscribe to this tier.</div>
+        <div>Existing members will remain unchanged.</div>
+    </>;
 
-    if (portalPlans.includes('free') && !visible) {
-        portalPlans.splice(portalPlans.indexOf('free'), 1);
-        shouldSave = true;
-    }
-
-    if (!portalPlans.includes('free') && visible) {
-        portalPlans.push('free');
-        shouldSave = true;
-    }
-
-    if (shouldSave) {
-        await editSettings([
-            {
-                key: 'portal_plans',
-                value: JSON.stringify(portalPlans)
-            }
-        ]);
-    }
+    return {promptTitle, prompt, okLabel, okColor};
 };
 
 const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
@@ -151,10 +133,30 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
             } else {
                 await createTier(values);
             }
-
             if (isFreeTier) {
+                // If we changed the visibility, we also need to update Portal settings in some situations
+                // Like the free tier is a special case, and should also be present/absent in portal_plans
                 const visible = formState.visibility === 'public';
-                await updatePortalPlansIfNeeded(visible, portalPlans, editSettings);
+                let save = false;
+
+                if (portalPlans.includes('free') && !visible) {
+                    portalPlans.splice(portalPlans.indexOf('free'), 1);
+                    save = true;
+                }
+
+                if (!portalPlans.includes('free') && visible) {
+                    portalPlans.push('free');
+                    save = true;
+                }
+
+                if (save) {
+                    await editSettings([
+                        {
+                            key: 'portal_plans',
+                            value: JSON.stringify(portalPlans)
+                        }
+                    ]);
+                }
             }
         },
         onSaveError: handleError
@@ -190,13 +192,13 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
 
     const confirmTierStatusChange = () => {
         if (tier) {
-            const content = getStatusChangeContent(tier);
+            const {promptTitle, prompt, okLabel, okColor} = getTierStatusChangeContent(tier);
             NiceModal.show(ConfirmationModal, {
-                title: content.title,
-                prompt: content.prompt,
-                okLabel: content.okLabel,
+                title: promptTitle,
+                prompt: prompt,
+                okLabel: okLabel,
                 cancelLabel: 'Cancel',
-                okColor: content.okColor,
+                okColor: okColor,
                 onOk: (confirmModal) => {
                     updateTier({...tier, active: !tier.active});
                     confirmModal?.remove();

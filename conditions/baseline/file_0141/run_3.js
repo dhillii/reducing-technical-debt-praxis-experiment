@@ -215,7 +215,6 @@ class Strapi {
         if (_.has(plugin, 'destroy') && typeof plugin.destroy === 'function') {
           return plugin.destroy();
         }
-        return Promise.resolve();
       })
     );
 
@@ -336,7 +335,7 @@ class Strapi {
     this.middleware = modules.middlewares;
     this.hook = modules.hook;
 
-    await bootstrap(this);
+    bootstrap(this);
 
     // init webhook runner
     this.webhookRunner = createWebhookRunner({
@@ -432,7 +431,7 @@ class Strapi {
   async runLifecyclesFunctions(lifecycleName) {
     const execLifecycle = async fn => {
       if (!fn) {
-        return Promise.resolve();
+        return;
       }
 
       return fn();

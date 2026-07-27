@@ -96,12 +96,12 @@ exports.files = function (dir, ext, ret) {
 
   readdirSync(dir)
     .filter(ignored)
-    .forEach(function (filePath) {
-      filePath = join(dir, filePath);
-      if (lstatSync(filePath).isDirectory()) {
-        exports.files(filePath, ext, ret);
-      } else if (filePath.match(re)) {
-        ret.push(filePath);
+    .forEach(function (path) {
+      path = join(dir, path);
+      if (lstatSync(path).isDirectory()) {
+        exports.files(path, ext, ret);
+      } else if (path.match(re)) {
+        ret.push(path);
       }
     });
 
@@ -347,7 +347,7 @@ function repeat (s, n) {
 }
 
 /**
- * Stringify primitive value based on its type.
+ * Convert value to string representation for JSON output.
  *
  * @api private
  * @param {*} val
@@ -355,7 +355,7 @@ function repeat (s, n) {
  * @param {number} depth
  * @return {string}
  */
-function stringifyPrimitive (val, spaces, depth) {
+function stringifyValue (val, spaces, depth) {
   const typeHint = type(val);
 
   switch (typeHint) {
@@ -374,8 +374,8 @@ function stringifyPrimitive (val, spaces, depth) {
       return '[Date: ' + (isNaN(val.getTime()) ? val.toString() : val.toISOString()) + ']';
     case 'buffer':
       const json = val.toJSON();
-      const data = json.data && json.type ? json.data : json;
-      return '[Buffer: ' + jsonStringify(data, 2, depth + 1) + ']';
+      const bufferData = json.data && json.type ? json.data : json;
+      return '[Buffer: ' + jsonStringify(bufferData, 2, depth + 1) + ']';
     default:
       return (val === '[Function]' || val === '[Circular]') ? val : JSON.stringify(val);
   }
@@ -392,7 +392,7 @@ function stringifyPrimitive (val, spaces, depth) {
  */
 function jsonStringify (object, spaces, depth) {
   if (typeof spaces === 'undefined') {
-    return stringifyPrimitive(object, spaces, 0);
+    return stringifyValue(object, spaces, 0);
   }
 
   depth = depth || 1;
@@ -409,10 +409,9 @@ function jsonStringify (object, spaces, depth) {
       continue;
     }
     --itemCount;
-    const val = stringifyPrimitive(object[i], spaces, depth + 1);
     result += '\n ' + repeat(' ', space) +
       (Array.isArray(object) ? '' : '"' + i + '": ') +
-      val +
+      stringifyValue(object[i], spaces, depth) +
       (itemCount ? ',' : '');
   }
 
@@ -511,19 +510,19 @@ function isFile (filePath) {
  * Check if path exists and is a directory.
  *
  * @api private
- * @param {string} filePath
+ * @param {string} dirPath
  * @return {boolean}
  */
-function isDirectory (filePath) {
+function isDirectory (dirPath) {
   try {
-    return statSync(filePath).isDirectory();
+    return statSync(dirPath).isDirectory();
   } catch (err) {
     return false;
   }
 }
 
 /**
- * Process files in directory and add matching ones to result.
+ * Process files in directory recursively.
  *
  * @api private
  * @param {string} dirPath
@@ -539,7 +538,7 @@ function processDirectory (dirPath, extensions, recursive, files) {
 
     if (isDirectory(filePath)) {
       if (recursive) {
-        files.push(...lookupFiles(filePath, extensions, recursive));
+        files.push(...lookupFilesRecursive(filePath, extensions, recursive));
       }
       return;
     }
@@ -551,6 +550,21 @@ function processDirectory (dirPath, extensions, recursive, files) {
 }
 
 /**
+ * Recursively lookup files.
+ *
+ * @api private
+ * @param {string} filePath
+ * @param {string[]} extensions
+ * @param {boolean} recursive
+ * @return {string[]}
+ */
+function lookupFilesRecursive (filePath, extensions, recursive) {
+  const files = [];
+  processDirectory(filePath, extensions, recursive, files);
+  return files;
+}
+
+/**
  * Lookup file names at the given `path`.
  *
  * @api public
@@ -559,29 +573,26 @@ function processDirectory (dirPath, extensions, recursive, files) {
  * @param {boolean} recursive Whether or not to recurse into subdirectories.
  * @return {string[]} An array of paths.
  */
-function lookupFiles (path, extensions, recursive) {
-  const files = [];
-
+exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
   if (!exists(path)) {
     if (exists(path + '.js')) {
-      return [path + '.js'];
+      return path + '.js';
     }
-    const globFiles = glob.sync(path);
-    if (!globFiles.length) {
+    const files = glob.sync(path);
+    if (!files.length) {
       throw new Error("cannot resolve path (or pattern) '" + path + "'");
     }
-    return globFiles;
+    return files;
   }
 
   if (isFile(path)) {
-    return [path];
+    return path;
   }
 
+  const files = [];
   processDirectory(path, extensions, recursive, files);
   return files;
-}
-
-exports.lookupFiles = lookupFiles;
+};
 
 /**
  * Generate an undefined error with a message warning the user.
@@ -636,7 +647,7 @@ function isNodeInternal (line) {
 }
 
 /**
- * Clean stack trace line by removing cwd.
+ * Clean stack trace line.
  *
  * @api private
  * @param {string} line
@@ -660,11 +671,11 @@ function cleanStackLine (line, cwd) {
  * @returns {Function}
  */
 exports.stackTraceFilter = function () {
-  const isNode = typeof document === 'undefined';
+  const is = typeof document === 'undefined' ? { node: true } : { browser: true };
   let slash = path.sep;
   let cwd;
 
-  if (isNode) {
+  if (is.node) {
     cwd = process.cwd() + slash;
   } else {
     cwd = (typeof location === 'undefined'
@@ -674,23 +685,23 @@ exports.stackTraceFilter = function () {
   }
 
   return function (stack) {
-    const lines = stack.split('\n');
+    stack = stack.split('\n');
 
-    const filtered = lines.reduce(function (list, line) {
+    stack = stack.reduce(function (list, line) {
       if (isMochaInternal(line, slash)) {
         return list;
       }
 
-      if (isNode && isNodeInternal(line)) {
+      if (is.node && isNodeInternal(line)) {
         return list;
       }
 
-      const cleanedLine = cleanStackLine(line, cwd);
-      list.push(cleanedLine);
+      line = cleanStackLine(line, cwd);
+      list.push(line);
       return list;
     }, []);
 
-    return filtered.join('\n');
+    return stack.join('\n');
   };
 };
 

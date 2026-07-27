@@ -17,10 +17,13 @@ class Stats {
 	}
 
 	static filterWarnings(warnings, warningsFilter) {
+		// we dont have anything to filter so all warnings can be shown
 		if(!warningsFilter) {
 			return warnings;
 		}
 
+		// create a chain of filters
+		// if they return "true" a warning should be surpressed
 		const normalizedWarningsFilters = [].concat(warningsFilter).map(filter => {
 			if(typeof filter === "string") {
 				return warning => warning.indexOf(filter) > -1;
@@ -49,6 +52,7 @@ class Stats {
 		return this.compilation.errors.length > 0;
 	}
 
+	// remove a prefixed "!" that can be specified to reverse sort order
 	normalizeFieldKey(field) {
 		if(field[0] === "!") {
 			return field.substr(1);
@@ -56,6 +60,7 @@ class Stats {
 		return field;
 	}
 
+	// if a field is prefixed by a "!" reverse sort order
 	sortOrderRegular(field) {
 		if(field[0] === "!") {
 			return false;
@@ -129,46 +134,38 @@ class Stats {
 			return a[fieldKey] < b[fieldKey] ? -1 : 1;
 		};
 
-		const sortByField = (field) => (a, b) => {
+		const sortByField = (field) => {
 			if(!field) {
-				return 0;
+				return () => 0;
 			}
 
 			const fieldKey = this.normalizeFieldKey(field);
 			const sortIsRegular = this.sortOrderRegular(field);
 
-			return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
+			return (a, b) => {
+				const aVal = sortIsRegular ? a : b;
+				const bVal = sortIsRegular ? b : a;
+				return sortByFieldAndOrder(fieldKey, aVal, bVal);
+			};
 		};
 
-		const formatErrorChunk = (e, text) => {
+		const buildErrorText = (e, text) => {
 			if(e.chunk) {
 				text += `chunk ${e.chunk.name || e.chunk.id}${e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : ""}\n`;
 			}
-			return text;
-		};
-
-		const formatErrorFile = (e, text) => {
 			if(e.file) {
 				text += `${e.file}\n`;
 			}
-			return text;
-		};
-
-		const formatErrorModule = (e, text) => {
 			if(e.module && e.module.readableIdentifier && typeof e.module.readableIdentifier === "function") {
 				text += `${e.module.readableIdentifier(requestShortener)}\n`;
 			}
-			return text;
-		};
-
-		const formatErrorDetails = (e, text) => {
 			text += e.message;
 			if(showErrorDetails && e.details) text += `\n${e.details}`;
 			if(showErrorDetails && e.missing) text += e.missing.map(item => `\n[${item}]`).join("");
 			return text;
 		};
 
-		const formatErrorTrace = (e, text) => {
+		const buildErrorTrace = (e, text) => {
 			if(!showModuleTrace || !e.dependencies || !e.origin) {
 				return text;
 			}
@@ -194,11 +191,8 @@ class Stats {
 				e = {
 					message: e
 				};
-			text = formatErrorChunk(e, text);
-			text = formatErrorFile(e, text);
-			text = formatErrorModule(e, text);
-			text = formatErrorDetails(e, text);
-			text = formatErrorTrace(e, text);
+			text = buildErrorText(e, text);
+			text = buildErrorTrace(e, text);
 			return text;
 		};
 
@@ -207,6 +201,8 @@ class Stats {
 			warnings: Stats.filterWarnings(compilation.warnings.map(formatError), warningsFilter)
 		};
 
+		//We just hint other renderers since actually omitting
+		//errors/warnings from the JSON would be kind of weird.
 		Object.defineProperty(obj, "_showWarnings", {
 			value: showWarnings,
 			enumerable: false
@@ -844,6 +840,8 @@ class Stats {
 	}
 
 	static presetToOptions(name) {
+		//Accepted values: none, errors-only, minimal, normal, verbose
+		//Any other falsy value will behave as 'none', truthy values as 'normal'
 		const pn = (typeof name === "string") && name.toLowerCase() || name;
 		if(pn === "none" || !pn) {
 			return {
@@ -867,23 +865,26 @@ class Stats {
 				publicPath: false,
 				performance: false
 			};
+		} else {
+			return {
+				hash: pn !== "errors-only" && pn !== "minimal",
+				version: pn === "verbose",
+				timings: pn !== "errors-only" && pn !== "minimal",
+				assets: pn === "verbose",
+				entrypoints: pn === "verbose",
+				chunks: pn !== "errors-only",
+				chunkModules: pn === "verbose",
+				//warnings: pn !== "errors-only",
+				errorDetails: pn !== "errors-only" && pn !== "minimal",
+				reasons: pn === "verbose",
+				depth: pn === "verbose",
+				usedExports: pn === "verbose",
+				providedExports: pn === "verbose",
+				colors: true,
+				performance: true
+			};
 		}
-		return {
-			hash: pn !== "errors-only" && pn !== "minimal",
-			version: pn === "verbose",
-			timings: pn !== "errors-only" && pn !== "minimal",
-			assets: pn === "verbose",
-			entrypoints: pn === "verbose",
-			chunks: pn !== "errors-only",
-			chunkModules: pn === "verbose",
-			errorDetails: pn !== "errors-only" && pn !== "minimal",
-			reasons: pn === "verbose",
-			depth: pn === "verbose",
-			usedExports: pn === "verbose",
-			providedExports: pn === "verbose",
-			colors: true,
-			performance: true
-		};
+
 	}
 
 	static getChildOptions(options, idx) {
@@ -899,7 +900,7 @@ class Stats {
 		if(!innerOptions)
 			return options;
 		const childOptions = Object.assign({}, options);
-		delete childOptions.children;
+		delete childOptions.children; // do not inherit children
 		return Object.assign(childOptions, innerOptions);
 	}
 }

@@ -50,9 +50,9 @@ function SchemaType(path, options, instance) {
   this.splitPath();
 
   options = options || {};
-  this._applyDefaultOptions(options);
+  this._mergeDefaultOptions(options);
   this._initializeOptions(options);
-  this._processOptions(options);
+  this._applyOptionHandlers(options);
 
   Object.defineProperty(this, '$$context', {
     enumerable: false,
@@ -62,11 +62,11 @@ function SchemaType(path, options, instance) {
   });
 }
 
-/**
- * Apply default options from constructor to provided options
+/*!
+ * Merge default options from constructor into provided options
  * @api private
  */
-SchemaType.prototype._applyDefaultOptions = function(options) {
+SchemaType.prototype._mergeDefaultOptions = function(options) {
   const defaultOptions = this.constructor.defaultOptions || {};
   const defaultOptionsKeys = Object.keys(defaultOptions);
 
@@ -75,17 +75,17 @@ SchemaType.prototype._applyDefaultOptions = function(options) {
       options[option] = defaultOptions[option];
     }
   }
-};
 
-/**
- * Initialize SchemaTypeOptions instance
- * @api private
- */
-SchemaType.prototype._initializeOptions = function(options) {
   if (options.select == null) {
     delete options.select;
   }
+};
 
+/*!
+ * Initialize the options object for this SchemaType
+ * @api private
+ */
+SchemaType.prototype._initializeOptions = function(options) {
   const Options = this.OptionsConstructor || SchemaTypeOptions;
   this.options = new Options(options);
   this._index = null;
@@ -96,11 +96,11 @@ SchemaType.prototype._initializeOptions = function(options) {
   }
 };
 
-/**
- * Process options and apply them to the SchemaType
+/*!
+ * Apply option handlers for special options like cast, index, default
  * @api private
  */
-SchemaType.prototype._processOptions = function(options) {
+SchemaType.prototype._applyOptionHandlers = function(options) {
   const keys = Object.keys(this.options);
   for (const prop of keys) {
     if (prop === 'cast') {
@@ -108,16 +108,16 @@ SchemaType.prototype._processOptions = function(options) {
       continue;
     }
     if (utils.hasUserDefinedProperty(this.options, prop) && typeof this[prop] === 'function') {
-      this._processOptionProperty(prop, options);
+      this._handleOptionProperty(prop, options);
     }
   }
 };
 
-/**
- * Process a single option property
+/*!
+ * Handle a single option property
  * @api private
  */
-SchemaType.prototype._processOptionProperty = function(prop, options) {
+SchemaType.prototype._handleOptionProperty = function(prop, options) {
   if (prop === 'index') {
     this._handleIndexOption(options);
     return;
@@ -133,8 +133,8 @@ SchemaType.prototype._processOptionProperty = function(prop, options) {
   this[prop].apply(this, opts);
 };
 
-/**
- * Handle index option processing
+/*!
+ * Handle index option with validation
  * @api private
  */
 SchemaType.prototype._handleIndexOption = function(options) {
@@ -148,8 +148,8 @@ SchemaType.prototype._handleIndexOption = function(options) {
   }
 };
 
-/**
- * Validate that index false doesn't conflict with unique/sparse
+/*!
+ * Validate that index: false doesn't conflict with unique or sparse
  * @api private
  */
 SchemaType.prototype._validateIndexConflict = function() {
@@ -430,16 +430,16 @@ SchemaType.prototype.unique = function(bool) {
     throw new Error('Path "' + this.path + '" may not have `index` set to ' +
       'false and `unique` set to true');
   }
-  this._index = this._normalizeIndexValue(this._index);
+  this._index = this._normalizeIndexOption(this._index);
   this._index.unique = bool;
   return this;
 };
 
-/**
- * Normalize index value to object format
+/*!
+ * Normalize index option to object form
  * @api private
  */
-SchemaType.prototype._normalizeIndexValue = function(index) {
+SchemaType.prototype._normalizeIndexOption = function(index) {
   if (index == null || index === true) {
     return {};
   }
@@ -470,13 +470,7 @@ SchemaType.prototype.text = function(bool) {
       'false and `text` set to true');
   }
 
-  if (this._index === null || this._index === undefined ||
-    typeof this._index === 'boolean') {
-    this._index = {};
-  } else if (typeof this._index === 'string') {
-    this._index = { type: this._index };
-  }
-
+  this._index = this._normalizeIndexOption(this._index);
   this._index.text = bool;
   return this;
 };
@@ -503,12 +497,7 @@ SchemaType.prototype.sparse = function(bool) {
       'false and `sparse` set to true');
   }
 
-  if (this._index == null || typeof this._index === 'boolean') {
-    this._index = {};
-  } else if (typeof this._index === 'string') {
-    this._index = { type: this._index };
-  }
-
+  this._index = this._normalizeIndexOption(this._index);
   this._index.sparse = bool;
   return this;
 };
@@ -885,8 +874,8 @@ SchemaType.prototype.validate = function(obj, message, type) {
   return this;
 };
 
-/**
- * Add a single validator with message and type
+/*!
+ * Add a single validator with optional message and type
  * @api private
  */
 SchemaType.prototype._addSingleValidator = function(obj, message, type) {
@@ -899,7 +888,7 @@ SchemaType.prototype._addSingleValidator = function(obj, message, type) {
   this.validators.push(properties);
 };
 
-/**
+/*!
  * Build validator properties object from arguments
  * @api private
  */
@@ -931,7 +920,7 @@ SchemaType.prototype._buildValidatorProperties = function(obj, message, type) {
   };
 };
 
-/**
+/*!
  * Add multiple validators from arguments array
  * @api private
  */
@@ -1025,13 +1014,11 @@ const handleIsAsync = util.deprecate(function handleIsAsync() {},
  */
 
 SchemaType.prototype.required = function(required, message) {
-  let customOptions = {};
-
   if (arguments.length > 0 && required == null) {
-    this._removeRequiredValidator();
-    return this;
+    return this._clearRequired();
   }
 
+  let customOptions = {};
   if (typeof required === 'object') {
     customOptions = required;
     message = customOptions.message || message;
@@ -1039,39 +1026,37 @@ SchemaType.prototype.required = function(required, message) {
   }
 
   if (required === false) {
-    this._removeRequiredValidator();
-    return this;
+    return this._clearRequired();
   }
 
-  this._setRequiredValidator(required, message, customOptions);
-  return this;
+  return this._setRequired(required, message, customOptions);
 };
 
-/**
- * Remove required validator from validators array
+/*!
+ * Clear the required validator
  * @api private
  */
-SchemaType.prototype._removeRequiredValidator = function() {
+SchemaType.prototype._clearRequired = function() {
   this.validators = this.validators.filter(function(v) {
     return v.validator !== this.requiredValidator;
   }, this);
 
   this.isRequired = false;
   delete this.originalRequiredValue;
+  return this;
 };
 
-/**
- * Set required validator with message and custom options
+/*!
+ * Set the required validator
  * @api private
  */
-SchemaType.prototype._setRequiredValidator = function(required, message, customOptions) {
+SchemaType.prototype._setRequired = function(required, message, customOptions) {
   const _this = this;
   this.isRequired = true;
 
   this.requiredValidator = function(v) {
     return _this._checkRequiredValue(v, required);
   };
-
   this.originalRequiredValue = required;
 
   if (typeof required === 'string') {
@@ -1085,10 +1070,12 @@ SchemaType.prototype._setRequiredValidator = function(required, message, customO
     message: msg,
     type: 'required'
   }));
+
+  return this;
 };
 
-/**
- * Check if value satisfies required validator
+/*!
+ * Check if a value satisfies the required validator
  * @api private
  */
 SchemaType.prototype._checkRequiredValue = function(v, required) {
@@ -1298,9 +1285,9 @@ SchemaType.prototype.doValidate = function(value, fn, scope, options) {
 
     _this._validateSingleValidator(v, value, path, options, function(validationErr) {
       if (validationErr) {
-        err = validationErr;
+        err = true;
         immediate(function() {
-          fn(err);
+          fn(validationErr);
         });
       } else if (--count <= 0) {
         immediate(function() {
@@ -1311,7 +1298,7 @@ SchemaType.prototype.doValidate = function(value, fn, scope, options) {
   });
 };
 
-/**
+/*!
  * Validate a single validator
  * @api private
  */
@@ -1322,18 +1309,15 @@ SchemaType.prototype._validateSingleValidator = function(v, value, path, options
   validatorProperties.value = value;
 
   if (validator instanceof RegExp) {
-    callback(this._validateRegExp(validator, validatorProperties));
-    return;
+    return callback(this._validateRegExp(validator, validatorProperties));
   }
 
   if (typeof validator !== 'function') {
-    callback(null);
-    return;
+    return callback(null);
   }
 
   if (value === undefined && validator !== this.requiredValidator) {
-    callback(null);
-    return;
+    return callback(null);
   }
 
   if (validatorProperties.isAsync) {
@@ -1341,34 +1325,20 @@ SchemaType.prototype._validateSingleValidator = function(v, value, path, options
     return;
   }
 
-  this._executeValidator(validator, validatorProperties, callback);
+  this._validateFunction(validator, value, validatorProperties, callback);
 };
 
-/**
- * Validate using RegExp
+/*!
+ * Validate using a function validator
  * @api private
  */
-SchemaType.prototype._validateRegExp = function(validator, validatorProperties) {
-  if (!validator.test(validatorProperties.value)) {
-    const ErrorConstructor = validatorProperties.ErrorConstructor || ValidatorError;
-    const err = new ErrorConstructor(validatorProperties);
-    err[validatorErrorSymbol] = true;
-    return err;
-  }
-  return null;
-};
-
-/**
- * Execute validator function and handle result
- * @api private
- */
-SchemaType.prototype._executeValidator = function(validator, validatorProperties, callback) {
+SchemaType.prototype._validateFunction = function(validator, value, validatorProperties, callback) {
   let ok;
   try {
     if (validatorProperties.propsParameter) {
-      ok = validator.call(this.$$context, validatorProperties.value, validatorProperties);
+      ok = validator.call(this.$$context, value, validatorProperties);
     } else {
-      ok = validator.call(this.$$context, validatorProperties.value);
+      ok = validator.call(this.$$context, value);
     }
   } catch (error) {
     ok = false;
@@ -1380,16 +1350,23 @@ SchemaType.prototype._executeValidator = function(validator, validatorProperties
 
   if (ok != null && typeof ok.then === 'function') {
     ok.then(
-      function(result) { callback(null); },
+      function(ok) { this._handleValidationResult(ok, validatorProperties, callback); }.bind(this),
       function(error) {
         validatorProperties.reason = error;
         validatorProperties.message = error.message;
-        const ErrorConstructor = validatorProperties.ErrorConstructor || ValidatorError;
-        const err = new ErrorConstructor(validatorProperties);
-        err[validatorErrorSymbol] = true;
-        callback(err);
-      });
-  } else if (ok === undefined || ok) {
+        this._handleValidationResult(false, validatorProperties, callback);
+      }.bind(this));
+  } else {
+    this._handleValidationResult(ok, validatorProperties, callback);
+  }
+};
+
+/*!
+ * Handle validation result
+ * @api private
+ */
+SchemaType.prototype._handleValidationResult = function(ok, validatorProperties, callback) {
+  if (ok === undefined || ok) {
     callback(null);
   } else {
     const ErrorConstructor = validatorProperties.ErrorConstructor || ValidatorError;
@@ -1397,6 +1374,21 @@ SchemaType.prototype._executeValidator = function(validator, validatorProperties
     err[validatorErrorSymbol] = true;
     callback(err);
   }
+};
+
+/*!
+ * Validate using a RegExp validator
+ * @api private
+ */
+SchemaType.prototype._validateRegExp = function(validator, validatorProperties) {
+  const ok = validator.test(validatorProperties.value);
+  if (ok === undefined || ok) {
+    return null;
+  }
+  const ErrorConstructor = validatorProperties.ErrorConstructor || ValidatorError;
+  const err = new ErrorConstructor(validatorProperties);
+  err[validatorErrorSymbol] = true;
+  return err;
 };
 
 /*!
@@ -1413,25 +1405,11 @@ function asyncValidate(validator, scope, value, props, cb) {
     if (customMsg) {
       props.message = customMsg;
     }
-    if (ok === undefined || ok) {
-      cb(null);
-    } else {
-      const ErrorConstructor = props.ErrorConstructor || ValidatorError;
-      const err = new ErrorConstructor(props);
-      err[validatorErrorSymbol] = true;
-      cb(err);
-    }
+    cb(ok, props);
   });
   if (typeof returnVal === 'boolean') {
     called = true;
-    if (returnVal === undefined || returnVal) {
-      cb(null);
-    } else {
-      const ErrorConstructor = props.ErrorConstructor || ValidatorError;
-      const err = new ErrorConstructor(props);
-      err[validatorErrorSymbol] = true;
-      cb(err);
-    }
+    cb(returnVal, props);
   } else if (returnVal && typeof returnVal.then === 'function') {
     // Promise
     returnVal.then(
@@ -1440,14 +1418,7 @@ function asyncValidate(validator, scope, value, props, cb) {
           return;
         }
         called = true;
-        if (ok === undefined || ok) {
-          cb(null);
-        } else {
-          const ErrorConstructor = props.ErrorConstructor || ValidatorError;
-          const err = new ErrorConstructor(props);
-          err[validatorErrorSymbol] = true;
-          cb(err);
-        }
+        cb(ok, props);
       },
       function(error) {
         if (called) {
@@ -1457,10 +1428,7 @@ function asyncValidate(validator, scope, value, props, cb) {
 
         props.reason = error;
         props.message = error.message;
-        const ErrorConstructor = props.ErrorConstructor || ValidatorError;
-        const err = new ErrorConstructor(props);
-        err[validatorErrorSymbol] = true;
-        cb(err);
+        cb(false, props);
       });
   }
 }
@@ -1505,13 +1473,13 @@ SchemaType.prototype.doValidateSync = function(value, scope, options) {
       return;
     }
 
-    err = this._validateSyncValidator(v, value, path, options);
+    err = this._validateSyncValidator(v, value, path, options) || err;
   }, this);
 
   return err;
 };
 
-/**
+/*!
  * Validate a single validator synchronously
  * @api private
  */
@@ -1529,13 +1497,8 @@ SchemaType.prototype._validateSyncValidator = function(v, value, path, options) 
   }
 
   if (validator instanceof RegExp) {
-    if (!validator.test(value)) {
-      const ErrorConstructor = validatorProperties.ErrorConstructor || ValidatorError;
-      const err = new ErrorConstructor(validatorProperties);
-      err[validatorErrorSymbol] = true;
-      return err;
-    }
-    return null;
+    ok = validator.test(value);
+    return this._buildValidationError(ok, validatorProperties);
   }
 
   if (typeof validator !== 'function') {
@@ -1559,13 +1522,20 @@ SchemaType.prototype._validateSyncValidator = function(v, value, path, options) 
     return null;
   }
 
+  return this._buildValidationError(ok, validatorProperties);
+};
+
+/*!
+ * Build a validation error if validation failed
+ * @api private
+ */
+SchemaType.prototype._buildValidationError = function(ok, validatorProperties) {
   if (ok !== undefined && !ok) {
     const ErrorConstructor = validatorProperties.ErrorConstructor || ValidatorError;
     const err = new ErrorConstructor(validatorProperties);
     err[validatorErrorSymbol] = true;
     return err;
   }
-
   return null;
 };
 

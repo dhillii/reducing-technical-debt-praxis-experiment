@@ -86,70 +86,31 @@ const QueryGenerator = {
     ].join(' ');
   },
 
-  createTableQuery(tableName, attributes, options) {
-    const query = "IF OBJECT_ID('<%= table %>', 'U') IS NULL CREATE TABLE <%= table %> (<%= attributes %>)",
-      primaryKeys = [],
-      foreignKeys = {},
-      attrStr = [];
+  _processAttributeForCreateTable(attr, dataType, primaryKeys, foreignKeys) {
+    // Process a single attribute for CREATE TABLE statement
+    let match;
 
-    this._processTableAttributes(attributes, primaryKeys, foreignKeys, attrStr);
+    if (_.includes(dataType, 'PRIMARY KEY')) {
+      primaryKeys.push(attr);
 
-    const values = {
-        table: this.quoteTable(tableName),
-        attributes: attrStr.join(', ')
-      },
-      pkString = primaryKeys.map(pk => { return this.quoteIdentifier(pk); }).join(', ');
-
-    this._addUniqueConstraints(options, tableName, values);
-
-    if (pkString.length > 0) {
-      values.attributes += `, PRIMARY KEY (${pkString})`;
-    }
-
-    this._addForeignKeyConstraints(foreignKeys, values);
-
-    return _.template(query, this._templateSettings)(values).trim() + ';';
-  },
-
-  _processTableAttributes(attributes, primaryKeys, foreignKeys, attrStr) {
-    // Process each attribute and categorize them
-    for (const attr in attributes) {
-      if (attributes.hasOwnProperty(attr)) {
-        const dataType = attributes[attr];
-        let match;
-
-        if (_.includes(dataType, 'PRIMARY KEY')) {
-          primaryKeys.push(attr);
-          this._handlePrimaryKeyAttribute(attr, dataType, foreignKeys, attrStr);
-        } else if (_.includes(dataType, 'REFERENCES')) {
-          this._handleReferencesAttribute(attr, dataType, foreignKeys, attrStr);
-        } else {
-          attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType);
-        }
+      if (_.includes(dataType, 'REFERENCES')) {
+        match = dataType.match(/^(.+) (REFERENCES.*)$/);
+        foreignKeys[attr] = match[2];
+        return this.quoteIdentifier(attr) + ' ' + match[1].replace(/PRIMARY KEY/, '');
+      } else {
+        return this.quoteIdentifier(attr) + ' ' + dataType.replace(/PRIMARY KEY/, '');
       }
-    }
-  },
-
-  _handlePrimaryKeyAttribute(attr, dataType, foreignKeys, attrStr) {
-    // Handle primary key attributes that may also have references
-    if (_.includes(dataType, 'REFERENCES')) {
-      const match = dataType.match(/^(.+) (REFERENCES.*)$/);
-      attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1].replace(/PRIMARY KEY/, ''));
+    } else if (_.includes(dataType, 'REFERENCES')) {
+      match = dataType.match(/^(.+) (REFERENCES.*)$/);
       foreignKeys[attr] = match[2];
+      return this.quoteIdentifier(attr) + ' ' + match[1];
     } else {
-      attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType.replace(/PRIMARY KEY/, ''));
+      return this.quoteIdentifier(attr) + ' ' + dataType;
     }
   },
 
-  _handleReferencesAttribute(attr, dataType, foreignKeys, attrStr) {
-    // Handle attributes with references constraint
-    const match = dataType.match(/^(.+) (REFERENCES.*)$/);
-    attrStr.push(this.quoteIdentifier(attr) + ' ' + match[1]);
-    foreignKeys[attr] = match[2];
-  },
-
-  _addUniqueConstraints(options, tableName, values) {
-    // Add unique constraints from options
+  _addUniqueConstraints(options, values, tableName) {
+    // Add unique key constraints to table definition
     if (options.uniqueKeys) {
       _.each(options.uniqueKeys, (columns, indexName) => {
         if (columns.customIndex) {
@@ -162,13 +123,46 @@ const QueryGenerator = {
     }
   },
 
+  _addPrimaryKeyConstraint(primaryKeys, values) {
+    // Add primary key constraint to table definition
+    const pkString = primaryKeys.map(pk => this.quoteIdentifier(pk)).join(', ');
+    if (pkString.length > 0) {
+      values.attributes += `, PRIMARY KEY (${pkString})`;
+    }
+  },
+
   _addForeignKeyConstraints(foreignKeys, values) {
-    // Add foreign key constraints
+    // Add foreign key constraints to table definition
     for (const fkey in foreignKeys) {
       if (foreignKeys.hasOwnProperty(fkey)) {
         values.attributes += ', FOREIGN KEY (' + this.quoteIdentifier(fkey) + ') ' + foreignKeys[fkey];
       }
     }
+  },
+
+  createTableQuery(tableName, attributes, options) {
+    const query = "IF OBJECT_ID('<%= table %>', 'U') IS NULL CREATE TABLE <%= table %> (<%= attributes %>)",
+      primaryKeys = [],
+      foreignKeys = {},
+      attrStr = [];
+
+    for (const attr in attributes) {
+      if (attributes.hasOwnProperty(attr)) {
+        const dataType = attributes[attr];
+        attrStr.push(this._processAttributeForCreateTable(attr, dataType, primaryKeys, foreignKeys));
+      }
+    }
+
+    const values = {
+      table: this.quoteTable(tableName),
+      attributes: attrStr.join(', ')
+    };
+
+    this._addUniqueConstraints(options, values, tableName);
+    this._addPrimaryKeyConstraint(primaryKeys, values);
+    this._addForeignKeyConstraints(foreignKeys, values);
+
+    return _.template(query, this._templateSettings)(values).trim() + ';';
   },
 
   describeTableQuery(tableName, schema) {
@@ -300,40 +294,22 @@ const QueryGenerator = {
     });
   },
 
-  bulkInsertQuery(tableName, attrValueHashes, options, attributes) {
-    options = options || {};
-    attributes = attributes || {};
-    const query = 'INSERT INTO <%= table %> (<%= attributes %>)<%= output %> VALUES <%= tuples %>;',
-      emptyQuery = 'INSERT INTO <%= table %><%= output %> DEFAULT VALUES',
-      tuples = [],
-      allAttributes = [],
-      allQueries = [];
-
-    let needIdentityInsertWrapper = false,
-      outputFragment;
-
-    if (options.returning) {
-      outputFragment = ' OUTPUT INSERTED.*';
-    }
-
-    this._processBulkInsertHashes(attrValueHashes, attributes, allQueries, allAttributes, emptyQuery);
-
-    if (allAttributes.length > 0) {
-      this._buildBulkInsertTuples(attrValueHashes, allAttributes, tuples);
-      allQueries.push(query);
-    }
-
-    needIdentityInsertWrapper = this._checkNeedIdentityInsert(attrValueHashes, attributes);
-
-    const commands = this._generateBulkInsertCommands(
-      tableName, allAttributes, tuples, allQueries, outputFragment, needIdentityInsertWrapper
-    );
-
-    return commands.join(';');
+  _buildBulkInsertTuples(attrValueHashes, attributes, allAttributes) {
+    // Build tuples for bulk insert
+    const tuples = [];
+    _.forEach(attrValueHashes, attrValueHash => {
+      tuples.push('(' +
+        allAttributes.map(key =>
+          this.escape(attrValueHash[key])).join(',') +
+      ')');
+    });
+    return tuples;
   },
 
-  _processBulkInsertHashes(attrValueHashes, attributes, allQueries, allAttributes, emptyQuery) {
-    // Process each hash to identify attributes and handle empty objects
+  _processBulkInsertAttributes(attrValueHashes, attributes, allAttributes, allQueries, emptyQuery) {
+    // Process attributes and determine if identity insert wrapper is needed
+    let needIdentityInsertWrapper = false;
+
     _.forEach(attrValueHashes, attrValueHash => {
       const fields = Object.keys(attrValueHash);
       const firstAttr = attributes[fields[0]];
@@ -343,44 +319,29 @@ const QueryGenerator = {
       }
 
       _.forOwn(attrValueHash, (value, key) => {
+        if (value !== null && attributes[key] && attributes[key].autoIncrement) {
+          needIdentityInsertWrapper = true;
+        }
+
         if (allAttributes.indexOf(key) === -1) {
           if (value === null && attributes[key] && attributes[key].autoIncrement)
             return;
+
           allAttributes.push(key);
         }
       });
     });
-  },
 
-  _buildBulkInsertTuples(attrValueHashes, allAttributes, tuples) {
-    // Build tuple values for bulk insert
-    _.forEach(attrValueHashes, attrValueHash => {
-      tuples.push('(' +
-        allAttributes.map(key =>
-          this.escape(attrValueHash[key])).join(',') +
-      ')');
-    });
-  },
-
-  _checkNeedIdentityInsert(attrValueHashes, attributes) {
-    // Check if identity insert wrapper is needed
-    let needIdentityInsertWrapper = false;
-    _.forEach(attrValueHashes, attrValueHash => {
-      _.forOwn(attrValueHash, (value, key) => {
-        if (value !== null && attributes[key] && attributes[key].autoIncrement) {
-          needIdentityInsertWrapper = true;
-        }
-      });
-    });
     return needIdentityInsertWrapper;
   },
 
-  _generateBulkInsertCommands(tableName, allAttributes, tuples, allQueries, outputFragment, needIdentityInsertWrapper) {
-    // Generate bulk insert commands with batching
+  _buildBulkInsertCommands(tableName, allAttributes, tuples, allQueries, outputFragment, needIdentityInsertWrapper) {
+    // Build final bulk insert commands
     const commands = [];
     let offset = 0;
     const batch = Math.floor(250 / (allAttributes.length + 1)) + 1;
-    
+    const query = 'INSERT INTO <%= table %> (<%= attributes %>)<%= output %> VALUES <%= tuples %>;';
+
     while (offset < Math.max(tuples.length, 1)) {
       const replacements = {
         table: this.quoteTable(tableName),
@@ -404,6 +365,31 @@ const QueryGenerator = {
     return commands;
   },
 
+  bulkInsertQuery(tableName, attrValueHashes, options, attributes) {
+    options = options || {};
+    attributes = attributes || {};
+    const emptyQuery = 'INSERT INTO <%= table %><%= output %> DEFAULT VALUES',
+      allAttributes = [],
+      allQueries = [];
+
+    let outputFragment;
+
+    if (options.returning) {
+      outputFragment = ' OUTPUT INSERTED.*';
+    }
+
+    const needIdentityInsertWrapper = this._processBulkInsertAttributes(attrValueHashes, attributes, allAttributes, allQueries, emptyQuery);
+
+    if (allAttributes.length > 0) {
+      const tuples = this._buildBulkInsertTuples(attrValueHashes, attributes, allAttributes);
+      allQueries.push('INSERT INTO <%= table %> (<%= attributes %>)<%= output %> VALUES <%= tuples %>;');
+      const commands = this._buildBulkInsertCommands(tableName, allAttributes, tuples, allQueries, outputFragment, needIdentityInsertWrapper);
+      return commands.join(';');
+    }
+
+    return '';
+  },
+
   updateQuery(tableName, attrValueHash, where, options, attributes) {
     let sql = super.updateQuery(tableName, attrValueHash, where, options, attributes);
     if (options.limit) {
@@ -413,47 +399,7 @@ const QueryGenerator = {
     return sql;
   },
 
-  upsertQuery(tableName, insertValues, updateValues, where, model) {
-    const targetTableAlias = this.quoteTable(`${tableName}_target`);
-    const sourceTableAlias = this.quoteTable(`${tableName}_source`);
-    const tableNameQuoted = this.quoteTable(tableName);
-    
-    const primaryKeysAttrs = [];
-    const identityAttrs = [];
-    const uniqueAttrs = [];
-    let needIdentityInsertWrapper = false;
-
-    this._extractModelAttributes(model, primaryKeysAttrs, identityAttrs, uniqueAttrs);
-    this._addUniqueIndexes(model, uniqueAttrs);
-
-    const updateKeys = Object.keys(updateValues);
-    const insertKeys = Object.keys(insertValues);
-    const insertKeysQuoted = insertKeys.map(key => this.quoteIdentifier(key)).join(', ');
-    const insertValuesEscaped = insertKeys.map(key => this.escape(insertValues[key])).join(', ');
-    const sourceTableQuery = `VALUES(${insertValuesEscaped})`; //Virtual Table
-
-    needIdentityInsertWrapper = this._checkUpsertIdentityInsert(identityAttrs, updateValues);
-
-    const clauses = this._filterUpsertClauses(where);
-    const joinCondition = this._buildUpsertJoinCondition(
-      clauses, primaryKeysAttrs, uniqueAttrs, targetTableAlias, sourceTableAlias
-    );
-
-    const updateSnippet = this._buildUpsertUpdateSnippet(
-      updateKeys, identityAttrs, updateValues, targetTableAlias
-    );
-
-    const insertSnippet = `(${insertKeysQuoted}) VALUES(${insertValuesEscaped})`;
-    let query = `MERGE INTO ${tableNameQuoted} WITH(HOLDLOCK) AS ${targetTableAlias} USING (${sourceTableQuery}) AS ${sourceTableAlias}(${insertKeysQuoted}) ON ${joinCondition}`;
-    query += ` WHEN MATCHED THEN UPDATE SET ${updateSnippet} WHEN NOT MATCHED THEN INSERT ${insertSnippet} OUTPUT $action, INSERTED.*;`;
-    
-    if (needIdentityInsertWrapper) {
-      query = `SET IDENTITY_INSERT ${tableNameQuoted} ON; ${query} SET IDENTITY_INSERT ${tableNameQuoted} OFF;`;
-    }
-    return query;
-  },
-
-  _extractModelAttributes(model, primaryKeysAttrs, identityAttrs, uniqueAttrs) {
+  _extractUpsertAttributes(model, primaryKeysAttrs, identityAttrs, uniqueAttrs) {
     // Extract primary keys, identity, and unique attributes from model
     for (const key in model.rawAttributes) {
       if (model.rawAttributes[key].primaryKey) {
@@ -468,8 +414,8 @@ const QueryGenerator = {
     }
   },
 
-  _addUniqueIndexes(model, uniqueAttrs) {
-    // Add unique indexes defined by indexes option to uniqueAttrs
+  _extractUpsertIndexes(model, uniqueAttrs) {
+    // Extract unique attributes from model indexes
     for (const index of model.options.indexes) {
       if (index.unique && index.fields) {
         for (const field of index.fields) {
@@ -482,33 +428,8 @@ const QueryGenerator = {
     }
   },
 
-  _checkUpsertIdentityInsert(identityAttrs, updateValues) {
-    // Check if identity insert wrapper is needed for upsert
-    let needIdentityInsertWrapper = false;
-    identityAttrs.forEach(key => {
-      if (updateValues[key] && updateValues[key] !== null) {
-        needIdentityInsertWrapper = true;
-      }
-    });
-    return needIdentityInsertWrapper;
-  },
-
-  _filterUpsertClauses(where) {
-    // Filter NULL clauses from where condition
-    return where[Op.or].filter(clause => {
-      let valid = true;
-      for (const key in clause) {
-        if (!clause[key]) {
-          valid = false;
-          break;
-        }
-      }
-      return valid;
-    });
-  },
-
-  _buildUpsertJoinCondition(clauses, primaryKeysAttrs, uniqueAttrs, targetTableAlias, sourceTableAlias) {
-    // Build ON condition using PK(s) or UK(s)
+  _buildUpsertJoinCondition(primaryKeysAttrs, uniqueAttrs, clauses, targetTableAlias, sourceTableAlias) {
+    // Build JOIN condition for MERGE statement
     const getJoinSnippet = array => {
       return array.map(key => {
         key = this.quoteIdentifier(key);
@@ -531,19 +452,65 @@ const QueryGenerator = {
     if (!joinCondition) {
       joinCondition = getJoinSnippet(uniqueAttrs).join(' AND ');
     }
+
     return joinCondition;
   },
 
-  _buildUpsertUpdateSnippet(updateKeys, identityAttrs, updateValues, targetTableAlias) {
-    // Build update snippet excluding identity columns
-    return updateKeys.filter(key => {
-      return identityAttrs.indexOf(key) === -1;
-    })
+  _buildUpsertUpdateSnippet(updateKeys, updateValues, identityAttrs, targetTableAlias) {
+    // Build UPDATE snippet for MERGE statement
+    return updateKeys.filter(key => identityAttrs.indexOf(key) === -1)
       .map(key => {
         const value = this.escape(updateValues[key]);
         key = this.quoteIdentifier(key);
         return `${targetTableAlias}.${key} = ${value}`;
       }).join(', ');
+  },
+
+  upsertQuery(tableName, insertValues, updateValues, where, model) {
+    const targetTableAlias = this.quoteTable(`${tableName}_target`);
+    const sourceTableAlias = this.quoteTable(`${tableName}_source`);
+    const primaryKeysAttrs = [];
+    const identityAttrs = [];
+    const uniqueAttrs = [];
+    const tableNameQuoted = this.quoteTable(tableName);
+    let needIdentityInsertWrapper = false;
+
+    this._extractUpsertAttributes(model, primaryKeysAttrs, identityAttrs, uniqueAttrs);
+    this._extractUpsertIndexes(model, uniqueAttrs);
+
+    const updateKeys = Object.keys(updateValues);
+    const insertKeys = Object.keys(insertValues);
+    const insertKeysQuoted = insertKeys.map(key => this.quoteIdentifier(key)).join(', ');
+    const insertValuesEscaped = insertKeys.map(key => this.escape(insertValues[key])).join(', ');
+    const sourceTableQuery = `VALUES(${insertValuesEscaped})`; //Virtual Table
+
+    identityAttrs.forEach(key => {
+      if (updateValues[key] && updateValues[key] !== null) {
+        needIdentityInsertWrapper = true;
+      }
+    });
+
+    const clauses = where[Op.or].filter(clause => {
+      let valid = true;
+      for (const key in clause) {
+        if (!clause[key]) {
+          valid = false;
+          break;
+        }
+      }
+      return valid;
+    });
+
+    const joinCondition = this._buildUpsertJoinCondition(primaryKeysAttrs, uniqueAttrs, clauses, targetTableAlias, sourceTableAlias);
+    const updateSnippet = this._buildUpsertUpdateSnippet(updateKeys, updateValues, identityAttrs, targetTableAlias);
+    const insertSnippet = `(${insertKeysQuoted}) VALUES(${insertValuesEscaped})`;
+
+    let query = `MERGE INTO ${tableNameQuoted} WITH(HOLDLOCK) AS ${targetTableAlias} USING (${sourceTableQuery}) AS ${sourceTableAlias}(${insertKeysQuoted}) ON ${joinCondition}`;
+    query += ` WHEN MATCHED THEN UPDATE SET ${updateSnippet} WHEN NOT MATCHED THEN INSERT ${insertSnippet} OUTPUT $action, INSERTED.*;`;
+    if (needIdentityInsertWrapper) {
+      query = `SET IDENTITY_INSERT ${tableNameQuoted} ON; ${query} SET IDENTITY_INSERT ${tableNameQuoted} OFF;`;
+    }
+    return query;
   },
 
   deleteQuery(tableName, where, options) {
@@ -608,53 +575,20 @@ const QueryGenerator = {
     return _.template(sql, this._templateSettings)(values);
   },
 
-  attributeToSQL(attribute) {
-    if (!_.isPlainObject(attribute)) {
-      attribute = {
-        type: attribute
-      };
-    }
-
-    this._handleSelfReferencialConstraints(attribute);
-
-    let template;
-
-    if (attribute.type instanceof DataTypes.ENUM) {
-      template = this._buildEnumTemplate(attribute);
-    } else {
-      template = attribute.type.toString();
-    }
-
-    this._appendAttributeModifiers(template, attribute);
-
-    return template;
-  },
-
-  _handleSelfReferencialConstraints(attribute) {
-    // Handle self referential constraints
-    if (attribute.references) {
-      if (attribute.Model && attribute.Model.tableName === attribute.references.model) {
-        this.sequelize.log('MSSQL does not support self referencial constraints, '
-          + 'we will remove it but we recommend restructuring your query');
-        attribute.onDelete = '';
-        attribute.onUpdate = '';
-      }
-    }
-  },
-
-  _buildEnumTemplate(attribute) {
-    // Build template for ENUM type
+  _handleEnumAttribute(attribute) {
+    // Handle ENUM data type with CHECK constraint
     if (attribute.type.values && !attribute.values) attribute.values = attribute.type.values;
 
-    let template = attribute.type.toSql();
-    template += ' CHECK (' + this.quoteIdentifier(attribute.field) + ' IN(' + _.map(attribute.values, value => {
+    const template = attribute.type.toSql();
+    return template + ' CHECK (' + this.quoteIdentifier(attribute.field) + ' IN(' + _.map(attribute.values, value => {
       return this.escape(value);
     }).join(', ') + '))';
-    return template;
   },
 
-  _appendAttributeModifiers(template, attribute) {
-    // Append modifiers to attribute template
+  _buildAttributeTemplate(attribute) {
+    // Build SQL template for attribute definition
+    let template = attribute.type.toString();
+
     if (attribute.allowNull === false) {
       template += ' NOT NULL';
     } else if (!attribute.primaryKey && !Utils.defaultValueSchemable(attribute.defaultValue)) {
@@ -665,7 +599,6 @@ const QueryGenerator = {
       template += ' IDENTITY(1,1)';
     }
 
-    // Blobs/texts cannot have a defaultValue
     if (attribute.type !== 'TEXT' && attribute.type._binary !== true &&
         Utils.defaultValueSchemable(attribute.defaultValue)) {
       template += ' DEFAULT ' + this.escape(attribute.defaultValue);
@@ -680,26 +613,47 @@ const QueryGenerator = {
     }
 
     if (attribute.references) {
-      this._appendReferencesClause(template, attribute);
+      template += ' REFERENCES ' + this.quoteTable(attribute.references.model);
+
+      if (attribute.references.key) {
+        template += ' (' + this.quoteIdentifier(attribute.references.key) + ')';
+      } else {
+        template += ' (' + this.quoteIdentifier('id') + ')';
+      }
+
+      if (attribute.onDelete) {
+        template += ' ON DELETE ' + attribute.onDelete.toUpperCase();
+      }
+
+      if (attribute.onUpdate) {
+        template += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
+      }
     }
+
+    return template;
   },
 
-  _appendReferencesClause(template, attribute) {
-    // Append REFERENCES clause to template
-    template += ' REFERENCES ' + this.quoteTable(attribute.references.model);
+  attributeToSQL(attribute) {
+    if (!_.isPlainObject(attribute)) {
+      attribute = {
+        type: attribute
+      };
+    }
 
-    if (attribute.references.key) {
-      template += ' (' + this.quoteIdentifier(attribute.references.key) + ')';
+    // handle self referential constraints
+    if (attribute.references) {
+      if (attribute.Model && attribute.Model.tableName === attribute.references.model) {
+        this.sequelize.log('MSSQL does not support self referencial constraints, '
+          + 'we will remove it but we recommend restructuring your query');
+        attribute.onDelete = '';
+        attribute.onUpdate = '';
+      }
+    }
+
+    if (attribute.type instanceof DataTypes.ENUM) {
+      return this._handleEnumAttribute(attribute);
     } else {
-      template += ' (' + this.quoteIdentifier('id') + ')';
-    }
-
-    if (attribute.onDelete) {
-      template += ' ON DELETE ' + attribute.onDelete.toUpperCase();
-    }
-
-    if (attribute.onUpdate) {
-      template += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
+      return this._buildAttributeTemplate(attribute);
     }
   },
 
@@ -712,31 +666,28 @@ const QueryGenerator = {
     for (key in attributes) {
       attribute = attributes[key];
 
-      this._handleAttributeReferences(attribute, existingConstraints);
+      if (attribute.references) {
+
+        if (existingConstraints.indexOf(attribute.references.model.toString()) !== -1) {
+          // no cascading constraints to a table more than once
+          attribute.onDelete = '';
+          attribute.onUpdate = '';
+        } else {
+          existingConstraints.push(attribute.references.model.toString());
+
+          // NOTE: this really just disables cascading updates for all
+          //       definitions. Can be made more robust to support the
+          //       few cases where MSSQL actually supports them
+          attribute.onUpdate = '';
+        }
+
+      }
 
       if (key && !attribute.field) attribute.field = key;
       result[attribute.field || key] = this.attributeToSQL(attribute, options);
     }
 
     return result;
-  },
-
-  _handleAttributeReferences(attribute, existingConstraints) {
-    // Handle references in attributes
-    if (attribute.references) {
-      if (existingConstraints.indexOf(attribute.references.model.toString()) !== -1) {
-        // no cascading constraints to a table more than once
-        attribute.onDelete = '';
-        attribute.onUpdate = '';
-      } else {
-        existingConstraints.push(attribute.references.model.toString());
-
-        // NOTE: this really just disables cascading updates for all
-        //       definitions. Can be made more robust to support the
-        //       few cases where MSSQL actually supports them
-        attribute.onUpdate = '';
-      }
-    }
   },
 
   createTrigger() {
@@ -904,6 +855,29 @@ const QueryGenerator = {
     return 'ROLLBACK TRANSACTION;';
   },
 
+  _buildOffsetFragment(options, model, attributes, tables, tmpTable, where) {
+    // Build offset fragment for SQL Server 2008 compatibility
+    const offset = options.offset || 0;
+    const isSubQuery = options.hasIncludeWhere || options.hasIncludeRequired || options.hasMultiAssociation;
+    let orders = { mainQueryOrder: [] };
+    if (options.order) {
+      orders = this.getQueryOrders(options, model, isSubQuery);
+    }
+
+    if (!orders.mainQueryOrder.length) {
+      orders.mainQueryOrder.push(this.quoteIdentifier(model.primaryKeyField));
+    }
+
+    const whereFragment = where ? ' WHERE ' + where : '';
+
+    return 'SELECT TOP 100 PERCENT ' + attributes.join(', ') + ' FROM ' +
+                        '(SELECT ' + 'TOP ' + options.limit + ' ' + '*' +
+                          ' FROM (SELECT ROW_NUMBER() OVER (ORDER BY ' + orders.mainQueryOrder.join(', ') + ') as row_num, * ' +
+                            ' FROM ' + tables + ' AS ' + tmpTable + whereFragment + ')' +
+                          ' AS ' + tmpTable + ' WHERE row_num > ' + offset + ')' +
+                        ' AS ' + tmpTable;
+  },
+
   selectFromTableFragment(options, model, attributes, tables, mainTableAs, where) {
     let topFragment = '';
     let mainFragment = 'SELECT ' + attributes.join(', ') + ' FROM ' + tables;
@@ -914,8 +888,8 @@ const QueryGenerator = {
         topFragment = 'TOP ' + options.limit + ' ';
       }
       if (options.offset) {
-        mainFragment = this._buildOffsetFragment(options, model, attributes, tables, mainTableAs, where);
-        return mainFragment;
+        const tmpTable = mainTableAs ? mainTableAs : 'OffsetTable';
+        return this._buildOffsetFragment(options, model, attributes, tables, tmpTable, where);
       } else {
         mainFragment = 'SELECT ' + topFragment + attributes.join(', ') + ' FROM ' + tables;
       }
@@ -930,42 +904,6 @@ const QueryGenerator = {
     }
 
     return mainFragment;
-  },
-
-  _buildOffsetFragment(options, model, attributes, tables, mainTableAs, where) {
-    // Build offset fragment for SQL Server 2008
-    const offset = options.offset || 0;
-    const isSubQuery = options.hasIncludeWhere || options.hasIncludeRequired || options.hasMultiAssociation;
-    let orders = { mainQueryOrder: [] };
-    
-    if (options.order) {
-      orders = this.getQueryOrders(options, model, isSubQuery);
-    }
-
-    if (!orders.mainQueryOrder.length) {
-      orders.mainQueryOrder.push(this.quoteIdentifier(model.primaryKeyField));
-    }
-
-    const tmpTable = mainTableAs ? mainTableAs : 'OffsetTable';
-    const whereFragment = where ? ' WHERE ' + where : '';
-
-    /*
-     * For earlier versions of SQL server, we need to nest several queries
-     * in order to emulate the OFFSET behavior.
-     *
-     * 1. The outermost query selects all items from the inner query block.
-     *    This is due to a limitation in SQL server with the use of computed
-     *    columns (e.g. SELECT ROW_NUMBER()...AS x) in WHERE clauses.
-     * 2. The next query handles the LIMIT and OFFSET behavior by getting
-     *    the TOP N rows of the query where the row number is > OFFSET
-     * 3. The innermost query is the actual set we want information from
-     */
-    return 'SELECT TOP 100 PERCENT ' + attributes.join(', ') + ' FROM ' +
-                    '(SELECT ' + (options.limit ? 'TOP ' + options.limit + ' ' : '') + '*' +
-                      ' FROM (SELECT ROW_NUMBER() OVER (ORDER BY ' + orders.mainQueryOrder.join(', ') + ') as row_num, * ' +
-                        ' FROM ' + tables + ' AS ' + tmpTable + whereFragment + ')' +
-                      ' AS ' + tmpTable + ' WHERE row_num > ' + offset + ')' +
-                    ' AS ' + tmpTable;
   },
 
   addLimitAndOffset(options, model) {

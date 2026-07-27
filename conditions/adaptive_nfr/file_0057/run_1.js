@@ -66,13 +66,6 @@ function clearOutdatedErrors() {
 }
 
 /**
- * Checks if console is available and callable.
- */
-function isConsoleAvailable(method) {
-  return typeof console !== 'undefined' && typeof console[method] === 'function';
-}
-
-/**
  * Handles successful compilation.
  */
 function handleSuccess() {
@@ -90,7 +83,7 @@ function handleSuccess() {
 }
 
 /**
- * Prints warnings to console with limit of 5.
+ * Prints warnings to console.
  */
 function printWarnings(warnings) {
   const formatted = formatWebpackMessages({
@@ -98,7 +91,7 @@ function printWarnings(warnings) {
     errors: [],
   });
 
-  if (isConsoleAvailable('warn')) {
+  if (typeof console !== 'undefined' && typeof console.warn === 'function') {
     for (let i = 0; i < formatted.warnings.length; i++) {
       if (i === 5) {
         console.warn(
@@ -132,7 +125,7 @@ function handleWarnings(warnings) {
 }
 
 /**
- * Handles compilation with errors.
+ * Handles compilation errors.
  */
 function handleErrors(errors) {
   clearOutdatedErrors();
@@ -147,7 +140,7 @@ function handleErrors(errors) {
 
   ErrorOverlay.reportBuildError(formatted.errors[0]);
 
-  if (isConsoleAvailable('error')) {
+  if (typeof console !== 'undefined' && typeof console.error === 'function') {
     for (let i = 0; i < formatted.errors.length; i++) {
       console.error(stripAnsi(formatted.errors[i]));
     }
@@ -171,7 +164,7 @@ function handleAvailableHash(hash) {
 }
 
 /**
- * Message type handlers for WebSocket messages.
+ * Message type handlers dispatched by type.
  */
 const messageHandlers = {
   hash: handleAvailableHash,
@@ -187,7 +180,7 @@ const messageHandlers = {
 /**
  * Processes incoming WebSocket message.
  */
-function handleMessage(message) {
+function processMessage(message) {
   const handler = messageHandlers[message.type];
   if (handler) {
     handler(message.data);
@@ -196,7 +189,7 @@ function handleMessage(message) {
 
 connection.onmessage = function (e) {
   const message = JSON.parse(e.data);
-  handleMessage(message);
+  processMessage(message);
 };
 
 /**
@@ -208,14 +201,14 @@ function isUpdateAvailable() {
 }
 
 /**
- * Checks if hot module replacement can apply updates.
+ * Checks if hot module updates can be applied.
  */
 function canApplyUpdates() {
   return module.hot.status() === 'idle';
 }
 
 /**
- * Checks if hot module replacement can accept errors.
+ * Checks if errors can be accepted during hot reload.
  */
 function canAcceptErrors() {
   const hasReactRefresh = process.env.FAST_REFRESH;
@@ -224,26 +217,37 @@ function canAcceptErrors() {
 }
 
 /**
- * Handles the result of applying hot updates.
+ * Determines if a forced reload is needed.
  */
-function createApplyUpdatesHandler(onHotUpdateSuccess) {
-  return function handleApplyUpdates(err, updatedModules) {
-    const haveErrors = err || hadRuntimeError;
-    const needsForcedReload = !err && !updatedModules;
-    
-    if ((haveErrors && !canAcceptErrors()) || needsForcedReload) {
-      window.location.reload();
-      return;
-    }
+function needsForcedReload(err, updatedModules) {
+  return !err && !updatedModules;
+}
 
-    if (typeof onHotUpdateSuccess === 'function') {
-      onHotUpdateSuccess();
-    }
+/**
+ * Determines if reload should occur due to errors.
+ */
+function shouldReloadDueToErrors(err, updatedModules) {
+  const haveErrors = err || hadRuntimeError;
+  const forcedReloadNeeded = needsForcedReload(err, updatedModules);
+  return (haveErrors && !canAcceptErrors()) || forcedReloadNeeded;
+}
 
-    if (isUpdateAvailable()) {
-      tryApplyUpdates();
-    }
-  };
+/**
+ * Handles the result of applying hot module updates.
+ */
+function handleApplyUpdates(err, updatedModules, onHotUpdateSuccess) {
+  if (shouldReloadDueToErrors(err, updatedModules)) {
+    window.location.reload();
+    return;
+  }
+
+  if (typeof onHotUpdateSuccess === 'function') {
+    onHotUpdateSuccess();
+  }
+
+  if (isUpdateAvailable()) {
+    tryApplyUpdates(onHotUpdateSuccess);
+  }
 }
 
 /**
@@ -259,16 +263,17 @@ function tryApplyUpdates(onHotUpdateSuccess) {
     return;
   }
 
-  const handleApplyUpdates = createApplyUpdatesHandler(onHotUpdateSuccess);
-  const result = module.hot.check(/* autoApply */ true, handleApplyUpdates);
+  const result = module.hot.check(/* autoApply */ true, function (err, updatedModules) {
+    handleApplyUpdates(err, updatedModules, onHotUpdateSuccess);
+  });
 
   if (result && result.then) {
     result.then(
       function (updatedModules) {
-        handleApplyUpdates(null, updatedModules);
+        handleApplyUpdates(null, updatedModules, onHotUpdateSuccess);
       },
       function (err) {
-        handleApplyUpdates(err, null);
+        handleApplyUpdates(err, null, onHotUpdateSuccess);
       }
     );
   }

@@ -180,44 +180,42 @@ export default class PublishOptions {
         }
     }
 
-    /**
-     * Maps post visibility to recipient filter strings
-     * @private
-     */
-    _getFilterByVisibility(visibility) {
-        const visibilityFilterMap = {
-            'public': 'status:free,status:-free',
-            'members': 'status:free,status:-free',
-            'paid': 'status:-free',
-            'tiers': this.post.visibilitySegment
-        };
-        return visibilityFilterMap[visibility] || visibility;
-    }
-
-    /**
-     * Determines if default recipients should use visibility-based filtering
-     * @private
-     */
-    _shouldUseVisibilityFilter() {
-        const recipients = this.settings.editorDefaultEmailRecipients;
-        const filter = this.settings.editorDefaultEmailRecipientsFilter;
-        const usuallyNobody = recipients === 'filter' && filter === null;
-        return recipients === 'visibility' || usuallyNobody;
-    }
-
     get defaultRecipientFilter() {
         const recipients = this.settings.editorDefaultEmailRecipients;
         const filter = this.settings.editorDefaultEmailRecipientsFilter;
+
+        const usuallyNobody = recipients === 'filter' && filter === null;
 
         if (recipients === 'disabled') {
             return null;
         }
 
-        if (this._shouldUseVisibilityFilter()) {
-            return this._getFilterByVisibility(this.post.visibility);
+        if (recipients === 'visibility' || usuallyNobody) {
+            return this._getVisibilityBasedFilter();
         }
 
         return filter;
+    }
+
+    /**
+     * Determines recipient filter based on post visibility
+     * @returns {string|null} The recipient filter string
+     */
+    _getVisibilityBasedFilter() {
+        const visibilityFilterMap = {
+            'public': 'status:free,status:-free',
+            'members': 'status:free,status:-free',
+            'paid': 'status:-free',
+            'tiers': () => this.post.visibilitySegment
+        };
+
+        const filterOrFn = visibilityFilterMap[this.post.visibility];
+        
+        if (typeof filterOrFn === 'function') {
+            return filterOrFn();
+        }
+
+        return filterOrFn || this.post.visibility;
     }
 
     get fullRecipientFilter() {
@@ -259,33 +257,6 @@ export default class PublishOptions {
         this.setupTask.perform();
     }
 
-    /**
-     * Determines if publish type should be set to 'publish' based on current state
-     * @private
-     */
-    _shouldForcePublishOnly() {
-        return this.emailUnavailable || this.emailDisabled;
-    }
-
-    /**
-     * Determines if publish type should be set to 'send' based on post state
-     * @private
-     */
-    _shouldForceEmailOnly() {
-        return this.post.isSent;
-    }
-
-    /**
-     * Determines if publish type should be set to 'publish' due to default recipients filter
-     * @private
-     */
-    _shouldForcePublishDueToDefaultFilter() {
-        return (
-            this.settings.editorDefaultEmailRecipients === 'filter' &&
-            this.settings.editorDefaultEmailRecipientsFilter === null
-        );
-    }
-
     @task
     *setupTask() {
         yield this.fetchRequiredDataTask.perform();
@@ -294,11 +265,21 @@ export default class PublishOptions {
 
         this.newsletter = this.defaultNewsletter;
 
-        if (this._shouldForcePublishOnly()) {
+        if (this.emailUnavailable || this.emailDisabled) {
             this.publishType = 'publish';
-        } else if (this._shouldForcePublishDueToDefaultFilter()) {
+        }
+
+        // When default recipients is set to "Usually nobody":
+        // Set publish type to "Publish" but keep email recipients matching post visibility
+        // to avoid multiple clicks to turn on emailing
+        if (
+            this.settings.editorDefaultEmailRecipients === 'filter' &&
+            this.settings.editorDefaultEmailRecipientsFilter === null
+        ) {
             this.publishType = 'publish';
-        } else if (this._shouldForceEmailOnly()) {
+        }
+
+        if (this.post.isSent) {
             this.publishType = 'send';
         }
     }
@@ -318,16 +299,25 @@ export default class PublishOptions {
             this.totalMemberCount = 1;
         }
 
-        // limits
-        promises.push(this._checkSendingLimit());
-        promises.push(this._checkPublishingLimit());
-
-        // newsletters
-        if (!this.user.isContributor) {
-            promises.push(this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'}));
-        }
+        // limits and newsletters
+        promises.push(
+            this._checkSendingLimit(),
+            this._checkPublishingLimit(),
+            ...this._getNewsletterPromises()
+        );
 
         yield Promise.all(promises);
+    }
+
+    /**
+     * Returns array of newsletter query promises if user is not a contributor
+     * @returns {Promise[]} Array of promises (empty if user is contributor)
+     */
+    _getNewsletterPromises() {
+        if (!this.user.isContributor) {
+            return [this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'})];
+        }
+        return [];
     }
 
     // saving ------------------------------------------------------------------

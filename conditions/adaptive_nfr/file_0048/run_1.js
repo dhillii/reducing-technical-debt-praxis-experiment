@@ -119,13 +119,13 @@ module.exports = class Tier {
             'month': () => this.monthlyPrice,
             'year': () => this.yearlyPrice
         };
-        
+
         if (!(cadence in priceMap)) {
             throw new ValidationError({
                 message: 'Invalid cadence'
             });
         }
-        
+
         return priceMap[cadence]();
     }
 
@@ -241,40 +241,27 @@ module.exports = class Tier {
      * @returns {Promise<Tier>}
      */
     static async create(data) {
-        const id = this.#parseId(data.id);
-        const name = validateName(data.name);
-        const slug = validateSlug(data.slug);
-        const description = validateDescription(data.description);
-        const welcomePageURL = validateWelcomePageURL(data.welcomePageURL);
-        const status = validateStatus(data.status || 'active');
-        const visibility = validateVisibility(data.visibility || 'public');
-        const type = validateType(data.type || 'paid');
-        const currency = validateCurrency(data.currency || null, type);
-        const trialDays = validateTrialDays(data.trialDays || 0, type);
-        const monthlyPrice = validateMonthlyPrice(data.monthlyPrice || null, type);
-        const yearlyPrice = validateYearlyPrice(data.yearlyPrice || null , type);
-        const createdAt = validateCreatedAt(data.createdAt);
-        const updatedAt = validateUpdatedAt(data.updatedAt);
-        const benefits = validateBenefits(data.benefits);
-
+        const id = this.#resolveId(data.id);
         const isNew = !data.id;
+
+        const validatedData = this.#validateTierData(data);
 
         const tier = new Tier({
             id,
-            slug,
-            name,
-            description,
-            welcome_page_url: welcomePageURL,
-            status,
-            visibility,
-            type,
-            trial_days: trialDays,
-            currency,
-            monthly_price: monthlyPrice,
-            yearly_price: yearlyPrice,
-            created_at: createdAt,
-            updated_at: updatedAt,
-            benefits
+            slug: validatedData.slug,
+            name: validatedData.name,
+            description: validatedData.description,
+            welcome_page_url: validatedData.welcomePageURL,
+            status: validatedData.status,
+            visibility: validatedData.visibility,
+            type: validatedData.type,
+            trial_days: validatedData.trialDays,
+            currency: validatedData.currency,
+            monthly_price: validatedData.monthlyPrice,
+            yearly_price: validatedData.yearlyPrice,
+            created_at: validatedData.createdAt,
+            updated_at: validatedData.updatedAt,
+            benefits: validatedData.benefits
         });
 
         if (isNew) {
@@ -285,10 +272,10 @@ module.exports = class Tier {
     }
 
     /**
-     * Parses and validates ID from various formats
+     * Resolves and validates tier ID
      * @private
      */
-    static #parseId(id) {
+    static #resolveId(id) {
         if (!id) {
             return new ObjectID();
         }
@@ -301,6 +288,30 @@ module.exports = class Tier {
         throw new ValidationError({
             message: 'Invalid ID provided for Tier'
         });
+    }
+
+    /**
+     * Validates all tier data fields
+     * @private
+     */
+    static #validateTierData(data) {
+        const type = validateType(data.type || 'paid');
+        return {
+            name: validateName(data.name),
+            slug: validateSlug(data.slug),
+            description: validateDescription(data.description),
+            welcomePageURL: validateWelcomePageURL(data.welcomePageURL),
+            status: validateStatus(data.status || 'active'),
+            visibility: validateVisibility(data.visibility || 'public'),
+            type: type,
+            currency: validateCurrency(data.currency || null, type),
+            trialDays: validateTrialDays(data.trialDays || 0, type),
+            monthlyPrice: validateMonthlyPrice(data.monthlyPrice || null, type),
+            yearlyPrice: validateYearlyPrice(data.yearlyPrice || null, type),
+            createdAt: validateCreatedAt(data.createdAt),
+            updatedAt: validateUpdatedAt(data.updatedAt),
+            benefits: validateBenefits(data.benefits)
+        };
     }
 };
 
@@ -443,10 +454,7 @@ function validateCurrency(value, type) {
  * Validates price constraints
  * @private
  */
-function validatePrice(value, defaultValue, maxValue = 9999999999) {
-    if (!value) {
-        return defaultValue;
-    }
+function validatePriceConstraints(value) {
     if (!Number.isSafeInteger(value)) {
         throw new ValidationError({
             message: 'Tier prices must be an integer.'
@@ -457,12 +465,11 @@ function validatePrice(value, defaultValue, maxValue = 9999999999) {
             message: 'Tier prices must not be negative'
         });
     }
-    if (value > maxValue) {
+    if (value > 9999999999) {
         throw new ValidationError({
             message: 'Tier prices may not exceed 999999.99'
         });
     }
-    return value;
 }
 
 /**
@@ -479,7 +486,13 @@ function validateMonthlyPrice(value, type) {
             }
             return null;
         },
-        'paid': () => validatePrice(value, 500)
+        'paid': () => {
+            if (!value) {
+                return 500;
+            }
+            validatePriceConstraints(value);
+            return value;
+        }
     };
     return typeValidators[type]();
 }
@@ -498,15 +511,17 @@ function validateYearlyPrice(value, type) {
             }
             return null;
         },
-        'paid': () => validatePrice(value, 5000)
+        'paid': () => {
+            if (!value) {
+                return 5000;
+            }
+            validatePriceConstraints(value);
+            return value;
+        }
     };
     return typeValidators[type]();
 }
 
-/**
- * Validates created_at date field
- * @private
- */
 function validateCreatedAt(value) {
     if (!value) {
         return new Date();
@@ -519,10 +534,6 @@ function validateCreatedAt(value) {
     });
 }
 
-/**
- * Validates updated_at date field
- * @private
- */
 function validateUpdatedAt(value) {
     if (!value) {
         return null;
@@ -535,10 +546,6 @@ function validateUpdatedAt(value) {
     });
 }
 
-/**
- * Validates benefits array
- * @private
- */
 function validateBenefits(value) {
     if (!value) {
         return [];

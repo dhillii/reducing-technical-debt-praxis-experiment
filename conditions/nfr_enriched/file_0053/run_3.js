@@ -13,7 +13,7 @@ exports.initCol1 = function(str) {
   col1len = Math.max(col1len, str.length);
 };
 
-// Calculate and store table column widths.
+// Calculate and set table column widths.
 exports.initWidths = function() {
   const commandWidth = Math.max(col1len + 20, 76);
   exports.widths = [1, col1len, 2, commandWidth - col1len];
@@ -39,12 +39,12 @@ exports.queue = [
   'footer',
 ];
 
-// Display help content by executing queued methods.
+// Display help by executing queued methods in order.
 exports.display = function() {
   exports.queue.forEach(function(name) { exports[name](); });
 };
 
-// Display header with Grunt version.
+// Display header with version information.
 exports.header = function() {
   grunt.log.writeln('Grunt: The JavaScript Task Runner (v' + grunt.version + ')');
 };
@@ -56,18 +56,13 @@ exports.usage = function() {
 };
 
 // Build options array from CLI option list.
-const buildOptionsArray = function() {
-  return Object.keys(grunt.cli.optlist).map(function(long) {
-    const o = grunt.cli.optlist[long];
-    const col1 = '--' + (o.negate ? 'no-' : '') + long + (o.short ? ', -' + o.short : '');
-    exports.initCol1(col1);
-    return [col1, o.info];
-  });
-};
-
-// Initialize options for display.
 exports.initOptions = function() {
-  exports._options = buildOptionsArray();
+  exports._options = Object.keys(grunt.cli.optlist).map(function(long) {
+    const option = grunt.cli.optlist[long];
+    const col1 = '--' + (option.negate ? 'no-' : '') + long + (option.short ? ', -' + option.short : '');
+    exports.initCol1(col1);
+    return [col1, option.info];
+  });
 };
 
 // Display available options.
@@ -76,7 +71,7 @@ exports.options = function() {
   exports.table(exports._options);
 };
 
-// Display options footer note.
+// Display options footer with additional information.
 exports.optionsFooter = function() {
   grunt.log.writeln().writelns(
     'Options marked with * have methods exposed via the grunt API and should ' +
@@ -84,21 +79,15 @@ exports.optionsFooter = function() {
   );
 };
 
-// Collect all registered tasks into array.
-const collectTasks = function() {
-  const tasks = [];
+// Initialize tasks by loading task system and building task list.
+exports.initTasks = function() {
+  grunt.task.init([], {help: true});
+  exports._tasks = [];
   Object.keys(grunt.task._tasks).forEach(function(name) {
     exports.initCol1(name);
     const task = grunt.task._tasks[name];
-    tasks.push(task);
+    exports._tasks.push(task);
   });
-  return tasks;
-};
-
-// Initialize task system and build tasks array.
-exports.initTasks = function() {
-  grunt.task.init([], {help: true});
-  exports._tasks = collectTasks();
 };
 
 // Format task information for display.
@@ -108,14 +97,13 @@ const formatTaskInfo = function(task) {
   return [task.name, info];
 };
 
-// Display available tasks and usage information.
+// Display available tasks.
 exports.tasks = function() {
   grunt.log.header('Available tasks');
   if (exports._tasks.length === 0) {
     grunt.log.writeln('(no tasks found)');
   } else {
     exports.table(exports._tasks.map(formatTaskInfo));
-
     grunt.log.writeln().writelns(
       'Tasks run in the order specified. Arguments may be passed to tasks that ' +
       'accept them by using colons, like "lint:files". Tasks marked with * are ' +
@@ -130,7 +118,7 @@ exports.tasks = function() {
   );
 };
 
-// Display footer with documentation link.
+// Display footer with additional resources.
 exports.footer = function() {
   grunt.log.writeln().writeln('For more information, see http://gruntjs.com/');
 };

@@ -40,6 +40,15 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
     }
 
     /** @param {Response} res - The response object */
+    async function handleJsonResponseWithHumanError(res, errorMessage) {
+        if (res.ok) {
+            return res.json();
+        }
+        const humanError = await HumanReadableError.fromApiResponse(res);
+        throw humanError || new Error(errorMessage);
+    }
+
+    /** @param {Response} res - The response object */
     async function handleTextResponse(res) {
         if (!res.ok || res.status === 204) {
             return null;
@@ -56,60 +65,68 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
     }
 
     /** @param {Response} res - The response object */
-    async function handleHumanReadableError(res, fallbackMessage) {
-        const humanError = await HumanReadableError.fromApiResponse(res);
-        if (humanError) {
-            throw humanError;
-        }
-        throw new Error(fallbackMessage);
-    }
-
-    const siteReadStrategies = {
-        site: {
-            url: () => endpointFor({type: 'members', resource: 'site'}),
-            errorMessage: 'Failed to fetch site data'
-        },
-        newsletters: {
-            url: () => contentEndpointFor({resource: 'newsletters', params: {limit: 100}}),
-            errorMessage: 'Failed to fetch site data'
-        },
-        tiers: {
-            url: () => contentEndpointFor({resource: 'tiers', params: {limit: 100, include: 'monthly_price,yearly_price,benefits'}}),
-            errorMessage: 'Failed to fetch site data'
-        },
-        settings: {
-            url: () => contentEndpointFor({resource: 'settings'}),
-            errorMessage: 'Failed to fetch site data'
-        },
-        recommendations: {
-            url: (limit) => contentEndpointFor({resource: 'recommendations', params: {limit}}),
-            errorMessage: 'Failed to fetch recommendations'
-        }
-    };
-
-    /** @param {string} resource - The resource name */
-    function createSiteReadMethod(resource) {
-        return async function(params = {}) {
-            const strategy = siteReadStrategies[resource];
-            const url = strategy.url(params.limit);
-            const res = await makeRequest({
-                url,
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
+    async function handleMagicLinkResponse(res) {
+        if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('application/json')) {
+                try {
+                    return await res.json();
+                } catch (e) {
+                    // fall through to response used pre-OTC
                 }
-            });
-            return handleJsonResponse(res, strategy.errorMessage);
-        };
+            }
+            return {};
+        }
+        const humanError = await HumanReadableError.fromApiResponse(res);
+        throw humanError || new Error('Failed to send magic link email');
     }
 
     const api = {};
 
     api.site = {
-        read: createSiteReadMethod('site'),
-        newsletters: createSiteReadMethod('newsletters'),
-        tiers: createSiteReadMethod('tiers'),
-        settings: createSiteReadMethod('settings'),
+        read() {
+            const url = endpointFor({type: 'members', resource: 'site'});
+            return makeRequest({
+                url,
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }).then(res => handleJsonResponse(res, 'Failed to fetch site data'));
+        },
+
+        newsletters() {
+            const url = contentEndpointFor({resource: 'newsletters', params: {limit: 100}});
+            return makeRequest({
+                url,
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }).then(res => handleJsonResponse(res, 'Failed to fetch site data'));
+        },
+
+        tiers() {
+            const url = contentEndpointFor({resource: 'tiers', params: {limit: 100, include: 'monthly_price,yearly_price,benefits'}});
+            return makeRequest({
+                url,
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }).then(res => handleJsonResponse(res, 'Failed to fetch site data'));
+        },
+
+        settings() {
+            const url = contentEndpointFor({resource: 'settings'});
+            return makeRequest({
+                url,
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }).then(res => handleJsonResponse(res, 'Failed to fetch site data'));
+        },
 
         offer({offerId}) {
             const url = contentEndpointFor({resource: `offers/${offerId}`});
@@ -119,9 +136,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(function (res) {
-                return handleJsonResponse(res, 'Failed to fetch offer data');
-            });
+            }).then(res => handleJsonResponse(res, 'Failed to fetch offer data'));
         },
 
         recommendations({limit = 100} = {limit: 100}) {
@@ -132,9 +147,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(function (res) {
-                return handleJsonResponse(res, 'Failed to fetch recommendations');
-            });
+            }).then(res => handleJsonResponse(res, 'Failed to fetch recommendations'));
         }
     };
 
@@ -161,10 +174,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 credentials: 'same-origin',
                 body: JSON.stringify(body)
             });
-            if (res.ok) {
-                return res.json();
-            }
-            throw (await HumanReadableError.fromApiResponse(res)) ?? new Error('Failed to save feedback');
+            return handleJsonResponseWithHumanError(res, 'Failed to save feedback');
         }
     };
 
@@ -245,10 +255,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 method: 'GET'
             });
 
-            if (res.ok) {
-                return res.text();
-            }
-            await handleHumanReadableError(res, 'Failed to start a members session');
+            return handleJsonResponseWithHumanError(res, 'Failed to start a members session');
         },
 
         /**
@@ -292,18 +299,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 body: JSON.stringify(body)
             });
 
-            if (res.ok) {
-                const contentType = (res.headers.get('content-type') || '').toLowerCase();
-                if (contentType.includes('application/json')) {
-                    try {
-                        return await res.json();
-                    } catch (e) {
-                        return {};
-                    }
-                }
-                return {};
-            }
-            await handleHumanReadableError(res, 'Failed to send magic link email');
+            return handleMagicLinkResponse(res);
         },
 
         async verifyOTC({otc, otcRef, redirect, integrityToken}) {
@@ -324,10 +320,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 body: JSON.stringify(body)
             });
 
-            if (res.ok) {
-                return res.json();
-            }
-            await handleHumanReadableError(res, 'Failed to verify code');
+            return handleJsonResponseWithHumanError(res, 'Failed to verify code');
         },
 
         signout(all = false) {
@@ -345,8 +338,9 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 if (res.ok) {
                     window.location.replace(siteUrl);
                     return 'Success';
+                } else {
+                    throw new Error('Failed to signout');
                 }
-                throw new Error('Failed to signout');
             });
         },
 
@@ -377,9 +371,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(body)
-            }).then(function (res) {
-                return handleJsonResponse(res, 'Failed to update email preferences');
-            });
+            }).then(res => handleJsonResponse(res, 'Failed to update email preferences'));
         },
 
         async updateEmailAddress({email}) {
@@ -400,10 +392,11 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             }).then(async function (res) {
                 if (res.ok) {
                     return 'Success';
+                } else {
+                    const errData = await res.json();
+                    const errMssg = errData?.errors?.[0]?.message || 'Failed to send email address verification email';
+                    throw new Error(errMssg);
                 }
-                const errData = await res.json();
-                const errMssg = errData?.errors?.[0]?.message || 'Failed to send email address verification email';
-                throw new Error(errMssg);
             });
         },
 

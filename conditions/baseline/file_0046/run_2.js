@@ -130,9 +130,11 @@ module.exports = class StripeAPI {
         });
         this._config = config;
         this._testMode = config.secretKey && config.secretKey.startsWith('sk_test_');
-        
-        const rateLimitCapacity = this._testMode ? EXPECTED_API_EFFICIENCY * TEST_MODE_RATE_LIMIT : EXPECTED_API_EFFICIENCY * LIVE_MODE_RATE_LIMIT;
-        this._rateLimitBucket = new LeakyBucket(rateLimitCapacity, 1);
+        if (this._testMode) {
+            this._rateLimitBucket = new LeakyBucket(EXPECTED_API_EFFICIENCY * TEST_MODE_RATE_LIMIT, 1);
+        } else {
+            this._rateLimitBucket = new LeakyBucket(EXPECTED_API_EFFICIENCY * LIVE_MODE_RATE_LIMIT, 1);
+        }
         this._searchRateLimitBucket = new LeakyBucket(EXPECTED_SEARCH_API_EFFICIENCY * SEARCH_MODE_RATE_LIMIT, 1);
         this._configured = true;
     }
@@ -306,6 +308,33 @@ module.exports = class StripeAPI {
     }
 
     /**
+     * Find the customer with the most recent subscription from a list.
+     * @private
+     * @param {ICustomer[]} customers
+     * @returns {ICustomer}
+     */
+    _findCustomerWithLatestSubscription(customers) {
+        let latestCustomer = customers[0];
+        let latestSubscriptionTime = 0;
+
+        for (const customer of customers) {
+            const subscriptions = customer.subscriptions?.data;
+            if (!subscriptions || subscriptions.length === 0) {
+                continue;
+            }
+
+            for (const subscription of subscriptions) {
+                if (subscription.current_period_end && subscription.current_period_end > latestSubscriptionTime) {
+                    latestSubscriptionTime = subscription.current_period_end;
+                    latestCustomer = customer;
+                }
+            }
+        }
+
+        return latestCustomer;
+    }
+
+    /**
      * Finds a Stripe Customer ID based on the provided email address. Returns null if no customer is found.
      * @param {string} email
      * @see https://stripe.com/docs/api/customers/search
@@ -322,64 +351,19 @@ module.exports = class StripeAPI {
             });
             const customers = result.data;
 
-            // No customer found, return null
             if (customers.length === 0) {
-                return;
+                return null;
             }
 
-            // Return the only customer found
             if (customers.length === 1) {
                 return customers[0].id;
             }
 
-            // Multiple customers found, return the one with the most recent subscription
-            return this._findLatestCustomerId(customers);
+            const latestCustomer = this._findCustomerWithLatestSubscription(customers);
+            return latestCustomer.id;
         } catch (err) {
             debug(`getCustomerByEmail(${email}) -> ${err.type}:${err.message}`);
         }
-    }
-
-    /**
-     * Find the customer with the most recent subscription from a list of customers.
-     *
-     * @param {Array} customers
-     * @returns {string} Customer ID
-     * @private
-     */
-    _findLatestCustomerId(customers) {
-        let latestCustomer = customers[0];
-        let latestSubscriptionTime = 0;
-
-        for (let customer of customers) {
-            const subscriptionTime = this._getLatestSubscriptionTime(customer);
-            if (subscriptionTime > latestSubscriptionTime) {
-                latestSubscriptionTime = subscriptionTime;
-                latestCustomer = customer;
-            }
-        }
-
-        return latestCustomer.id;
-    }
-
-    /**
-     * Get the most recent subscription time for a customer.
-     *
-     * @param {object} customer
-     * @returns {number} Unix timestamp
-     * @private
-     */
-    _getLatestSubscriptionTime(customer) {
-        if (!customer.subscriptions || !customer.subscriptions.data || customer.subscriptions.data.length === 0) {
-            return 0;
-        }
-
-        let latestTime = 0;
-        for (let subscription of customer.subscriptions.data) {
-            if (subscription.current_period_end && subscription.current_period_end > latestTime) {
-                latestTime = subscription.current_period_end;
-            }
-        }
-        return latestTime;
     }
 
     /**
@@ -544,24 +528,6 @@ module.exports = class StripeAPI {
             discounts = [{coupon: options.coupon}];
         }
 
-        const subscriptionData = this._buildSubscriptionData(metadata, options.trialDays);
-        const stripeSessionOptions = this._buildCheckoutSessionOptions(priceId, options, discounts, customerId, customerEmail);
-
-        // @ts-ignore
-        const session = await this._stripe.checkout.sessions.create(stripeSessionOptions);
-
-        return session;
-    }
-
-    /**
-     * Build subscription data for checkout session.
-     *
-     * @param {Object.<String, any>} metadata
-     * @param {number} trialDays
-     * @returns {object}
-     * @private
-     */
-    _buildSubscriptionData(metadata, trialDays) {
         const subscriptionData = {
             trial_from_plan: true,
             items: [{
@@ -582,27 +548,16 @@ module.exports = class StripeAPI {
             }
         };
 
-        if (typeof trialDays === 'number' && trialDays > 0) {
+        /**
+         * `trial_from_plan` is deprecated.
+         * Replaces it in favor of custom trial period days stored in Ghost
+         */
+        if (typeof options.trialDays === 'number' && options.trialDays > 0) {
             delete subscriptionData.trial_from_plan;
-            subscriptionData.trial_period_days = trialDays;
+            subscriptionData.trial_period_days = options.trialDays;
         }
 
-        return subscriptionData;
-    }
-
-    /**
-     * Build checkout session options.
-     *
-     * @param {string} priceId
-     * @param {object} options
-     * @param {Array} discounts
-     * @param {string} customerId
-     * @param {string} customerEmail
-     * @returns {object}
-     * @private
-     */
-    _buildCheckoutSessionOptions(priceId, options, discounts, customerId, customerEmail) {
-        const stripeSessionOptions = {
+        let stripeSessionOptions = {
             payment_method_types: this.PAYMENT_METHOD_TYPES,
             success_url: options.successUrl || this._config.checkoutSessionSuccessUrl,
             cancel_url: options.cancelUrl || this._config.checkoutSessionCancelUrl,
@@ -611,11 +566,22 @@ module.exports = class StripeAPI {
             automatic_tax: {
                 enabled: this._config.enableAutomaticTax
             },
-            metadata: options.metadata,
+            metadata,
             discounts,
-            subscription_data: this._buildSubscriptionData(options.metadata, options.trialDays)
+            /*
+            line_items: [{
+                price: priceId
+            }]
+            */
+            // This is deprecated and using the old way of doing things with Plans.
+            // It should be replaced with the line_items entry above when possible,
+            // however, this would lose the "trial from plan" feature which has also
+            // been deprecated by Stripe
+            subscription_data: subscriptionData
         };
 
+        /* We are only allowed to specify one of these; email will be pulled from
+           customer object on Stripe side if that object already exists. */
         if (customerId) {
             stripeSessionOptions.customer = customerId;
         } else {
@@ -626,7 +592,10 @@ module.exports = class StripeAPI {
             stripeSessionOptions.customer_update = {address: 'auto'};
         }
 
-        return stripeSessionOptions;
+        // @ts-ignore
+        const session = await this._stripe.checkout.sessions.create(stripeSessionOptions);
+
+        return session;
     }
 
     /**

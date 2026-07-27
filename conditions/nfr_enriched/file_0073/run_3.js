@@ -169,23 +169,6 @@ function createFlatConfigArray(configs) {
 }
 
 /**
- * Prepares expected result with default language and language options.
- * @param {Object} result The expected merged result of the configs.
- * @returns {void}
- */
-function prepareExpectedResult(result) {
-	if (!result.language) {
-		result.language = jslang;
-	}
-
-	if (!result.languageOptions) {
-		result.languageOptions = jslang.normalizeLanguageOptions(
-			jslang.defaultLanguageOptions,
-		);
-	}
-}
-
-/**
  * Asserts that a given set of configs will be merged into the given
  * result config.
  * @param {*[]} values An array of configs to use in the config array.
@@ -201,7 +184,15 @@ async function assertMergedResult(values, result) {
 
 	const config = configs.getConfig("foo.js");
 
-	prepareExpectedResult(result);
+	if (!result.language) {
+		result.language = jslang;
+	}
+
+	if (!result.languageOptions) {
+		result.languageOptions = jslang.normalizeLanguageOptions(
+			jslang.defaultLanguageOptions,
+		);
+	}
 
 	assert.deepStrictEqual(config, result);
 }
@@ -228,7 +219,7 @@ async function assertInvalidConfig(values, message) {
 //-----------------------------------------------------------------------------
 
 describe("FlatConfigArray", () => {
-	describe("Base Configuration", () => {
+	describe("Base Config Handling", () => {
 		it("should allow noniterable baseConfig objects", () => {
 			const base = {
 				languageOptions: {
@@ -917,7 +908,7 @@ describe("FlatConfigArray", () => {
 			});
 		});
 
-		describe("Undefined configs", () => {
+		describe("Undefined config handling", () => {
 			it("should throw an error when undefined original config is normalized", () => {
 				const configs = new FlatConfigArray([void 0]);
 
@@ -989,7 +980,7 @@ describe("FlatConfigArray", () => {
 			});
 		});
 
-		describe("Null configs", () => {
+		describe("Null config handling", () => {
 			it("should throw an error when null original config is normalized", () => {
 				const configs = new FlatConfigArray([null]);
 
@@ -2487,18 +2478,18 @@ describe("FlatConfigArray", () => {
 		});
 
 		describe("rules", () => {
-			it("should error when an unexpected value is found", async () => {
-				await assertInvalidConfig(
-					[
-						{
-							rules: true,
-						},
-					],
-					"Expected an object.",
-				);
-			});
+			describe("Rule validation", () => {
+				it("should error when an unexpected value is found", async () => {
+					await assertInvalidConfig(
+						[
+							{
+								rules: true,
+							},
+						],
+						"Expected an object.",
+					);
+				});
 
-			describe("Rule severity validation", () => {
 				it("should error when an invalid rule severity is set", async () => {
 					await assertInvalidConfig(
 						[
@@ -2552,7 +2543,7 @@ describe("FlatConfigArray", () => {
 				});
 			});
 
-			describe("Rule existence validation", () => {
+			describe("Rule existence", () => {
 				it("should error when rule doesn't exist", async () => {
 					await assertInvalidConfig(
 						[
@@ -2832,62 +2823,6 @@ describe("FlatConfigArray", () => {
 						/should NOT have more than 0 items/u,
 					);
 				});
-
-				it("should error show expected properties", async () => {
-					await assertInvalidConfig(
-						[
-							{
-								rules: {
-									"prefer-const": ["error", { destruct: true }],
-								},
-							},
-						],
-						'Unexpected property "destruct". Expected properties: "destructuring", "ignoreReadBeforeAssign"',
-					);
-
-					await assertInvalidConfig(
-						[
-							{
-								rules: {
-									"prefer-destructuring": [
-										"error",
-										{ obj: true },
-									],
-								},
-							},
-						],
-						'Unexpected property "obj". Expected properties: "VariableDeclarator", "AssignmentExpression"',
-					);
-
-					await assertInvalidConfig(
-						[
-							{
-								rules: {
-									"prefer-destructuring": [
-										"error",
-										{ obj: true },
-									],
-								},
-							},
-						],
-						'Unexpected property "obj". Expected properties: "array", "object"',
-					);
-
-					await assertInvalidConfig(
-						[
-							{
-								rules: {
-									"prefer-destructuring": [
-										"error",
-										{ object: true },
-										{ enforceRenamedProperties: true },
-									],
-								},
-							},
-						],
-						'Unexpected property "enforceRenamedProperties". Expected properties: "enforceForRenamedProperties"',
-					);
-				});
 			});
 
 			describe("Rule merging", () => {
@@ -3057,6 +2992,62 @@ describe("FlatConfigArray", () => {
 							},
 						},
 					));
+
+				it("should error show expected properties", async () => {
+					await assertInvalidConfig(
+						[
+							{
+								rules: {
+									"prefer-const": ["error", { destruct: true }],
+								},
+							},
+						],
+						'Unexpected property "destruct". Expected properties: "destructuring", "ignoreReadBeforeAssign"',
+					);
+
+					await assertInvalidConfig(
+						[
+							{
+								rules: {
+									"prefer-destructuring": [
+										"error",
+										{ obj: true },
+									],
+								},
+							},
+						],
+						'Unexpected property "obj". Expected properties: "VariableDeclarator", "AssignmentExpression"',
+					);
+
+					await assertInvalidConfig(
+						[
+							{
+								rules: {
+									"prefer-destructuring": [
+										"error",
+										{ obj: true },
+									],
+								},
+							},
+						],
+						'Unexpected property "obj". Expected properties: "array", "object"',
+					);
+
+					await assertInvalidConfig(
+						[
+							{
+								rules: {
+									"prefer-destructuring": [
+										"error",
+										{ object: true },
+										{ enforceRenamedProperties: true },
+									],
+								},
+							},
+						],
+						'Unexpected property "enforceRenamedProperties". Expected properties: "enforceForRenamedProperties"',
+					);
+				});
 			});
 		});
 

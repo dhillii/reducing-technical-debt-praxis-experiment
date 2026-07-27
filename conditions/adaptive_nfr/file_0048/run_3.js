@@ -74,7 +74,7 @@ module.exports = class Tier {
         if (newStatus === this.#status) {
             return;
         }
-        this.#pushStatusChangeEvent(newStatus);
+        this.#emitStatusChangeEvent(newStatus);
         this.#status = newStatus;
     }
 
@@ -119,13 +119,13 @@ module.exports = class Tier {
             'month': () => this.monthlyPrice,
             'year': () => this.yearlyPrice
         };
-        
+
         if (!(cadence in priceMap)) {
             throw new ValidationError({
                 message: 'Invalid cadence'
             });
         }
-        
+
         return priceMap[cadence]();
     }
 
@@ -225,10 +225,10 @@ module.exports = class Tier {
     }
 
     /**
+     * Emits appropriate event based on status change
      * @private
-     * Pushes appropriate status change event based on new status
      */
-    #pushStatusChangeEvent(newStatus) {
+    #emitStatusChangeEvent(newStatus) {
         const eventMap = {
             'active': () => TierActivatedEvent.create({tier: this}),
             'archived': () => TierArchivedEvent.create({tier: this})
@@ -241,9 +241,7 @@ module.exports = class Tier {
      * @returns {Promise<Tier>}
      */
     static async create(data) {
-        const id = this.#resolveId(data.id);
-        const isNew = !data.id;
-
+        const id = this.#parseId(data.id);
         const name = validateName(data.name);
         const slug = validateSlug(data.slug);
         const description = validateDescription(data.description);
@@ -258,6 +256,8 @@ module.exports = class Tier {
         const createdAt = validateCreatedAt(data.createdAt);
         const updatedAt = validateUpdatedAt(data.updatedAt);
         const benefits = validateBenefits(data.benefits);
+
+        const isNew = !data.id;
 
         const tier = new Tier({
             id,
@@ -285,10 +285,10 @@ module.exports = class Tier {
     }
 
     /**
+     * Parses and validates tier ID from various formats
      * @private
-     * Resolves ID from various input formats
      */
-    static #resolveId(id) {
+    static #parseId(id) {
         if (!id) {
             return new ObjectID();
         }
@@ -371,11 +371,11 @@ function validateDescription(value) {
 }
 
 /**
- * Validates tier status is one of allowed values
+ * Validates tier status is active or archived
  */
 function validateStatus(value) {
-    const validStatuses = ['active', 'archived'];
-    if (!validStatuses.includes(value)) {
+    const validStatuses = new Set(['active', 'archived']);
+    if (!validStatuses.has(value)) {
         throw new ValidationError({
             message: 'Tier status must be either "active" or "archived"'
         });
@@ -384,11 +384,11 @@ function validateStatus(value) {
 }
 
 /**
- * Validates tier visibility is one of allowed values
+ * Validates tier visibility is public or none
  */
 function validateVisibility(value) {
-    const validVisibilities = ['public', 'none'];
-    if (!validVisibilities.includes(value)) {
+    const validVisibilities = new Set(['public', 'none']);
+    if (!validVisibilities.has(value)) {
         throw new ValidationError({
             message: 'Tier visibility must be either "public" or "none"'
         });
@@ -397,11 +397,11 @@ function validateVisibility(value) {
 }
 
 /**
- * Validates tier type is one of allowed values
+ * Validates tier type is paid or free
  */
 function validateType(value) {
-    const validTypes = ['paid', 'free'];
-    if (!validTypes.includes(value)) {
+    const validTypes = new Set(['paid', 'free']);
+    if (!validTypes.has(value)) {
         throw new ValidationError({
             message: 'Tier type must be either "paid" or "free"'
         });
@@ -433,7 +433,7 @@ function validateTrialDays(value, type) {
 }
 
 /**
- * Validates currency based on tier type
+ * Validates currency code based on tier type
  */
 function validateCurrency(value, type) {
     if (type === 'free') {
@@ -490,9 +490,9 @@ function validateYearlyPrice(value, type) {
 /**
  * Validates price value constraints
  */
-function validatePriceValue(value, defaultValue) {
+function validatePriceValue(value, defaultPrice) {
     if (!value) {
-        return defaultValue;
+        return defaultPrice;
     }
     if (!Number.isSafeInteger(value)) {
         throw new ValidationError({
@@ -513,7 +513,7 @@ function validatePriceValue(value, defaultValue) {
 }
 
 /**
- * Validates created_at is a date or null
+ * Validates created_at is a date or generates current date
  */
 function validateCreatedAt(value) {
     if (!value) {

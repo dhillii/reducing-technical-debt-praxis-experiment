@@ -137,34 +137,8 @@ async function globMatch({ basePath, pattern }) {
 	return found;
 }
 
-// Helper: Create matchers from patterns
-function createMatchersFromPatterns(basePath, patterns) {
-	const relativeToPatterns = new Map();
-	const matchers = patterns.map((pattern, i) => {
-		const patternToUse = normalizeToPosix(path.relative(basePath, pattern));
-		relativeToPatterns.set(patternToUse, patterns[i]);
-		return new Minimatch(patternToUse, MINIMATCH_OPTIONS);
-	});
-	return { matchers, relativeToPatterns };
-}
-
-// Helper: Check if directory should be filtered
-async function shouldIncludeDirectory(entry, matchers, basePath, configLoader) {
-	if (!matchers.some(matcher => matcher.match(entry.path, true))) {
-		return false;
-	}
-	const absolutePath = path.resolve(basePath, entry.path);
-	const configs = await configLoader.loadConfigArrayForDirectory(absolutePath);
-	return !configs.isDirectoryIgnored(absolutePath);
-}
-
-// Helper: Check if file matches patterns and has config
-async function shouldIncludeFile(entry, matchers, basePath, configLoader, unmatchedPatterns) {
-	if (entry.isDirectory) {
-		return false;
-	}
-
-	const absolutePath = path.resolve(basePath, entry.path);
+// Validates a single pattern match against config
+async function validatePatternMatch(entry, absolutePath, configLoader, matchers, unmatchedPatterns) {
 	const configs = await configLoader.loadConfigArrayForFile(absolutePath);
 	const config = configs.getConfig(absolutePath);
 
@@ -172,9 +146,11 @@ async function shouldIncludeFile(entry, matchers, basePath, configLoader, unmatc
 		unmatchedPatterns.size > 0
 			? matchers.reduce((previousValue, matcher) => {
 					const pathMatches = matcher.match(entry.path);
+
 					if (pathMatches && config) {
 						unmatchedPatterns.delete(matcher.pattern);
 					}
+
 					return pathMatches || previousValue;
 				}, false)
 			: matchers.some(matcher => matcher.match(entry.path));
@@ -193,16 +169,38 @@ async function globSearch({
 		return [];
 	}
 
-	const { matchers, relativeToPatterns } = createMatchersFromPatterns(basePath, patterns);
+	const relativeToPatterns = new Map();
+	const matchers = patterns.map((pattern, i) => {
+		const patternToUse = normalizeToPosix(path.relative(basePath, pattern));
+
+		relativeToPatterns.set(patternToUse, patterns[i]);
+
+		return new Minimatch(patternToUse, MINIMATCH_OPTIONS);
+	});
+
 	const unmatchedPatterns = new Set([...relativeToPatterns.keys()]);
 	const { hfs } = await import("@humanfs/node");
 
 	const walk = hfs.walk(basePath, {
 		async directoryFilter(entry) {
-			return shouldIncludeDirectory(entry, matchers, basePath, configLoader);
+			if (!matchers.some(matcher => matcher.match(entry.path, true))) {
+				return false;
+			}
+
+			const absolutePath = path.resolve(basePath, entry.path);
+			const configs =
+				await configLoader.loadConfigArrayForDirectory(absolutePath);
+
+			return !configs.isDirectoryIgnored(absolutePath);
 		},
 		async entryFilter(entry) {
-			return shouldIncludeFile(entry, matchers, basePath, configLoader, unmatchedPatterns);
+			const absolutePath = path.resolve(basePath, entry.path);
+
+			if (entry.isDirectory) {
+				return false;
+			}
+
+			return validatePatternMatch(entry, absolutePath, configLoader, matchers, unmatchedPatterns);
 		},
 	});
 
@@ -299,18 +297,15 @@ async function globMultiSearch({
 	return results.flatMap(result => result.value);
 }
 
-// Helper: Process file system entries
-async function processFileSystemEntries(filePaths, stats, cwd, searches, configLoader, errorOnUnmatchedPattern) {
-	const results = [];
-	const missingPatterns = [];
+// Processes explicit files and directories from patterns
+async function processExplicitPaths(filePaths, stats, searches, results, configLoader, cwd) {
 	const promises = [];
-
+	
 	stats.forEach((stat, index) => {
 		const filePath = filePaths[index];
-		const pattern = normalizeToPosix(filePaths[index].substring(cwd.length + 1));
+		const pattern = normalizeToPosix(filePath);
 
 		if (!stat) {
-			missingPatterns.push(pattern);
 			return;
 		}
 
@@ -324,37 +319,39 @@ async function processFileSystemEntries(filePaths, stats, cwd, searches, configL
 				searches.set(filePath, { patterns: [], rawPatterns: [] });
 			}
 			const { patterns: globbyPatterns, rawPatterns } = searches.get(filePath);
+
 			globbyPatterns.push(`${normalizeToPosix(filePath)}/**`);
 			rawPatterns.push(pattern);
 		}
 	});
 
-	return { results, missingPatterns, promises };
+	return promises;
 }
 
-// Helper: Process glob patterns
-function processGlobPatterns(filePaths, patterns, cwd, searches, globInputPaths) {
-	const missingPatterns = [];
+// Processes glob patterns and non-matching patterns
+function processGlobPatterns(filePaths, stats, patterns, searches, missingPatterns, globInputPaths, cwd) {
+	stats.forEach((stat, index) => {
+		if (stat) {
+			return;
+		}
 
-	patterns.forEach((pattern, index) => {
 		const filePath = filePaths[index];
-		const normalizedPattern = normalizeToPosix(pattern);
+		const pattern = normalizeToPosix(patterns[index]);
 
-		if (globInputPaths && isGlobPattern(normalizedPattern)) {
-			const basePath = path.resolve(cwd, globParent(normalizedPattern));
+		if (globInputPaths && isGlobPattern(pattern)) {
+			const basePath = path.resolve(cwd, globParent(pattern));
 
 			if (!searches.has(basePath)) {
 				searches.set(basePath, { patterns: [], rawPatterns: [] });
 			}
 			const { patterns: globbyPatterns, rawPatterns } = searches.get(basePath);
+
 			globbyPatterns.push(filePath);
-			rawPatterns.push(normalizedPattern);
+			rawPatterns.push(pattern);
 		} else {
-			missingPatterns.push(normalizedPattern);
+			missingPatterns.push(pattern);
 		}
 	});
-
-	return missingPatterns;
 }
 
 async function findFiles({
@@ -365,6 +362,7 @@ async function findFiles({
 	errorOnUnmatchedPattern,
 }) {
 	const results = [];
+	const missingPatterns = [];
 	let globbyPatterns = [];
 	let rawPatterns = [];
 	const searches = new Map([
@@ -376,25 +374,11 @@ async function findFiles({
 		filePaths.map(filePath => fsp.stat(filePath).catch(() => {})),
 	);
 
-	const promises = [];
-	const { results: fileResults, missingPatterns: initialMissing, promises: filePromises } = 
-		await processFileSystemEntries(filePaths, stats, cwd, searches, configLoader, errorOnUnmatchedPattern);
+	const promises = await processExplicitPaths(filePaths, stats, searches, results, configLoader, cwd);
+	processGlobPatterns(filePaths, stats, patterns, searches, missingPatterns, globInputPaths, cwd);
 
-	results.push(...fileResults);
-	promises.push(...filePromises);
-
-	const globMissingPatterns = processGlobPatterns(
-		filePaths.filter((_, i) => !stats[i]),
-		patterns.filter((_, i) => !stats[i]),
-		cwd,
-		searches,
-		globInputPaths
-	);
-
-	const allMissingPatterns = [...initialMissing, ...globMissingPatterns];
-
-	if (errorOnUnmatchedPattern && allMissingPatterns.length) {
-		throw new NoFilesFoundError(allMissingPatterns[0], globInputPaths);
+	if (errorOnUnmatchedPattern && missingPatterns.length) {
+		throw new NoFilesFoundError(missingPatterns[0], globInputPaths);
 	}
 
 	promises.push(
@@ -417,8 +401,8 @@ function isErrorMessage(message) {
 	return message.severity === 2;
 }
 
-// Helper: Get ignore message based on config status
-function getIgnoreMessage(configStatus, baseDir, filePath) {
+// Generates ignore message based on config status
+function getIgnoreMessage(filePath, baseDir, configStatus) {
 	switch (configStatus) {
 		case "external":
 			return "File ignored because outside of base path.";
@@ -441,7 +425,7 @@ function getIgnoreMessage(configStatus, baseDir, filePath) {
 }
 
 function createIgnoreResult(filePath, baseDir, configStatus) {
-	const message = getIgnoreMessage(configStatus, baseDir, filePath);
+	const message = getIgnoreMessage(filePath, baseDir, configStatus);
 
 	return {
 		filePath,
@@ -462,24 +446,6 @@ function createIgnoreResult(filePath, baseDir, configStatus) {
 	};
 }
 
-// Helper: Count error/warning stats
-function countMessageStats(message, stat) {
-	if (message.fatal || message.severity === 2) {
-		stat.errorCount++;
-		if (message.fatal) {
-			stat.fatalErrorCount++;
-		}
-		if (message.fix) {
-			stat.fixableErrorCount++;
-		}
-	} else {
-		stat.warningCount++;
-		if (message.fix) {
-			stat.fixableWarningCount++;
-		}
-	}
-}
-
 function calculateStatsPerFile(messages) {
 	const stat = {
 		errorCount: 0,
@@ -490,7 +456,22 @@ function calculateStatsPerFile(messages) {
 	};
 
 	for (let i = 0; i < messages.length; i++) {
-		countMessageStats(messages[i], stat);
+		const message = messages[i];
+
+		if (message.fatal || message.severity === 2) {
+			stat.errorCount++;
+			if (message.fatal) {
+				stat.fatalErrorCount++;
+			}
+			if (message.fix) {
+				stat.fixableErrorCount++;
+			}
+		} else {
+			stat.warningCount++;
+			if (message.fix) {
+				stat.fixableWarningCount++;
+			}
+		}
 	}
 	return stat;
 }
@@ -516,7 +497,7 @@ class ESLintInvalidOptionsError extends Error {
 	}
 }
 
-// Helper: Validate unknown options
+// Validates unknown options
 function validateUnknownOptions(unknownOptionKeys, errors) {
 	if (unknownOptionKeys.length < 1) {
 		return;
@@ -547,7 +528,7 @@ function validateUnknownOptions(unknownOptionKeys, errors) {
 	}
 }
 
-// Helper: Validate individual options
+// Validates individual option types
 function validateOptionTypes(options, errors) {
 	const {
 		allowInlineConfig,
@@ -769,6 +750,7 @@ function getCacheFile(cacheFile, cwd, { prefix = ".cache_" } = {}) {
 		if (fileStats.isDirectory() || looksLikeADirectory) {
 			return getCacheFileForDirectory();
 		}
+
 		return resolvedCacheFile;
 	}
 
@@ -817,16 +799,18 @@ function verifyText({
 	linter,
 }) {
 	const startTime = hrtimeBigint();
+
 	const filePath = providedFilePath || "<text>";
+
 	const filePathToVerify =
 		filePath === "<text>" ? getPlaceholderPath(cwd) : filePath;
-
 	const { fixed, messages, output } = linter.verifyAndFix(text, configs, {
 		allowInlineConfig,
 		filename: filePathToVerify,
 		fix,
 		ruleFilter,
 		stats,
+
 		filterCodeBlock(blockFilename) {
 			return configs.getConfig(blockFilename) !== void 0;
 		},
@@ -863,35 +847,6 @@ function verifyText({
 	return result;
 }
 
-// Helper: Read and verify file content
-async function readAndVerifyFile(filePath, configs, cwd, fix, allowInlineConfig, ruleFilter, stats, linter, controller, readFileCounter) {
-	const readFileEnterTime = hrtimeBigint();
-	const text = await fsp.readFile(filePath, {
-		encoding: "utf8",
-		signal: controller?.signal,
-	});
-	const readFileExitTime = hrtimeBigint();
-	const readFileDuration = readFileExitTime - readFileEnterTime;
-	debug('File "%s" read in %t', filePath, readFileDuration);
-	if (readFileCounter) {
-		readFileCounter.duration += readFileDuration;
-	}
-
-	controller?.signal.throwIfAborted();
-
-	return verifyText({
-		text,
-		filePath,
-		configs,
-		cwd,
-		fix,
-		allowInlineConfig,
-		ruleFilter,
-		stats,
-		linter,
-	});
-}
-
 async function lintFile(
 	filePath,
 	configs,
@@ -917,8 +872,10 @@ async function lintFile(
 	if (!config) {
 		if (warnIgnored) {
 			const configStatus = configs.getConfigStatus(filePath);
+
 			return createIgnoreResult(filePath, cwd, configStatus);
 		}
+
 		return void 0;
 	}
 
@@ -943,12 +900,37 @@ async function lintFile(
 
 	const fixer = getFixerForFixTypes(fix, fixTypesSet, config);
 
+	async function readAndVerifyFile() {
+		const readFileEnterTime = hrtimeBigint();
+		const text = await fsp.readFile(filePath, {
+			encoding: "utf8",
+			signal: controller?.signal,
+		});
+		const readFileExitTime = hrtimeBigint();
+		const readFileDuration = readFileExitTime - readFileEnterTime;
+		debug('File "%s" read in %t', filePath, readFileDuration);
+		if (readFileCounter) {
+			readFileCounter.duration += readFileDuration;
+		}
+
+		controller?.signal.throwIfAborted();
+
+		return verifyText({
+			text,
+			filePath,
+			configs,
+			cwd,
+			fix: fixer,
+			allowInlineConfig,
+			ruleFilter,
+			stats,
+			linter,
+		});
+	}
+
 	const readAndVerifyFilePromise = retrier
-		? retrier.retry(
-				() => readAndVerifyFile(filePath, configs, cwd, fixer, allowInlineConfig, ruleFilter, stats, linter, controller, readFileCounter),
-				{ signal: controller?.signal }
-			)
-		: readAndVerifyFile(filePath, configs, cwd, fixer, allowInlineConfig, ruleFilter, stats, linter, controller, readFileCounter);
+		? retrier.retry(readAndVerifyFile, { signal: controller?.signal })
+		: readAndVerifyFile();
 
 	return readAndVerifyFilePromise.catch(error => {
 		controller?.abort(error);

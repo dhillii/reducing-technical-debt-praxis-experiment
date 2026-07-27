@@ -191,31 +191,26 @@ export default class PublishOptions {
         }
 
         if (recipients === 'visibility' || usuallyNobody) {
-            return this._getVisibilityBasedRecipientFilter();
+            if (this.post.visibility === 'public') {
+                return 'status:free,status:-free';
+            }
+
+            if (this.post.visibility === 'members') {
+                return 'status:free,status:-free';
+            }
+
+            if (this.post.visibility === 'paid') {
+                return 'status:-free';
+            }
+
+            if (this.post.visibility === 'tiers') {
+                return this.post.visibilitySegment;
+            }
+
+            return this.post.visibility;
         }
 
         return filter;
-    }
-
-    // Determines recipient filter based on post visibility setting
-    _getVisibilityBasedRecipientFilter() {
-        if (this.post.visibility === 'public') {
-            return 'status:free,status:-free';
-        }
-
-        if (this.post.visibility === 'members') {
-            return 'status:free,status:-free';
-        }
-
-        if (this.post.visibility === 'paid') {
-            return 'status:-free';
-        }
-
-        if (this.post.visibility === 'tiers') {
-            return this.post.visibilitySegment;
-        }
-
-        return this.post.visibility;
     }
 
     get fullRecipientFilter() {
@@ -265,14 +260,8 @@ export default class PublishOptions {
 
         this.newsletter = this.defaultNewsletter;
 
-        this._initializePublishType();
-    }
-
-    // Initializes publish type based on email availability and post state
-    _initializePublishType() {
         if (this.emailUnavailable || this.emailDisabled) {
             this.publishType = 'publish';
-            return;
         }
 
         // When default recipients is set to "Usually nobody":
@@ -283,7 +272,6 @@ export default class PublishOptions {
             this.settings.editorDefaultEmailRecipientsFilter === null
         ) {
             this.publishType = 'publish';
-            return;
         }
 
         if (this.post.isSent) {
@@ -291,13 +279,7 @@ export default class PublishOptions {
         }
     }
 
-    @task
-    *fetchRequiredDataTask() {
-        const promises = this._buildFetchPromises();
-        yield Promise.all(promises);
-    }
-
-    // Builds array of promises for required data fetching
+    // Builds array of promises for member count, limits, and newsletters
     _buildFetchPromises() {
         const promises = [];
 
@@ -312,16 +294,37 @@ export default class PublishOptions {
             this.totalMemberCount = 1;
         }
 
-        // limits
-        promises.push(this._checkSendingLimit());
-        promises.push(this._checkPublishingLimit());
+        return promises;
+    }
 
-        // newsletters
+    // Builds array of limit check promises
+    _buildLimitPromises() {
+        return [
+            this._checkSendingLimit(),
+            this._checkPublishingLimit()
+        ];
+    }
+
+    // Builds array of newsletter fetch promises
+    _buildNewsletterPromises() {
+        const promises = [];
+
         if (!this.user.isContributor) {
             promises.push(this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'}));
         }
 
         return promises;
+    }
+
+    @task
+    *fetchRequiredDataTask() {
+        const promises = [
+            ...this._buildFetchPromises(),
+            ...this._buildLimitPromises(),
+            ...this._buildNewsletterPromises()
+        ];
+
+        yield Promise.all(promises);
     }
 
     // saving ------------------------------------------------------------------

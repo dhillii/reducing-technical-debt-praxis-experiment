@@ -21,7 +21,7 @@ define([
      * 2. `page:previous` - when the previous model was requested but a user
      *     has reached the first model on the page.
      */
-    const PageableCollection = Backbone.Collection.extend({
+    var PageableCollection = Backbone.Collection.extend({
 
         // Default pagination settings
         state: {
@@ -193,75 +193,35 @@ define([
         },
 
         /**
-         * Determines the event to trigger when reaching page boundary.
-         * @param {boolean} hasNextPage - Whether next page exists
+         * Determines the next page event to trigger.
+         * @private
          * @returns {string} Event name to trigger
          */
-        _getPageBoundaryEvent: function(hasNextPage) {
-            return hasNextPage ? 'page:next' : 'page:end';
+        _getNextPageEvent: function() {
+            return this.hasNextPage() ? 'page:next' : 'page:end';
         },
 
         /**
-         * Determines the event to trigger when reaching previous page boundary.
-         * @param {boolean} hasPreviousPage - Whether previous page exists
+         * Determines the previous page event to trigger.
+         * @private
          * @returns {string} Event name to trigger
          */
-        _getPreviousPageBoundaryEvent: function(hasPreviousPage) {
-            return hasPreviousPage ? 'page:previous' : 'page:start';
-        },
-
-        /**
-         * Checks if collection is empty.
-         * @returns {boolean} True if collection is empty
-         */
-        _isCollectionEmpty: function() {
-            return this.length === 0;
-        },
-
-        /**
-         * Gets the next model index, handling page boundaries.
-         * @param {string} id - Model id
-         * @returns {number|null} Next index or null if at boundary
-         */
-        _getNextModelIndex: function(id) {
-            const model = this.get(id);
-            const index = model ? this.indexOf(model) + 1 : 0;
-
-            if (index >= this.models.length) {
-                return null;
-            }
-
-            return index;
-        },
-
-        /**
-         * Gets the previous model index, handling page boundaries.
-         * @param {string} id - Model id
-         * @returns {number|null} Previous index or null if at boundary
-         */
-        _getPreviousModelIndex: function(id) {
-            const model = this.get(id);
-            const index = model ? this.indexOf(model) - 1 : this.models.length - 1;
-
-            if (index < 0) {
-                return null;
-            }
-
-            return index;
+        _getPreviousPageEvent: function() {
+            return this.hasPreviousPage() ? 'page:previous' : 'page:start';
         },
 
         getNextItem: function(id) {
             // The collection is empty
-            if (this._isCollectionEmpty()) {
+            if (this.length === 0) {
                 return false;
             }
 
-            const index = this._getNextModelIndex(id);
+            const model  = this.get(id);
+            const index  = model ? this.indexOf(model) + 1 : 0;
 
             // It is the last model on this page
-            if (index === null) {
-                const event = this._getPageBoundaryEvent(this.hasNextPage());
-                return this.trigger(event);
+            if (index >= this.models.length) {
+                return this.trigger(this._getNextPageEvent());
             }
 
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
@@ -269,35 +229,36 @@ define([
 
         getPreviousItem: function(id) {
             // The collection is empty
-            if (this._isCollectionEmpty()) {
+            if (this.length === 0) {
                 return false;
             }
 
-            const index = this._getPreviousModelIndex(id);
+            const model = this.get(id);
+            const index = model ? this.indexOf(model) - 1 : this.models.length - 1;
 
             // It is the first model on this page
-            if (index === null) {
-                const event = this._getPreviousPageBoundaryEvent(this.hasPreviousPage());
-                return this.trigger(event);
+            if (index < 0) {
+                return this.trigger(this._getPreviousPageEvent());
             }
 
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
         },
 
         /**
-         * Determines if model should be navigated after removal.
-         * @param {number} index - Current index
-         * @returns {boolean} True if navigation should occur
+         * Handles navigation after model removal.
+         * @private
+         * @param {number} index - Current index position
+         * @returns {boolean|null} False if no valid model, null or trigger result otherwise
          */
-        _shouldNavigateAfterRemoval: function(index) {
-            return !!this.at(index);
-        },
+        _handlePostRemovalNavigation: function(index) {
+            if (!this.at(index)) {
+                index--;
+            }
 
-        /**
-         * Handles navigation after model removal at given index.
-         * @param {number} index - Index to navigate to
-         */
-        _navigateAfterRemoval: function(index) {
+            if (!this.at(index)) {
+                return this.hasPreviousPage() ? this.trigger('page:previous') : null;
+            }
+
             Radio.trigger(this.storeName, 'model:navigate', this.at(index));
         },
 
@@ -312,62 +273,13 @@ define([
                 return false;
             }
 
-            const coll = this.fullCollection || this;
+            const coll  = this.fullCollection || this;
             let index = this.indexOf(model);
 
             coll.remove(model);
             this.sortFullCollection();
 
-            if (!this.at(index)) {
-                index--;
-            }
-
-            if (!this._shouldNavigateAfterRemoval(index)) {
-                return this.hasPreviousPage() ? this.trigger('page:previous') : null;
-            }
-
-            this._navigateAfterRemoval(index);
-        },
-
-        /**
-         * Determines if model should be added based on filter condition.
-         * @param {object} model - Model to check
-         * @returns {boolean} True if model matches filter
-         */
-        _modelMatchesFilter: function(model) {
-            return model.matches(this.conditionCurrent || {trash: 0});
-        },
-
-        /**
-         * Determines if model should be updated in collection.
-         * @param {object} model - Model to check
-         * @returns {boolean} True if model exists in collection
-         */
-        _modelExists: function(model) {
-            const coll = this.fullCollection || this;
-            return !!coll.get(model.id);
-        },
-
-        /**
-         * Updates existing model in collection.
-         * @param {object} model - Model to update
-         */
-        _updateExistingModel: function(model) {
-            const coll = this.fullCollection || this;
-            const colModel = coll.get(model.id);
-            if (colModel) {
-                colModel.set(model.toJSON());
-            }
-        },
-
-        /**
-         * Adds new model to collection and sorts.
-         * @param {object} model - Model to add
-         */
-        _addNewModel: function(model) {
-            const coll = this.fullCollection || this;
-            coll.add(model, {at: 0});
-            this.sortFullCollection();
+            return this._handlePostRemovalNavigation(index);
         },
 
         /**
@@ -397,17 +309,21 @@ define([
              * Remove a model from the collection if it doesn't meet
              * the current filter condition.
              */
-            if (!this._modelMatchesFilter(model)) {
+            if (!model.matches(this.conditionCurrent || {trash: 0})) {
                 return this._navigateOnRemove(model);
             }
 
             // If the model already exists, update it
-            if (this._modelExists(model)) {
-                return this._updateExistingModel(model);
+            const coll     = this.fullCollection || this;
+            const colModel = coll.get(model.id);
+
+            if (colModel) {
+                return colModel.set(model.toJSON());
             }
 
             // Or add it to fullCollection and sort the collection again
-            this._addNewModel(model);
+            coll.add(model, {at: 0});
+            this.sortFullCollection();
         },
 
         /**

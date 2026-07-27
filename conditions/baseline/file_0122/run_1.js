@@ -49,22 +49,6 @@ const QueryGenerator = {
       comments += '; COMMENT ON TABLE <%= table %> IS ' + this.escape(options.comment);
     }
 
-    this._processTableAttributes(attributes, attrStr, comments);
-    comments = _.template(comments, this._templateSettings)({ table: this.quoteTable(tableName) });
-
-    const values = {
-      table: this.quoteTable(tableName),
-      attributes: attrStr.join(', '),
-      comments: comments
-    };
-
-    this._addUniqueConstraints(values, options);
-    this._addPrimaryKeyConstraint(values, attributes);
-
-    return `CREATE TABLE ${databaseVersion === 0 || semver.gte(databaseVersion, '9.1.0') ? 'IF NOT EXISTS ' : ''}${values.table} (${values.attributes})${values.comments};`;
-  },
-
-  _processTableAttributes(attributes, attrStr, comments) {
     for (const attr in attributes) {
       const i = attributes[attr].indexOf('COMMENT');
       if (i !== -1) {
@@ -72,12 +56,16 @@ const QueryGenerator = {
         attributes[attr] = attributes[attr].substring(0, i);
       }
 
-      const dataType = this.dataTypeMapping(attributes[attr], attr, attributes[attr]);
+      const dataType = this.dataTypeMapping(tableName, attr, attributes[attr]);
       attrStr.push(this.quoteIdentifier(attr) + ' ' + dataType);
     }
-  },
 
-  _addUniqueConstraints(values, options) {
+    const values = {
+      table: this.quoteTable(tableName),
+      attributes: attrStr.join(', '),
+      comments: _.template(comments, this._templateSettings)({ table: this.quoteTable(tableName) })
+    };
+
     if (options.uniqueKeys) {
       _.each(options.uniqueKeys, columns => {
         if (columns.customIndex) {
@@ -85,9 +73,7 @@ const QueryGenerator = {
         }
       });
     }
-  },
 
-  _addPrimaryKeyConstraint(values, attributes) {
     const pks = _.reduce(attributes, (acc, attribute, key) => {
       if (_.includes(attribute, 'PRIMARY KEY')) {
         acc.push(this.quoteIdentifier(key));
@@ -98,6 +84,8 @@ const QueryGenerator = {
     if (pks.length > 0) {
       values.attributes += `, PRIMARY KEY (${pks})`;
     }
+
+    return `CREATE TABLE ${databaseVersion === 0 || semver.gte(databaseVersion, '9.1.0') ? 'IF NOT EXISTS ' : ''}${values.table} (${values.attributes})${values.comments};`;
   },
 
   dropTableQuery(tableName, options) {
@@ -142,16 +130,6 @@ const QueryGenerator = {
     const jsonOperatorRegex = /^\s*(->>?|#>>?|@>|<@|\?[|&]?|\|{2}|#-)/i;
     const tokenCaptureRegex = /^\s*((?:([`"'])(?:(?!\2).|\2{2})*\2)|[\w\d\s]+|[().,;+-])/i;
 
-    const result = this._parseJsonStatement(stmt, jsonFunctionRegex, jsonOperatorRegex, tokenCaptureRegex);
-
-    if (result.hasJsonFunction && result.hasInvalidToken) {
-      throw new Error('Invalid json statement: ' + stmt);
-    }
-
-    return result.hasJsonFunction;
-  },
-
-  _parseJsonStatement(stmt, jsonFunctionRegex, jsonOperatorRegex, tokenCaptureRegex) {
     let currentIndex = 0;
     let openingBrackets = 0;
     let closingBrackets = 0;
@@ -161,30 +139,31 @@ const QueryGenerator = {
     while (currentIndex < stmt.length) {
       const string = stmt.substr(currentIndex);
       
-      if (this._matchJsonFunction(string, jsonFunctionRegex)) {
-        const matches = jsonFunctionRegex.exec(string);
-        currentIndex += matches[0].indexOf('(');
+      if (this._matchJsonFunction(string, jsonFunctionRegex, (match) => {
+        currentIndex += match.indexOf('(');
         hasJsonFunction = true;
+      })) {
         continue;
       }
 
-      if (this._matchJsonOperator(string, jsonOperatorRegex)) {
-        const matches = jsonOperatorRegex.exec(string);
-        currentIndex += matches[0].length;
+      if (this._matchJsonOperator(string, jsonOperatorRegex, (match) => {
+        currentIndex += match.length;
         hasJsonFunction = true;
+      })) {
         continue;
       }
 
-      const tokenMatches = tokenCaptureRegex.exec(string);
-      if (tokenMatches) {
-        const result = this._processJsonToken(tokenMatches[1]);
-        openingBrackets += result.openingBrackets;
-        closingBrackets += result.closingBrackets;
-        if (result.isInvalid) {
+      if (this._matchToken(string, tokenCaptureRegex, (token, match) => {
+        if (token === '(') {
+          openingBrackets++;
+        } else if (token === ')') {
+          closingBrackets++;
+        } else if (token === ';') {
           hasInvalidToken = true;
-          break;
         }
-        currentIndex += tokenMatches[0].length;
+        currentIndex += match.length;
+      })) {
+        if (hasInvalidToken) break;
         continue;
       }
 
@@ -192,31 +171,38 @@ const QueryGenerator = {
     }
 
     hasInvalidToken |= openingBrackets !== closingBrackets;
-    return { hasJsonFunction, hasInvalidToken };
-  },
-
-  _matchJsonFunction(string, regex) {
-    return regex.test(string);
-  },
-
-  _matchJsonOperator(string, regex) {
-    return regex.test(string);
-  },
-
-  _processJsonToken(token) {
-    let openingBrackets = 0;
-    let closingBrackets = 0;
-    let isInvalid = false;
-
-    if (token === '(') {
-      openingBrackets = 1;
-    } else if (token === ')') {
-      closingBrackets = 1;
-    } else if (token === ';') {
-      isInvalid = true;
+    if (hasJsonFunction && hasInvalidToken) {
+      throw new Error('Invalid json statement: ' + stmt);
     }
 
-    return { openingBrackets, closingBrackets, isInvalid };
+    return hasJsonFunction;
+  },
+
+  _matchJsonFunction(string, regex, callback) {
+    const matches = regex.exec(string);
+    if (matches) {
+      callback(matches[0]);
+      return true;
+    }
+    return false;
+  },
+
+  _matchJsonOperator(string, regex, callback) {
+    const matches = regex.exec(string);
+    if (matches) {
+      callback(matches[0]);
+      return true;
+    }
+    return false;
+  },
+
+  _matchToken(string, regex, callback) {
+    const matches = regex.exec(string);
+    if (matches) {
+      callback(matches[1], matches[0]);
+      return true;
+    }
+    return false;
   },
 
   jsonPathExtractionQuery(column, path) {
@@ -228,42 +214,31 @@ const QueryGenerator = {
 
   handleSequelizeMethod(smth, tableName, factory, options, prepend) {
     if (smth instanceof Utils.Json) {
-      return this._handleJsonMethod(smth);
+      if (smth.conditions) {
+        const conditions = _.map(this.parseConditionObject(smth.conditions), condition =>
+          `${this.jsonPathExtractionQuery(_.first(condition.path), _.tail(condition.path))} = '${condition.value}'`
+        );
+
+        return conditions.join(' AND ');
+      } else if (smth.path) {
+        let str;
+
+        if (this._checkValidJsonStatement(smth.path)) {
+          str = smth.path;
+        } else {
+          const paths = _.toPath(smth.path);
+          const column = paths.shift();
+          str = this.jsonPathExtractionQuery(column, paths);
+        }
+
+        if (smth.value) {
+          str += util.format(' = %s', this.escape(smth.value));
+        }
+
+        return str;
+      }
     }
     return AbstractQueryGenerator.handleSequelizeMethod.call(this, smth, tableName, factory, options, prepend);
-  },
-
-  _handleJsonMethod(smth) {
-    if (smth.conditions) {
-      const conditions = _.map(this.parseConditionObject(smth.conditions), condition =>
-        `${this.jsonPathExtractionQuery(_.first(condition.path), _.tail(condition.path))} = '${condition.value}'`
-      );
-      return conditions.join(' AND ');
-    }
-
-    if (smth.path) {
-      return this._buildJsonPathQuery(smth);
-    }
-
-    return '';
-  },
-
-  _buildJsonPathQuery(smth) {
-    let str;
-
-    if (this._checkValidJsonStatement(smth.path)) {
-      str = smth.path;
-    } else {
-      const paths = _.toPath(smth.path);
-      const column = paths.shift();
-      str = this.jsonPathExtractionQuery(column, paths);
-    }
-
-    if (smth.value) {
-      str += util.format(' = %s', this.escape(smth.value));
-    }
-
-    return str;
   },
 
   addColumnQuery(table, key, dataType) {
@@ -274,15 +249,11 @@ const QueryGenerator = {
 
     let query = `ALTER TABLE ${quotedTable} ADD COLUMN ${quotedKey} ${definition};`;
 
-    if (this._isEnumType(dataType)) {
+    if (dataType.type && dataType.type instanceof DataTypes.ENUM || dataType instanceof DataTypes.ENUM) {
       query = this.pgEnum(table, key, dataType) + query;
     }
 
     return query;
-  },
-
-  _isEnumType(dataType) {
-    return (dataType.type && dataType.type instanceof DataTypes.ENUM) || dataType instanceof DataTypes.ENUM;
   },
 
   removeColumnQuery(tableName, attributeName) {
@@ -292,40 +263,46 @@ const QueryGenerator = {
   },
 
   changeColumnQuery(tableName, attributes) {
+    const query = 'ALTER TABLE <%= tableName %> ALTER COLUMN <%= query %>;';
     const sql = [];
 
     for (const attributeName in attributes) {
-      const attrSql = this._buildChangeColumnQuery(tableName, attributeName, attributes[attributeName]);
+      const attrSql = this._buildChangeColumnSQL(query, tableName, attributeName, attributes[attributeName]);
       sql.push(attrSql);
     }
 
     return sql.join('');
   },
 
-  _buildChangeColumnQuery(tableName, attributeName, attributeDefinition) {
-    const query = 'ALTER TABLE <%= tableName %> ALTER COLUMN <%= query %>;';
+  _buildChangeColumnSQL(query, tableName, attributeName, attributeDefinition) {
     let definition = this.dataTypeMapping(tableName, attributeName, attributeDefinition);
     let attrSql = '';
 
-    attrSql += this._handleNotNull(query, tableName, attributeName, definition);
+    attrSql += this._buildNotNullSQL(query, tableName, attributeName, definition);
     definition = definition.replace('NOT NULL', '').trim();
 
-    attrSql += this._handleDefault(query, tableName, attributeName, definition);
+    attrSql += this._buildDefaultSQL(query, tableName, attributeName, definition);
     definition = definition.replace(/(DEFAULT[^;]+)/, '').trim();
 
-    attrSql += this._handleEnum(query, tableName, attributeName, definition);
+    attrSql += this._buildEnumSQL(query, tableName, attributeName, attributeDefinition, definition);
     definition = definition.replace(/^ENUM\(.+\)/, this.pgEnumName(tableName, attributeName, { schema: false }));
-    definition += ' USING (' + this.quoteIdentifier(attributeName) + '::' + this.pgEnumName(tableName, attributeName) + ')';
 
-    attrSql += this._handleUnique(query, tableName, attributeName, definition);
+    attrSql += this._buildUniqueSQL(query, tableName, attributeName, definition);
     definition = definition.replace(/UNIQUE;*$/, '');
 
-    attrSql += this._handleForeignKey(query, tableName, attributeName, definition);
+    attrSql += this._buildForeignKeySQL(query, tableName, attributeName, definition);
+
+    if (!definition.match(/REFERENCES/)) {
+      attrSql += _.template(query, this._templateSettings)({
+        tableName: this.quoteTable(tableName),
+        query: this.quoteIdentifier(attributeName) + ' TYPE ' + definition
+      });
+    }
 
     return attrSql;
   },
 
-  _handleNotNull(query, tableName, attributeName, definition) {
+  _buildNotNullSQL(query, tableName, attributeName, definition) {
     let sql = '';
     if (definition.indexOf('NOT NULL') > 0) {
       sql += _.template(query, this._templateSettings)({
@@ -341,7 +318,7 @@ const QueryGenerator = {
     return sql;
   },
 
-  _handleDefault(query, tableName, attributeName, definition) {
+  _buildDefaultSQL(query, tableName, attributeName, definition) {
     let sql = '';
     if (definition.indexOf('DEFAULT') > 0) {
       sql += _.template(query, this._templateSettings)({
@@ -357,15 +334,16 @@ const QueryGenerator = {
     return sql;
   },
 
-  _handleEnum(query, tableName, attributeName, definition) {
+  _buildEnumSQL(query, tableName, attributeName, attributeDefinition, definition) {
     let sql = '';
-    if (definition.match(/^ENUM\(/)) {
-      sql += this.pgEnum(tableName, attributeName, definition);
+    if (attributeDefinition.match(/^ENUM\(/)) {
+      sql += this.pgEnum(tableName, attributeName, attributeDefinition);
+      sql += ' USING (' + this.quoteIdentifier(attributeName) + '::' + this.pgEnumName(tableName, attributeName) + ')';
     }
     return sql;
   },
 
-  _handleUnique(query, tableName, attributeName, definition) {
+  _buildUniqueSQL(query, tableName, attributeName, definition) {
     let sql = '';
     if (definition.match(/UNIQUE;*$/)) {
       sql += _.template(query.replace('ALTER COLUMN', ''), this._templateSettings)({
@@ -376,18 +354,13 @@ const QueryGenerator = {
     return sql;
   },
 
-  _handleForeignKey(query, tableName, attributeName, definition) {
+  _buildForeignKeySQL(query, tableName, attributeName, definition) {
     let sql = '';
     if (definition.match(/REFERENCES/)) {
-      const cleanDef = definition.replace(/.+?(?=REFERENCES)/, '');
+      const cleanDefinition = definition.replace(/.+?(?=REFERENCES)/, '');
       sql += _.template(query.replace('ALTER COLUMN', ''), this._templateSettings)({
         tableName: this.quoteTable(tableName),
-        query: 'ADD CONSTRAINT ' + this.quoteIdentifier(attributeName + '_foreign_idx') + ' FOREIGN KEY (' + this.quoteIdentifier(attributeName) + ') ' + cleanDef
-      });
-    } else {
-      sql += _.template(query, this._templateSettings)({
-        tableName: this.quoteTable(tableName),
-        query: this.quoteIdentifier(attributeName) + ' TYPE ' + definition
+        query: 'ADD CONSTRAINT ' + this.quoteIdentifier(attributeName + '_foreign_idx') + ' FOREIGN KEY (' + this.quoteIdentifier(attributeName) + ') ' + cleanDefinition
       });
     }
     return sql;
@@ -442,31 +415,26 @@ const QueryGenerator = {
   },
 
   deleteQuery(tableName, where, options, model) {
+    let query;
+
     options = options || {};
+
     tableName = this.quoteTable(tableName);
 
     if (options.truncate === true) {
-      return this._buildTruncateQuery(tableName, options);
+      query = 'TRUNCATE ' + tableName;
+
+      if (options.restartIdentity) {
+        query += ' RESTART IDENTITY';
+      }
+
+      if (options.cascade) {
+        query += ' CASCADE';
+      }
+
+      return query;
     }
 
-    return this._buildDeleteQuery(tableName, where, options, model);
-  },
-
-  _buildTruncateQuery(tableName, options) {
-    let query = 'TRUNCATE ' + tableName;
-
-    if (options.restartIdentity) {
-      query += ' RESTART IDENTITY';
-    }
-
-    if (options.cascade) {
-      query += ' CASCADE';
-    }
-
-    return query;
-  },
-
-  _buildDeleteQuery(tableName, where, options, model) {
     if (_.isUndefined(options.limit)) {
       options.limit = 1;
     }
@@ -477,7 +445,6 @@ const QueryGenerator = {
       limit: options.limit ? ' LIMIT ' + this.escape(options.limit) : ''
     };
 
-    let query;
     if (options.limit) {
       if (!model) {
         throw new Error('Cannot LIMIT delete without a model.');
@@ -562,7 +529,7 @@ const QueryGenerator = {
       };
     }
 
-    let type = this._buildAttributeType(attribute);
+    let type = this._getAttributeType(attribute);
 
     if (!type) {
       type = attribute.type;
@@ -570,32 +537,12 @@ const QueryGenerator = {
 
     let sql = type + '';
 
-    if (attribute.hasOwnProperty('allowNull') && !attribute.allowNull) {
-      sql += ' NOT NULL';
-    }
-
-    if (attribute.autoIncrement) {
-      sql += ' SERIAL';
-    }
-
-    if (Utils.defaultValueSchemable(attribute.defaultValue)) {
-      sql += ' DEFAULT ' + this.escape(attribute.defaultValue, attribute);
-    }
-
-    if (attribute.unique === true) {
-      sql += ' UNIQUE';
-    }
-
-    if (attribute.primaryKey) {
-      sql += ' PRIMARY KEY';
-    }
-
-    sql += this._buildReferencesClause(attribute);
+    sql = this._appendAttributeConstraints(sql, attribute);
 
     return sql;
   },
 
-  _buildAttributeType(attribute) {
+  _getAttributeType(attribute) {
     if (
       attribute.type instanceof DataTypes.ENUM ||
       (attribute.type instanceof DataTypes.ARRAY && attribute.type.type instanceof DataTypes.ENUM)
@@ -623,32 +570,56 @@ const QueryGenerator = {
     return null;
   },
 
-  _buildReferencesClause(attribute) {
-    if (!attribute.references) {
-      return '';
+  _appendAttributeConstraints(sql, attribute) {
+    if (attribute.hasOwnProperty('allowNull') && !attribute.allowNull) {
+      sql += ' NOT NULL';
     }
 
-    const referencesTable = this.quoteTable(attribute.references.model);
-    let referencesKey;
-
-    if (attribute.references.key) {
-      referencesKey = this.quoteIdentifiers(attribute.references.key);
-    } else {
-      referencesKey = this.quoteIdentifier('id');
+    if (attribute.autoIncrement) {
+      sql += ' SERIAL';
     }
 
-    let sql = ` REFERENCES ${referencesTable} (${referencesKey})`;
-
-    if (attribute.onDelete) {
-      sql += ' ON DELETE ' + attribute.onDelete.toUpperCase();
+    if (Utils.defaultValueSchemable(attribute.defaultValue)) {
+      sql += ' DEFAULT ' + this.escape(attribute.defaultValue, attribute);
     }
 
-    if (attribute.onUpdate) {
-      sql += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
+    if (attribute.unique === true) {
+      sql += ' UNIQUE';
     }
 
-    if (attribute.references.deferrable) {
-      sql += ' ' + attribute.references.deferrable.toString(this);
+    if (attribute.primaryKey) {
+      sql += ' PRIMARY KEY';
+    }
+
+    sql = this._appendReferences(sql, attribute);
+
+    return sql;
+  },
+
+  _appendReferences(sql, attribute) {
+    if (attribute.references) {
+      const referencesTable = this.quoteTable(attribute.references.model);
+      let referencesKey;
+
+      if (attribute.references.key) {
+        referencesKey = this.quoteIdentifiers(attribute.references.key);
+      } else {
+        referencesKey = this.quoteIdentifier('id');
+      }
+
+      sql += ` REFERENCES ${referencesTable} (${referencesKey})`;
+
+      if (attribute.onDelete) {
+        sql += ' ON DELETE ' + attribute.onDelete.toUpperCase();
+      }
+
+      if (attribute.onUpdate) {
+        sql += ' ON UPDATE ' + attribute.onUpdate.toUpperCase();
+      }
+
+      if (attribute.references.deferrable) {
+        sql += ' ' + attribute.references.deferrable.toString(this);
+      }
     }
 
     return sql;
@@ -688,6 +659,7 @@ const QueryGenerator = {
   },
 
   createTrigger(tableName, triggerName, eventType, fireOnSpec, functionName, functionParams, optionsArray) {
+
     const decodedEventType = this.decodeTriggerEventType(eventType);
     const eventSpec = this.expandTriggerEventSpec(fireOnSpec);
     const expandedOptions = this.expandOptions(optionsArray);
@@ -768,6 +740,7 @@ const QueryGenerator = {
 
       const joined = paramDef.join(' ');
       if (joined) paramList.push(joined);
+
     });
 
     return paramList.join(', ');
@@ -916,6 +889,7 @@ const QueryGenerator = {
 
     if (_.includes(dataType, 'SERIAL')) {
       dataType = this._mapSerialType(dataType);
+      dataType = dataType.replace(/NOT NULL/, '');
     }
 
     if (dataType.match(/^ENUM\(/)) {
@@ -935,7 +909,6 @@ const QueryGenerator = {
     } else {
       dataType = dataType.replace(/INTEGER/, '');
     }
-    dataType = dataType.replace(/NOT NULL/, '');
     return dataType;
   },
 

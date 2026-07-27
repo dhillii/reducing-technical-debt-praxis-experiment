@@ -50,9 +50,9 @@ function SchemaType(path, options, instance) {
   this.splitPath();
 
   options = options || {};
-  this._applyDefaultOptions(options);
+  this._mergeDefaultOptions(options);
   this._initializeOptions(options);
-  this._processOptions(options);
+  this._processOptionProperties(options);
 
   Object.defineProperty(this, '$$context', {
     enumerable: false,
@@ -62,11 +62,11 @@ function SchemaType(path, options, instance) {
   });
 }
 
-/**
- * Apply default options from constructor to provided options
+/*!
+ * Merge default options from constructor into provided options
  * @api private
  */
-SchemaType.prototype._applyDefaultOptions = function(options) {
+SchemaType.prototype._mergeDefaultOptions = function(options) {
   const defaultOptions = this.constructor.defaultOptions || {};
   const defaultOptionsKeys = Object.keys(defaultOptions);
 
@@ -75,17 +75,17 @@ SchemaType.prototype._applyDefaultOptions = function(options) {
       options[option] = defaultOptions[option];
     }
   }
-};
 
-/**
- * Initialize SchemaTypeOptions instance
- * @api private
- */
-SchemaType.prototype._initializeOptions = function(options) {
   if (options.select == null) {
     delete options.select;
   }
+};
 
+/*!
+ * Initialize the options object for this SchemaType
+ * @api private
+ */
+SchemaType.prototype._initializeOptions = function(options) {
   const Options = this.OptionsConstructor || SchemaTypeOptions;
   this.options = new Options(options);
   this._index = null;
@@ -96,28 +96,31 @@ SchemaType.prototype._initializeOptions = function(options) {
   }
 };
 
-/**
- * Process options and apply them to the SchemaType
+/*!
+ * Process option properties and apply them to the SchemaType
  * @api private
  */
-SchemaType.prototype._processOptions = function(options) {
+SchemaType.prototype._processOptionProperties = function(options) {
   const keys = Object.keys(this.options);
   for (const prop of keys) {
-    if (prop === 'cast') {
-      this.castFunction(this.options[prop]);
-      continue;
-    }
-    if (utils.hasUserDefinedProperty(this.options, prop) && typeof this[prop] === 'function') {
-      this._processOptionProperty(prop, options);
-    }
+    this._processOptionProperty(prop, options);
   }
 };
 
-/**
+/*!
  * Process a single option property
  * @api private
  */
 SchemaType.prototype._processOptionProperty = function(prop, options) {
+  if (prop === 'cast') {
+    this.castFunction(this.options[prop]);
+    return;
+  }
+
+  if (!utils.hasUserDefinedProperty(this.options, prop) || typeof this[prop] !== 'function') {
+    return;
+  }
+
   if (prop === 'index') {
     this._handleIndexOption(options);
     return;
@@ -133,8 +136,8 @@ SchemaType.prototype._processOptionProperty = function(prop, options) {
   this[prop].apply(this, opts);
 };
 
-/**
- * Handle index option processing
+/*!
+ * Handle the index option during initialization
  * @api private
  */
 SchemaType.prototype._handleIndexOption = function(options) {
@@ -148,21 +151,24 @@ SchemaType.prototype._handleIndexOption = function(options) {
   }
 };
 
-/**
- * Validate that index false doesn't conflict with unique/sparse
+/*!
+ * Validate that index: false doesn't conflict with unique or sparse
  * @api private
  */
 SchemaType.prototype._validateIndexConflict = function() {
   const index = this._index;
-  if (typeof index === 'object' && index != null) {
-    if (index.unique) {
-      throw new Error('Path "' + this.path + '" may not have `index` ' +
-        'set to false and `unique` set to true');
-    }
-    if (index.sparse) {
-      throw new Error('Path "' + this.path + '" may not have `index` ' +
-        'set to false and `sparse` set to true');
-    }
+  if (typeof index !== 'object' || index == null) {
+    return;
+  }
+
+  if (index.unique) {
+    throw new Error('Path "' + this.path + '" may not have `index` ' +
+      'set to false and `unique` set to true');
+  }
+
+  if (index.sparse) {
+    throw new Error('Path "' + this.path + '" may not have `index` ' +
+      'set to false and `sparse` set to true');
   }
 };
 
@@ -430,23 +436,14 @@ SchemaType.prototype.unique = function(bool) {
     throw new Error('Path "' + this.path + '" may not have `index` set to ' +
       'false and `unique` set to true');
   }
-  this._index = this._normalizeIndexValue(this._index);
+  if (this._index == null || this._index === true) {
+    this._index = {};
+  } else if (typeof this._index === 'string') {
+    this._index = { type: this._index };
+  }
+
   this._index.unique = bool;
   return this;
-};
-
-/**
- * Normalize index value to object format
- * @api private
- */
-SchemaType.prototype._normalizeIndexValue = function(index) {
-  if (index == null || index === true) {
-    return {};
-  }
-  if (typeof index === 'string') {
-    return { type: index };
-  }
-  return index;
 };
 
 /**
@@ -885,31 +882,12 @@ SchemaType.prototype.validate = function(obj, message, type) {
   return this;
 };
 
-/**
- * Add a single validator with message and type
+/*!
+ * Add a single validator with optional message and type
  * @api private
  */
 SchemaType.prototype._addSingleValidator = function(obj, message, type) {
-  let properties;
-  if (typeof message === 'function') {
-    properties = { validator: obj, message: message };
-    properties.type = type || 'user defined';
-  } else if (message instanceof Object && !type) {
-    properties = utils.clone(message);
-    if (!properties.message) {
-      properties.message = properties.msg;
-    }
-    properties.validator = obj;
-    properties.type = properties.type || 'user defined';
-  } else {
-    if (message == null) {
-      message = MongooseError.messages.general.default;
-    }
-    if (!type) {
-      type = 'user defined';
-    }
-    properties = { message: message, type: type, validator: obj };
-  }
+  const properties = this._buildValidatorProperties(obj, message, type);
 
   if (properties.isAsync) {
     handleIsAsync();
@@ -918,7 +896,40 @@ SchemaType.prototype._addSingleValidator = function(obj, message, type) {
   this.validators.push(properties);
 };
 
-/**
+/*!
+ * Build validator properties object from arguments
+ * @api private
+ */
+SchemaType.prototype._buildValidatorProperties = function(obj, message, type) {
+  if (typeof message === 'function') {
+    return {
+      validator: obj,
+      message: message,
+      type: type || 'user defined'
+    };
+  }
+
+  if (message instanceof Object && !type) {
+    const properties = utils.clone(message);
+    if (!properties.message) {
+      properties.message = properties.msg;
+    }
+    properties.validator = obj;
+    properties.type = properties.type || 'user defined';
+    return properties;
+  }
+
+  const finalMessage = message == null ? MongooseError.messages.general.default : message;
+  const finalType = type || 'user defined';
+
+  return {
+    message: finalMessage,
+    type: finalType,
+    validator: obj
+  };
+};
+
+/*!
  * Add multiple validators from arguments array
  * @api private
  */
@@ -929,7 +940,6 @@ SchemaType.prototype._addMultipleValidators = function(args) {
       const msg = 'Invalid validator. Received (' + typeof arg + ') '
           + arg
           + '. See http://mongoosejs.com/docs/api.html#schematype_SchemaType-validate';
-
       throw new Error(msg);
     }
     this.validate(arg.validator, arg);
@@ -1013,13 +1023,11 @@ const handleIsAsync = util.deprecate(function handleIsAsync() {},
  */
 
 SchemaType.prototype.required = function(required, message) {
-  let customOptions = {};
-
   if (arguments.length > 0 && required == null) {
-    this._removeRequiredValidator();
-    return this;
+    return this._clearRequired();
   }
 
+  let customOptions = {};
   if (typeof required === 'object') {
     customOptions = required;
     message = customOptions.message || message;
@@ -1027,54 +1035,38 @@ SchemaType.prototype.required = function(required, message) {
   }
 
   if (required === false) {
-    this._removeRequiredValidator();
-    return this;
+    return this._clearRequired();
   }
 
-  this._setupRequiredValidator(required, message, customOptions);
-  return this;
+  return this._setRequired(required, message, customOptions);
 };
 
-/**
- * Remove required validator from validators array
+/*!
+ * Clear the required validator
  * @api private
  */
-SchemaType.prototype._removeRequiredValidator = function() {
+SchemaType.prototype._clearRequired = function() {
   this.validators = this.validators.filter(function(v) {
     return v.validator !== this.requiredValidator;
   }, this);
 
   this.isRequired = false;
   delete this.originalRequiredValue;
+  return this;
 };
 
-/**
- * Setup required validator with message and custom options
+/*!
+ * Set the required validator
  * @api private
  */
-SchemaType.prototype._setupRequiredValidator = function(required, message, customOptions) {
+SchemaType.prototype._setRequired = function(required, message, customOptions) {
   const _this = this;
   this.isRequired = true;
 
   this.requiredValidator = function(v) {
-    const cachedRequired = get(this, '$__.cachedRequired');
-
-    if (cachedRequired != null && !this.$__isSelected(_this.path) && !this[documentIsModified](_this.path)) {
-      return true;
-    }
-
-    if (cachedRequired != null && _this.path in cachedRequired) {
-      const res = cachedRequired[_this.path] ?
-        _this.checkRequired(v, this) :
-        true;
-      delete cachedRequired[_this.path];
-      return res;
-    } else if (typeof required === 'function') {
-      return required.apply(this) ? _this.checkRequired(v, this) : true;
-    }
-
-    return _this.checkRequired(v, this);
+    return _this._checkRequiredValue(v, required);
   };
+
   this.originalRequiredValue = required;
 
   if (typeof required === 'string') {
@@ -1088,6 +1080,39 @@ SchemaType.prototype._setupRequiredValidator = function(required, message, custo
     message: msg,
     type: 'required'
   }));
+
+  return this;
+};
+
+/*!
+ * Check if a value satisfies the required validator
+ * @api private
+ */
+SchemaType.prototype._checkRequiredValue = function(v, required) {
+  const cachedRequired = get(this, '$__.cachedRequired');
+  const _this = this;
+
+  // no validation when this path wasn't selected in the query.
+  if (cachedRequired != null && !this.$__isSelected(_this.path) && !this[documentIsModified](_this.path)) {
+    return true;
+  }
+
+  // `$cachedRequired` gets set in `_evaluateRequiredFunctions()` so we
+  // don't call required functions multiple times in one validate call
+  // See gh-6801
+  if (cachedRequired != null && _this.path in cachedRequired) {
+    const res = cachedRequired[_this.path] ?
+      _this.checkRequired(v, this) :
+      true;
+    delete cachedRequired[_this.path];
+    return res;
+  }
+
+  if (typeof required === 'function') {
+    return required.apply(this) ? _this.checkRequired(v, this) : true;
+  }
+
+  return _this.checkRequired(v, this);
 };
 
 /**
@@ -1189,6 +1214,7 @@ SchemaType.prototype.applySetters = function(value, scope, init, priorVal, optio
     return this._castNullish(v);
   }
 
+  // do not cast until all setters are applied #665
   v = this.cast(v, scope, init, priorVal, options);
 
   return v;
@@ -1253,6 +1279,7 @@ SchemaType.prototype.doValidate = function(value, fn, scope, options) {
   let err = false;
   const path = this.path;
 
+  // Avoid non-object `validators`
   const validators = this.validators.
     filter(v => v != null && typeof v === 'object');
 
@@ -1268,73 +1295,78 @@ SchemaType.prototype.doValidate = function(value, fn, scope, options) {
       return;
     }
 
-    const validator = v.validator;
-    const validatorProperties = utils.clone(v);
-    validatorProperties.path = options && options.path ? options.path : path;
-    validatorProperties.value = value;
-
-    _this._runValidator(validator, value, scope, validatorProperties, validate);
-  });
-
-  function validate(ok, validatorProperties) {
-    if (err) {
-      return;
-    }
-    if (ok === undefined || ok) {
-      if (--count <= 0) {
+    _this._validateSingleValidator(v, value, path, options, function(validationErr) {
+      if (validationErr) {
+        err = true;
+        immediate(function() {
+          fn(validationErr);
+        });
+      } else if (--count <= 0) {
         immediate(function() {
           fn(null);
         });
       }
-    } else {
-      const ErrorConstructor = validatorProperties.ErrorConstructor || ValidatorError;
-      err = new ErrorConstructor(validatorProperties);
-      err[validatorErrorSymbol] = true;
-      immediate(function() {
-        fn(err);
-      });
-    }
-  }
+    });
+  });
 };
 
-/**
- * Run a single validator and handle result
+/*!
+ * Validate a single validator
  * @api private
  */
-SchemaType.prototype._runValidator = function(validator, value, scope, validatorProperties, callback) {
+SchemaType.prototype._validateSingleValidator = function(v, value, path, options, callback) {
+  const validator = v.validator;
+  const validatorProperties = utils.clone(v);
+  validatorProperties.path = options && options.path ? options.path : path;
+  validatorProperties.value = value;
+
   if (validator instanceof RegExp) {
-    callback(validator.test(value), validatorProperties);
-    return;
+    return callback(this._validateRegExp(validator, validatorProperties));
   }
 
   if (typeof validator !== 'function') {
-    return;
+    return callback(null);
   }
 
   if (value === undefined && validator !== this.requiredValidator) {
-    callback(true, validatorProperties);
-    return;
+    return callback(null);
   }
 
   if (validatorProperties.isAsync) {
-    asyncValidate(validator, scope, value, validatorProperties, callback);
+    asyncValidate(validator, this, value, validatorProperties, callback);
     return;
   }
 
-  this._executeValidator(validator, value, scope, validatorProperties, callback);
+  this._validateFunction(validator, value, validatorProperties, callback);
 };
 
-/**
- * Execute validator function and handle result
+/*!
+ * Validate using a RegExp
  * @api private
  */
-SchemaType.prototype._executeValidator = function(validator, value, scope, validatorProperties, callback) {
+SchemaType.prototype._validateRegExp = function(validator, validatorProperties) {
+  if (validator.test(validatorProperties.value)) {
+    return null;
+  }
+
+  const ErrorConstructor = validatorProperties.ErrorConstructor || ValidatorError;
+  const err = new ErrorConstructor(validatorProperties);
+  err[validatorErrorSymbol] = true;
+  return err;
+};
+
+/*!
+ * Validate using a function
+ * @api private
+ */
+SchemaType.prototype._validateFunction = function(validator, value, validatorProperties, callback) {
   let ok;
+
   try {
     if (validatorProperties.propsParameter) {
-      ok = validator.call(scope, value, validatorProperties);
+      ok = validator.call(this, value, validatorProperties);
     } else {
-      ok = validator.call(scope, value);
+      ok = validator.call(this, value);
     }
   } catch (error) {
     ok = false;
@@ -1346,57 +1378,27 @@ SchemaType.prototype._executeValidator = function(validator, value, scope, valid
 
   if (ok != null && typeof ok.then === 'function') {
     ok.then(
-      function(ok) { callback(ok, validatorProperties); },
+      function(result) { callback(result ? null : this._createValidatorError(validatorProperties)); }.bind(this),
       function(error) {
         validatorProperties.reason = error;
         validatorProperties.message = error.message;
-        callback(false, validatorProperties);
-      });
+        callback(this._createValidatorError(validatorProperties));
+      }.bind(this));
   } else {
-    callback(ok, validatorProperties);
+    callback(ok ? null : this._createValidatorError(validatorProperties));
   }
 };
 
 /*!
- * Handle async validators
+ * Create a validator error
+ * @api private
  */
-
-function asyncValidate(validator, scope, value, props, cb) {
-  let called = false;
-  const returnVal = validator.call(scope, value, function(ok, customMsg) {
-    if (called) {
-      return;
-    }
-    called = true;
-    if (customMsg) {
-      props.message = customMsg;
-    }
-    cb(ok, props);
-  });
-  if (typeof returnVal === 'boolean') {
-    called = true;
-    cb(returnVal, props);
-  } else if (returnVal && typeof returnVal.then === 'function') {
-    returnVal.then(
-      function(ok) {
-        if (called) {
-          return;
-        }
-        called = true;
-        cb(ok, props);
-      },
-      function(error) {
-        if (called) {
-          return;
-        }
-        called = true;
-
-        props.reason = error;
-        props.message = error.message;
-        cb(false, props);
-      });
-  }
-}
+SchemaType.prototype._createValidatorError = function(validatorProperties) {
+  const ErrorConstructor = validatorProperties.ErrorConstructor || ValidatorError;
+  const err = new ErrorConstructor(validatorProperties);
+  err[validatorErrorSymbol] = true;
+  return err;
+};
 
 /**
  * Performs a validation of `value` using the validators declared for this SchemaType.
@@ -1438,54 +1440,53 @@ SchemaType.prototype.doValidateSync = function(value, scope, options) {
       return;
     }
 
-    const validator = v.validator;
-    const validatorProperties = utils.clone(v);
-    validatorProperties.path = options && options.path ? options.path : path;
-    validatorProperties.value = value;
-    let ok;
-
-    if (validator.isAsync) {
-      return;
-    }
-
-    if (validator instanceof RegExp) {
-      validate(validator.test(value), validatorProperties);
-      return;
-    }
-
-    if (typeof validator !== 'function') {
-      return;
-    }
-
-    try {
-      if (validatorProperties.propsParameter) {
-        ok = validator.call(scope, value, validatorProperties);
-      } else {
-        ok = validator.call(scope, value);
-      }
-    } catch (error) {
-      ok = false;
-      validatorProperties.reason = error;
-    }
-
-    if (ok != null && typeof ok.then === 'function') {
-      return;
-    }
-    validate(ok, validatorProperties);
-  });
+    err = this._validateSyncValidator(v, value, path, options) || err;
+  }, this);
 
   return err;
+};
 
-  function validate(ok, validatorProperties) {
-    if (err) {
-      return;
-    }
-    if (ok !== undefined && !ok) {
-      const ErrorConstructor = validatorProperties.ErrorConstructor || ValidatorError;
-      err = new ErrorConstructor(validatorProperties);
-      err[validatorErrorSymbol] = true;
-    }
+/*!
+ * Validate a single validator synchronously
+ * @api private
+ */
+SchemaType.prototype._validateSyncValidator = function(v, value, path, options) {
+  const validator = v.validator;
+  const validatorProperties = utils.clone(v);
+  validatorProperties.path = options && options.path ? options.path : path;
+  validatorProperties.value = value;
+
+  // Skip any explicit async validators
+  if (validator.isAsync) {
+    return null;
   }
+
+  if (validator instanceof RegExp) {
+    return this._validateRegExp(validator, validatorProperties);
+  }
+
+  if (typeof validator !== 'function') {
+    return null;
+  }
+
+  let ok;
+  try {
+    if (validatorProperties.propsParameter) {
+      ok = validator.call(this, value, validatorProperties);
+    } else {
+      ok = validator.call(this, value);
+    }
+  } catch (error) {
+    ok = false;
+    validatorProperties.reason = error;
+  }
+
+  // Skip any validators that return a promise
+  if (ok != null && typeof ok.then === 'function') {
+    return null;
+  }
+
+  return ok ? null : this._createValidatorError(validatorProperties);
 };
 
 /**
@@ -1500,9 +1501,13 @@ SchemaType.prototype.doValidateSync = function(value, scope, options) {
  */
 
 SchemaType._isRef = function(self, value, doc, init) {
+  // fast path
   let ref = init && self.options && (self.options.ref || self.options.refPath);
 
   if (!ref && doc && doc.$__ != null) {
+    // checks for
+    // - this populated with adhoc model and no ref was set in schema OR
+    // - setting / pushing values after population
     const path = doc.$__fullPath(self.path);
     const owner = doc.ownerDocument ? doc.ownerDocument() : doc;
     ref = owner.populated(path) || doc.populated(self.path);
@@ -1512,7 +1517,10 @@ SchemaType._isRef = function(self, value, doc, init) {
     if (value == null) {
       return true;
     }
-    if (!Buffer.isBuffer(value) && value._bsontype !== 'Binary' && utils.isObject(value)) {
+    if (!Buffer.isBuffer(value) && // buffers are objects too
+        value._bsontype !== 'Binary' // raw binary value from the db
+        && utils.isObject(value) // might have deselected _id in population query
+    ) {
       return true;
     }
 
@@ -1536,6 +1544,7 @@ SchemaType.prototype._castRef = function _castRef(value, doc, init) {
     return value;
   }
 
+  // setting a populated path
   if (Buffer.isBuffer(value) || !utils.isObject(value)) {
     if (init) {
       return value;
@@ -1543,6 +1552,9 @@ SchemaType.prototype._castRef = function _castRef(value, doc, init) {
     throw new CastError(this.instance, value, this.path, null, this);
   }
 
+  // Handle the case where user directly sets a populated
+  // path to a plain object; cast to the Model used in
+  // the population query.
   const path = doc.$__fullPath(this.path);
   const owner = doc.ownerDocument ? doc.ownerDocument() : doc;
   const pop = owner.populated(path, true);
@@ -1725,6 +1737,48 @@ SchemaType.prototype.clone = function() {
   schematype.setters = this.setters.slice();
   return schematype;
 };
+
+/*!
+ * Handle async validators
+ */
+
+function asyncValidate(validator, scope, value, props, cb) {
+  let called = false;
+  const returnVal = validator.call(scope, value, function(ok, customMsg) {
+    if (called) {
+      return;
+    }
+    called = true;
+    if (customMsg) {
+      props.message = customMsg;
+    }
+    cb(ok ? null : scope._createValidatorError(props), props);
+  });
+  if (typeof returnVal === 'boolean') {
+    called = true;
+    cb(returnVal ? null : scope._createValidatorError(props), props);
+  } else if (returnVal && typeof returnVal.then === 'function') {
+    // Promise
+    returnVal.then(
+      function(ok) {
+        if (called) {
+          return;
+        }
+        called = true;
+        cb(ok ? null : scope._createValidatorError(props), props);
+      },
+      function(error) {
+        if (called) {
+          return;
+        }
+        called = true;
+
+        props.reason = error;
+        props.message = error.message;
+        cb(scope._createValidatorError(props), props);
+      });
+  }
+}
 
 /*!
  * Module exports.

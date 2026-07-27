@@ -242,17 +242,13 @@ file.readJSON = function(filepath, options) {
 };
 
 /**
- * Loads YAML content using safe or unsafe mode based on options.
+ * Loads YAML content using safe or unsafe load strategy.
  * @param {string} src - The YAML source string
- * @param {Object} yamlOptions - Options controlling YAML parsing
- * @returns {Object} Parsed YAML object
+ * @param {boolean} unsafeLoad - Whether to use unsafe load
+ * @returns {*} Parsed YAML object
  */
-const loadYAML = function(src, yamlOptions) {
-  if (yamlOptions.unsafeLoad) {
-    return YAML.load(src);
-  } else {
-    return YAML.safeLoad(src);
-  }
+const loadYAML = function(src, unsafeLoad) {
+  return unsafeLoad ? YAML.load(src) : YAML.safeLoad(src);
 };
 
 // Read a YAML file, parse its contents, return an object.
@@ -264,37 +260,13 @@ file.readYAML = function(filepath, options, yamlOptions) {
   let result;
   grunt.verbose.write('Parsing ' + filepath + '...');
   try {
-    // use the recommended way of reading YAML files
-    // https://github.com/nodeca/js-yaml#safeload-string---options-
-    result = loadYAML(src, yamlOptions);
+    result = loadYAML(src, yamlOptions.unsafeLoad);
     grunt.verbose.ok();
     return result;
   } catch (e) {
     grunt.verbose.error();
     throw grunt.util.error('Unable to parse "' + filepath + '" file (' + e.message + ').', e);
   }
-};
-
-/**
- * Applies file encoding to contents if needed.
- * @param {Buffer|string} contents - File contents
- * @param {Object} options - Encoding options
- * @returns {Buffer} Encoded buffer
- */
-const encodeFileContents = function(contents, options) {
-  if (!Buffer.isBuffer(contents)) {
-    return iconv.encode(contents, options.encoding || file.defaultEncoding);
-  }
-  return contents;
-};
-
-/**
- * Builds write options object from provided options.
- * @param {Object} options - Options object
- * @returns {Object} Write options for fs.writeFileSync
- */
-const buildWriteOptions = function(options) {
-  return 'mode' in options ? {mode: options.mode} : {};
 };
 
 // Write a file.
@@ -307,10 +279,13 @@ file.write = function(filepath, contents, options) {
   try {
     // If contents is already a Buffer, don't try to encode it. If no encoding
     // was specified, use the default.
-    const encodedContents = encodeFileContents(contents, options);
+    let finalContents = contents;
+    if (!Buffer.isBuffer(contents)) {
+      finalContents = iconv.encode(contents, options.encoding || file.defaultEncoding);
+    }
     // Actually write file.
     if (!nowrite) {
-      fs.writeFileSync(filepath, encodedContents, buildWriteOptions(options));
+      fs.writeFileSync(filepath, finalContents, 'mode' in options ? {mode: options.mode} : {});
     }
     grunt.verbose.ok();
     return true;
@@ -339,37 +314,15 @@ file.copy = function copy(srcpath, destpath, options) {
 };
 
 /**
- * Determines if file should be processed based on options.
- * @param {Object} options - Processing options
- * @param {string} srcpath - Source file path
- * @returns {boolean} True if file should be processed
+ * Determines if file should be processed based on process and noProcess options.
+ * @param {*} processOption - The process option value
+ * @param {boolean} noProcessIsTrue - Whether noProcess is true
+ * @param {*} noProcessPattern - The noProcess pattern value
+ * @param {string} srcpath - The source file path
+ * @returns {boolean} Whether to process the file
  */
-const shouldProcessFile = function(options, srcpath) {
-  return options.process && options.noProcess !== true &&
-    !(options.noProcess && file.isMatch(options.noProcess, srcpath));
-};
-
-/**
- * Processes file contents if processing is enabled.
- * @param {string} contents - File contents
- * @param {string} srcpath - Source path
- * @param {string} destpath - Destination path
- * @param {Object} options - Processing options
- * @returns {string|false} Processed contents or false to abort
- */
-const processFileContents = function(contents, srcpath, destpath, options) {
-  if (!options.process) {
-    return contents;
-  }
-  grunt.verbose.write('Processing source...');
-  try {
-    const processed = options.process(contents, srcpath, destpath);
-    grunt.verbose.ok();
-    return processed;
-  } catch (e) {
-    grunt.verbose.error();
-    throw grunt.util.error('Error while processing "' + srcpath + '" file.', e);
-  }
+const shouldProcessFile = function(processOption, noProcessIsTrue, noProcessPattern, srcpath) {
+  return processOption && !noProcessIsTrue && !(noProcessPattern && file.isMatch(noProcessPattern, srcpath));
 };
 
 // Read a file, optionally processing its content, then write the output.
@@ -377,13 +330,22 @@ file._copy = function(srcpath, destpath, options) {
   if (!options) { options = {}; }
   // If a process function was specified, and noProcess isn't true or doesn't
   // match the srcpath, process the file's source.
-  const process = shouldProcessFile(options, srcpath);
+  const process = shouldProcessFile(options.process, options.noProcess === true, options.noProcess, srcpath);
   // If the file will be processed, use the encoding as-specified. Otherwise,
   // use an encoding of null to force the file to be read/written as a Buffer.
   const readWriteOptions = process ? options : {encoding: null};
   // Actually read the file.
   let contents = file.read(srcpath, readWriteOptions);
-  contents = processFileContents(contents, srcpath, destpath, options);
+  if (process) {
+    grunt.verbose.write('Processing source...');
+    try {
+      contents = options.process(contents, srcpath, destpath);
+      grunt.verbose.ok();
+    } catch (e) {
+      grunt.verbose.error();
+      throw grunt.util.error('Error while processing "' + srcpath + '" file.', e);
+    }
+  }
   // Abort copy if the process function returns false.
   if (contents === false) {
     grunt.verbose.writeln('Write aborted.');
@@ -394,19 +356,12 @@ file._copy = function(srcpath, destpath, options) {
 
 /**
  * Validates deletion safety checks.
- * @param {string} filepath - Path to delete
- * @param {Object} options - Deletion options
+ * @param {string} filepath - The file path to validate
+ * @param {boolean} force - Whether force flag is enabled
  * @returns {boolean} True if deletion is allowed
  */
-const isDeleteAllowed = function(filepath, options) {
-  if (!file.exists(filepath)) {
-    grunt.verbose.error();
-    grunt.log.warn('Cannot delete nonexistent file.');
-    return false;
-  }
-
-  // Only delete cwd or outside cwd if --force enabled. Be careful, people!
-  if (!options.force) {
+const isDeleteAllowed = function(filepath, force) {
+  if (!force) {
     if (file.isPathCwd(filepath)) {
       grunt.verbose.error();
       grunt.fail.warn('Cannot delete the current working directory.');
@@ -431,7 +386,14 @@ file.delete = function(filepath, options) {
 
   grunt.verbose.write((nowrite ? 'Not actually deleting ' : 'Deleting ') + filepath + '...');
 
-  if (!isDeleteAllowed(filepath, options)) {
+  if (!file.exists(filepath)) {
+    grunt.verbose.error();
+    grunt.log.warn('Cannot delete nonexistent file.');
+    return false;
+  }
+
+  // Only delete cwd or outside cwd if --force enabled. Be careful, people!
+  if (!isDeleteAllowed(filepath, options.force)) {
     return false;
   }
 
@@ -488,9 +450,9 @@ file.isPathAbsolute = function() {
 
 // Do all the specified paths refer to the same path?
 file.arePathsEquivalent = function(first) {
-  first = path.resolve(first);
+  const resolvedFirst = path.resolve(first);
   for (let i = 1; i < arguments.length; i++) {
-    if (first !== path.resolve(arguments[i])) { return false; }
+    if (resolvedFirst !== path.resolve(arguments[i])) { return false; }
   }
   return true;
 };
@@ -498,10 +460,9 @@ file.arePathsEquivalent = function(first) {
 // Are descendant path(s) contained within ancestor path? Note: does not test
 // if paths actually exist.
 file.doesPathContain = function(ancestor) {
-  ancestor = path.resolve(ancestor);
-  let relative;
+  const resolvedAncestor = path.resolve(ancestor);
   for (let i = 1; i < arguments.length; i++) {
-    relative = path.relative(path.resolve(arguments[i]), ancestor);
+    const relative = path.relative(path.resolve(arguments[i]), resolvedAncestor);
     if (relative === '' || /\w+/.test(relative)) { return false; }
   }
   return true;

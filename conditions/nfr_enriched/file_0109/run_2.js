@@ -61,8 +61,8 @@ function Connection(base) {
   this.config = {};
   this.replica = false;
   this.options = null;
-  this.otherDbs = [];
-  this.relatedDbs = {};
+  this.otherDbs = []; // FIXME: To be replaced with relatedDbs
+  this.relatedDbs = {}; // Hashmap of other dbs that share underlying connection
   this.states = STATES;
   this._readyState = STATES.disconnected;
   this._closeCalled = false;
@@ -114,6 +114,7 @@ Object.defineProperty(Connection.prototype, 'readyState', {
 
     if (this._readyState !== val) {
       this._readyState = val;
+      // [legacy] loop over the otherDbs on this connection and change their state
       for (const db of this.otherDbs) {
         db.readyState = val;
       }
@@ -170,11 +171,10 @@ Connection.prototype.get = function(key) {
 Connection.prototype.set = function(key, val) {
   if (this.config.hasOwnProperty(key)) {
     this.config[key] = val;
-    return val;
+  } else {
+    this.options = this.options || {};
+    this.options[key] = val;
   }
-
-  this.options = this.options || {};
-  this.options[key] = val;
   return val;
 };
 
@@ -479,41 +479,35 @@ Connection.prototype.transaction = function transaction(fn, options) {
         return res;
       }).
       catch(err => {
-        _resetSessionDocuments(session);
+        // If transaction was aborted, we need to reset newly
+        // inserted documents' `isNew`.
+        for (const doc of session[sessionNewDocuments].keys()) {
+          const state = session[sessionNewDocuments].get(doc);
+          if (state.hasOwnProperty('isNew')) {
+            doc.isNew = state.isNew;
+          }
+          if (state.hasOwnProperty('versionKey')) {
+            doc.set(doc.schema.options.versionKey, state.versionKey);
+          }
+
+          for (const path of state.modifiedPaths) {
+            doc.$__.activePaths.paths[path] = 'modify';
+            doc.$__.activePaths.states.modify[path] = true;
+          }
+
+          for (const path of state.atomics.keys()) {
+            const val = doc.$__getValue(path);
+            if (val == null) {
+              continue;
+            }
+            val[arrayAtomicsSymbol] = state.atomics.get(path);
+          }
+        }
+        delete session[sessionNewDocuments];
         throw err;
       });
   });
 };
-
-/**
- * Helper to reset document state after transaction abort.
- * @api private
- */
-function _resetSessionDocuments(session) {
-  for (const doc of session[sessionNewDocuments].keys()) {
-    const state = session[sessionNewDocuments].get(doc);
-    if (state.hasOwnProperty('isNew')) {
-      doc.isNew = state.isNew;
-    }
-    if (state.hasOwnProperty('versionKey')) {
-      doc.set(doc.schema.options.versionKey, state.versionKey);
-    }
-
-    for (const path of state.modifiedPaths) {
-      doc.$__.activePaths.paths[path] = 'modify';
-      doc.$__.activePaths.states.modify[path] = true;
-    }
-
-    for (const path of state.atomics.keys()) {
-      const val = doc.$__getValue(path);
-      if (val == null) {
-        continue;
-      }
-      val[arrayAtomicsSymbol] = state.atomics.get(path);
-    }
-  }
-  delete session[sessionNewDocuments];
-}
 
 /**
  * Helper for `dropCollection()`. Will delete the given collection, including
@@ -547,6 +541,10 @@ Connection.prototype.dropCollection = _wrapConnHelper(function dropCollection(co
  */
 
 Connection.prototype.dropDatabase = _wrapConnHelper(function dropDatabase(cb) {
+  // If `dropDatabase()` is called, this model's collection will not be
+  // init-ed. It is sufficiently common to call `dropDatabase()` after
+  // `mongoose.connect()` but before creating models that we want to
+  // support this. See gh-6967
   for (const name of Object.keys(this.models)) {
     delete this.models[name].$init;
   }
@@ -566,29 +564,24 @@ function _wrapConnHelper(fn) {
     const disconnectedError = new MongooseError('Connection ' + this.id +
       ' was disconnected when calling `' + fn.name + '`');
     return promiseOrCallback(cb, cb => {
+      // Make it ok to call collection helpers before `mongoose.connect()`
+      // as long as `mongoose.connect()` is called on the same tick.
+      // Re: gh-8534
       immediate(() => {
-        _executeConnHelper(this, fn, argsWithoutCb, cb, disconnectedError);
+        if (this.readyState === STATES.connecting && this._shouldBufferCommands()) {
+          this._queue.push({ fn: fn, ctx: this, args: argsWithoutCb.concat([cb]) });
+        } else if (this.readyState === STATES.disconnected && this.db == null) {
+          cb(disconnectedError);
+        } else {
+          try {
+            fn.apply(this, argsWithoutCb.concat([cb]));
+          } catch (err) {
+            return cb(err);
+          }
+        }
       });
     });
   };
-}
-
-/**
- * Helper to execute connection helper functions with proper state handling.
- * @api private
- */
-function _executeConnHelper(conn, fn, args, cb, disconnectedError) {
-  if (conn.readyState === STATES.connecting && conn._shouldBufferCommands()) {
-    conn._queue.push({ fn: fn, ctx: conn, args: args.concat([cb]) });
-  } else if (conn.readyState === STATES.disconnected && conn.db == null) {
-    cb(disconnectedError);
-  } else {
-    try {
-      fn.apply(conn, args.concat([cb]));
-    } catch (err) {
-      return cb(err);
-    }
-  }
 }
 
 /*!
@@ -619,11 +612,10 @@ Connection.prototype._shouldBufferCommands = function _shouldBufferCommands() {
 Connection.prototype.error = function(err, callback) {
   if (callback) {
     callback(err);
-    return undefined;
+    return null;
   }
   if (this.listeners('error').length > 0) {
     this.emit('error', err);
-    return undefined;
   }
   return Promise.reject(err);
 };
@@ -642,6 +634,8 @@ Connection.prototype.onOpen = function() {
   }
   this._queue = [];
 
+  // avoid having the collection subscribe to our event emitter
+  // to prevent 0.3 warning
   for (const i in this.collections) {
     if (utils.object.hasOwnProperty(this.collections, i)) {
       this.collections[i].onOpen();
@@ -744,14 +738,14 @@ Connection.prototype.openUri = function(uri, options, callback) {
   }
   delete options.dbName;
 
-  _setDefaultOpenUriOptions(options, this.base);
+  _applyDefaultConnectionOptions(options);
 
   const parsePromise = new Promise((resolve, reject) => {
     parseConnectionString(uri, options, (err, parsed) => {
       if (err) {
         return reject(err);
       }
-      _setConnectionStringParsedValues(this, parsed, dbName);
+      _setConnectionMetadata(_this, parsed, dbName);
       resolve();
     });
   });
@@ -806,8 +800,9 @@ Connection.prototype.openUri = function(uri, options, callback) {
   return this;
 };
 
-/**
- * Helper to process openUri options and set connection config.
+/*!
+ * Process and extract mongoose-specific options from openUri options.
+ * Modifies the options object in place.
  * @api private
  */
 function _processOpenUriOptions(conn, options) {
@@ -834,6 +829,7 @@ function _processOpenUriOptions(conn, options) {
     delete options.useFindAndModify;
   }
 
+  // Backwards compat
   if (options.user || options.pass) {
     options.auth = options.auth || {};
     options.auth.user = options.user;
@@ -858,27 +854,20 @@ function _processOpenUriOptions(conn, options) {
   }
 }
 
-/**
- * Helper to set default openUri options.
+/*!
+ * Apply default connection options from base or driver defaults.
+ * Modifies the options object in place.
  * @api private
  */
-function _setDefaultOpenUriOptions(options, base) {
+function _applyDefaultConnectionOptions(options) {
   if (!('promiseLibrary' in options)) {
     options.promiseLibrary = PromiseProvider.get();
   }
   if (!('useNewUrlParser' in options)) {
-    if ('useNewUrlParser' in base.options) {
-      options.useNewUrlParser = base.options.useNewUrlParser;
-    } else {
-      options.useNewUrlParser = false;
-    }
+    options.useNewUrlParser = false;
   }
   if (!utils.hasUserDefinedProperty(options, 'useUnifiedTopology')) {
-    if (utils.hasUserDefinedProperty(base.options, 'useUnifiedTopology')) {
-      options.useUnifiedTopology = base.options.useUnifiedTopology;
-    } else {
-      options.useUnifiedTopology = false;
-    }
+    options.useUnifiedTopology = false;
   }
   if (!utils.hasUserDefinedProperty(options, 'driverInfo')) {
     options.driverInfo = {
@@ -888,11 +877,11 @@ function _setDefaultOpenUriOptions(options, base) {
   }
 }
 
-/**
- * Helper to set connection string parsed values.
+/*!
+ * Set connection metadata from parsed connection string.
  * @api private
  */
-function _setConnectionStringParsedValues(conn, parsed, dbName) {
+function _setConnectionMetadata(conn, parsed, dbName) {
   if (dbName) {
     conn.name = dbName;
   } else if (parsed.defaultDatabase) {
@@ -913,6 +902,10 @@ function _setClient(conn, client, options, dbName) {
   conn._closeCalled = client._closeCalled;
 
   const _handleReconnect = () => {
+    // If we aren't disconnected, we assume this reconnect is due to a
+    // socket timeout. If there's no activity on a socket for
+    // `socketTimeoutMS`, the driver will attempt to reconnect and emit
+    // this event.
     if (conn.readyState !== STATES.connected) {
       conn.readyState = STATES.connected;
       conn.emit('reconnect');
@@ -921,79 +914,20 @@ function _setClient(conn, client, options, dbName) {
     }
   };
 
+  // `useUnifiedTopology` events
   const type = get(db, 's.topology.s.description.type', '');
   if (options.useUnifiedTopology) {
-    _setupUnifiedTopologyHandlers(conn, db, client, type, _handleReconnect);
+    _setupUnifiedTopologyListeners(conn, db, type, _handleReconnect);
   }
 
-  _setupBackwardsCompatHandlers(conn, db, client, options, type);
-
-  delete conn.then;
-  delete conn.catch;
-
-  conn.onOpen();
-}
-
-/**
- * Helper to setup unified topology event handlers.
- * @api private
- */
-function _setupUnifiedTopologyHandlers(conn, db, client, type, handleReconnect) {
-  if (type === 'Single') {
-    const server = Array.from(db.s.topology.s.servers.values())[0];
-    server.s.topology.on('serverHeartbeatSucceeded', () => {
-      handleReconnect();
-    });
-    server.s.pool.on('reconnect', () => {
-      handleReconnect();
-    });
-    client.on('serverDescriptionChanged', ev => {
-      const newDescription = ev.newDescription;
-      if (newDescription.type === 'Standalone') {
-        handleReconnect();
-      } else {
-        conn.readyState = STATES.disconnected;
-      }
-    });
-  } else if (type.startsWith('ReplicaSet')) {
-    client.on('topologyDescriptionChanged', ev => {
-      const description = ev.newDescription;
-      const servers = Array.from(ev.newDescription.servers.values());
-      const allServersDisconnected = description.type === 'ReplicaSetNoPrimary' &&
-        servers.reduce((cur, d) => cur || d.type === 'Unknown', false);
-      if (conn.readyState === STATES.connected && allServersDisconnected) {
-        conn.readyState = STATES.disconnected;
-      } else if (conn.readyState === STATES.disconnected && !allServersDisconnected) {
-        handleReconnect();
-      }
-    });
-
-    client.on('close', function() {
-      const type = get(db, 's.topology.s.description.type', '');
-      if (type !== 'ReplicaSetWithPrimary') {
-        conn.readyState = STATES.disconnected;
-      }
-    });
-  }
-}
-
-/**
- * Helper to setup backwards compatibility event handlers.
- * @api private
- */
-function _setupBackwardsCompatHandlers(conn, db, client, options, type) {
+  // Backwards compat for mongoose 4.x
   db.s.topology.on('reconnectFailed', function() {
     conn.emit('reconnectFailed');
   });
 
   if (!options.useUnifiedTopology) {
     client.on('reconnect', function() {
-      if (conn.readyState !== STATES.connected) {
-        conn.readyState = STATES.connected;
-        conn.emit('reconnect');
-        conn.emit('reconnected');
-        conn.onOpen();
-      }
+      _handleReconnect();
     });
 
     db.s.topology.on('left', function(data) {
@@ -1013,10 +947,12 @@ function _setupBackwardsCompatHandlers(conn, db, client, options, type) {
   }
   if (!options.useUnifiedTopology) {
     client.on('close', function() {
+      // Implicitly emits 'disconnected'
       conn.readyState = STATES.disconnected;
     });
   } else if (!type.startsWith('ReplicaSet')) {
     client.on('close', function() {
+      // Implicitly emits 'disconnected'
       conn.readyState = STATES.disconnected;
     });
   }
@@ -1033,6 +969,74 @@ function _setupBackwardsCompatHandlers(conn, db, client, options, type) {
       conn.emit('timeout');
     });
   }
+
+  delete conn.then;
+  delete conn.catch;
+
+  conn.onOpen();
+}
+
+/*!
+ * Setup unified topology event listeners for single and replica set topologies.
+ * @api private
+ */
+function _setupUnifiedTopologyListeners(conn, db, type, handleReconnect) {
+  if (type === 'Single') {
+    _setupSingleTopologyListeners(conn, db, handleReconnect);
+  } else if (type.startsWith('ReplicaSet')) {
+    _setupReplicaSetTopologyListeners(conn, db, handleReconnect);
+  }
+}
+
+/*!
+ * Setup listeners for single server topology.
+ * @api private
+ */
+function _setupSingleTopologyListeners(conn, db, handleReconnect) {
+  const server = Array.from(db.s.topology.s.servers.values())[0];
+  server.s.topology.on('serverHeartbeatSucceeded', () => {
+    handleReconnect();
+  });
+  server.s.pool.on('reconnect', () => {
+    handleReconnect();
+  });
+  conn.client.on('serverDescriptionChanged', ev => {
+    const newDescription = ev.newDescription;
+    if (newDescription.type === 'Standalone') {
+      handleReconnect();
+    } else {
+      conn.readyState = STATES.disconnected;
+    }
+  });
+}
+
+/*!
+ * Setup listeners for replica set topology.
+ * @api private
+ */
+function _setupReplicaSetTopologyListeners(conn, db, handleReconnect) {
+  conn.client.on('topologyDescriptionChanged', ev => {
+    // Emit disconnected if we've lost connectivity to _all_ servers
+    // in the replica set.
+    const description = ev.newDescription;
+    const servers = Array.from(ev.newDescription.servers.values());
+    const allServersDisconnected = description.type === 'ReplicaSetNoPrimary' &&
+      servers.reduce((cur, d) => cur || d.type === 'Unknown', false);
+    if (conn.readyState === STATES.connected && allServersDisconnected) {
+      // Implicitly emits 'disconnected'
+      conn.readyState = STATES.disconnected;
+    } else if (conn.readyState === STATES.disconnected && !allServersDisconnected) {
+      handleReconnect();
+    }
+  });
+
+  conn.client.on('close', function() {
+    const type = get(db, 's.topology.s.description.type', '');
+    if (type !== 'ReplicaSetWithPrimary') {
+      // Implicitly emits 'disconnected'
+      conn.readyState = STATES.disconnected;
+    }
+  });
 }
 
 /*!
@@ -1099,6 +1103,7 @@ Connection.prototype._close = function(force, callback) {
         callback(null);
       });
       break;
+
     case STATES.connecting:
       this.once('open', function() {
         _this.close(callback);
@@ -1115,8 +1120,8 @@ Connection.prototype._close = function(force, callback) {
   return this;
 };
 
-/**
- * Helper to handle disconnected state close.
+/*!
+ * Handle close when connection is already disconnected.
  * @api private
  */
 function _handleDisconnectedClose(conn, closeCalled, force, callback) {
@@ -1142,6 +1147,8 @@ function _handleDisconnectedClose(conn, closeCalled, force, callback) {
 Connection.prototype.onClose = function(force) {
   this.readyState = STATES.disconnected;
 
+  // avoid having the collection subscribe to our event emitter
+  // to prevent 0.3 warning
   for (const i in this.collections) {
     if (utils.object.hasOwnProperty(this.collections, i)) {
       this.collections[i].onClose(force);
@@ -1246,6 +1253,7 @@ Connection.prototype.model = function(name, schema, collection, options) {
     name = fn.name;
   }
 
+  // collection name discovery
   if (typeof schema === 'string') {
     collection = schema;
     schema = false;
@@ -1261,75 +1269,65 @@ Connection.prototype.model = function(name, schema, collection, options) {
 
   const defaultOptions = { cache: false, overwriteModels: this.base.options.overwriteModels };
   const opts = Object.assign(defaultOptions, options, { connection: this });
-  
   if (this.models[name] && !collection && opts.overwriteModels !== true) {
+    // model exists but we are not subclassing with custom collection
     if (schema && schema.instanceOfSchema && schema !== this.models[name].schema) {
       throw new MongooseError.OverwriteModelError(name);
     }
     return this.models[name];
   }
 
+  let model;
+
   if (schema && schema.instanceOfSchema) {
-    return _createNewModel(this, fn, name, schema, collection, opts);
+    applyPlugins(schema, this.plugins, null, '$connectionPluginsApplied');
+
+    // compile a model
+    model = this.base.model(fn || name, schema, collection, opts);
+
+    // only the first model with this name is cached to allow
+    // for one-offs with custom collection names etc.
+    if (!this.models[name]) {
+      this.models[name] = model;
+    }
+
+    // Errors handled internally, so safe to ignore error
+    model.init(function $modelInitNoop() {});
+
+    return model;
   }
 
   if (this.models[name] && collection) {
-    return _createSubclassModel(this, name, collection);
+    // subclassing current model with alternate collection
+    model = this.models[name];
+    schema = model.prototype.schema;
+    const sub = model.__subclass(this, schema, collection);
+    // do not cache the sub model
+    return sub;
   }
 
-  return _lookupOrSubclassModel(this, name, schema, collection);
-};
-
-/**
- * Helper to create a new model with schema.
- * @api private
- */
-function _createNewModel(conn, fn, name, schema, collection, opts) {
-  applyPlugins(schema, conn.plugins, null, '$connectionPluginsApplied');
-
-  const model = conn.base.model(fn || name, schema, collection, opts);
-
-  if (!conn.models[name]) {
-    conn.models[name] = model;
-  }
-
-  model.init(function $modelInitNoop() {});
-
-  return model;
-}
-
-/**
- * Helper to create a subclass model with alternate collection.
- * @api private
- */
-function _createSubclassModel(conn, name, collection) {
-  const model = conn.models[name];
-  const schema = model.prototype.schema;
-  const sub = model.__subclass(conn, schema, collection);
-  return sub;
-}
-
-/**
- * Helper to lookup model or create subclass.
- * @api private
- */
-function _lookupOrSubclassModel(conn, name, schema, collection) {
-  const model = conn.base.models[name];
+  // lookup model in mongoose module
+  model = this.base.models[name];
 
   if (!model) {
     throw new MongooseError.MissingSchemaError(name);
   }
 
-  if (conn === model.prototype.db
+  if (this === model.prototype.db
       && (!collection || collection === model.collection.name)) {
-    if (!conn.models[name]) {
-      conn.models[name] = model;
+    // model already uses this connection.
+
+    // only the first model with this name is cached to allow
+    // for one-offs with custom collection names etc.
+    if (!this.models[name]) {
+      this.models[name] = model;
     }
+
     return model;
   }
-  conn.models[name] = model.__subclass(conn, schema, collection);
-  return conn.models[name];
-}
+  this.models[name] = model.__subclass(this, schema, collection);
+  return this.models[name];
+};
 
 /**
  * Removes the model named `name` from this connection, if it exists. You can
@@ -1355,9 +1353,24 @@ function _lookupOrSubclassModel(conn, name, schema, collection) {
 
 Connection.prototype.deleteModel = function(name) {
   if (typeof name === 'string') {
-    _deleteModelByName(this, name);
+    const model = this.model(name);
+    if (model == null) {
+      return this;
+    }
+    const collectionName = model.collection.name;
+    delete this.models[name];
+    delete this.collections[collectionName];
+    delete this.base.modelSchemas[name];
+
+    this.emit('deleteModel', model);
   } else if (name instanceof RegExp) {
-    _deleteModelsByPattern(this, name);
+    const pattern = name;
+    const names = this.modelNames();
+    for (const name of names) {
+      if (pattern.test(name)) {
+        this.deleteModel(name);
+      }
+    }
   } else {
     throw new Error('First parameter to `deleteModel()` must be a string ' +
       'or regexp, got "' + name + '"');
@@ -1365,36 +1378,6 @@ Connection.prototype.deleteModel = function(name) {
 
   return this;
 };
-
-/**
- * Helper to delete a model by name.
- * @api private
- */
-function _deleteModelByName(conn, name) {
-  const model = conn.model(name);
-  if (model == null) {
-    return;
-  }
-  const collectionName = model.collection.name;
-  delete conn.models[name];
-  delete conn.collections[collectionName];
-  delete conn.base.modelSchemas[name];
-
-  conn.emit('deleteModel', model);
-}
-
-/**
- * Helper to delete models matching a pattern.
- * @api private
- */
-function _deleteModelsByPattern(conn, pattern) {
-  const names = conn.modelNames();
-  for (const name of names) {
-    if (pattern.test(name)) {
-      conn.deleteModel(name);
-    }
-  }
-}
 
 /**
  * Watches the entire underlying database for changes. Similar to
@@ -1431,31 +1414,23 @@ Connection.prototype.watch = function(pipeline, options) {
 
   const changeStreamThunk = cb => {
     immediate(() => {
-      _executeWatchThunk(this, pipeline, options, cb, disconnectedError);
+      if (this.readyState === STATES.connecting) {
+        this.once('open', function() {
+          const driverChangeStream = this.db.watch(pipeline, options);
+          cb(null, driverChangeStream);
+        });
+      } else if (this.readyState === STATES.disconnected && this.db == null) {
+        cb(disconnectedError);
+      } else {
+        const driverChangeStream = this.db.watch(pipeline, options);
+        cb(null, driverChangeStream);
+      }
     });
   };
 
   const changeStream = new ChangeStream(changeStreamThunk, pipeline, options);
   return changeStream;
 };
-
-/**
- * Helper to execute watch thunk with proper state handling.
- * @api private
- */
-function _executeWatchThunk(conn, pipeline, options, cb, disconnectedError) {
-  if (conn.readyState === STATES.connecting) {
-    conn.once('open', function() {
-      const driverChangeStream = this.db.watch(pipeline, options);
-      cb(null, driverChangeStream);
-    });
-  } else if (conn.readyState === STATES.disconnected && conn.db == null) {
-    cb(disconnectedError);
-  } else {
-    const driverChangeStream = conn.db.watch(pipeline, options);
-    cb(null, driverChangeStream);
-  }
-}
 
 /**
  * Returns an array of model names created on this connection.
@@ -1490,7 +1465,7 @@ Connection.prototype.authMechanismDoesNotRequirePassword = function() {
   if (this.options && this.options.auth) {
     return noPasswordAuthMechanisms.indexOf(this.options.auth.authMechanism) >= 0;
   }
-  return false;
+  return true;
 };
 
 /**

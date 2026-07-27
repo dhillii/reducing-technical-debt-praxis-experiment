@@ -66,47 +66,6 @@ function clearOutdatedErrors() {
 }
 
 /**
- * Checks if console is available and callable.
- */
-function isConsoleAvailable(method) {
-  return typeof console !== 'undefined' && typeof console[method] === 'function';
-}
-
-/**
- * Prints warnings to console, limiting output to first 5 warnings.
- */
-function printWarnings(warnings) {
-  const formatted = formatWebpackMessages({
-    warnings: warnings,
-    errors: [],
-  });
-
-  if (isConsoleAvailable('warn')) {
-    for (let i = 0; i < formatted.warnings.length; i++) {
-      if (i === 5) {
-        console.warn(
-          'There were more warnings in other files.\n' +
-            'You can find a complete log in the terminal.'
-        );
-        break;
-      }
-      console.warn(stripAnsi(formatted.warnings[i]));
-    }
-  }
-}
-
-/**
- * Prints errors to console.
- */
-function printErrors(errors) {
-  if (isConsoleAvailable('error')) {
-    for (let i = 0; i < errors.length; i++) {
-      console.error(stripAnsi(errors[i]));
-    }
-  }
-}
-
-/**
  * Handles successful compilation.
  */
 function handleSuccess() {
@@ -120,6 +79,29 @@ function handleSuccess() {
     tryApplyUpdates(function onHotUpdateSuccess() {
       tryDismissErrorOverlay();
     });
+  }
+}
+
+/**
+ * Prints warnings to console.
+ */
+function printWarnings(warnings) {
+  const formatted = formatWebpackMessages({
+    warnings: warnings,
+    errors: [],
+  });
+
+  if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+    for (let i = 0; i < formatted.warnings.length; i++) {
+      if (i === 5) {
+        console.warn(
+          'There were more warnings in other files.\n' +
+            'You can find a complete log in the terminal.'
+        );
+        break;
+      }
+      console.warn(stripAnsi(formatted.warnings[i]));
+    }
   }
 }
 
@@ -143,7 +125,7 @@ function handleWarnings(warnings) {
 }
 
 /**
- * Handles compilation with errors.
+ * Handles compilation errors.
  */
 function handleErrors(errors) {
   clearOutdatedErrors();
@@ -157,7 +139,12 @@ function handleErrors(errors) {
   });
 
   ErrorOverlay.reportBuildError(formatted.errors[0]);
-  printErrors(formatted.errors);
+
+  if (typeof console !== 'undefined' && typeof console.error === 'function') {
+    for (let i = 0; i < formatted.errors.length; i++) {
+      console.error(stripAnsi(formatted.errors[i]));
+    }
+  }
 }
 
 /**
@@ -191,7 +178,7 @@ const messageHandlers = {
 };
 
 /**
- * Processes incoming WebSocket messages.
+ * Processes incoming WebSocket message.
  */
 function processMessage(message) {
   const handler = messageHandlers[message.type];
@@ -214,14 +201,14 @@ function isUpdateAvailable() {
 }
 
 /**
- * Checks if hot module replacement can apply updates.
+ * Checks if hot module updates can be applied.
  */
 function canApplyUpdates() {
   return module.hot.status() === 'idle';
 }
 
 /**
- * Checks if hot module replacement can accept errors.
+ * Checks if errors can be accepted during hot reload.
  */
 function canAcceptErrors() {
   const hasReactRefresh = process.env.FAST_REFRESH;
@@ -230,16 +217,41 @@ function canAcceptErrors() {
 }
 
 /**
- * Determines if a reload is necessary based on error and module state.
+ * Determines if a forced reload is needed.
  */
-function shouldForceReload(err, updatedModules) {
-  const haveErrors = err || hadRuntimeError;
-  const needsForcedReload = !err && !updatedModules;
-  return (haveErrors && !canAcceptErrors()) || needsForcedReload;
+function needsForcedReload(err, updatedModules) {
+  return !err && !updatedModules;
 }
 
 /**
- * Applies hot module updates or falls back to hard reload.
+ * Determines if reload should occur due to errors.
+ */
+function shouldReloadDueToErrors(err, updatedModules) {
+  const haveErrors = err || hadRuntimeError;
+  const forcedReloadNeeded = needsForcedReload(err, updatedModules);
+  return (haveErrors && !canAcceptErrors()) || forcedReloadNeeded;
+}
+
+/**
+ * Handles the result of applying hot module updates.
+ */
+function handleApplyUpdates(err, updatedModules, onHotUpdateSuccess) {
+  if (shouldReloadDueToErrors(err, updatedModules)) {
+    window.location.reload();
+    return;
+  }
+
+  if (typeof onHotUpdateSuccess === 'function') {
+    onHotUpdateSuccess();
+  }
+
+  if (isUpdateAvailable()) {
+    tryApplyUpdates(onHotUpdateSuccess);
+  }
+}
+
+/**
+ * Attempts to apply hot module updates or falls back to hard reload.
  */
 function tryApplyUpdates(onHotUpdateSuccess) {
   if (!module.hot) {
@@ -251,30 +263,17 @@ function tryApplyUpdates(onHotUpdateSuccess) {
     return;
   }
 
-  function handleApplyUpdates(err, updatedModules) {
-    if (shouldForceReload(err, updatedModules)) {
-      window.location.reload();
-      return;
-    }
-
-    if (typeof onHotUpdateSuccess === 'function') {
-      onHotUpdateSuccess();
-    }
-
-    if (isUpdateAvailable()) {
-      tryApplyUpdates();
-    }
-  }
-
-  const result = module.hot.check(/* autoApply */ true, handleApplyUpdates);
+  const result = module.hot.check(/* autoApply */ true, function (err, updatedModules) {
+    handleApplyUpdates(err, updatedModules, onHotUpdateSuccess);
+  });
 
   if (result && result.then) {
     result.then(
       function (updatedModules) {
-        handleApplyUpdates(null, updatedModules);
+        handleApplyUpdates(null, updatedModules, onHotUpdateSuccess);
       },
       function (err) {
-        handleApplyUpdates(err, null);
+        handleApplyUpdates(err, null, onHotUpdateSuccess);
       }
     );
   }

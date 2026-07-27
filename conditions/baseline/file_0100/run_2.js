@@ -1348,7 +1348,7 @@ Email.prototype._imapUploadMessage = function(options) {
  */
 Email.prototype._fetchMessages = function(options) {
     const self = this;
-    let messages = options.messages;
+    const messages = options.messages;
     const folder = options.folder;
 
     return new Promise(function(resolve) {

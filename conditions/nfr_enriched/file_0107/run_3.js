@@ -446,21 +446,23 @@ Runner.prototype.runTest = function (fn) {
 };
 
 /**
- * Determine if test should be skipped based on grep and pending status.
+ * Determine if test matches grep criteria.
+ *
  * @param {Test} test
  * @return {boolean}
  * @api private
  */
-function shouldSkipTest (test, grep, invert, defaultGrep) {
+function testMatchesGrep (test, grep, invert) {
   let match = grep.test(test.fullTitle());
   if (invert) {
     match = !match;
   }
-  return !match;
+  return match;
 }
 
 /**
  * Handle pending test execution.
+ *
  * @param {Test} test
  * @param {Runner} runner
  * @api private
@@ -478,14 +480,15 @@ function handlePendingTest (test, runner) {
 
 /**
  * Handle test retry logic.
+ *
  * @param {Test} test
  * @param {Error} err
- * @param {Array} tests
  * @param {Runner} runner
+ * @param {Array} tests
  * @return {boolean} true if test was retried
  * @api private
  */
-function handleTestRetry (test, err, tests, runner) {
+function handleTestRetry (test, err, runner, tests) {
   const retry = test.currentRetry();
   if (retry < test.retries()) {
     const clonedTest = test.clone();
@@ -557,7 +560,7 @@ Runner.prototype.runTests = function (suite, fn) {
     }
 
     // grep
-    if (shouldSkipTest(test, self._grep, self._invert, self._defaultGrep)) {
+    if (!testMatchesGrep(test, self._grep, self._invert)) {
       // Run immediately only if we have defined a grep. When we
       // define a grep — It can cause maximum callstack error if
       // the grep is doing a large recursive loop by neglecting
@@ -598,7 +601,7 @@ Runner.prototype.runTests = function (suite, fn) {
           } else if (err instanceof Pending) {
             test.pending = true;
             self.emit('pending', test);
-          } else if (handleTestRetry(test, err, tests, self)) {
+          } else if (handleTestRetry(test, err, self, tests)) {
             // Early return + hook trigger so that it doesn't
             // increment the count wrong
             return self.hookUp('afterEach', next);
@@ -718,22 +721,6 @@ Runner.prototype.runSuite = function (suite, fn) {
 };
 
 /**
- * Determine hook type from hook title.
- * @param {string} title
- * @return {string} hook type
- * @api private
- */
-function getHookType (title) {
-  if (title.indexOf('after each') > -1) {
-    return 'afterEach';
-  }
-  if (title.indexOf('before each') > -1) {
-    return 'beforeEach';
-  }
-  return null;
-}
-
-/**
  * Handle uncaught exceptions.
  *
  * @param {Error} err
@@ -786,14 +773,12 @@ Runner.prototype.uncaught = function (err) {
   // recover from hooks
   if (runnable.type === 'hook') {
     const errSuite = this.suite;
-    const hookType = getHookType(runnable.fullTitle());
-    
     // if hook failure is in afterEach block
-    if (hookType === 'afterEach') {
+    if (runnable.fullTitle().indexOf('after each') > -1) {
       return this.hookErr(err, errSuite, true);
     }
     // if hook failure is in beforeEach block
-    if (hookType === 'beforeEach') {
+    if (runnable.fullTitle().indexOf('before each') > -1) {
       return this.hookErr(err, errSuite, false);
     }
     // if hook failure is in after or before blocks
@@ -803,17 +788,6 @@ Runner.prototype.uncaught = function (err) {
   // bail
   this.emit('end');
 };
-
-/**
- * Cleans array of hook references to prevent memory leaks.
- * @param {Array} arr
- * @api private
- */
-function cleanArrReferences (arr) {
-  for (let i = 0; i < arr.length; i++) {
-    delete arr[i].fn;
-  }
-}
 
 /**
  * Cleans up the references to all the deferred functions
@@ -826,6 +800,12 @@ function cleanArrReferences (arr) {
  * @param {Suite} suite
  */
 function cleanSuiteReferences (suite) {
+  function cleanArrReferences (arr) {
+    for (let i = 0; i < arr.length; i++) {
+      delete arr[i].fn;
+    }
+  }
+
   if (Array.isArray(suite._beforeAll)) {
     cleanArrReferences(suite._beforeAll);
   }

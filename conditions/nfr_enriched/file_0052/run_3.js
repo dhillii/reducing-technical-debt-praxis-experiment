@@ -35,24 +35,22 @@ file.setBase = function() {
   process.chdir(dirpath);
 };
 
-// Apply exclusion pattern to result set.
-const applyExclusionPattern = function(result, matches) {
-  return grunt.util._.difference(result, matches);
-};
-
-// Apply inclusion pattern to result set.
-const applyInclusionPattern = function(result, matches) {
-  return grunt.util._.union(result, matches);
-};
-
-// Check if pattern is an exclusion pattern.
+// Check if pattern is an exclusion pattern (starts with !)
 const isExclusionPattern = function(pattern) {
   return pattern.indexOf('!') === 0;
 };
 
-// Remove exclusion marker from pattern.
+// Remove exclusion marker from pattern
 const removeExclusionMarker = function(pattern) {
   return pattern.slice(1);
+};
+
+// Apply exclusion or union operation on result set
+const applyPatternOperation = function(result, matches, isExclusion) {
+  if (isExclusion) {
+    return grunt.util._.difference(result, matches);
+  }
+  return grunt.util._.union(result, matches);
 };
 
 // Process specified wildcard glob patterns or filenames against a
@@ -61,14 +59,14 @@ const processPatterns = function(patterns, fn) {
   let result = [];
   grunt.util._.flattenDeep(patterns).forEach(function(pattern) {
     const exclusion = isExclusionPattern(pattern);
-    const cleanPattern = exclusion ? removeExclusionMarker(pattern) : pattern;
-    const matches = fn(cleanPattern);
-    result = exclusion ? applyExclusionPattern(result, matches) : applyInclusionPattern(result, matches);
+    const processedPattern = exclusion ? removeExclusionMarker(pattern) : pattern;
+    const matches = fn(processedPattern);
+    result = applyPatternOperation(result, matches, exclusion);
   });
   return result;
 };
 
-// Validate match function arguments.
+// Validate match function arguments
 const validateMatchArguments = function(patterns, filepaths) {
   if (patterns == null || filepaths == null) {
     return false;
@@ -79,11 +77,14 @@ const validateMatchArguments = function(patterns, filepaths) {
   return true;
 };
 
-// Normalize match function arguments to arrays.
-const normalizeMatchArguments = function(patterns, filepaths) {
+// Normalize patterns and filepaths to arrays
+const normalizePatternArguments = function(patterns, filepaths) {
   const normalizedPatterns = Array.isArray(patterns) ? patterns : [patterns];
   const normalizedFilepaths = Array.isArray(filepaths) ? filepaths : [filepaths];
-  return { patterns: normalizedPatterns, filepaths: normalizedFilepaths };
+  return {
+    patterns: normalizedPatterns,
+    filepaths: normalizedFilepaths
+  };
 };
 
 // Match a filepath or filepaths against one or more wildcard patterns. Returns
@@ -103,7 +104,7 @@ file.match = function(options, patterns, filepaths) {
     return [];
   }
 
-  const normalized = normalizeMatchArguments(pats, fps);
+  const normalized = normalizePatternArguments(pats, fps);
   return processPatterns(normalized.patterns, function(pattern) {
     return file.minimatch.match(normalized.filepaths, pattern, opts);
   });
@@ -115,8 +116,8 @@ file.isMatch = function() {
   return file.match.apply(file, arguments).length > 0;
 };
 
-// Apply filter to matches if filter option is provided.
-const applyFilterToMatches = function(matches, options) {
+// Apply filter to matches if filter option is provided
+const applyExpandFilter = function(matches, options) {
   if (!options.filter) {
     return matches;
   }
@@ -148,7 +149,7 @@ file.expand = function() {
     return file.glob.sync(pattern, options);
   });
 
-  return applyFilterToMatches(matches, options);
+  return applyExpandFilter(matches, options);
 };
 
 const pathSeparatorRe = /[\/\\]/g;
@@ -160,9 +161,9 @@ const extDotRe = {
   last: /(\.[^\/\.]*)?$/,
 };
 
-// Process a single source file for expandMapping.
-const processMappingFile = function(src, destBase, options, fileByDest, files) {
-  let destPath = src;
+// Process destination path with flatten and extension options
+const processDestinationPath = function(srcPath, options) {
+  let destPath = srcPath;
 
   if (options.flatten) {
     destPath = path.basename(destPath);
@@ -172,20 +173,20 @@ const processMappingFile = function(src, destBase, options, fileByDest, files) {
     destPath = destPath.replace(extDotRe[options.extDot], options.ext);
   }
 
-  const dest = options.rename(destBase, destPath, options);
-  const finalSrc = options.cwd ? path.join(options.cwd, src) : src;
-  const normalizedDest = dest.replace(pathSeparatorRe, '/');
-  const normalizedSrc = finalSrc.replace(pathSeparatorRe, '/');
+  return destPath;
+};
 
-  if (fileByDest[normalizedDest]) {
-    fileByDest[normalizedDest].src.push(normalizedSrc);
+// Create or update file mapping entry
+const createOrUpdateFileMapping = function(files, fileByDest, src, dest) {
+  if (fileByDest[dest]) {
+    fileByDest[dest].src.push(src);
   } else {
-    const fileMapping = {
-      src: [normalizedSrc],
-      dest: normalizedDest,
+    const fileEntry = {
+      src: [src],
+      dest: dest,
     };
-    files.push(fileMapping);
-    fileByDest[normalizedDest] = fileMapping;
+    files.push(fileEntry);
+    fileByDest[dest] = fileEntry;
   }
 };
 
@@ -202,7 +203,18 @@ file.expandMapping = function(patterns, destBase, options) {
   const fileByDest = {};
 
   file.expand(opts, patterns).forEach(function(src) {
-    processMappingFile(src, destBase, opts, fileByDest, files);
+    let srcPath = src;
+    let destPath = processDestinationPath(src, opts);
+    const dest = opts.rename(destBase, destPath, opts);
+
+    if (opts.cwd) {
+      srcPath = path.join(opts.cwd, srcPath);
+    }
+
+    const normalizedDest = dest.replace(pathSeparatorRe, '/');
+    const normalizedSrc = srcPath.replace(pathSeparatorRe, '/');
+
+    createOrUpdateFileMapping(files, fileByDest, normalizedSrc, normalizedDest);
   });
 
   return files;
@@ -238,16 +250,23 @@ file.defaultEncoding = 'utf8';
 // Whether to preserve the BOM on file.read rather than strip it.
 file.preserveBOM = false;
 
+// Decode file contents with proper encoding handling
+const decodeFileContents = function(buffer, options) {
+  if (options.encoding !== null) {
+    return iconv.decode(buffer, options.encoding || file.defaultEncoding, {stripBOM: !file.preserveBOM});
+  }
+  return buffer;
+};
+
 // Read a file, return its contents.
 file.read = function(filepath, options) {
   const opts = options || {};
   let contents;
+
   grunt.verbose.write('Reading ' + filepath + '...');
   try {
     contents = fs.readFileSync(String(filepath));
-    if (opts.encoding !== null) {
-      contents = iconv.decode(contents, opts.encoding || file.defaultEncoding, {stripBOM: !file.preserveBOM});
-    }
+    contents = decodeFileContents(contents, opts);
     grunt.verbose.ok();
     return contents;
   } catch (e) {
@@ -260,6 +279,7 @@ file.read = function(filepath, options) {
 file.readJSON = function(filepath, options) {
   const src = file.read(filepath, options);
   let result;
+
   grunt.verbose.write('Parsing ' + filepath + '...');
   try {
     result = JSON.parse(src);
@@ -271,16 +291,25 @@ file.readJSON = function(filepath, options) {
   }
 };
 
+// Parse YAML content with safe or unsafe loading
+const parseYAMLContent = function(src, yamlOptions) {
+  if (yamlOptions.unsafeLoad) {
+    return YAML.load(src);
+  }
+  return YAML.safeLoad(src);
+};
+
 // Read a YAML file, parse its contents, return an object.
 file.readYAML = function(filepath, options, yamlOptions) {
   const opts = options || {};
-  const yamlOpts = yamlOptions || {};
+  const ymlOpts = yamlOptions || {};
 
   const src = file.read(filepath, opts);
   let result;
+
   grunt.verbose.write('Parsing ' + filepath + '...');
   try {
-    result = yamlOpts.unsafeLoad ? YAML.load(src) : YAML.safeLoad(src);
+    result = parseYAMLContent(src, ymlOpts);
     grunt.verbose.ok();
     return result;
   } catch (e) {
@@ -289,19 +318,26 @@ file.readYAML = function(filepath, options, yamlOptions) {
   }
 };
 
+// Encode contents for writing
+const encodeFileContents = function(contents, options) {
+  if (!Buffer.isBuffer(contents)) {
+    return iconv.encode(contents, options.encoding || file.defaultEncoding);
+  }
+  return contents;
+};
+
 // Write a file.
 file.write = function(filepath, contents, options) {
   const opts = options || {};
   const nowrite = grunt.option('no-write');
+
   grunt.verbose.write((nowrite ? 'Not actually writing ' : 'Writing ') + filepath + '...');
   file.mkdir(path.dirname(filepath));
+
   try {
-    let finalContents = contents;
-    if (!Buffer.isBuffer(finalContents)) {
-      finalContents = iconv.encode(finalContents, opts.encoding || file.defaultEncoding);
-    }
+    const encodedContents = encodeFileContents(contents, opts);
     if (!nowrite) {
-      fs.writeFileSync(filepath, finalContents, 'mode' in opts ? {mode: opts.mode} : {});
+      fs.writeFileSync(filepath, encodedContents, 'mode' in opts ? {mode: opts.mode} : {});
     }
     grunt.verbose.ok();
     return true;
@@ -325,17 +361,23 @@ file.copy = function copy(srcpath, destpath, options) {
   }
 };
 
-// Determine if file should be processed based on options.
+// Determine if file should be processed
 const shouldProcessFile = function(options, srcpath) {
   return options.process && options.noProcess !== true &&
     !(options.noProcess && file.isMatch(options.noProcess, srcpath));
 };
 
-// Process file contents if needed.
-const processFileContents = function(contents, srcpath, destpath, options) {
+// Process file contents if needed
+const processFileContents = function(contents, options, srcpath, destpath) {
+  if (!options.process) {
+    return contents;
+  }
+
   grunt.verbose.write('Processing source...');
   try {
-    return options.process(contents, srcpath, destpath);
+    const processed = options.process(contents, srcpath, destpath);
+    grunt.verbose.ok();
+    return processed;
   } catch (e) {
     grunt.verbose.error();
     throw grunt.util.error('Error while processing "' + srcpath + '" file.', e);
@@ -347,12 +389,9 @@ file._copy = function(srcpath, destpath, options) {
   const opts = options || {};
   const process = shouldProcessFile(opts, srcpath);
   const readWriteOptions = process ? opts : {encoding: null};
-  let contents = file.read(srcpath, readWriteOptions);
 
-  if (process) {
-    grunt.verbose.ok();
-    contents = processFileContents(contents, srcpath, destpath, opts);
-  }
+  let contents = file.read(srcpath, readWriteOptions);
+  contents = processFileContents(contents, opts, srcpath, destpath);
 
   if (contents === false) {
     grunt.verbose.writeln('Write aborted.');
@@ -361,58 +400,51 @@ file._copy = function(srcpath, destpath, options) {
   }
 };
 
-// Check if filepath is the current working directory.
-const checkIfPathIsCwd = function(filepath) {
-  if (file.isPathCwd(filepath)) {
-    grunt.verbose.error();
-    grunt.fail.warn('Cannot delete the current working directory.');
-    return true;
-  }
-  return false;
-};
-
-// Check if filepath is outside the current working directory.
-const checkIfPathIsOutsideCwd = function(filepath) {
-  if (!file.isPathInCwd(filepath)) {
-    grunt.verbose.error();
-    grunt.fail.warn('Cannot delete files outside the current working directory.');
-    return true;
-  }
-  return false;
-};
-
-// Delete folders and files recursively
-file.delete = function(filepath, options) {
-  const normalizedPath = String(filepath);
-  const nowrite = grunt.option('no-write');
-  const opts = options || {force: grunt.option('force') || false};
-
-  grunt.verbose.write((nowrite ? 'Not actually deleting ' : 'Deleting ') + normalizedPath + '...');
-
-  if (!file.exists(normalizedPath)) {
+// Validate delete operation preconditions
+const validateDeletePreconditions = function(filepath, options) {
+  if (!file.exists(filepath)) {
     grunt.verbose.error();
     grunt.log.warn('Cannot delete nonexistent file.');
     return false;
   }
 
-  if (!opts.force) {
-    if (checkIfPathIsCwd(normalizedPath)) {
+  if (!options.force) {
+    if (file.isPathCwd(filepath)) {
+      grunt.verbose.error();
+      grunt.fail.warn('Cannot delete the current working directory.');
       return false;
     }
-    if (checkIfPathIsOutsideCwd(normalizedPath)) {
+    if (!file.isPathInCwd(filepath)) {
+      grunt.verbose.error();
+      grunt.fail.warn('Cannot delete files outside the current working directory.');
       return false;
     }
   }
 
+  return true;
+};
+
+// Delete folders and files recursively
+file.delete = function(filepath, options) {
+  const filePath = String(filepath);
+  const nowrite = grunt.option('no-write');
+  const opts = options || {force: grunt.option('force') || false};
+
+  grunt.verbose.write((nowrite ? 'Not actually deleting ' : 'Deleting ') + filePath + '...');
+
+  if (!validateDeletePreconditions(filePath, opts)) {
+    return false;
+  }
+
   try {
     if (!nowrite) {
-      rimraf.sync(normalizedPath);
+      rimraf.sync(filePath);
     }
     grunt.verbose.ok();
     return true;
   } catch (e) {
     grunt.verbose.error();
-    throw grunt.util.error('Unable to delete "' + normalizedPath + '" file (' + e.message + ').', e);
+    throw grunt.util.error('Unable to delete "' + filePath + '" file (' + e.message + ').', e);
   }
 };
 
@@ -455,9 +487,9 @@ file.isPathAbsolute = function() {
 
 // Do all the specified paths refer to the same path?
 file.arePathsEquivalent = function(first) {
-  const resolvedFirst = path.resolve(first);
+  const firstResolved = path.resolve(first);
   for (let i = 1; i < arguments.length; i++) {
-    if (resolvedFirst !== path.resolve(arguments[i])) {
+    if (firstResolved !== path.resolve(arguments[i])) {
       return false;
     }
   }
@@ -467,9 +499,9 @@ file.arePathsEquivalent = function(first) {
 // Are descendant path(s) contained within ancestor path? Note: does not test
 // if paths actually exist.
 file.doesPathContain = function(ancestor) {
-  const resolvedAncestor = path.resolve(ancestor);
+  const ancestorResolved = path.resolve(ancestor);
   for (let i = 1; i < arguments.length; i++) {
-    const relative = path.relative(path.resolve(arguments[i]), resolvedAncestor);
+    const relative = path.relative(path.resolve(arguments[i]), ancestorResolved);
     if (relative === '' || /\w+/.test(relative)) {
       return false;
     }

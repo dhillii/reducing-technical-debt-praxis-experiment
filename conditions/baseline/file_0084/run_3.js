@@ -92,7 +92,7 @@ export function controller(
     hasAutoIncrementDefault: config.fieldMeta.defaultValue === 'autoincrement',
     validate: (value, opts) => validate(value, opts) === undefined,
     filter: {
-      Filter(props: Readonly<FieldProps<typeof controller>>) {
+      Filter(props) {
         const {
           autoFocus,
           context,
@@ -153,7 +153,7 @@ export function controller(
           return []
         })
       },
-      Label({ label, type, value }: Readonly<{ label: string; type: string; value: number | null }>) {
+      Label({ label, type, value }) {
         if (type === 'empty' || type === 'not_empty') return label.toLocaleLowerCase()
         const operator = TYPE_OPERATOR_MAP[type as keyof typeof TYPE_OPERATOR_MAP]
         return `${operator} ${value}`
@@ -197,12 +197,12 @@ export function controller(
 }
 
 export function Field({
-  field,
-  value,
-  onChange,
-  autoFocus,
-  forceValidation,
-  isRequired,
+  readonly field,
+  readonly value,
+  readonly onChange,
+  readonly autoFocus,
+  readonly forceValidation,
+  readonly isRequired,
 }: Readonly<FieldProps<typeof controller>>) {
   const [isDirty, setDirty] = useState(false)
   const isReadOnly = !onChange || field.hasAutoIncrementDefault

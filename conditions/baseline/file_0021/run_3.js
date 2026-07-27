@@ -30,14 +30,6 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
         };
         return fetch(url, options);
     }
-
-    function handleJsonResponse(res) {
-        if (res.ok) {
-            return res.json();
-        }
-        throw new Error('Failed to fetch data');
-    }
-
     const api = {};
 
     api.site = {
@@ -49,7 +41,13 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(handleJsonResponse);
+            }).then(function (res) {
+                if (res.ok) {
+                    return res.json();
+                } else {
+                    throw new Error('Failed to fetch site data');
+                }
+            });
         },
 
         newsletters() {
@@ -60,7 +58,13 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(handleJsonResponse);
+            }).then(function (res) {
+                if (res.ok) {
+                    return res.json();
+                } else {
+                    throw new Error('Failed to fetch site data');
+                }
+            });
         },
 
         tiers() {
@@ -71,7 +75,13 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(handleJsonResponse);
+            }).then(function (res) {
+                if (res.ok) {
+                    return res.json();
+                } else {
+                    throw new Error('Failed to fetch site data');
+                }
+            });
         },
 
         settings() {
@@ -82,7 +92,13 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(handleJsonResponse);
+            }).then(function (res) {
+                if (res.ok) {
+                    return res.json();
+                } else {
+                    throw new Error('Failed to fetch site data');
+                }
+            });
         },
 
         offer({offerId}) {
@@ -93,7 +109,13 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(handleJsonResponse);
+            }).then(function (res) {
+                if (res.ok) {
+                    return res.json();
+                } else {
+                    throw new Error('Failed to fetch offer data');
+                }
+            });
         },
 
         recommendations({limit = 100} = {limit: 100}) {
@@ -107,8 +129,9 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             }).then(function (res) {
                 if (res.ok) {
                     return res.json();
+                } else {
+                    throw new Error('Failed to fetch recommendations');
                 }
-                throw new Error('Failed to fetch recommendations');
             });
         }
     };
@@ -116,7 +139,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
     api.feedback = {
         async add({uuid, key, postId, score}) {
             let url = endpointFor({type: 'members', resource: 'feedback'});
-            if (uuid && key) {
+            if (uuid && key) { // only necessary if not logged in, and both are required if so
                 url = url + `?uuid=${uuid}&key=${key}`;
             }
             const body = {
@@ -138,9 +161,10 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             });
             if (res.ok) {
                 return res.json();
+            } else {
+                const humanError = await HumanReadableError.fromApiResponse(res);
+                throw humanError ?? new Error('Failed to save feedback');
             }
-            const humanError = await HumanReadableError.fromApiResponse(res);
-            throw humanError ?? new Error('Failed to save feedback');
         }
     };
 
@@ -233,14 +257,25 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
 
             if (res.ok) {
                 return res.text();
+            } else {
+                const humanError = await HumanReadableError.fromApiResponse(res);
+                if (humanError) {
+                    throw humanError;
+                }
+                throw new Error('Failed to start a members session');
             }
-            const humanError = await HumanReadableError.fromApiResponse(res);
-            if (humanError) {
-                throw humanError;
-            }
-            throw new Error('Failed to start a members session');
         },
 
+        /**
+         * @returns {{
+         *     inboxLinks?: {
+         *         desktop: string;
+         *         android: string;
+         *         provider: 'gmail' | 'yahoo' | 'outlook' | 'proton' | 'icloud' | 'hey' | 'aol' | 'mailru';
+         *     };
+         *     otc_ref?: string;
+         * }}
+         */
         async sendMagicLink({email, emailType, labels, name, oldEmail, newsletters, redirect, integrityToken, phonenumber, customUrlHistory, token, autoRedirect = true, includeOTC}) {
             const url = endpointFor({type: 'members', resource: 'send-magic-link'});
             const body = {
@@ -253,6 +288,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 requestSrc: 'portal',
                 redirect,
                 integrityToken,
+                // we don't actually use a phone #, this is from a hidden field to prevent bot activity
                 honeypot: phonenumber,
                 token,
                 autoRedirect,
@@ -282,12 +318,13 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                     }
                 }
                 return {};
+            } else {
+                const humanError = await HumanReadableError.fromApiResponse(res);
+                if (humanError) {
+                    throw humanError;
+                }
+                throw new Error('Failed to send magic link email');
             }
-            const humanError = await HumanReadableError.fromApiResponse(res);
-            if (humanError) {
-                throw humanError;
-            }
-            throw new Error('Failed to send magic link email');
         },
 
         async verifyOTC({otc, otcRef, redirect, integrityToken}) {
@@ -310,12 +347,13 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
 
             if (res.ok) {
                 return await res.json();
+            } else {
+                const humanError = await HumanReadableError.fromApiResponse(res);
+                if (humanError) {
+                    throw humanError;
+                }
+                throw new Error('Failed to verify code');
             }
-            const humanError = await HumanReadableError.fromApiResponse(res);
-            if (humanError) {
-                throw humanError;
-            }
-            throw new Error('Failed to verify code');
         },
 
         signout(all = false) {
@@ -333,12 +371,13 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 if (res.ok) {
                     window.location.replace(siteUrl);
                     return 'Success';
+                } else {
+                    throw new Error('Failed to signout');
                 }
-                throw new Error('Failed to signout');
             });
         },
 
-        newsletters({uuid, key}) {
+        async newsletters({uuid, key}) {
             let url = endpointFor({type: 'members', resource: `member/newsletters`});
             url = url + `?uuid=${uuid}&key=${key}`;
             return makeRequest({
@@ -352,7 +391,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             });
         },
 
-        updateNewsletters({uuid, newsletters, key, enableCommentNotifications}) {
+        async updateNewsletters({uuid, newsletters, key, enableCommentNotifications}) {
             let url = endpointFor({type: 'members', resource: `member/newsletters`});
             url = url + `?uuid=${uuid}&key=${key}`;
             const body = {
@@ -373,8 +412,9 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             }).then(function (res) {
                 if (res.ok) {
                     return res.json();
+                } else {
+                    throw new Error('Failed to update email preferences');
                 }
-                throw new Error('Failed to update email preferences');
             });
         },
 
@@ -396,10 +436,11 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             }).then(async function (res) {
                 if (res.ok) {
                     return 'Success';
+                } else {
+                    const errData = await res.json();
+                    const errMssg = errData?.errors?.[0]?.message || 'Failed to send email address verification email';
+                    throw new Error(errMssg);
                 }
-                const errData = await res.json();
-                const errMssg = errData?.errors?.[0]?.message || 'Failed to send email address verification email';
-                throw new Error(errMssg);
             });
         },
 

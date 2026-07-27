@@ -27,12 +27,17 @@ define([
      */
     const Sync = Marionette.Object.extend({
 
-        configs: {
-            key: '10iirspliqts95d',
-            interval: 2000,
-            intervalMax: 15000,
-            intervalMin: 2000,
-            statRemote: false
+        configs  : {
+            // Dropbox app key
+            key         : '10iirspliqts95d',
+
+            // Interval configs
+            interval    : 2000,
+            intervalMax : 15000,
+            intervalMin : 2000,
+
+            // A state which shows if something is changed remotely
+            statRemote  : false
         },
 
         initialize: function() {
@@ -46,29 +51,26 @@ define([
                 clientId: this.configs.key
             });
 
+            // Replies
             Radio.reply('sync', 'start', this.startSync, this);
 
+            // Listen to Laverna events
             this.listenTo(Radio.channel('notes'), 'sync:model destroy:model restore:model', this.onSave);
             this.listenTo(Radio.channel('notebooks'), 'sync:model destroy:model restore:model', this.onSave);
             this.listenTo(Radio.channel('tags'), 'sync:model destroy:model restore:model', this.onSave);
 
-            this.initializeAuth();
-        },
-
-        /**
-         * Initialize authentication flow.
-         */
-        initializeAuth: function() {
+            // Authorize the app
             this.checkAuth()
-                .then((authenticated) => {
-                    if (authenticated) {
-                        return this.onReady();
-                    }
-                    console.error('Dropbox authentication failed.');
-                })
-                .catch((err) => {
-                    console.log('Dropbox error', err);
-                });
+            .then((authenticated) => {
+                if (authenticated) {
+                    return this.onReady();
+                }
+
+                console.error('Dropbox authentication failed.');
+            })
+            .catch((err) => {
+                console.log('Dropbox error', err);
+            });
         },
 
         /**
@@ -94,16 +96,16 @@ define([
                 this.client.setAccessToken(this.configs.accessToken);
                 return Promise.resolve(true);
             }
-
-            if (hash.access_token && hash.access_token.length) {
+            else if (hash.access_token && hash.access_token.length) {
                 return this.saveAccessToken(hash.access_token);
             }
+            else {
+                if (hash.error) {
+                    Radio.request('uri', 'navigate', '/');
+                }
 
-            if (hash.error) {
-                Radio.request('uri', 'navigate', '/');
+                return this.authenticate();
             }
-
-            return this.authenticate();
         },
 
         /**
@@ -113,19 +115,19 @@ define([
          */
         parseHash: function() {
             const hash = window.location.hash.replace('#', '').split('&');
-            const ret = {};
+            const ret  = {};
 
             if (!hash.length) {
                 return ret;
             }
 
-            _.each(hash, (str) => {
+            _.each(hash, function(str) {
                 const parts = str.replace(/\+/g, ' ').split('=');
 
                 if (parts.length > 1) {
-                    const key = parts.shift();
-                    const val = parts.length > 0 ? parts.join('=') : undefined;
-                    const decodedVal = val === undefined ? null : decodeURIComponent(val.trim());
+                    const key  = parts.shift();
+                    const val  = parts.length > 0 ? parts.join('=') : undefined;
+                    const decodedVal = undefined ? null : decodeURIComponent(val.trim());
                     ret[key] = decodedVal;
                 }
             });
@@ -133,20 +135,17 @@ define([
             return ret;
         },
 
-        /**
-         * Authenticate with Dropbox.
-         */
         authenticate: function() {
             const defer = Q.defer();
             const authUrl = this.client.getAuthenticationUrl(document.location);
 
-            Radio.once('Confirm', 'cancel', _.bind(defer.reject, defer));
+            Radio.once('Confirm', 'cancel',  _.bind(defer.reject, defer));
             Radio.once('Confirm', 'confirm', function() {
                 window.location = authUrl;
             });
 
             Radio.request('Confirm', 'start', {
-                title: $.t('dropbox.auth title'),
+                title  : $.t('dropbox.auth title'),
                 content: $.t('dropbox.auth confirm')
             });
 
@@ -161,14 +160,14 @@ define([
          */
         saveAccessToken: function(accessToken) {
             return Radio.request('configs', 'save:object', {
-                name: 'dropboxAccessToken',
-                value: accessToken,
+                name  : 'dropboxAccessToken',
+                value : accessToken,
             })
-                .then(() => {
-                    Radio.request('uri', 'navigate', '/');
-                    this.configs.accessToken = accessToken;
-                    return true;
-                });
+            .then(() => {
+                Radio.request('uri', 'navigate', '/');
+                this.configs.accessToken = accessToken;
+                return true;
+            });
         },
 
         /**
@@ -192,34 +191,49 @@ define([
             this.configs.statRemote = false;
             Radio.trigger('sync', 'start', 'dropbox');
 
+            // Synchronize all collections
             _.each(['notes', 'notebooks', 'tags'], (module) => {
                 promises.push(() => {
                     return Q.all([
                         Radio.request(module, 'fetch', {encrypt: true}),
                         adapter.getAll(module)
                     ])
-                        .spread((localData, remoteData) => {
-                            return this.syncAll(localData, remoteData, module);
-                        });
+                    .spread((localData, remoteData) => {
+                        return this.syncAll(localData, remoteData, module);
+                    });
                 });
             });
 
+            // After synchronizing, start watching for changes
             return _.reduce(promises, Q.when, new Q())
-                .then(() => {
-                    Radio.trigger('sync', 'stop', 'dropbox');
-                    this.startWatch();
-                })
-                .fail((err) => {
-                    this.handleSyncError(err);
-                });
+            .then(() => {
+                Radio.trigger('sync', 'stop', 'dropbox');
+                this.startWatch();
+            })
+            .fail((err) => {
+                this.handleSyncError(err);
+            });
         },
 
         /**
-         * Handle synchronization errors.
+         * Handle synchronization errors with appropriate recovery strategies.
+         *
+         * @param {Object} err - Error object
          */
         handleSyncError: function(err) {
             if (err) {
-                this.handleErrorByStatus(err.status);
+                switch (err.status) {
+                    // If access was revoked, try to ask for it again
+                    case 401:
+                        this.checkAuth();
+                        break;
+
+                    // On connection error, increase watch interval
+                    case 0:
+                        this.configs.interval = this.configs.intervalMax;
+                        this.startWatch();
+                        break;
+                }
             }
 
             Radio.trigger('sync', 'stop', 'dropbox');
@@ -228,27 +242,12 @@ define([
         },
 
         /**
-         * Handle error based on HTTP status code.
-         */
-        handleErrorByStatus: function(status) {
-            switch (status) {
-                case 401:
-                    this.checkAuth();
-                    break;
-                case 0:
-                    this.configs.interval = this.configs.intervalMax;
-                    this.startWatch();
-                    break;
-            }
-        },
-
-        /**
          * Synchronize a collection.
          *
-         * @param {Array} localData
-         * @param {Array} remoteData
-         * @param {String} module
-         * @returns {Promise}
+         * @type array localData
+         * @type array remoteData
+         * @type string module
+         * @return promise
          */
         syncAll: function(localData, remoteData, module) {
             const encryptKeys = localData.model.prototype.encryptKeys;
@@ -261,9 +260,9 @@ define([
             );
 
             return _.reduce(promises, Q.when, new Q())
-                .then(() => {
-                    return Radio.request(module, 'fetch', {encrypt: true});
-                });
+            .then(() => {
+                return Radio.request(module, 'fetch', {encrypt: true});
+            });
         },
 
         /**
@@ -271,7 +270,7 @@ define([
          * remotely.
          */
         checkRemoteChanges: function(localData, remoteData, module) {
-            const newData = _.filter(remoteData, (rModel) => {
+            const newData  = _.filter(remoteData, (rModel) => {
                 const model = _.findWhere(localData, {id: rModel.id});
                 return !model || model.updated < rModel.updated;
             });
@@ -312,9 +311,6 @@ define([
             return promises;
         },
 
-        /**
-         * Start watching for changes with calculated interval.
-         */
         startWatch: function() {
             if (this.timeout) {
                 clearTimeout(this.timeout);
@@ -329,7 +325,7 @@ define([
         },
 
         /**
-         * Increase or decrease watch interval depending on
+         * Increase or descrease watch interval depending on
          * whether changes appear on Dropbox.
          */
         calcInterval: function() {
@@ -337,7 +333,8 @@ define([
 
             if (this.configs.statRemote) {
                 this.configs.interval -= (range * 0.4);
-            } else {
+            }
+            else {
                 this.configs.interval += (range * 0.2);
             }
 

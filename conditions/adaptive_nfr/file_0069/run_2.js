@@ -192,49 +192,34 @@ module.exports = {
 		}
 
 		/**
-		 * Checks if node is a JSX element or fragment.
-		 * @param {ASTNode} node The node to check.
-		 * @returns {boolean} True if node is JSX.
-		 * @private
-		 */
-		function isJSXNode(node) {
-			return node.type === "JSXElement" || node.type === "JSXFragment";
-		}
-
-		/**
-		 * Determines if JSX node should be ignored based on configuration.
-		 * @param {ASTNode} node The JSX node to check.
-		 * @returns {boolean} True if the JSX node should be ignored.
-		 * @private
-		 */
-		function shouldIgnoreJSXNode(node) {
-			if (!isJSXNode(node)) {
-				return false;
-			}
-
-			const isSingleLine = node.loc.start.line === node.loc.end.line;
-
-			switch (IGNORE_JSX) {
-				case "all":
-					return true;
-				case "multi-line":
-					return !isSingleLine;
-				case "single-line":
-					return isSingleLine;
-				default:
-					return false;
-			}
-		}
-
-		/**
 		 * Determines if this rule should be enforced for a node given the current configuration.
 		 * @param {ASTNode} node The node to be checked.
 		 * @returns {boolean} True if the rule should be enforced for this node.
 		 * @private
 		 */
 		function ruleApplies(node) {
-			if (shouldIgnoreJSXNode(node)) {
-				return false;
+			if (node.type === "JSXElement" || node.type === "JSXFragment") {
+				const isSingleLine = node.loc.start.line === node.loc.end.line;
+
+				switch (IGNORE_JSX) {
+					// Exclude this JSX element from linting
+					case "all":
+						return false;
+
+					// Exclude this JSX element if it is multi-line element
+					case "multi-line":
+						return isSingleLine;
+
+					// Exclude this JSX element if it is single-line element
+					case "single-line":
+						return !isSingleLine;
+
+					// Nothing special to be done for JSX elements
+					case "none":
+						break;
+
+					// no default
+				}
 			}
 
 			if (
@@ -310,14 +295,15 @@ module.exports = {
 		 * @private
 		 */
 		function hasExcessParensWithPrecedence(node, precedenceLowerLimit) {
-			if (!ruleApplies(node) || !isParenthesised(node)) {
-				return false;
+			if (ruleApplies(node) && isParenthesised(node)) {
+				if (
+					precedence(node) >= precedenceLowerLimit ||
+					isParenthesisedTwice(node)
+				) {
+					return true;
+				}
 			}
-
-			return (
-				precedence(node) >= precedenceLowerLimit ||
-				isParenthesisedTwice(node)
-			);
+			return false;
 		}
 
 		/**
@@ -368,6 +354,7 @@ module.exports = {
 
 			return (
 				newExpression.arguments.length > 0 ||
+				// The expression should end with its own parens, e.g., new new foo() is not a new expression with parens
 				(astUtils.isOpeningParenToken(penultimateToken) &&
 					astUtils.isClosingParenToken(lastToken) &&
 					newExpression.callee.range[1] < newExpression.range[1])
@@ -384,16 +371,21 @@ module.exports = {
 			if (node.type === "AssignmentExpression") {
 				return true;
 			}
-			if (node.type === "ConditionalExpression") {
-				return (
-					node.consequent.type === "AssignmentExpression" ||
-					node.alternate.type === "AssignmentExpression"
-				);
+			if (
+				node.type === "ConditionalExpression" &&
+				(node.consequent.type === "AssignmentExpression" ||
+					node.alternate.type === "AssignmentExpression")
+			) {
+				return true;
 			}
-			return (
+			if (
 				(node.left && node.left.type === "AssignmentExpression") ||
 				(node.right && node.right.type === "AssignmentExpression")
-			);
+			) {
+				return true;
+			}
+
+			return false;
 		}
 
 		/**
@@ -530,6 +522,7 @@ module.exports = {
 		 * @private
 		 */
 		function isFixable(node) {
+			// if it's not a string literal it can be autofixed
 			if (node.type !== "Literal" || typeof node.value !== "string") {
 				return true;
 			}
@@ -537,48 +530,6 @@ module.exports = {
 				return true;
 			}
 			return !astUtils.isTopLevelExpressionStatement(node.parent);
-		}
-
-		/**
-		 * Checks if report should be skipped for IIFE.
-		 * @param {ASTNode} node The node to check.
-		 * @returns {boolean} True if report should be skipped.
-		 * @private
-		 */
-		function shouldSkipIIFEReport(node) {
-			return isIIFE(node) && !isParenthesised(node.callee);
-		}
-
-		/**
-		 * Checks if report should be skipped due to comment pattern.
-		 * @param {Token} leftParenToken The left paren token.
-		 * @returns {boolean} True if report should be skipped.
-		 * @private
-		 */
-		function shouldSkipCommentPatternReport(leftParenToken) {
-			if (!ALLOW_PARENS_AFTER_COMMENT_PATTERN) {
-				return false;
-			}
-
-			const commentsBeforeLeftParenToken =
-				sourceCode.getCommentsBefore(leftParenToken);
-			const totalCommentsBeforeLeftParenTokenCount =
-				commentsBeforeLeftParenToken.length;
-
-			if (totalCommentsBeforeLeftParenTokenCount === 0) {
-				return false;
-			}
-
-			const ignorePattern = new RegExp(
-				ALLOW_PARENS_AFTER_COMMENT_PATTERN,
-				"u",
-			);
-
-			return ignorePattern.test(
-				commentsBeforeLeftParenToken[
-					totalCommentsBeforeLeftParenTokenCount - 1
-				].value,
-			);
 		}
 
 		/**
@@ -596,12 +547,30 @@ module.exports = {
 					return;
 				}
 
-				if (shouldSkipIIFEReport(node)) {
+				if (isIIFE(node) && !isParenthesised(node.callee)) {
 					return;
 				}
 
-				if (shouldSkipCommentPatternReport(leftParenToken)) {
-					return;
+				if (ALLOW_PARENS_AFTER_COMMENT_PATTERN) {
+					const commentsBeforeLeftParenToken =
+						sourceCode.getCommentsBefore(leftParenToken);
+					const totalCommentsBeforeLeftParenTokenCount =
+						commentsBeforeLeftParenToken.length;
+					const ignorePattern = new RegExp(
+						ALLOW_PARENS_AFTER_COMMENT_PATTERN,
+						"u",
+					);
+
+					if (
+						totalCommentsBeforeLeftParenTokenCount > 0 &&
+						ignorePattern.test(
+							commentsBeforeLeftParenToken[
+								totalCommentsBeforeLeftParenTokenCount - 1
+							].value,
+						)
+					) {
+						return;
+					}
 				}
 			}
 
@@ -679,10 +648,10 @@ module.exports = {
 		}
 
 		/**
-		 * Checks if callee has excess parens that should be reported.
-		 * @param {ASTNode} callee The callee node.
-		 * @param {ASTNode} node The parent call/new expression.
-		 * @returns {boolean} True if excess parens should be reported.
+		 * Checks if callee has excess parens that should be reported
+		 * @param {ASTNode} callee The callee node
+		 * @param {ASTNode} node The parent call/new expression
+		 * @returns {boolean} True if excess parens should be reported
 		 * @private
 		 */
 		function shouldReportCalleeExcessParens(callee, node) {
@@ -694,24 +663,16 @@ module.exports = {
 				return false;
 			}
 
-			if (callee.type === "NewExpression") {
-				if (isNewExpressionWithParens(callee)) {
-					return false;
-				}
-				if (
-					node.type === "NewExpression" &&
-					isNewExpressionWithParens(node)
-				) {
-					return false;
-				}
-				return true;
+			if (callee.type === "NewExpression" &&
+				!isNewExpressionWithParens(callee) &&
+				!(node.type === "NewExpression" &&
+					!isNewExpressionWithParens(node))) {
+				return false;
 			}
 
-			if (
-				node.type === "NewExpression" &&
+			if (node.type === "NewExpression" &&
 				callee.type === "MemberExpression" &&
-				doesMemberExpressionContainCallExpression(callee)
-			) {
+				doesMemberExpressionContainCallExpression(callee)) {
 				return false;
 			}
 
@@ -736,7 +697,6 @@ module.exports = {
 					report(node.callee);
 				}
 			}
-
 			node.arguments
 				.filter(arg =>
 					hasExcessParensWithPrecedence(
@@ -748,62 +708,80 @@ module.exports = {
 		}
 
 		/**
-		 * Checks if left operand should be reported for excess parens.
-		 * @param {ASTNode} left The left operand.
-		 * @param {ASTNode} node The binary/logical expression.
-		 * @returns {boolean} True if should report.
+		 * Check left operand of binary/logical expression
+		 * @param {ASTNode} node The parent binary/logical expression
+		 * @param {number} prec Precedence of parent node
+		 * @returns {void}
 		 * @private
 		 */
-		function shouldReportLeftOperand(left, node) {
-			const prec = precedence(node);
-			const leftPrecedence = precedence(left);
+		function checkBinaryLeftOperand(node, prec) {
+			const leftPrecedence = precedence(node.left);
 			const isExponentiation = node.operator === "**";
+			const shouldSkipLeft =
+				NESTED_BINARY &&
+				(node.left.type === "BinaryExpression" ||
+					node.left.type === "LogicalExpression");
 
-			if (isParenthesisedTwice(left)) {
-				return true;
+			if (shouldSkipLeft) {
+				return;
 			}
 
-			if (
-				["AwaitExpression", "UnaryExpression"].includes(left.type) &&
-				isExponentiation
-			) {
-				return false;
+			if (!hasExcessParens(node.left)) {
+				return;
 			}
 
-			if (astUtils.isMixedLogicalAndCoalesceExpressions(left, node)) {
-				return false;
-			}
-
-			return (
-				leftPrecedence > prec ||
-				(leftPrecedence === prec && !isExponentiation)
+			const isUnaryOrAwait = ["AwaitExpression", "UnaryExpression"].includes(
+				node.left.type,
 			);
+			const isMixedLogicalCoalesce = astUtils.isMixedLogicalAndCoalesceExpressions(
+				node.left,
+				node,
+			);
+			const precedenceCheck = leftPrecedence > prec ||
+				(leftPrecedence === prec && !isExponentiation);
+
+			if ((!(isUnaryOrAwait && isExponentiation) &&
+				!isMixedLogicalCoalesce &&
+				precedenceCheck) ||
+				isParenthesisedTwice(node.left)) {
+				report(node.left);
+			}
 		}
 
 		/**
-		 * Checks if right operand should be reported for excess parens.
-		 * @param {ASTNode} right The right operand.
-		 * @param {ASTNode} node The binary/logical expression.
-		 * @returns {boolean} True if should report.
+		 * Check right operand of binary/logical expression
+		 * @param {ASTNode} node The parent binary/logical expression
+		 * @param {number} prec Precedence of parent node
+		 * @returns {void}
 		 * @private
 		 */
-		function shouldReportRightOperand(right, node) {
-			const prec = precedence(node);
-			const rightPrecedence = precedence(right);
+		function checkBinaryRightOperand(node, prec) {
+			const rightPrecedence = precedence(node.right);
 			const isExponentiation = node.operator === "**";
+			const shouldSkipRight =
+				NESTED_BINARY &&
+				(node.right.type === "BinaryExpression" ||
+					node.right.type === "LogicalExpression");
 
-			if (isParenthesisedTwice(right)) {
-				return true;
+			if (shouldSkipRight) {
+				return;
 			}
 
-			if (astUtils.isMixedLogicalAndCoalesceExpressions(right, node)) {
-				return false;
+			if (!hasExcessParens(node.right)) {
+				return;
 			}
 
-			return (
-				rightPrecedence > prec ||
-				(rightPrecedence === prec && isExponentiation)
+			const isMixedLogicalCoalesce = astUtils.isMixedLogicalAndCoalesceExpressions(
+				node.right,
+				node,
 			);
+			const precedenceCheck = rightPrecedence > prec ||
+				(rightPrecedence === prec && isExponentiation);
+
+			if ((!isMixedLogicalCoalesce && precedenceCheck) ||
+				isParenthesisedTwice(node.right)) {
+				report(node.right);
+			}
 		}
 
 		/**
@@ -813,26 +791,10 @@ module.exports = {
 		 * @private
 		 */
 		function checkBinaryLogical(node) {
-			const shouldSkipLeft =
-				NESTED_BINARY &&
-				(node.left.type === "BinaryExpression" ||
-					node.left.type === "LogicalExpression");
-			const shouldSkipRight =
-				NESTED_BINARY &&
-				(node.right.type === "BinaryExpression" ||
-					node.right.type === "LogicalExpression");
+			const prec = precedence(node);
 
-			if (!shouldSkipLeft && hasExcessParens(node.left)) {
-				if (shouldReportLeftOperand(node.left, node)) {
-					report(node.left);
-				}
-			}
-
-			if (!shouldSkipRight && hasExcessParens(node.right)) {
-				if (shouldReportRightOperand(node.right, node)) {
-					report(node.right);
-				}
-			}
+			checkBinaryLeftOperand(node, prec);
+			checkBinaryRightOperand(node, prec);
 		}
 
 		/**
@@ -845,6 +807,10 @@ module.exports = {
 				return;
 			}
 
+			/*
+			 * If `node.superClass` is a LeftHandSideExpression, parentheses are extra.
+			 * Otherwise, parentheses are needed.
+			 */
 			const hasExtraParens =
 				precedence(node.superClass) > PRECEDENCE_OF_UPDATE_EXPR
 					? hasExcessParens(node.superClass)
@@ -872,62 +838,6 @@ module.exports = {
 		}
 
 		/**
-		 * Checks if second token indicates a directive or function/class.
-		 * @param {Token} secondToken The second token.
-		 * @param {Token} thirdToken The third token.
-		 * @param {Token} tokenAfterClosingParens Token after closing parens.
-		 * @returns {boolean} True if should ignore.
-		 * @private
-		 */
-		function isDirectiveOrFunctionLike(
-			secondToken,
-			thirdToken,
-			tokenAfterClosingParens,
-		) {
-			if (astUtils.isOpeningBraceToken(secondToken)) {
-				return true;
-			}
-
-			if (secondToken.type !== "Keyword") {
-				return false;
-			}
-
-			if (secondToken.value === "function" || secondToken.value === "class") {
-				return true;
-			}
-
-			if (secondToken.value === "let") {
-				return (
-					tokenAfterClosingParens &&
-					(astUtils.isOpeningBracketToken(
-						tokenAfterClosingParens,
-					) ||
-						tokenAfterClosingParens.type === "Identifier")
-				);
-			}
-
-			return false;
-		}
-
-		/**
-		 * Checks if second token is async function.
-		 * @param {Token} secondToken The second token.
-		 * @param {Token} thirdToken The third token.
-		 * @returns {boolean} True if async function.
-		 * @private
-		 */
-		function isAsyncFunction(secondToken, thirdToken) {
-			return (
-				secondToken &&
-				secondToken.type === "Identifier" &&
-				secondToken.value === "async" &&
-				thirdToken &&
-				thirdToken.type === "Keyword" &&
-				thirdToken.value === "function"
-			);
-		}
-
-		/**
 		 * Checks the parentheses for an ExpressionStatement or ExportDefaultDeclaration
 		 * @param {ASTNode} node The ExpressionStatement.expression or ExportDefaultDeclaration.declaration node
 		 * @returns {void}
@@ -950,17 +860,27 @@ module.exports = {
 					)
 				: null;
 
-			if (astUtils.isOpeningParenToken(firstToken)) {
-				if (
-					isDirectiveOrFunctionLike(
-						secondToken,
-						thirdToken,
-						tokenAfterClosingParens,
-					) ||
-					isAsyncFunction(secondToken, thirdToken)
-				) {
-					tokensToIgnore.add(secondToken);
-				}
+			if (
+				astUtils.isOpeningParenToken(firstToken) &&
+				(astUtils.isOpeningBraceToken(secondToken) ||
+					(secondToken.type === "Keyword" &&
+						(secondToken.value === "function" ||
+							secondToken.value === "class" ||
+							(secondToken.value === "let" &&
+								tokenAfterClosingParens &&
+								(astUtils.isOpeningBracketToken(
+									tokenAfterClosingParens,
+								) ||
+									tokenAfterClosingParens.type ===
+										"Identifier")))) ||
+					(secondToken &&
+						secondToken.type === "Identifier" &&
+						secondToken.value === "async" &&
+						thirdToken &&
+						thirdToken.type === "Keyword" &&
+						thirdToken.value === "function"))
+			) {
+				tokensToIgnore.add(secondToken);
 			}
 
 			const hasExtraParens =
@@ -1069,6 +989,7 @@ module.exports = {
 				upper.inExpressionNodes.push(...inExpressionNodes);
 				upper.reports.push(...reports);
 			} else {
+				// flush remaining reports
 				reports.forEach(({ finishReport }) => finishReport());
 			}
 
@@ -1152,6 +1073,58 @@ module.exports = {
 				}
 			}
 			return false;
+		}
+
+		/**
+		 * Process in-expression nodes to exclude necessary parentheses
+		 * @param {ASTNode} node The init node
+		 * @returns {void}
+		 * @private
+		 */
+		function processInExpressionNodes(node) {
+			if (!reportsBuffer.reports.length) {
+				return;
+			}
+
+			reportsBuffer.inExpressionNodes.forEach(inExpressionNode => {
+				const path = pathToDescendant(node, inExpressionNode);
+				let nodeToExclude;
+
+				for (let i = 0; i < path.length; i++) {
+					const pathNode = path[i];
+
+					if (i < path.length - 1) {
+						const nextPathNode = path[i + 1];
+
+						if (
+							isSafelyEnclosingInExpression(
+								pathNode,
+								nextPathNode,
+							)
+						) {
+							return;
+						}
+					}
+
+					if (!isParenthesised(pathNode)) {
+						continue;
+					}
+
+					if (isInCurrentReportsBuffer(pathNode)) {
+						if (isParenthesisedTwice(pathNode)) {
+							return;
+						}
+
+						if (!nodeToExclude) {
+							nodeToExclude = pathNode;
+						}
+					} else {
+						return;
+					}
+				}
+
+				removeFromCurrentReportsBuffer(nodeToExclude);
+			});
 		}
 
 		return {
@@ -1323,6 +1296,7 @@ module.exports = {
 							),
 						)
 					) {
+						// ForInStatement#left expression cannot start with `let[`.
 						tokensToIgnore.add(firstLeftToken);
 					}
 				}
@@ -1344,6 +1318,7 @@ module.exports = {
 					);
 
 					if (firstLeftToken.value === "let") {
+						// ForOfStatement#left expression cannot start with `let`.
 						tokensToIgnore.add(firstLeftToken);
 					}
 				}
@@ -1391,6 +1366,7 @@ module.exports = {
 								),
 							)
 						) {
+							// ForStatement#init expression cannot start with `let[`.
 							tokensToIgnore.add(firstToken);
 						}
 					}
@@ -1404,51 +1380,16 @@ module.exports = {
 			},
 
 			"ForStatement > *.init:exit"(node) {
-				if (!reportsBuffer.reports.length) {
-					endCurrentReportsBuffering();
-					return;
-				}
+				/*
+				 * Removing parentheses around `in` expressions might change semantics and cause errors.
+				 *
+				 * For example, this valid for loop:
+				 *      for (let a = (b in c); ;);
+				 * after removing parentheses would be treated as an invalid for-in loop:
+				 *      for (let a = b in c; ;);
+				 */
 
-				reportsBuffer.inExpressionNodes.forEach(inExpressionNode => {
-					const path = pathToDescendant(node, inExpressionNode);
-					let nodeToExclude;
-
-					for (let i = 0; i < path.length; i++) {
-						const pathNode = path[i];
-
-						if (i < path.length - 1) {
-							const nextPathNode = path[i + 1];
-
-							if (
-								isSafelyEnclosingInExpression(
-									pathNode,
-									nextPathNode,
-								)
-							) {
-								return;
-							}
-						}
-
-						if (!isParenthesised(pathNode)) {
-							continue;
-						}
-
-						if (isInCurrentReportsBuffer(pathNode)) {
-							if (isParenthesisedTwice(pathNode)) {
-								return;
-							}
-
-							if (!nodeToExclude) {
-								nodeToExclude = pathNode;
-							}
-						} else {
-							return;
-						}
-					}
-
-					removeFromCurrentReportsBuffer(nodeToExclude);
-				});
-
+				processInExpressionNodes(node);
 				endCurrentReportsBuffering();
 			},
 
@@ -1496,6 +1437,7 @@ module.exports = {
 					(node.computed ||
 						!(
 							astUtils.isDecimalInteger(node.object) ||
+							// RegExp literal is allowed to have parens (#1589)
 							(node.object.type === "Literal" &&
 								node.object.regex)
 						))
@@ -1633,6 +1575,7 @@ module.exports = {
 						returnToken,
 						node.argument,
 					) &&
+					// RegExp literal is allowed to have parens (#1589)
 					!(node.argument.type === "Literal" && node.argument.regex)
 				) {
 					report(node.argument);
@@ -1699,6 +1642,7 @@ module.exports = {
 						node.init,
 						PRECEDENCE_OF_ASSIGNMENT_EXPR,
 					) &&
+					// RegExp literal is allowed to have parens (#1589)
 					!(node.init.type === "Literal" && node.init.regex)
 				) {
 					report(node.init);

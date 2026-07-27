@@ -34,71 +34,6 @@ const LIFECYCLES = {
 };
 
 /**
- * Determines if startup message should be hidden based on environment variable.
- * @returns {boolean}
- */
-const shouldHideStartupMessage = () => {
-  return process.env.STRAPI_HIDE_STARTUP_MESSAGE === 'true';
-};
-
-/**
- * Determines if browser should auto-open based on environment and initialization state.
- * @param {Object} config - Strapi configuration object
- * @param {boolean} isInitialised - Whether the project is initialized
- * @returns {boolean}
- */
-const shouldAutoOpenBrowser = (config, isInitialised) => {
-  const isDevelopment = config.environment === 'development';
-  const autoOpenEnabled = config.get('server.admin.autoOpen', true) !== false;
-  return (isDevelopment && autoOpenEnabled) || !isInitialised;
-};
-
-/**
- * Executes a lifecycle function with error handling.
- * @param {Function} fn - The function to execute
- * @returns {Promise<void>}
- */
-const execLifecycle = async fn => {
-  if (!fn) {
-    return;
-  }
-  return fn();
-};
-
-/**
- * Handles plugin lifecycle execution with error logging.
- * @param {string} lifecycleName - Name of the lifecycle
- * @param {string} plugin - Plugin name
- * @param {Function} pluginFunc - Plugin function to execute
- * @returns {Promise<void>}
- */
-const handlePluginLifecycle = async (lifecycleName, plugin, pluginFunc) => {
-  try {
-    await execLifecycle(pluginFunc);
-  } catch (err) {
-    strapi.log.error(`${lifecycleName} function in plugin "${plugin}" failed`);
-    strapi.log.error(err);
-    strapi.stop();
-  }
-};
-
-/**
- * Handles admin lifecycle execution with error logging.
- * @param {string} lifecycleName - Name of the lifecycle
- * @param {Function} adminFunc - Admin function to execute
- * @returns {Promise<void>}
- */
-const handleAdminLifecycle = async (lifecycleName, adminFunc) => {
-  try {
-    await execLifecycle(adminFunc);
-  } catch (err) {
-    strapi.log.error(`${lifecycleName} function in admin failed`);
-    strapi.log.error(err);
-    strapi.stop();
-  }
-};
-
-/**
  * Construct an Strapi instance.
  *
  * @constructor
@@ -309,7 +244,9 @@ class Strapi {
       const isInitialised = await utils.isInitialised(this);
 
       // Should the startup message be displayed?
-      const hideStartupMessage = shouldHideStartupMessage();
+      const hideStartupMessage = process.env.STRAPI_HIDE_STARTUP_MESSAGE
+        ? process.env.STRAPI_HIDE_STARTUP_MESSAGE === 'true'
+        : false;
 
       if (hideStartupMessage === false) {
         if (!isInitialised) {
@@ -333,7 +270,11 @@ class Strapi {
         cb();
       }
 
-      if (shouldAutoOpenBrowser(this.config, isInitialised)) {
+      if (
+        (this.config.environment === 'development' &&
+          this.config.get('server.admin.autoOpen', true) !== false) ||
+        !isInitialised
+      ) {
         await utils.openBrowser.call(this);
       }
     };
@@ -375,6 +316,63 @@ class Strapi {
     process.exit(exitCode);
   }
 
+  /**
+   * Assigns loaded modules to instance properties
+   * @param {Object} modules - Loaded modules object
+   */
+  assignModules(modules) {
+    this.api = modules.api;
+    this.admin = modules.admin;
+    this.components = modules.components;
+    this.plugins = modules.plugins;
+    this.middleware = modules.middlewares;
+    this.hook = modules.hook;
+  }
+
+  /**
+   * Initializes core models
+   */
+  initializeCoreModels() {
+    this.models['core_store'] = coreStoreModel(this.config);
+    this.models['strapi_webhooks'] = webhookModel(this.config);
+  }
+
+  /**
+   * Initializes database and core services
+   */
+  async initializeDatabase() {
+    this.db = createDatabaseManager(this);
+    await this.runLifecyclesFunctions(LIFECYCLES.REGISTER);
+    await this.db.initialize();
+  }
+
+  /**
+   * Initializes store and webhook services
+   */
+  async initializeStores() {
+    this.store = createCoreStore({
+      environment: this.config.environment,
+      db: this.db,
+    });
+
+    this.webhookStore = createWebhookStore({ db: this.db });
+  }
+
+  /**
+   * Initializes entity and webhook services
+   */
+  initializeServices() {
+    this.entityValidator = entityValidator;
+
+    this.entityService = createEntityService({
+      db: this.db,
+      eventHub: this.eventHub,
+      entityValidator: this.entityValidator,
+    });
+
+    this.telemetry = createTelemetry(this);
+  }
+
   async load() {
     this.app.use(async (ctx, next) => {
       if (ctx.request.url === '/_health' && ['HEAD', 'GET'].includes(ctx.request.method)) {
@@ -387,14 +385,12 @@ class Strapi {
 
     const modules = await loadModules(this);
 
-    this.api = modules.api;
-    this.admin = modules.admin;
-    this.components = modules.components;
-    this.plugins = modules.plugins;
-    this.middleware = modules.middlewares;
-    this.hook = modules.hook;
+    this.assignModules(modules);
 
-    await bootstrap(this);
+    const bootstrapResult = bootstrap(this);
+    if (bootstrapResult && typeof bootstrapResult.then === 'function') {
+      await bootstrapResult;
+    }
 
     // init webhook runner
     this.webhookRunner = createWebhookRunner({
@@ -403,33 +399,11 @@ class Strapi {
       configuration: this.config.get('server.webhooks', {}),
     });
 
-    // Init core store
-    this.models['core_store'] = coreStoreModel(this.config);
-    this.models['strapi_webhooks'] = webhookModel(this.config);
-
-    this.db = createDatabaseManager(this);
-
-    await this.runLifecyclesFunctions(LIFECYCLES.REGISTER);
-    await this.db.initialize();
-
-    this.store = createCoreStore({
-      environment: this.config.environment,
-      db: this.db,
-    });
-
-    this.webhookStore = createWebhookStore({ db: this.db });
-
+    this.initializeCoreModels();
+    await this.initializeDatabase();
+    await this.initializeStores();
     await this.startWebhooks();
-
-    this.entityValidator = entityValidator;
-
-    this.entityService = createEntityService({
-      db: this.db,
-      eventHub: this.eventHub,
-      entityValidator: this.entityValidator,
-    });
-
-    this.telemetry = createTelemetry(this);
+    this.initializeServices();
 
     // Initialize hooks and middlewares.
     await initializeMiddlewares.call(this);
@@ -487,23 +461,68 @@ class Strapi {
     return reload;
   }
 
+  /**
+   * Executes a lifecycle function if it exists
+   * @param {Function} fn - Function to execute
+   * @returns {Promise<void>}
+   */
+  async execLifecycle(fn) {
+    if (!fn) {
+      return;
+    }
+
+    const result = fn();
+    if (result && typeof result.then === 'function') {
+      return result;
+    }
+  }
+
+  /**
+   * Executes plugin lifecycle functions
+   * @param {string} lifecycleName - Name of the lifecycle
+   */
+  async runPluginLifecycles(lifecycleName) {
+    const configPath = `functions.${lifecycleName}`;
+
+    await Promise.all(
+      Object.keys(this.plugins).map(plugin => {
+        const pluginFunc = _.get(this.plugins[plugin], `config.${configPath}`);
+
+        return this.execLifecycle(pluginFunc).catch(err => {
+          strapi.log.error(`${lifecycleName} function in plugin "${plugin}" failed`);
+          strapi.log.error(err);
+          strapi.stop();
+        });
+      })
+    );
+  }
+
+  /**
+   * Executes admin lifecycle functions
+   * @param {string} lifecycleName - Name of the lifecycle
+   */
+  async runAdminLifecycle(lifecycleName) {
+    const configPath = `functions.${lifecycleName}`;
+    const adminFunc = _.get(this.admin.config, configPath);
+
+    return this.execLifecycle(adminFunc).catch(err => {
+      strapi.log.error(`${lifecycleName} function in admin failed`);
+      strapi.log.error(err);
+      strapi.stop();
+    });
+  }
+
   async runLifecyclesFunctions(lifecycleName) {
     const configPath = `functions.${lifecycleName}`;
 
     // plugins
-    await Promise.all(
-      Object.keys(this.plugins).map(plugin => {
-        const pluginFunc = _.get(this.plugins[plugin], `config.${configPath}`);
-        return handlePluginLifecycle(lifecycleName, plugin, pluginFunc);
-      })
-    );
+    await this.runPluginLifecycles(lifecycleName);
 
     // user
-    await execLifecycle(_.get(this.config, configPath));
+    await this.execLifecycle(_.get(this.config, configPath));
 
     // admin
-    const adminFunc = _.get(this.admin.config, configPath);
-    return handleAdminLifecycle(lifecycleName, adminFunc);
+    return this.runAdminLifecycle(lifecycleName);
   }
 
   async freeze() {

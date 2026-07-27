@@ -187,19 +187,19 @@ Runner.prototype.checkGlobals = function (test) {
   }
   let ok = this._globals;
 
-  const currentGlobals = this.globalProps();
+  const globals = this.globalProps();
   let leaks;
 
   if (test) {
     ok = ok.concat(test._allowedGlobals || []);
   }
 
-  if (this.prevGlobalsLength === currentGlobals.length) {
+  if (this.prevGlobalsLength === globals.length) {
     return;
   }
-  this.prevGlobalsLength = currentGlobals.length;
+  this.prevGlobalsLength = globals.length;
 
-  leaks = filterLeaks(ok, currentGlobals);
+  leaks = filterLeaks(ok, globals);
   this._globals = this._globals.concat(leaks);
 
   if (leaks.length > 1) {
@@ -307,12 +307,18 @@ Runner.prototype.hook = function (name, fn) {
         self.fail(self.test, testError);
       }
       if (err) {
-        handleHookError(err, name, self, suite, hook, fn);
-      } else {
-        self.emit('hook end', hook);
-        delete hook.ctx.currentTest;
-        next(++i);
+        if (err instanceof Pending) {
+          handlePendingHook(name, self, suite, hook);
+        } else {
+          self.failHook(hook, err);
+
+          // stop executing hooks, notify callee of hook err
+          return fn(err);
+        }
       }
+      self.emit('hook end', hook);
+      delete hook.ctx.currentTest;
+      next(++i);
     });
   }
 
@@ -322,30 +328,23 @@ Runner.prototype.hook = function (name, fn) {
 };
 
 /**
- * Handle hook execution errors with appropriate pending/failure logic.
- * @param {Error} err
- * @param {string} name
- * @param {Runner} self
- * @param {Suite} suite
- * @param {Hook} hook
- * @param {Function} fn
+ * Handle pending hook based on hook type.
+ * @param {string} name - Hook name (beforeEach, afterEach, etc.)
+ * @param {Runner} self - Runner instance
+ * @param {Suite} suite - Current suite
+ * @param {Hook} hook - Hook instance
  * @api private
  */
-function handleHookError (err, name, self, suite, hook, fn) {
-  if (err instanceof Pending) {
-    if (name === 'beforeEach' || name === 'afterEach') {
-      self.test.pending = true;
-    } else {
-      suite.tests.forEach(function (test) {
-        test.pending = true;
-      });
-      hook.pending = true;
-    }
-    self.emit('hook end', hook);
-    delete hook.ctx.currentTest;
+function handlePendingHook (name, self, suite, hook) {
+  const isEachHook = name === 'beforeEach' || name === 'afterEach';
+  if (isEachHook) {
+    self.test.pending = true;
   } else {
-    self.failHook(hook, err);
-    return fn(err);
+    suite.tests.forEach(function (test) {
+      test.pending = true;
+    });
+    // a pending hook won't be executed twice.
+    hook.pending = true;
   }
 }
 
@@ -461,10 +460,10 @@ Runner.prototype.runTest = function (fn) {
 
 /**
  * Determine if test matches grep pattern.
- * @param {Test} test
- * @param {RegExp} grep
- * @param {boolean} invert
- * @return {boolean}
+ * @param {Test} test - Test instance
+ * @param {RegExp} grep - Grep pattern
+ * @param {boolean} invert - Invert match flag
+ * @return {boolean} True if test matches pattern
  * @api private
  */
 function testMatchesGrep (test, grep, invert) {
@@ -476,61 +475,52 @@ function testMatchesGrep (test, grep, invert) {
 }
 
 /**
- * Handle pending test based on forbidPending setting.
- * @param {Test} test
- * @param {boolean} forbidPending
- * @param {Runner} self
+ * Handle pending test based on forbidPending flag.
+ * @param {Test} test - Test instance
+ * @param {Runner} self - Runner instance
+ * @param {Function} next - Next callback
  * @api private
  */
-function handlePendingTest (test, forbidPending, self) {
-  if (forbidPending) {
+function handlePendingTest (test, self, next) {
+  if (self.forbidPending) {
     test.isPending = alwaysFalse;
     self.fail(test, new Error('Pending test forbidden'));
     delete test.isPending;
   } else {
     self.emit('pending', test);
   }
+  self.emit('test end', test);
+  return next();
 }
 
 /**
- * Determine if should run immediately based on grep.
- * @param {RegExp} grep
- * @param {RegExp} defaultGrep
- * @return {boolean}
+ * Handle test error based on error type.
+ * @param {Error} err - Error instance
+ * @param {Test} test - Test instance
+ * @param {Runner} self - Runner instance
+ * @param {Array} tests - Tests array
+ * @return {boolean} True if error was handled, false otherwise
  * @api private
  */
-function shouldRunImmediately (grep, defaultGrep) {
-  return grep !== defaultGrep;
-}
-
-/**
- * Handle test error with retry logic.
- * @param {Error} err
- * @param {Test} test
- * @param {Array} tests
- * @param {Runner} self
- * @return {boolean} true if error was handled as retry
- * @api private
- */
-function handleTestError (err, test, tests, self) {
+function handleTestError (err, test, self, tests) {
   if (err instanceof Pending && self.forbidPending) {
     self.fail(test, new Error('Pending test forbidden'));
-    return false;
+    return true;
   }
   if (err instanceof Pending) {
     test.pending = true;
     self.emit('pending', test);
-    return false;
+    return true;
   }
   const retry = test.currentRetry();
   if (retry < test.retries()) {
     const clonedTest = test.clone();
     clonedTest.currentRetry(retry + 1);
     tests.unshift(clonedTest);
-    return true;
+    return false;
   }
   self.fail(test, err);
-  return false;
+  return true;
 }
 
 /**
@@ -595,7 +585,15 @@ Runner.prototype.runTests = function (suite, fn) {
 
     // grep
     if (!testMatchesGrep(test, self._grep, self._invert)) {
-      if (shouldRunImmediately(self._grep, self._defaultGrep)) {
+      // Run immediately only if we have defined a grep. When we
+      // define a grep — It can cause maximum callstack error if
+      // the grep is doing a large recursive loop by neglecting
+      // all tests. The run immediately function also comes with
+      // a performance cost. So we don't want to run immediately
+      // if we run the whole test suite, because running the whole
+      // test suite don't do any immediate recursive loops. Thus,
+      // allowing a JS runtime to breathe.
+      if (self._grep !== self._defaultGrep) {
         Runner.immediately(next);
       } else {
         next();
@@ -604,18 +602,14 @@ Runner.prototype.runTests = function (suite, fn) {
     }
 
     if (test.isPending()) {
-      handlePendingTest(test, self.forbidPending, self);
-      self.emit('test end', test);
-      return next();
+      return handlePendingTest(test, self, next);
     }
 
     // execute test and hook(s)
     self.emit('test', self.test = test);
     self.hookDown('beforeEach', function (err, errSuite) {
       if (test.isPending()) {
-        handlePendingTest(test, self.forbidPending, self);
-        self.emit('test end', test);
-        return next();
+        return handlePendingTest(test, self, next);
       }
       if (err) {
         return hookErr(err, errSuite, false);
@@ -624,17 +618,16 @@ Runner.prototype.runTests = function (suite, fn) {
       self.runTest(function (err) {
         test = self.test;
         if (err) {
-          const isRetry = handleTestError(err, test, tests, self);
+          const shouldRetry = !handleTestError(err, test, self, tests);
           self.emit('test end', test);
 
           if (err instanceof Pending) {
             return next();
           }
 
-          if (isRetry) {
+          if (shouldRetry) {
             return self.hookUp('afterEach', next);
           }
-
           return self.hookUp('afterEach', next);
         }
 
@@ -701,7 +694,7 @@ Runner.prototype.runSuite = function (suite, fn) {
     // Avoid grep neglecting large number of tests causing a
     // huge recursive loop and thus a maximum call stack error.
     // See comment in `this.runTests()` for more information.
-    if (shouldRunImmediately(self._grep, self._defaultGrep)) {
+    if (self._grep !== self._defaultGrep) {
       Runner.immediately(function () {
         self.runSuite(curr, next);
       });
@@ -743,8 +736,8 @@ Runner.prototype.runSuite = function (suite, fn) {
 
 /**
  * Determine hook type from full title.
- * @param {string} fullTitle
- * @return {string|null} 'afterEach', 'beforeEach', or null
+ * @param {string} fullTitle - Hook full title
+ * @return {string|null} Hook type: 'afterEach', 'beforeEach', or null
  * @api private
  */
 function getHookTypeFromTitle (fullTitle) {
@@ -758,22 +751,24 @@ function getHookTypeFromTitle (fullTitle) {
 }
 
 /**
- * Handle uncaught exception based on runnable type.
- * @param {Runnable} runnable
- * @param {Error} err
- * @param {Runner} self
+ * Handle uncaught exception for hook runnable.
+ * @param {Runner} self - Runner instance
+ * @param {Runnable} runnable - Hook runnable
+ * @param {Error} err - Error instance
  * @api private
  */
-function handleUncaughtByRunnableType (runnable, err, self) {
+function handleHookError (self, runnable, err) {
+  const errSuite = self.suite;
   const hookType = getHookTypeFromTitle(runnable.fullTitle());
-  
+
   if (hookType === 'afterEach') {
-    return self.hookErr(err, self.suite, true);
+    return self.hookErr(err, errSuite, true);
   }
   if (hookType === 'beforeEach') {
-    return self.hookErr(err, self.suite, false);
+    return self.hookErr(err, errSuite, false);
   }
-  return self.nextSuite(self.suite);
+  // if hook failure is in after or before blocks
+  return self.nextSuite(errSuite);
 }
 
 /**
@@ -828,8 +823,11 @@ Runner.prototype.uncaught = function (err) {
 
   // recover from hooks
   if (runnable.type === 'hook') {
-    handleUncaughtByRunnableType(runnable, err, this);
+    return handleHookError(this, runnable, err);
   }
+
+  // bail
+  this.emit('end');
 };
 
 /**

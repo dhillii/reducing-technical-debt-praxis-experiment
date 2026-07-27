@@ -192,7 +192,7 @@ const ModalStepper = ({
         message: errorMessage,
       });
     } finally {
-      setShowModalConfirmButtonLoading(false);
+      setShowModalConfirmButtonLoading(true);
       toggleModalWarning();
     }
 

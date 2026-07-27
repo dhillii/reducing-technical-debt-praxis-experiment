@@ -143,10 +143,19 @@ define([
                 password: password
             }))
             .then(function(keys) {
-                self.keys.key    = keys.key;
-                self.keys.hexKey = keys.hexKey;
-                self._saveSession();
+                self._storeKeys(keys);
             });
+        },
+
+        /**
+         * Store derived keys in memory and session storage.
+         * @private
+         * @param {Object} keys - The derived keys object
+         */
+        _storeKeys: function(keys) {
+            this.keys.key    = keys.key;
+            this.keys.hexKey = keys.hexKey;
+            this._saveSession();
         },
 
         /**
@@ -219,17 +228,19 @@ define([
 
         /**
          * Check if collection can be encrypted.
-         *
-         * @return bool
+         * @private
+         * @param {Object} collection - The collection to check
+         * @return {boolean}
          */
         _canEncryptCollection: function(collection) {
             return collection.length && Number(this.configs.encrypt) && this.keys.key;
         },
 
         /**
-         * Build promise chain for model encryption.
-         *
-         * @return array
+         * Build promise chain for encrypting models.
+         * @private
+         * @param {Object} collection - The collection to encrypt
+         * @return {Array} Array of promise functions
          */
         _buildEncryptPromises: function(collection) {
             const promises = [];
@@ -245,18 +256,6 @@ define([
         },
 
         /**
-         * Execute promise chain with error handling.
-         *
-         * @return promise
-         */
-        _executePromiseChain: function(promises, errorMessage) {
-            return _.reduce(promises, Q.when, new Q())
-            .fail(function(e) {
-                console.error(errorMessage, e);
-            });
-        },
-
-        /**
          * Encrypt a collection.
          *
          * @return promise
@@ -268,35 +267,48 @@ define([
                 return new Q();
             }
 
-            Radio.trigger('encrypt', 'encrypting:models', collection);
-
             const promises = this._buildEncryptPromises(collection);
 
-            return this._executePromiseChain(promises, 'EncryptModels Error:');
+            Radio.trigger('encrypt', 'encrypting:models', collection);
+
+            return _.reduce(promises, Q.when, new Q())
+            .fail(function(e) {
+                console.error('EncryptModels Error:', e);
+            });
         },
 
         /**
          * Check if collection can be decrypted.
-         *
-         * @return bool
+         * @private
+         * @param {Object} collection - The collection to check
+         * @return {boolean}
          */
         _canDecryptCollection: function(collection) {
             return collection.length && Number(this.configs.encrypt);
         },
 
         /**
-         * Check if decryption keys are available.
-         *
-         * @return bool
+         * Check if PBKDF2 is available for decryption.
+         * @private
+         * @return {boolean}
          */
-        _hasDecryptionKeys: function() {
+        _isKeyAvailable: function() {
             return this.keys.key;
         },
 
         /**
-         * Build promise chain for model decryption.
-         *
-         * @return array
+         * Handle missing PBKDF2 error.
+         * @private
+         */
+        _handleMissingKey: function() {
+            Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
+        },
+
+        /**
+         * Build promise chain for decrypting models.
+         * @private
+         * @param {Object} collection - The collection to decrypt
+         * @return {Array} Array of promise functions
          */
         _buildDecryptPromises: function(collection) {
             const promises = [];
@@ -324,22 +336,26 @@ define([
             }
 
             // PBKDF2 wasn't generated
-            if (!this._hasDecryptionKeys()) {
-                Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
+            if (!this._isKeyAvailable()) {
+                this._handleMissingKey();
                 return new Q();
             }
 
-            Radio.trigger('encrypt', 'decrypting:models', collection);
-
             const promises = this._buildDecryptPromises(collection);
 
-            return this._executePromiseChain(promises, 'DecryptModels Error:');
+            Radio.trigger('encrypt', 'decrypting:models', collection);
+
+            return _.reduce(promises, Q.when, new Q())
+            .fail(function(e) {
+                console.error('DecryptModels Error:', e);
+            });
         },
 
         /**
          * Apply decrypted data to model attributes.
-         *
-         * @return void
+         * @private
+         * @param {Object} model - The model to update
+         * @param {string} data - The decrypted data
          */
         _applyDecryptedData: function(model, data) {
             _.each(JSON.parse(data), function(val, key) {
@@ -362,22 +378,23 @@ define([
             }))
             .then(function(data) {
                 self._applyDecryptedData(model, data);
-
                 Radio.trigger('encrypt', 'decrypted:model', model);
                 return model;
             });
         },
 
         /**
-         * Decrypt single key for legacy model.
-         *
-         * @return promise
+         * Decrypt a single key using legacy method.
+         * @private
+         * @param {Object} model - The model containing the key
+         * @param {string} key - The key to decrypt
+         * @return {Promise}
          */
         _decryptLegacyKey: function(model, key) {
             const self = this;
 
             return new Q(this.sjcl.decryptLegacy({
-                configs : self.configs,
+                configs : this.configs,
                 string  : model.get(key),
                 keys    : this.keys
             }))
@@ -387,9 +404,10 @@ define([
         },
 
         /**
-         * Build promise chain for legacy model decryption.
-         *
-         * @return array
+         * Build promise array for legacy decryption.
+         * @private
+         * @param {Object} model - The model to decrypt
+         * @return {Array} Array of promises
          */
         _buildLegacyDecryptPromises: function(model) {
             const promises = [];
@@ -433,19 +451,6 @@ define([
         },
 
         /**
-         * Parse session storage keys safely.
-         *
-         * @return object|null
-         */
-        _parseSessionKeys: function(keysString) {
-            try {
-                return JSON.parse(keysString);
-            } catch (e) {
-                return null;
-            }
-        },
-
-        /**
          * Get PBKDF2 from sessionStorage.
          *
          * @return [object|null]
@@ -455,24 +460,15 @@ define([
                 return null;
             }
 
-            const keysString = window.sessionStorage.getItem(this._getSessionKey());
-            const keys = this._parseSessionKeys(keysString);
-
-            if (keys) {
-                this.keys = keys;
+            let keys  = window.sessionStorage.getItem(this._getSessionKey());
+            try {
+                keys = JSON.parse(keys);
+                this.keys = keys || this.keys;
+            } catch (e) {
+                keys = null;
             }
 
             return keys;
-        },
-
-        /**
-         * Determine session key profile.
-         *
-         * @return string
-         */
-        _getSessionProfile: function() {
-            const profile = Radio.request('uri', 'profile') || 'default';
-            return Number(this.configs.useDefaultConfigs) ? 'default' : profile;
         },
 
         /**
@@ -481,7 +477,8 @@ define([
          * @return string
          */
         _getSessionKey: function() {
-            const profile = this._getSessionProfile();
+            let profile = Radio.request('uri', 'profile') || 'default';
+            profile = (Number(this.configs.useDefaultConfigs) ? 'default' : profile);
             return 'secureKey.' + profile;
         }
 

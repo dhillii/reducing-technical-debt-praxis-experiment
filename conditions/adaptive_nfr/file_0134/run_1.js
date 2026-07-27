@@ -36,36 +36,42 @@ const SCALAR_TYPE_MAP = {
 
 /**
  * Converts a Strapi scalar type to its GraphQL equivalent.
- * @param {string} strapiType - The Strapi type name.
- * @return {string} The GraphQL type name.
+ * @param {string} strapiType - The Strapi type name
+ * @param {Object} attribute - The attribute definition
+ * @param {string} modelName - The model name
+ * @param {string} attributeName - The attribute name
+ * @return {string} The GraphQL type name
  */
-const convertScalarType = (strapiType) => {
+const convertScalarType = (strapiType, attribute, modelName, attributeName) => {
+  if (strapiType === 'enumeration') {
+    return module.exports.convertEnumType(attribute, modelName, attributeName);
+  }
   return SCALAR_TYPE_MAP[strapiType] || 'String';
 };
 
 /**
- * Determines if a type requires non-null modifier in the current context.
- * @param {Object} attribute - The attribute definition.
- * @param {string} rootType - The root type (query or mutation).
- * @param {string} action - The mutation action (create, update, delete).
- * @return {boolean} True if the type should be non-null.
+ * Applies required modifier to a GraphQL type if needed.
+ * @param {string} type - The GraphQL type
+ * @param {Object} attribute - The attribute definition
+ * @param {string} rootType - The root type (query/mutation)
+ * @param {string} action - The mutation action
+ * @return {string} The modified type
  */
-const shouldBeRequired = (attribute, rootType, action) => {
-  if (!attribute.required) {
-    return false;
+const applyRequiredModifier = (type, attribute, rootType, action) => {
+  if (attribute.required) {
+    if (rootType !== 'mutation' || (action !== 'update' && attribute.default === undefined)) {
+      return `${type}!`;
+    }
   }
-  if (rootType !== 'mutation') {
-    return true;
-  }
-  return action !== 'update' && attribute.default === undefined;
+  return type;
 };
 
 /**
  * Converts a component attribute to its GraphQL type representation.
- * @param {Object} attribute - The attribute definition.
- * @param {string} rootType - The root type (query or mutation).
- * @param {string} action - The mutation action.
- * @return {string} The GraphQL type string.
+ * @param {Object} attribute - The attribute definition
+ * @param {string} rootType - The root type (query/mutation)
+ * @param {string} action - The mutation action
+ * @return {string} The GraphQL type
  */
 const convertComponentType = (attribute, rootType, action) => {
   const { required, repeatable, component } = attribute;
@@ -88,43 +94,57 @@ const convertComponentType = (attribute, rootType, action) => {
 
 /**
  * Converts a dynamic zone attribute to its GraphQL type representation.
- * @param {Object} attribute - The attribute definition.
- * @param {string} modelName - The model name.
- * @param {string} attributeName - The attribute name.
- * @param {string} rootType - The root type (query or mutation).
- * @return {string} The GraphQL type string.
+ * @param {Object} attribute - The attribute definition
+ * @param {string} modelName - The model name
+ * @param {string} attributeName - The attribute name
+ * @param {string} rootType - The root type (query/mutation)
+ * @return {string} The GraphQL type
  */
 const convertDynamicZoneType = (attribute, modelName, attributeName, rootType) => {
   const { required } = attribute;
   const unionName = `${modelName}${_.upperFirst(_.camelCase(attributeName))}DynamicZone`;
-  const typeName = rootType === 'mutation' ? `${unionName}Input!` : unionName;
+
+  let typeName = unionName;
+
+  if (rootType === 'mutation') {
+    typeName = `${unionName}Input!`;
+  }
+
   return `[${typeName}]${required ? '!' : ''}`;
 };
 
 /**
+ * Determines if an attribute is a plural association.
+ * @param {Object} attribute - The attribute definition
+ * @return {boolean} True if the attribute represents a collection
+ */
+const isPluralAssociation = (attribute) => !_.isEmpty(attribute.collection);
+
+/**
  * Converts an association attribute to its GraphQL type representation.
- * @param {Object} attribute - The attribute definition.
- * @param {string} rootType - The root type (query or mutation).
- * @return {string} The GraphQL type string.
+ * @param {Object} attribute - The attribute definition
+ * @param {string} rootType - The root type (query/mutation)
+ * @return {string} The GraphQL type
  */
 const convertAssociationType = (attribute, rootType) => {
   const ref = attribute.model || attribute.collection;
 
-  if (!ref || ref === '*') {
-    if (rootType === 'mutation') {
-      return attribute.model ? 'ID' : '[ID]';
+  if (ref && ref !== '*') {
+    const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
+    const plural = isPluralAssociation(attribute);
+
+    if (plural) {
+      return rootType === 'mutation' ? '[ID]' : `[${globalId}]`;
     }
-    return attribute.model ? 'Morph' : '[Morph]';
+
+    return rootType === 'mutation' ? 'ID' : globalId;
   }
 
-  const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
-  const isPlural = !_.isEmpty(attribute.collection);
-
-  if (isPlural) {
-    return rootType === 'mutation' ? '[ID]' : `[${globalId}]`;
+  if (rootType === 'mutation') {
+    return attribute.model ? 'ID' : '[ID]';
   }
 
-  return rootType === 'mutation' ? 'ID' : globalId;
+  return attribute.model ? 'Morph' : '[Morph]';
 };
 
 module.exports = {
@@ -145,15 +165,8 @@ module.exports = {
     action = '',
   }) {
     if (isScalarAttribute(attribute)) {
-      let type = attribute.type === 'enumeration'
-        ? this.convertEnumType(attribute, modelName, attributeName)
-        : convertScalarType(attribute.type);
-
-      if (shouldBeRequired(attribute, rootType, action)) {
-        type += '!';
-      }
-
-      return type;
+      let type = convertScalarType(attribute.type, attribute, modelName, attributeName);
+      return applyRequiredModifier(type, attribute, rootType, action);
     }
 
     if (attribute.type === 'component') {
@@ -316,7 +329,6 @@ module.exports = {
       },
     };
 
-    const strategy = payloadStrategies[action];
-    return strategy ? strategy() : undefined;
+    return payloadStrategies[action]?.();
   },
 };

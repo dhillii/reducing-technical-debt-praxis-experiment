@@ -121,7 +121,7 @@ export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
   }
 
   if (el.nodeName === 'IMG') {
-    const alt = el.dataset.alt ?? el.getAttribute('alt')
+    const alt = el.getAttribute('alt')
     return getInlineNodes(alt ?? '')
   }
 

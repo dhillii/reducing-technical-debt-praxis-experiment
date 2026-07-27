@@ -42,110 +42,6 @@ const getGhostKey = doBlock(() => {
     };
 });
 
-/**
- * Dynamic default value generators for settings
- */
-const dynamicDefaultGenerators = {
-    db_hash: () => crypto.randomUUID(),
-    public_hash: () => crypto.randomBytes(15).toString('hex'),
-    admin_session_secret: () => crypto.randomBytes(32).toString('hex'),
-    theme_session_secret: () => crypto.randomBytes(32).toString('hex'),
-    members_public_key: () => getMembersKey('public'),
-    members_private_key: () => getMembersKey('private'),
-    members_email_auth_secret: () => crypto.randomBytes(64).toString('hex'),
-    members_otc_secret: () => crypto.randomBytes(64).toString('hex'),
-    ghost_public_key: () => getGhostKey('public'),
-    ghost_private_key: () => getGhostKey('private'),
-    site_uuid: () => getOrGenerateSiteUuid(),
-    indexnow_api_key: () => crypto.randomBytes(16).toString('hex')
-};
-
-/**
- * URL-related settings that require transformation
- */
-const urlTransformSettings = ['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'];
-
-/**
- * Predicate: Check if value is numeric string "0" or "1"
- */
-const isNumericBooleanString = (value) => value === '0' || value === '1';
-
-/**
- * Predicate: Check if value is string "false" or "true"
- */
-const isStringBoolean = (value) => value === 'false' || value === 'true';
-
-/**
- * Predicate: Check if setting key requires URL transformation
- */
-const isUrlTransformSetting = (key) => urlTransformSettings.includes(key);
-
-/**
- * Convert numeric boolean string to boolean
- */
-const parseNumericBooleanString = (value) => !!+value;
-
-/**
- * Format boolean value to string representation
- */
-const formatBooleanToString = (value) => value.toString();
-
-/**
- * Apply boolean type formatting to attributes
- */
-const formatBooleanAttribute = (attrs) => {
-    if (isNumericBooleanString(attrs.value)) {
-        attrs.value = parseNumericBooleanString(attrs.value);
-    }
-
-    if (isStringBoolean(attrs.value)) {
-        attrs.value = JSON.parse(attrs.value);
-    }
-
-    if (_.isBoolean(attrs.value)) {
-        attrs.value = formatBooleanToString(attrs.value);
-    }
-
-    return attrs;
-};
-
-/**
- * Apply URL transformation to attributes on write
- */
-const formatUrlAttribute = (attrs) => {
-    if (attrs.value && isUrlTransformSetting(attrs.key)) {
-        attrs.value = urlUtils.toTransformReady(attrs.value);
-    }
-
-    return attrs;
-};
-
-/**
- * Parse boolean type from database
- */
-const parseBooleanAttribute = (attrs) => {
-    if (isNumericBooleanString(attrs.value)) {
-        attrs.value = parseNumericBooleanString(attrs.value);
-    }
-
-    if (isStringBoolean(attrs.value)) {
-        attrs.value = JSON.parse(attrs.value);
-    }
-
-    return attrs;
-};
-
-/**
- * Parse URL transformation from database
- */
-const parseUrlAttribute = (attrs) => {
-    if (isUrlTransformSetting(attrs.key)) {
-        attrs.value = urlUtils.transformReadyToAbsolute(attrs.value);
-    }
-
-    return attrs;
-};
-
 // For neatness, the defaults file is split into categories.
 // It's much easier for us to work with it as a single level
 // instead of iterating those categories every time
@@ -153,13 +49,28 @@ function parseDefaultSettings() {
     const defaultSettingsInCategories = require('../data/schema/').defaultSettings;
     const defaultSettingsFlattened = {};
 
+    const dynamicDefault = {
+        db_hash: () => crypto.randomUUID(),
+        public_hash: () => crypto.randomBytes(15).toString('hex'),
+        admin_session_secret: () => crypto.randomBytes(32).toString('hex'),
+        theme_session_secret: () => crypto.randomBytes(32).toString('hex'),
+        members_public_key: () => getMembersKey('public'),
+        members_private_key: () => getMembersKey('private'),
+        members_email_auth_secret: () => crypto.randomBytes(64).toString('hex'),
+        members_otc_secret: () => crypto.randomBytes(64).toString('hex'),
+        ghost_public_key: () => getGhostKey('public'),
+        ghost_private_key: () => getGhostKey('private'),
+        site_uuid: () => getOrGenerateSiteUuid(),
+        indexnow_api_key: () => crypto.randomBytes(16).toString('hex')
+    };
+
     _.each(defaultSettingsInCategories, function each(settings, categoryName) {
         _.each(settings, function eachSetting(setting, settingName) {
             setting.group = categoryName;
             setting.key = settingName;
 
             setting.getDefaultValue = function getDefaultValue() {
-                const getDynamicDefault = dynamicDefaultGenerators[setting.key];
+                const getDynamicDefault = dynamicDefault[setting.key];
                 if (getDynamicDefault) {
                     return getDynamicDefault();
                 } else {
@@ -180,6 +91,60 @@ function getDefaultSettings() {
     }
 
     return defaultSettings;
+}
+
+/**
+ * Checks if a value is a string "0" or "1"
+ * @param {*} value - The value to check
+ * @returns {boolean}
+ */
+function isBooleanStringNumeric(value) {
+    return value === '0' || value === '1';
+}
+
+/**
+ * Checks if a value is a string "false" or "true"
+ * @param {*} value - The value to check
+ * @returns {boolean}
+ */
+function isBooleanStringLiteral(value) {
+    return value === 'false' || value === 'true';
+}
+
+/**
+ * Checks if a key represents an image or URL setting
+ * @param {string} key - The setting key
+ * @returns {boolean}
+ */
+function isImageOrUrlSetting(key) {
+    return ['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'].includes(key);
+}
+
+/**
+ * Converts boolean string representations to actual boolean values
+ * @param {*} value - The value to convert
+ * @returns {*}
+ */
+function convertBooleanStringValue(value) {
+    if (isBooleanStringNumeric(value)) {
+        return !!+value;
+    }
+    if (isBooleanStringLiteral(value)) {
+        return JSON.parse(value);
+    }
+    return value;
+}
+
+/**
+ * Formats boolean values to string representation
+ * @param {*} value - The value to format
+ * @returns {string|*}
+ */
+function formatBooleanValue(value) {
+    if (_.isBoolean(value)) {
+        return value.toString();
+    }
+    return value;
 }
 
 // Each setting is saved as a separate row in the database,
@@ -233,25 +198,32 @@ Settings = ghostBookshelf.Model.extend({
         const settingType = attrs.type;
 
         if (settingType === 'boolean') {
-            return formatBooleanAttribute(attrs);
+            attrs.value = convertBooleanStringValue(attrs.value);
+            attrs.value = formatBooleanValue(attrs.value);
         }
 
         return attrs;
     },
 
     formatOnWrite(attrs) {
-        return formatUrlAttribute(attrs);
+        if (attrs.value && isImageOrUrlSetting(attrs.key)) {
+            attrs.value = urlUtils.toTransformReady(attrs.value);
+        }
+
+        return attrs;
     },
 
     parse() {
         const attrs = ghostBookshelf.Model.prototype.parse.apply(this, arguments);
-        const settingType = attrs.type;
 
+        const settingType = attrs.type;
         if (settingType === 'boolean') {
-            parseBooleanAttribute(attrs);
+            attrs.value = convertBooleanStringValue(attrs.value);
         }
 
-        parseUrlAttribute(attrs);
+        if (isImageOrUrlSetting(attrs.key)) {
+            attrs.value = urlUtils.transformReadyToAbsolute(attrs.value);
+        }
 
         return attrs;
     }

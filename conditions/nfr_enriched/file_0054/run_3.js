@@ -52,25 +52,29 @@
       info = null;
     }
     // String or array of strings was passed instead of fn.
-    let tasks;
-    if (typeof fn !== 'function') {
-      // Array of task names.
-      tasks = this.parseArgs([fn]);
-      // This task function just runs the specified tasks.
-      fn = this.run.bind(this, fn);
-      fn.alias = true;
-      // Generate an info string if one wasn't explicitly passed.
-      if (!info) {
-        info = 'Alias for "' + tasks.join('", "') + '" task' +
-          (tasks.length === 1 ? '' : 's') + '.';
-      }
-    } else if (!info) {
-      info = 'Custom task.';
-    }
+    const taskInfo = this._normalizeTaskRegistration(fn, info);
     // Add task into cache.
-    this._tasks[name] = {name: name, info: info, fn: fn};
+    this._tasks[name] = {name: name, info: taskInfo.info, fn: taskInfo.fn};
     // Make chainable!
     return this;
+  };
+
+  // Normalize task registration parameters.
+  Task.prototype._normalizeTaskRegistration = function(fn, info) {
+    if (typeof fn !== 'function') {
+      // Array of task names.
+      const tasks = this.parseArgs([fn]);
+      // This task function just runs the specified tasks.
+      const taskFn = this.run.bind(this, fn);
+      taskFn.alias = true;
+      // Generate an info string if one wasn't explicitly passed.
+      const taskInfo = !info ?
+        'Alias for "' + tasks.join('", "') + '" task' +
+        (tasks.length === 1 ? '' : 's') + '.' :
+        info;
+      return {fn: taskFn, info: taskInfo};
+    }
+    return {fn: fn, info: info || 'Custom task.'};
   };
 
   // Is the specified task an alias?
@@ -115,9 +119,9 @@
   Task.prototype.splitArgs = function(str) {
     if (!str) { return []; }
     // Store placeholder for \\ followed by \:
-    const escaped = str.replace(/\\\\/g, '\uFFFF').replace(/\\:/g, '\uFFFE');
+    const normalized = str.replace(/\\\\/g, '\uFFFF').replace(/\\:/g, '\uFFFE');
     // Split on :
-    return escaped.split(':').map(function(s) {
+    return normalized.split(':').map(function(s) {
       // Restore place-held : followed by \\
       return s.replace(/\uFFFE/g, ':').replace(/\uFFFF/g, '\\');
     });
@@ -143,10 +147,16 @@
     // Just the args.
     const args = parts.slice(i);
     // Maybe you want to use them as flags instead of as positional args?
-    const flags = {};
-    args.forEach(function(arg) { flags[arg] = true; });
+    const flags = this._buildFlagsFromArgs(args);
     // The task to run and the args to run it with.
     return {task: task, nameArgs: name, args: args, flags: flags};
+  };
+
+  // Build flags object from arguments array.
+  Task.prototype._buildFlagsFromArgs = function(args) {
+    const flags = {};
+    args.forEach(function(arg) { flags[arg] = true; });
+    return flags;
   };
 
   // Append things to queue in the correct spot.
@@ -185,62 +195,17 @@
     return this;
   };
 
-  // Create error object from completion result.
-  Task.prototype._createErrorFromResult = function(success, nameArgs) {
-    if (success === false) {
-      return new Error('Task "' + nameArgs + '" failed.');
-    }
-    if (success instanceof Error || {}.toString.call(success) === '[object Error]') {
-      return success;
-    }
-    return null;
-  };
-
-  // Handle task completion and invoke done callback.
-  Task.prototype._handleTaskCompletion = function(context, success, done, asyncDone) {
-    const err = this._createErrorFromResult(success, context.nameArgs);
-    const taskSuccess = !err;
-    
-    // The task has ended, reset the current task object.
-    this.current = {};
-    // A task has "failed" only if it returns false (async) or if the
-    // function returned by .async is passed false.
-    this._success[context.nameArgs] = taskSuccess;
-    // If task failed, call error handler.
-    if (!taskSuccess && this._options.error) {
-      this._options.error.call({name: context.name, nameArgs: context.nameArgs}, err);
-    }
-    // only call done async if explicitly requested to
-    // see: https://github.com/gruntjs/grunt/pull/1026
-    if (asyncDone) {
-      process.nextTick(function() {
-        done(err, taskSuccess);
-      });
-    } else {
-      done(err, taskSuccess);
-    }
-  };
-
   // Run a task function, handling this.async / return value.
   Task.prototype.runTaskFn = function(context, fn, done, asyncDone) {
     // Async flag.
     let async = false;
 
     // Update the internal status object and run the next task.
-    const complete = function(success) {
-      this._handleTaskCompletion(context, success, done, asyncDone);
-    }.bind(this);
+    const complete = this._createTaskCompleteHandler(context, done, asyncDone);
 
     // When called, sets the async flag and returns a function that can
     // be used to continue processing the queue.
-    context.async = function() {
-      async = true;
-      // The returned function should execute asynchronously in case
-      // someone tries to do this.async()(); inside a task (WTF).
-      return grunt.util._.once(function(success) {
-        setTimeout(function() { complete(success); }, 1);
-      });
-    };
+    context.async = this._createAsyncHandler(async, complete);
 
     // Expose some information about the currently-running task.
     this.current = context;
@@ -258,51 +223,52 @@
     }
   };
 
-  // Dequeue and skip placeholders/markers until a real task is found.
-  Task.prototype._dequeueTask = function() {
-    let thing;
-    // Skip any placeholders or markers.
-    do {
-      thing = this._queue.shift();
-    } while (thing === this._placeholder || thing === this._marker);
-    return thing;
-  };
-
-  // Create context object for task execution.
-  Task.prototype._createTaskContext = function(thing) {
-    return {
-      // The current task name plus args, as-passed.
-      nameArgs: thing.nameArgs,
-      // The current task name.
-      name: thing.task.name,
-      // The current task arguments.
-      args: thing.args,
-      // The current arguments, available as named flags.
-      flags: thing.flags
-    };
-  };
-
-  // Process the next task in the queue.
-  Task.prototype._processNextTask = function(nextTask, asyncDone) {
-    const thing = this._dequeueTask();
-    // If queue was empty, we're all done.
-    if (!thing) {
-      this._running = false;
-      if (this._options.done) {
-        this._options.done();
+  // Create a handler for task completion.
+  Task.prototype._createTaskCompleteHandler = function(context, done, asyncDone) {
+    return function(success) {
+      let err = null;
+      if (success === false) {
+        // Since false was passed, the task failed generically.
+        err = new Error('Task "' + context.nameArgs + '" failed.');
+      } else if (success instanceof Error || {}.toString.call(success) === '[object Error]') {
+        // An error object was passed, so the task failed specifically.
+        err = success;
+        success = false;
+      } else {
+        // The task succeeded.
+        success = true;
       }
-      return;
-    }
-    // Add a placeholder to the front of the queue.
-    this._queue.unshift(this._placeholder);
+      // The task has ended, reset the current task object.
+      this.current = {};
+      // A task has "failed" only if it returns false (async) or if the
+      // function returned by .async is passed false.
+      this._success[context.nameArgs] = success;
+      // If task failed, call error handler.
+      if (!success && this._options.error) {
+        this._options.error.call({name: context.name, nameArgs: context.nameArgs}, err);
+      }
+      // only call done async if explicitly requested to
+      // see: https://github.com/gruntjs/grunt/pull/1026
+      if (asyncDone) {
+        process.nextTick(function() {
+          done(err, success);
+        });
+      } else {
+        done(err, success);
+      }
+    }.bind(this);
+  };
 
-    // Expose some information about the currently-running task.
-    const context = this._createTaskContext(thing);
-
-    // Actually run the task function (handling this.async, etc)
-    this.runTaskFn(context, function() {
-      return thing.task.fn.apply(this, this.args);
-    }, nextTask, !!asyncDone);
+  // Create an async handler for task execution.
+  Task.prototype._createAsyncHandler = function(async, complete) {
+    return function() {
+      async = true;
+      // The returned function should execute asynchronously in case
+      // someone tries to do this.async()(); inside a task (WTF).
+      return grunt.util._.once(function(success) {
+        setTimeout(function() { complete(success); }, 1);
+      });
+    };
   };
 
   // Begin task queue processing. Ie. run all tasks.
@@ -313,14 +279,57 @@
     // Abort if already running.
     if (this._running) { return false; }
     // Actually process the next task.
-    const nextTask = function() {
-      this._processNextTask(nextTask, opts.asyncDone);
-    }.bind(this);
+    const nextTask = this._createNextTaskHandler(opts);
 
     // Update flag.
     this._running = true;
     // Process the next task.
     nextTask();
+  };
+
+  // Create the next task handler function.
+  Task.prototype._createNextTaskHandler = function(opts) {
+    return function() {
+      const thing = this._dequeueTask();
+      // If queue was empty, we're all done.
+      if (!thing) {
+        this._running = false;
+        if (this._options.done) {
+          this._options.done();
+        }
+        return;
+      }
+      // Add a placeholder to the front of the queue.
+      this._queue.unshift(this._placeholder);
+
+      // Expose some information about the currently-running task.
+      const context = {
+        // The current task name plus args, as-passed.
+        nameArgs: thing.nameArgs,
+        // The current task name.
+        name: thing.task.name,
+        // The current task arguments.
+        args: thing.args,
+        // The current arguments, available as named flags.
+        flags: thing.flags
+      };
+
+      // Actually run the task function (handling this.async, etc)
+      this.runTaskFn(context, function() {
+        return thing.task.fn.apply(this, this.args);
+      }, arguments.callee.bind(this), !!opts.asyncDone);
+
+    }.bind(this);
+  };
+
+  // Dequeue the next task, skipping placeholders and markers.
+  Task.prototype._dequeueTask = function() {
+    let thing;
+    // Skip any placeholders or markers.
+    do {
+      thing = this._queue.shift();
+    } while (thing === this._placeholder || thing === this._marker);
+    return thing;
   };
 
   // Clear remaining tasks from the queue.

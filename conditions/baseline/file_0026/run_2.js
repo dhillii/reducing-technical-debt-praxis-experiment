@@ -29,6 +29,24 @@ const VisitCountBadge = ({visits}: {visits: number}) => (
     </span>
 );
 
+// Helper to map device type to display label
+const getDeviceLabel = (device: string): string => {
+    switch (device) {
+        case 'mobile-ios':
+            return 'iOS';
+        case 'mobile-android':
+            return 'Android';
+        case 'desktop':
+            return 'Desktop';
+        case 'bot':
+            return 'Bot';
+        case 'unknown':
+            return 'Unknown';
+        default:
+            return device;
+    }
+};
+
 // Configuration for each filter field type
 interface FilterFieldDefinition {
     endpoint: string;
@@ -85,17 +103,10 @@ const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     device: {
         endpoint: 'api_top_devices',
         valueKey: 'device',
-        transformValue: v => {
-            const deviceLabelMap: Record<string, string> = {
-                'mobile-ios': 'iOS',
-                'mobile-android': 'Android',
-                'desktop': 'Desktop',
-                'bot': 'Bot',
-                'unknown': 'Unknown'
-            };
-            const label = deviceLabelMap[v] || v;
-            return {value: v, label};
-        }
+        transformValue: v => ({
+            value: v,
+            label: getDeviceLabel(v)
+        })
     }
 };
 
@@ -512,8 +523,6 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
         }
     }, [onChange]);
 
-    const popoverAlignValue = isMobile ? 'start' : (hasFilters ? 'start' : 'end');
-
     return (
         <div className="mt-3 flex w-full justify-between gap-2 lg:mt-0" data-testid="stats-filter-container">
             <Filters
@@ -524,7 +533,7 @@ function StatsFilter({filters, onChange, ...props}: StatsFilterProps) {
                 fields={groupedFields}
                 filters={filters}
                 keyboardShortcut="f"
-                popoverAlign={popoverAlignValue}
+                popoverAlign={isMobile ? 'start' : (hasFilters ? 'start' : 'end')}
                 showSearchInput={false}
                 onActiveFieldChange={setActiveFilterField}
                 onChange={onChange || (() => {})}

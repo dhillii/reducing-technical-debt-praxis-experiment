@@ -26,32 +26,6 @@ export function getGraphQLInputType(
   return cache.get(schema)!
 }
 
-function createInputObjectFields(
-  name: string,
-  fields: Record<string, ComponentSchema>,
-  operation: 'create' | 'update',
-  cache: Map<ComponentSchema, GInputType>,
-  meta: FieldData
-) {
-  return () =>
-    Object.fromEntries(
-      Object.entries(fields).map(([key, val]): [string, GArg<GInputType>] => {
-        const type = getGraphQLInputType(
-          `${name}${key[0].toUpperCase()}${key.slice(1)}`,
-          val,
-          operation,
-          cache,
-          meta
-        )
-        return [key, g.arg({ type })]
-      })
-    )
-}
-
-function getInputObjectName(name: string, operation: 'create' | 'update'): string {
-  return `${name}${operation[0].toUpperCase()}${operation.slice(1)}Input`
-}
-
 function getGraphQLInputTypeInner(
   name: string,
   schema: ComponentSchema,
@@ -66,29 +40,18 @@ function getGraphQLInputTypeInner(
     return schema.graphql.input
   }
   if (schema.kind === 'object') {
-    return g.inputObject({
-      name: getInputObjectName(name, operation),
-      fields: createInputObjectFields(name, schema.fields, operation, cache, meta),
-    })
+    return createObjectInputType(name, schema, operation, cache, meta)
   }
   if (schema.kind === 'array') {
     const innerType = getGraphQLInputType(name, schema.element, operation, cache, meta)
     return g.list(innerType)
   }
   if (schema.kind === 'conditional') {
-    return g.inputObject({
-      name: getInputObjectName(name, operation),
-      fields: createInputObjectFields(name, schema.values, operation, cache, meta),
-    })
+    return createConditionalInputType(name, schema, operation, cache, meta)
   }
 
   if (schema.kind === 'relationship') {
-    const inputType =
-      meta.lists[schema.listKey].types.relateTo[schema.many ? 'many' : 'one'][operation]
-    if (inputType === undefined) {
-      throw new Error('')
-    }
-    return inputType
+    return getRelationshipInputType(schema, meta, operation)
   }
   if (schema.kind === 'child') {
     throw new Error(`Child fields are not supported in the structure field, found one at ${name}`)
@@ -97,24 +60,119 @@ function getGraphQLInputTypeInner(
   assertNever(schema)
 }
 
-function handleFormValidation(schema: ComponentSchema, value: any, path: ReadonlyPropPath): any {
-  if (schema.validate(value)) return value
-  throw new Error(`The value of the form field at '${path.join('.')}' is invalid`)
+function createObjectInputType(
+  name: string,
+  schema: Extract<ComponentSchema, { kind: 'object' }>,
+  operation: 'create' | 'update',
+  cache: Map<ComponentSchema, GInputType>,
+  meta: FieldData
+) {
+  return g.inputObject({
+    name: `${name}${operation[0].toUpperCase()}${operation.slice(1)}Input`,
+    fields: () =>
+      Object.fromEntries(
+        Object.entries(schema.fields).map(([key, val]): [string, GArg<GInputType>] => {
+          const type = getGraphQLInputType(
+            `${name}${key[0].toUpperCase()}${key.slice(1)}`,
+            val,
+            operation,
+            cache,
+            meta
+          )
+          return [key, g.arg({ type })]
+        })
+      ),
+  })
 }
 
-function handleNullValue(schema: ComponentSchema, path: ReadonlyPropPath): void {
-  throw new Error(
-    `${schema.kind[0].toUpperCase() + schema.kind.slice(1)} fields cannot be set to null but the field at '${path.join('.')}' is null`
-  )
+function createConditionalInputType(
+  name: string,
+  schema: Extract<ComponentSchema, { kind: 'conditional' }>,
+  operation: 'create' | 'update',
+  cache: Map<ComponentSchema, GInputType>,
+  meta: FieldData
+) {
+  return g.inputObject({
+    name: `${name}${operation[0].toUpperCase()}${operation.slice(1)}Input`,
+    fields: () =>
+      Object.fromEntries(
+        Object.entries(schema.values).map(([key, val]): [string, GArg<GInputType>] => {
+          const type = getGraphQLInputType(
+            `${name}${key[0].toUpperCase()}${key.slice(1)}`,
+            val,
+            operation,
+            cache,
+            meta
+          )
+          return [key, g.arg({ type })]
+        })
+      ),
+  })
 }
 
-async function handleObjectUpdate(
-  schema: ComponentSchema & { kind: 'object' },
+function getRelationshipInputType(
+  schema: Extract<ComponentSchema, { kind: 'relationship' }>,
+  meta: FieldData,
+  operation: 'create' | 'update'
+) {
+  const inputType =
+    meta.lists[schema.listKey].types.relateTo[schema.many ? 'many' : 'one'][operation]
+  if (inputType === undefined) {
+    throw new Error('')
+  }
+  return inputType
+}
+
+export async function getValueForUpdate(
+  schema: ComponentSchema,
   value: any,
   prevValue: any,
   context: KeystoneContext,
   path: ReadonlyPropPath
 ): Promise<any> {
+  if (value === undefined) return prevValue
+  if (prevValue === undefined) {
+    prevValue = getInitialPropsValue(schema)
+  }
+
+  if (schema.kind === 'form') {
+    if (schema.validate(value)) return value
+    throw new Error(`The value of the form field at '${path.join('.')}' is invalid`)
+  }
+  if (value === null) {
+    throw new Error(
+      `${schema.kind[0].toUpperCase() + schema.kind.slice(1)} fields cannot be set to null but the field at '${path.join('.')}' is null`
+    )
+  }
+  if (schema.kind === 'object') {
+    return updateObjectValue(schema, value, prevValue, context, path)
+  }
+  if (schema.kind === 'array') {
+    return updateArrayValue(schema, value, prevValue, context, path)
+  }
+  if (schema.kind === 'relationship') {
+    return updateRelationshipValue(schema, value, prevValue, context)
+  }
+  if (schema.kind === 'conditional') {
+    return updateConditionalValue(schema, value, prevValue, context, path)
+  }
+
+  if (schema.kind === 'child') {
+    throw new Error(
+      `Child fields are not supported in the structure field, found one at ${path.join('.')}`
+    )
+  }
+
+  assertNever(schema)
+}
+
+async function updateObjectValue(
+  schema: Extract<ComponentSchema, { kind: 'object' }>,
+  value: any,
+  prevValue: any,
+  context: KeystoneContext,
+  path: ReadonlyPropPath
+) {
   return Object.fromEntries(
     await Promise.all(
       Object.entries(schema.fields).map(async ([key, val]) => {
@@ -127,13 +185,13 @@ async function handleObjectUpdate(
   )
 }
 
-async function handleArrayUpdate(
-  schema: ComponentSchema & { kind: 'array' },
+async function updateArrayValue(
+  schema: Extract<ComponentSchema, { kind: 'array' }>,
   value: any,
   prevValue: any,
   context: KeystoneContext,
   path: ReadonlyPropPath
-): Promise<any> {
+) {
   return Promise.all(
     (value as any[]).map((val, i) =>
       getValueForUpdate(schema.element, val, prevValue[i], context, path.concat(i))
@@ -141,12 +199,12 @@ async function handleArrayUpdate(
   )
 }
 
-async function handleRelationshipUpdate(
-  schema: ComponentSchema & { kind: 'relationship' },
+async function updateRelationshipValue(
+  schema: Extract<ComponentSchema, { kind: 'relationship' }>,
   value: any,
-  context: KeystoneContext,
-  prevValue: any
-): Promise<any> {
+  prevValue: any,
+  context: KeystoneContext
+) {
   if (schema.many) {
     const val = (value as InferValueFromArg<
       GArg<NonNullable<GraphQLTypesForList['relateTo']['many']['update']>>
@@ -160,13 +218,13 @@ async function handleRelationshipUpdate(
   }
 }
 
-async function handleConditionalUpdate(
-  schema: ComponentSchema & { kind: 'conditional' },
+async function updateConditionalValue(
+  schema: Extract<ComponentSchema, { kind: 'conditional' }>,
   value: any,
   prevValue: any,
   context: KeystoneContext,
   path: ReadonlyPropPath
-): Promise<any> {
+) {
   const conditionalValueKeys = Object.keys(value)
   if (conditionalValueKeys.length !== 1) {
     throw new Error(
@@ -192,35 +250,36 @@ async function handleConditionalUpdate(
   }
 }
 
-export async function getValueForUpdate(
+export async function getValueForCreate(
   schema: ComponentSchema,
   value: any,
-  prevValue: any,
   context: KeystoneContext,
   path: ReadonlyPropPath
 ): Promise<any> {
-  if (value === undefined) return prevValue
-  if (prevValue === undefined) {
-    prevValue = getInitialPropsValue(schema)
-  }
-
+  // If value is undefined, get the specified defaultValue
+  if (value === undefined) return getInitialPropsValue(schema)
   if (schema.kind === 'form') {
-    return handleFormValidation(schema, value, path)
+    if (schema.validate(value)) return value
+    throw new Error(`The value of the form field at '${path.join('.')}' is invalid`)
   }
   if (value === null) {
-    handleNullValue(schema, path)
-  }
-  if (schema.kind === 'object') {
-    return handleObjectUpdate(schema, value, prevValue, context, path)
+    throw new Error(
+      `${
+        schema.kind[0].toUpperCase() + schema.kind.slice(1)
+      } fields cannot be set to null but the field at '${path.join('.')}' is null`
+    )
   }
   if (schema.kind === 'array') {
-    return handleArrayUpdate(schema, value, prevValue, context, path)
+    return createArrayValue(schema, value, context, path)
+  }
+  if (schema.kind === 'object') {
+    return createObjectValue(schema, value, context, path)
   }
   if (schema.kind === 'relationship') {
-    return handleRelationshipUpdate(schema, value, context, prevValue)
+    return createRelationshipValue(schema, value, context)
   }
   if (schema.kind === 'conditional') {
-    return handleConditionalUpdate(schema, value, prevValue, context, path)
+    return createConditionalValue(schema, value, context, path)
   }
 
   if (schema.kind === 'child') {
@@ -232,12 +291,25 @@ export async function getValueForUpdate(
   assertNever(schema)
 }
 
-async function handleObjectCreate(
-  schema: ComponentSchema & { kind: 'object' },
+async function createArrayValue(
+  schema: Extract<ComponentSchema, { kind: 'array' }>,
   value: any,
   context: KeystoneContext,
   path: ReadonlyPropPath
-): Promise<any> {
+) {
+  return Promise.all(
+    (value as any[]).map((val, i) =>
+      getValueForCreate(schema.element, val, context, path.concat(i))
+    )
+  )
+}
+
+async function createObjectValue(
+  schema: Extract<ComponentSchema, { kind: 'object' }>,
+  value: any,
+  context: KeystoneContext,
+  path: ReadonlyPropPath
+) {
   return Object.fromEntries(
     await Promise.all(
       Object.entries(schema.fields).map(async ([key, val]) => {
@@ -247,24 +319,11 @@ async function handleObjectCreate(
   )
 }
 
-async function handleArrayCreate(
-  schema: ComponentSchema & { kind: 'array' },
-  value: any,
-  context: KeystoneContext,
-  path: ReadonlyPropPath
-): Promise<any> {
-  return Promise.all(
-    (value as any[]).map((val, i) =>
-      getValueForCreate(schema.element, val, context, path.concat(i))
-    )
-  )
-}
-
-async function handleRelationshipCreate(
-  schema: ComponentSchema & { kind: 'relationship' },
+async function createRelationshipValue(
+  schema: Extract<ComponentSchema, { kind: 'relationship' }>,
   value: any,
   context: KeystoneContext
-): Promise<any> {
+) {
   if (schema.many) {
     const val = (value as InferValueFromArg<
       GArg<NonNullable<GraphQLTypesForList['relateTo']['many']['create']>>
@@ -278,12 +337,13 @@ async function handleRelationshipCreate(
   }
 }
 
-async function handleConditionalCreate(
-  schema: ComponentSchema & { kind: 'conditional' },
+async function createConditionalValue(
+  schema: Extract<ComponentSchema, { kind: 'conditional' }>,
   value: any,
   context: KeystoneContext,
   path: ReadonlyPropPath
-): Promise<any> {
+) {
+  if (value === null) throw new Error()
   const conditionalValueKeys = Object.keys(value)
   if (conditionalValueKeys.length !== 1) throw new Error()
   const key = conditionalValueKeys[0]
@@ -303,40 +363,7 @@ async function handleConditionalCreate(
   }
 }
 
-export async function getValueForCreate(
-  schema: ComponentSchema,
-  value: any,
-  context: KeystoneContext,
-  path: ReadonlyPropPath
-): Promise<any> {
-  if (value === undefined) return getInitialPropsValue(schema)
-  if (schema.kind === 'form') {
-    return handleFormValidation(schema, value, path)
-  }
-  if (value === null) {
-    handleNullValue(schema, path)
-  }
-  if (schema.kind === 'array') {
-    return handleArrayCreate(schema, value, context, path)
-  }
-  if (schema.kind === 'object') {
-    return handleObjectCreate(schema, value, context, path)
-  }
-  if (schema.kind === 'relationship') {
-    return handleRelationshipCreate(schema, value, context)
-  }
-  if (schema.kind === 'conditional') {
-    return handleConditionalCreate(schema, value, context, path)
-  }
-
-  if (schema.kind === 'child') {
-    throw new Error(
-      `Child fields are not supported in the structure field, found one at ${path.join('.')}`
-    )
-  }
-
-  assertNever(schema)
-}
+/** MANY */
 
 type _CreateValueManyType = Exclude<
   InferValueFromArg<GArg<Exclude<GraphQLTypesForList['relateTo']['many']['create'], undefined>>>,
@@ -367,6 +394,8 @@ function getResolvedUniqueWheres(
   )
 }
 
+// these aren't here out of thinking this is better syntax(i do not think it is),
+// it's just because TS won't infer the arg is X bit
 export const isFulfilled = <T>(arg: PromiseSettledResult<T>): arg is PromiseFulfilledResult<T> =>
   arg.status === 'fulfilled'
 export const isRejected = (arg: PromiseSettledResult<any>): arg is PromiseRejectedResult =>
@@ -384,21 +413,26 @@ export async function resolveRelateToManyForCreateInput(
     )
   }
 
+  // Perform queries for the connections
   const connects = Promise.allSettled(
     getResolvedUniqueWheres(value.connect || [], context, foreignListKey, 'connect')
   )
 
+  // Perform nested mutations for the creations
   const creates = Promise.allSettled(
     (value.create || []).map(x => resolveCreateMutation(x, context, foreignListKey))
   )
 
   const [connectResult, createResult] = await Promise.all([connects, creates])
 
+  // Collect all the errors
   const errors = [...connectResult, ...createResult].filter(isRejected)
   if (errors.length) {
+    // readd tag
     throw new RelationshipErrors(errors.map(x => ({ error: x.reason, tag: tag || '' })))
   }
 
+  // Perform queries for the connections
   return [...connectResult, ...createResult].filter(isFulfilled).map(x => x.value)
 }
 
@@ -424,6 +458,7 @@ export async function resolveRelateToManyForUpdateInput(
     )
   }
 
+  // Perform queries for the connections
   const connects = Promise.allSettled(
     getResolvedUniqueWheres(value.connect || [], context, foreignListKey, 'connect')
   )
@@ -436,6 +471,7 @@ export async function resolveRelateToManyForUpdateInput(
     getResolvedUniqueWheres(value.set || [], context, foreignListKey, 'set')
   )
 
+  // Perform nested mutations for the creations
   const creates = Promise.allSettled(
     (value.create || []).map(x => resolveCreateMutation(x, context, foreignListKey))
   )
@@ -447,6 +483,7 @@ export async function resolveRelateToManyForUpdateInput(
     sets,
   ])
 
+  // Collect all the errors
   const errors = [...connectResult, ...createResult, ...disconnectResult, ...setResult].filter(
     isRejected
   )
@@ -464,6 +501,8 @@ export async function resolveRelateToManyForUpdateInput(
 
   return values
 }
+
+/** ONE */
 
 type _CreateValueType = Exclude<
   InferValueFromArg<GArg<Exclude<GraphQLTypesForList['relateTo']['one']['create'], undefined>>>,
@@ -488,6 +527,7 @@ export async function checkUniqueItemExists(
   context: KeystoneContext,
   operation: string
 ) {
+  // Check whether the item exists (from this users POV).
   const item = await context.db[listKey].findOne({ where: uniqueInput })
   if (item === null) throw missingItem(operation, uniqueInput)
 
@@ -511,6 +551,9 @@ async function resolveCreateMutation(value: any, context: KeystoneContext, forei
     {},
     { data: value.create },
     context,
+    // we happen to know this isn't used
+    // no one else should rely on that though
+    // it could change in the future
     {} as GraphQLResolveInfo
   )) as BaseItem
   return { id: id.toString() }

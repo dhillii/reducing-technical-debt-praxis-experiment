@@ -28,10 +28,10 @@ const PAID_PARAMS = [{
 
 /**
  * Builds filter array based on label, paid status, and filter parameters
- * @param {string} label - The label slug to filter by
- * @param {string} paidParam - The paid status parameter ('true', 'false', or null)
- * @param {string} filterParam - The NQL filter string
- * @returns {string[]} Array of filter strings
+ * @param {string} label - The label slug
+ * @param {string} paidParam - The paid parameter ('true', 'false', or null)
+ * @param {string} filterParam - The filter parameter string
+ * @returns {Array} Array of filter strings
  */
 function buildFilters(label, paidParam, filterParam) {
     const filters = [];
@@ -72,20 +72,17 @@ function normalizeFilterParam(filterParam) {
 }
 
 /**
- * Checks if a filter type is restricted for bulk deletion
- * @param {string} filterType - The filter type to check
- * @returns {boolean} True if the filter type is restricted
+ * Builds API query object with filters and search
+ * @param {string} filters - Joined filter string
+ * @param {string} searchParam - Search parameter
+ * @returns {Object} Query object
  */
-function isRestrictedStripeFilter(filterType) {
-    const restrictedTypes = [
-        'subscriptions.plan_interval',
-        'subscriptions.status',
-        'subscriptions.start_date',
-        'subscriptions.current_period_end',
-        'conversion',
-        'offer_redemptions'
-    ];
-    return restrictedTypes.includes(filterType);
+function buildQueryObject(filters, searchParam) {
+    const query = {filter: filters};
+    if (searchParam) {
+        query.search = searchParam;
+    }
+    return query;
 }
 
 export default class MembersController extends Controller {
@@ -249,7 +246,7 @@ export default class MembersController extends Controller {
             if (filter.properties?.getColumns) {
                 return filter.properties?.getColumns(filter).map((c) => {
                     return {
-                        label: filter.properties.columnLabel,
+                        label: filter.properties.columnLabel, // default value if not provided
                         ...c,
                         name: filter.type
                     };
@@ -291,9 +288,20 @@ export default class MembersController extends Controller {
             return false;
         }
 
-        const stripeFilters = this.filters.filter(f => isRestrictedStripeFilter(f.type));
+        const stripeFilters = this.filters.filter(f => [
+            'subscriptions.plan_interval',
+            'subscriptions.status',
+            'subscriptions.start_date',
+            'subscriptions.current_period_end',
+            'conversion',
+            'offer_redemptions'
+        ].includes(f.type));
 
-        return stripeFilters.length === 0;
+        if (stripeFilters && stripeFilters.length >= 1) {
+            return false;
+        }
+
+        return true;
     }
 
     includeTierQuery() {
@@ -308,11 +316,9 @@ export default class MembersController extends Controller {
 
         filterParam = normalizeFilterParam(filterParam);
 
-        let filters = [...extraFilters, ...buildFilters(label, paidParam, filterParam)];
+        let filters = extraFilters.concat(buildFilters(label, paidParam, filterParam));
 
-        let searchQuery = searchParam ? {search: searchParam} : {};
-
-        return {...{filter: filters.join('+')}, ...searchQuery};
+        return buildQueryObject(filters.join('+'), searchParam);
     }
 
     // Actions -----------------------------------------------------------------

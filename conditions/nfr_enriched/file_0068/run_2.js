@@ -1,3 +1,9 @@
+/**
+ * @fileoverview Collects the built-in rules into a map structure so that they can be imported all at once and without
+ * using the file-system directly.
+ * @author Peter (Somogyvari) Metz
+ */
+
 "use strict";
 
 /* eslint sort-keys: ["error", "asc"] -- More readable for long list */
@@ -6,7 +12,7 @@ const { LazyLoadingRuleMap } = require("./utils/lazy-loading-rule-map");
 
 /**
  * Creates a lazy-loading rule entry for the given rule name.
- * @param {string} ruleName - The name of the rule
+ * @param {string} ruleName - The name of the rule module to load
  * @returns {Function} A function that requires the rule module
  */
 function createRuleLoader(ruleName) {
@@ -14,8 +20,8 @@ function createRuleLoader(ruleName) {
 }
 
 /**
- * Builds the complete rules map with lazy-loading entries.
- * @returns {Object} Object mapping rule names to lazy-loading functions
+ * Builds the complete rules map with all ESLint built-in rules.
+ * @returns {Object} An object mapping rule names to their lazy-loading functions
  */
 function buildRulesMap() {
 	const ruleNames = [

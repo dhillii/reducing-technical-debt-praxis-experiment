@@ -26,7 +26,7 @@ export function getGraphQLInputType(
   return cache.get(schema)!
 }
 
-/** @internal Handles form schema input type resolution */
+/** @internal Handles form schema input type */
 function handleFormInputType(schema: ComponentSchema): GInputType {
   if (!schema.graphql) {
     throw new Error(`Field is missing a graphql field`)
@@ -34,7 +34,7 @@ function handleFormInputType(schema: ComponentSchema): GInputType {
   return schema.graphql.input
 }
 
-/** @internal Handles object schema input type resolution */
+/** @internal Handles object schema input type */
 function handleObjectInputType(
   name: string,
   schema: ComponentSchema,
@@ -60,19 +60,18 @@ function handleObjectInputType(
   })
 }
 
-/** @internal Handles array schema input type resolution */
+/** @internal Handles array schema input type */
 function handleArrayInputType(
   name: string,
   schema: ComponentSchema,
-  operation: 'create' | 'update',
   cache: Map<ComponentSchema, GInputType>,
   meta: FieldData
 ): GInputType {
-  const innerType = getGraphQLInputType(name, schema.element, operation, cache, meta)
+  const innerType = getGraphQLInputType(name, schema.element, 'create', cache, meta)
   return g.list(innerType)
 }
 
-/** @internal Handles conditional schema input type resolution */
+/** @internal Handles conditional schema input type */
 function handleConditionalInputType(
   name: string,
   schema: ComponentSchema,
@@ -98,16 +97,14 @@ function handleConditionalInputType(
   })
 }
 
-/** @internal Handles relationship schema input type resolution */
+/** @internal Handles relationship schema input type */
 function handleRelationshipInputType(
   schema: ComponentSchema,
   meta: FieldData,
   name: string
 ): GInputType {
   const inputType =
-    meta.lists[schema.listKey].types.relateTo[schema.many ? 'many' : 'one'][
-      'create' // operation doesn't matter for type lookup
-    ]
+    meta.lists[schema.listKey].types.relateTo[schema.many ? 'many' : 'one']['create']
   if (inputType === undefined) {
     throw new Error(`Relationship input type not found for ${name}`)
   }
@@ -115,22 +112,12 @@ function handleRelationshipInputType(
 }
 
 /** @internal Input type handler dispatch table */
-const inputTypeHandlers: Record<
-  string,
-  (
-    name: string,
-    schema: ComponentSchema,
-    operation: 'create' | 'update',
-    cache: Map<ComponentSchema, GInputType>,
-    meta: FieldData
-  ) => GInputType
-> = {
-  form: (name, schema, operation, cache, meta) => handleFormInputType(schema),
+const inputTypeHandlers: Record<string, (name: string, schema: ComponentSchema, operation: 'create' | 'update', cache: Map<ComponentSchema, GInputType>, meta: FieldData) => GInputType> = {
+  form: (name, schema) => handleFormInputType(schema),
   object: handleObjectInputType,
-  array: handleArrayInputType,
+  array: (name, schema, operation, cache, meta) => handleArrayInputType(name, schema, cache, meta),
   conditional: handleConditionalInputType,
-  relationship: (name, schema, operation, cache, meta) =>
-    handleRelationshipInputType(schema, meta, name),
+  relationship: (name, schema, operation, cache, meta) => handleRelationshipInputType(schema, meta, name),
 }
 
 function getGraphQLInputTypeInner(
@@ -158,7 +145,7 @@ function validateFormValue(schema: ComponentSchema, value: any, path: ReadonlyPr
   throw new Error(`The value of the form field at '${path.join('.')}' is invalid`)
 }
 
-/** @internal Checks if value is null and throws appropriate error */
+/** @internal Checks for null value in non-nullable schema */
 function checkNullValue(schema: ComponentSchema, value: any, path: ReadonlyPropPath): void {
   if (value === null) {
     throw new Error(
@@ -167,8 +154,8 @@ function checkNullValue(schema: ComponentSchema, value: any, path: ReadonlyPropP
   }
 }
 
-/** @internal Handles object value update */
-async function handleObjectValueUpdate(
+/** @internal Processes object schema for update */
+async function processObjectForUpdate(
   schema: ComponentSchema,
   value: any,
   prevValue: any,
@@ -187,8 +174,8 @@ async function handleObjectValueUpdate(
   )
 }
 
-/** @internal Handles array value update */
-async function handleArrayValueUpdate(
+/** @internal Processes array schema for update */
+async function processArrayForUpdate(
   schema: ComponentSchema,
   value: any,
   prevValue: any,
@@ -202,13 +189,12 @@ async function handleArrayValueUpdate(
   )
 }
 
-/** @internal Handles relationship value update */
-async function handleRelationshipValueUpdate(
+/** @internal Processes relationship schema for update */
+async function processRelationshipForUpdate(
   schema: ComponentSchema,
   value: any,
   prevValue: any,
-  context: KeystoneContext,
-  path: ReadonlyPropPath
+  context: KeystoneContext
 ): Promise<any> {
   if (schema.many) {
     const val = value as InferValueFromArg<
@@ -223,19 +209,8 @@ async function handleRelationshipValueUpdate(
   }
 }
 
-/** @internal Parses conditional discriminant value */
-function parseConditionalDiscriminant(
-  key: string,
-  schema: ComponentSchema
-): string | boolean {
-  if ((key === 'true' || key === 'false') && !schema.discriminant.validate(key)) {
-    return key === 'true'
-  }
-  return key
-}
-
-/** @internal Handles conditional value update */
-async function handleConditionalValueUpdate(
+/** @internal Processes conditional schema for update */
+async function processConditionalForUpdate(
   schema: ComponentSchema,
   value: any,
   prevValue: any,
@@ -251,8 +226,10 @@ async function handleConditionalValueUpdate(
     )
   }
   const key = conditionalValueKeys[0]
-  const discriminant = parseConditionalDiscriminant(key, schema)
-
+  let discriminant: string | boolean = key
+  if ((key === 'true' || key === 'false') && !schema.discriminant.validate(key)) {
+    discriminant = key === 'true'
+  }
   return {
     discriminant,
     value: await getValueForUpdate(
@@ -266,21 +243,12 @@ async function handleConditionalValueUpdate(
 }
 
 /** @internal Update value handler dispatch table */
-const updateValueHandlers: Record<
-  string,
-  (
-    schema: ComponentSchema,
-    value: any,
-    prevValue: any,
-    context: KeystoneContext,
-    path: ReadonlyPropPath
-  ) => Promise<any>
-> = {
-  form: (schema, value) => validateFormValue(schema, value, [] as any),
-  object: handleObjectValueUpdate,
-  array: handleArrayValueUpdate,
-  relationship: handleRelationshipValueUpdate,
-  conditional: handleConditionalValueUpdate,
+const updateHandlers: Record<string, (schema: ComponentSchema, value: any, prevValue: any, context: KeystoneContext, path: ReadonlyPropPath) => Promise<any>> = {
+  form: (schema, value) => Promise.resolve(validateFormValue(schema, value, [])),
+  object: processObjectForUpdate,
+  array: processArrayForUpdate,
+  relationship: processRelationshipForUpdate,
+  conditional: processConditionalForUpdate,
 }
 
 export async function getValueForUpdate(
@@ -301,7 +269,7 @@ export async function getValueForUpdate(
 
   checkNullValue(schema, value, path)
 
-  const handler = updateValueHandlers[schema.kind]
+  const handler = updateHandlers[schema.kind]
   if (handler) {
     return handler(schema, value, prevValue, context, path)
   }
@@ -315,8 +283,8 @@ export async function getValueForUpdate(
   assertNever(schema)
 }
 
-/** @internal Handles object value creation */
-async function handleObjectValueCreate(
+/** @internal Processes object schema for create */
+async function processObjectForCreate(
   schema: ComponentSchema,
   value: any,
   context: KeystoneContext,
@@ -331,8 +299,8 @@ async function handleObjectValueCreate(
   )
 }
 
-/** @internal Handles array value creation */
-async function handleArrayValueCreate(
+/** @internal Processes array schema for create */
+async function processArrayForCreate(
   schema: ComponentSchema,
   value: any,
   context: KeystoneContext,
@@ -345,12 +313,11 @@ async function handleArrayValueCreate(
   )
 }
 
-/** @internal Handles relationship value creation */
-async function handleRelationshipValueCreate(
+/** @internal Processes relationship schema for create */
+async function processRelationshipForCreate(
   schema: ComponentSchema,
   value: any,
-  context: KeystoneContext,
-  path: ReadonlyPropPath
+  context: KeystoneContext
 ): Promise<any> {
   if (schema.many) {
     const val = value as InferValueFromArg<
@@ -365,23 +332,20 @@ async function handleRelationshipValueCreate(
   }
 }
 
-/** @internal Handles conditional value creation */
-async function handleConditionalValueCreate(
+/** @internal Processes conditional schema for create */
+async function processConditionalForCreate(
   schema: ComponentSchema,
   value: any,
   context: KeystoneContext,
   path: ReadonlyPropPath
 ): Promise<any> {
   const conditionalValueKeys = Object.keys(value)
-  if (conditionalValueKeys.length !== 1) {
-    throw new Error(
-      `Conditional field inputs must set exactly one of the fields but the field at ${path.join(
-        '.'
-      )} has ${conditionalValueKeys.length} fields set`
-    )
-  }
+  if (conditionalValueKeys.length !== 1) throw new Error()
   const key = conditionalValueKeys[0]
-  const discriminant = parseConditionalDiscriminant(key, schema)
+  let discriminant: string | boolean = key
+  if ((key === 'true' || key === 'false') && !schema.discriminant.validate(key)) {
+    discriminant = key === 'true'
+  }
 
   return {
     discriminant,
@@ -395,20 +359,12 @@ async function handleConditionalValueCreate(
 }
 
 /** @internal Create value handler dispatch table */
-const createValueHandlers: Record<
-  string,
-  (
-    schema: ComponentSchema,
-    value: any,
-    context: KeystoneContext,
-    path: ReadonlyPropPath
-  ) => Promise<any>
-> = {
-  form: (schema, value, context, path) => validateFormValue(schema, value, path),
-  object: handleObjectValueCreate,
-  array: handleArrayValueCreate,
-  relationship: handleRelationshipValueCreate,
-  conditional: handleConditionalValueCreate,
+const createHandlers: Record<string, (schema: ComponentSchema, value: any, context: KeystoneContext, path: ReadonlyPropPath) => Promise<any>> = {
+  form: (schema, value, context, path) => Promise.resolve(validateFormValue(schema, value, path)),
+  object: processObjectForCreate,
+  array: processArrayForCreate,
+  relationship: processRelationshipForCreate,
+  conditional: processConditionalForCreate,
 }
 
 export async function getValueForCreate(
@@ -425,7 +381,7 @@ export async function getValueForCreate(
 
   checkNullValue(schema, value, path)
 
-  const handler = createValueHandlers[schema.kind]
+  const handler = createHandlers[schema.kind]
   if (handler) {
     return handler(schema, value, context, path)
   }

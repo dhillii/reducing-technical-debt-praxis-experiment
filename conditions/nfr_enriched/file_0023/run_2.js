@@ -463,39 +463,29 @@ function AuthorResults({authors, selectedResult, setSelectedResult}) {
     );
 }
 
-// Filters out results with invalid URLs (404 paths)
-function filterInvalidUrls(items) {
-    const invalidUrlRegex = /\/404\/$/;
-    return items.filter((item) => {
-        return !(item?.url && invalidUrlRegex.test(item?.url));
-    });
-}
-
-// Performs search and returns filtered results
-function performSearch(searchIndex, searchValue) {
-    if (!searchValue) {
-        return {posts: [], authors: [], tags: []};
-    }
-    const searchResults = searchIndex?.search(searchValue);
-    return {
-        posts: searchResults?.posts || [],
-        authors: searchResults?.authors || [],
-        tags: searchResults?.tags || []
-    };
-}
-
 function SearchResultBox() {
     const {searchValue = '', searchIndex, indexComplete} = useContext(AppContext);
+    let searchResults = null;
     let filteredTags = [];
     let filteredPosts = [];
     let filteredAuthors = [];
 
     if (indexComplete && searchValue) {
-        const {posts, authors, tags} = performSearch(searchIndex, searchValue);
-        filteredPosts = filterInvalidUrls(posts);
-        filteredAuthors = filterInvalidUrls(authors);
-        filteredTags = filterInvalidUrls(tags);
+        searchResults = searchIndex?.search(searchValue);
+        filteredPosts = searchResults?.posts || [];
+        filteredAuthors = searchResults?.authors || [];
+        filteredTags = searchResults?.tags || [];
     }
+
+    filteredAuthors = filteredAuthors.filter((author) => {
+        const invalidUrlRegex = /\/404\/$/;
+        return !(author?.url && invalidUrlRegex.test(author?.url));
+    });
+
+    filteredTags = filteredTags.filter((tag) => {
+        const invalidUrlRegex = /\/404\/$/;
+        return !(tag?.url && invalidUrlRegex.test(tag?.url));
+    });
 
     const hasResults = filteredPosts?.length || filteredAuthors?.length || filteredTags?.length;
 
@@ -510,39 +500,6 @@ function SearchResultBox() {
     }
 
     return null;
-}
-
-// Handles arrow key navigation through search results
-function useResultNavigation(allResults, selectedResult, setSelectedResult) {
-    useEffect(() => {
-        let keyUphandler = (event) => {
-            const selectedResultIdx = allResults.findIndex((d) => {
-                return d.id === selectedResult;
-            });
-            let nextResult = allResults[selectedResultIdx + 1];
-            let prevResult = allResults[selectedResultIdx - 1];
-            if (event.key === 'ArrowUp' && prevResult) {
-                setSelectedResult(prevResult?.id);
-            } else if (event.key === 'ArrowDown' && nextResult) {
-                setSelectedResult(nextResult?.id);
-            }
-
-            if (event.key === 'Enter') {
-                const selectedResultData = allResults.find((d) => {
-                    return d.id === selectedResult;
-                });
-                window.location.href = selectedResultData?.url;
-            }
-        };
-
-        const containeRefNode = document;
-        containeRefNode?.removeEventListener('keyup', keyUphandler);
-        containeRefNode?.addEventListener('keyup', keyUphandler);
-
-        return () => {
-            containeRefNode?.removeEventListener('keyup', keyUphandler);
-        };
-    }, [allResults, selectedResult, setSelectedResult]);
 }
 
 function Results({posts, authors, tags}) {
@@ -564,7 +521,35 @@ function Results({posts, authors, tags}) {
         setSelectedResult(allResults?.[0]?.id || null);
     }, [allResults]);
 
-    useResultNavigation(allResults, selectedResult, setSelectedResult);
+    useEffect(() => {
+        let keyUphandler = (event) => {
+            const selectedResultIdx = allResults.findIndex((d) => {
+                return d.id === selectedResult;
+            });
+            let nextResult = allResults[selectedResultIdx + 1];
+            let prevResult = allResults[selectedResultIdx - 1];
+            if (event.key === 'ArrowUp' && prevResult) {
+                setSelectedResult(prevResult?.id);
+            } else if (event.key === 'ArrowDown' && nextResult) {
+                setSelectedResult(nextResult?.id);
+            }
+
+            if (event.key === 'Enter') {
+                const selectedResultData = allResults.find((d) => {
+                    return d.id === selectedResult;
+                });
+                window.location.href = selectedResultData?.url;
+            }
+        };
+
+        const containeRefNode = containerRef?.current;
+        containeRefNode?.ownerDocument.removeEventListener('keyup', keyUphandler);
+        containeRefNode?.ownerDocument.addEventListener('keyup', keyUphandler);
+
+        return () => {
+            containeRefNode?.ownerDocument?.removeEventListener('keyup', keyUphandler);
+        };
+    }, [allResults, selectedResult]);
 
     if (!searchValue) {
         return null;

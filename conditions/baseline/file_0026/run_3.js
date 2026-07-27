@@ -29,6 +29,24 @@ const VisitCountBadge = ({visits}: {visits: number}) => (
     </span>
 );
 
+// Helper to map device type to display label
+const getDeviceLabel = (device: string): string => {
+    switch (device) {
+        case 'mobile-ios':
+            return 'iOS';
+        case 'mobile-android':
+            return 'Android';
+        case 'desktop':
+            return 'Desktop';
+        case 'bot':
+            return 'Bot';
+        case 'unknown':
+            return 'Unknown';
+        default:
+            return device;
+    }
+};
+
 // Configuration for each filter field type
 interface FilterFieldDefinition {
     endpoint: string;
@@ -38,25 +56,6 @@ interface FilterFieldDefinition {
     // Filter out invalid items from API response
     filterItem?: (item: Record<string, unknown>) => boolean;
 }
-
-const getDeviceLabel = (value: string): string => {
-    if (value === 'mobile-ios') {
-        return 'iOS';
-    }
-    if (value === 'mobile-android') {
-        return 'Android';
-    }
-    if (value === 'desktop') {
-        return 'Desktop';
-    }
-    if (value === 'bot') {
-        return 'Bot';
-    }
-    if (value === 'unknown') {
-        return 'Unknown';
-    }
-    return value;
-};
 
 const FILTER_FIELD_DEFINITIONS: Record<string, FilterFieldDefinition> = {
     utm_source: {

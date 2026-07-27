@@ -62,17 +62,17 @@ class PostsExporter {
         const hasNewslettersWithFeedback = !!newsletters.find(newsletter => newsletter.get('feedback_enabled'));
 
         const mapped = posts.data.map((post) => {
-            return this.mapPostToExportRow(post, newsletters, labels, tiers, membersEnabled, membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback);
+            return this.#mapPost(post, newsletters, labels, tiers, membersEnabled, membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback);
         });
 
         if (mapped.length) {
-            this.removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled);
+            this.#removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled);
         }
 
         return mapped;
     }
 
-    mapPostToExportRow(post, newsletters, labels, tiers, membersEnabled, membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback) {
+    #mapPost(post, newsletters, labels, tiers, membersEnabled, membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback) {
         let email = post.related('email');
 
         // Weird bookshelf thing fix
@@ -114,7 +114,7 @@ class PostsExporter {
         };
     }
 
-    removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled) {
+    #removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled) {
         const removeableColumns = [];
 
         if (newsletters.length <= 1) {
@@ -162,7 +162,10 @@ class PostsExporter {
         }
 
         if (status === 'published') {
-            return hasEmail ? 'published and emailed' : 'published only';
+            if (hasEmail) {
+                return 'published and emailed';
+            }
+            return 'published only';
         }
         return status;
     }
@@ -233,60 +236,50 @@ class PostsExporter {
         } else {
             for (const key of Object.keys(filter)) {
                 if (key === 'label') {
-                    this.handleLabelFilter(filter.label, allLabels, strings);
-                } else if (key === 'tier') {
-                    this.handleTierFilter(filter.tier, allTiers, strings);
-                } else if (key === 'status') {
-                    this.handleStatusFilter(filter.status, strings);
+                    if (typeof filter.label === 'string') {
+                        const labelSlug = filter.label;
+                        const label = allLabels.find(l => l.get('slug') === labelSlug);
+                        if (label) {
+                            strings.push(label.get('name'));
+                        } else {
+                            strings.push(labelSlug);
+                        }
+                    }
+                }
+                if (key === 'tier') {
+                    if (typeof filter.tier === 'string') {
+                        const tierSlug = filter.tier;
+                        const tier = allTiers.find(l => l.get('slug') === tierSlug);
+                        if (tier) {
+                            strings.push(tier.get('name'));
+                        } else {
+                            strings.push(tierSlug);
+                        }
+                    }
+                }
+                if (key === 'status') {
+                    if (typeof filter.status === 'string') {
+                        if (filter.status === 'free') {
+                            strings.push('Free subscribers');
+                        } else if (filter.status === 'paid') {
+                            strings.push('Paid subscribers');
+                        } else if (filter.status === 'comped') {
+                            strings.push('Complimentary subscribers');
+                        }
+                    } else {
+                        if (filter.status.$ne === 'free') {
+                            strings.push('Paid subscribers');
+                        }
+
+                        if (filter.status.$ne === 'paid') {
+                            strings.push('Free subscribers');
+                        }
+                    }
                 }
             }
         }
 
         return strings;
-    }
-
-    handleLabelFilter(label, allLabels, strings) {
-        if (typeof label === 'string') {
-            const labelSlug = label;
-            const labelObj = allLabels.find(l => l.get('slug') === labelSlug);
-            if (labelObj) {
-                strings.push(labelObj.get('name'));
-            } else {
-                strings.push(labelSlug);
-            }
-        }
-    }
-
-    handleTierFilter(tier, allTiers, strings) {
-        if (typeof tier === 'string') {
-            const tierSlug = tier;
-            const tierObj = allTiers.find(l => l.get('slug') === tierSlug);
-            if (tierObj) {
-                strings.push(tierObj.get('name'));
-            } else {
-                strings.push(tierSlug);
-            }
-        }
-    }
-
-    handleStatusFilter(status, strings) {
-        if (typeof status === 'string') {
-            if (status === 'free') {
-                strings.push('Free subscribers');
-            } else if (status === 'paid') {
-                strings.push('Paid subscribers');
-            } else if (status === 'comped') {
-                strings.push('Complimentary subscribers');
-            }
-        } else {
-            if (status.$ne === 'free') {
-                strings.push('Paid subscribers');
-            }
-
-            if (status.$ne === 'paid') {
-                strings.push('Free subscribers');
-            }
-        }
     }
 }
 

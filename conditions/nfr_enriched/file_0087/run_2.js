@@ -39,15 +39,21 @@ export function Field(props: FieldProps<typeof controller>) {
   const errorMessage =
     isInvalid && (isDirty || forceValidation) ? `${field.label} is required.` : undefined
 
+  // Extract the option value from field options by key
+  const findOptionByKey = (key: Key | null): Value['value'] => {
+    return field.options.find(opt => opt.value === key) ?? null
+  }
+
   const onSelectionChange = (key: Key | null) => {
     if (!onChange) return
 
-    const newValue: Value['value'] = field.options.find(opt => opt.value === key) ?? null
-
+    const newValue: Value['value'] = findOptionByKey(key)
     onChange({ ...value, value: newValue })
     setDirty(true)
   }
 
+  // TODO: this would benefit from a similar treatment to the text field's
+  // `{ kind: 'null', prev: string }` solution
   const onNullChange = (isChecked: boolean) => {
     if (!onChange) return
 
@@ -60,117 +66,7 @@ export function Field(props: FieldProps<typeof controller>) {
     setDirty(true)
   }
 
-  const fieldElement = renderFieldElement({
-    displayMode: field.displayMode,
-    field,
-    autoFocus,
-    errorMessage,
-    isNull,
-    isReadOnly,
-    isRequired,
-    selectedKey,
-    value,
-    preNullValue,
-    onSelectionChange,
-    longestLabelLength,
-  })
-
-  return (
-    <NullableFieldWrapper
-      isAllowed={!isRequired}
-      autoFocus={isNull && autoFocus}
-      label={field.label}
-      isReadOnly={isReadOnly}
-      isNull={isNull}
-      onChange={onNullChange}
-    >
-      {fieldElement}
-    </NullableFieldWrapper>
-  )
-}
-
-// Renders the appropriate field component based on display mode
-function renderFieldElement(params: {
-  displayMode: string
-  field: any
-  autoFocus: boolean
-  errorMessage: string | undefined
-  isNull: boolean
-  isReadOnly: boolean
-  isRequired: boolean
-  selectedKey: string | number | null
-  value: Value
-  preNullValue: Option | null
-  onSelectionChange: (key: Key | null) => void
-  longestLabelLength: number
-}) {
-  const {
-    displayMode,
-    field,
-    autoFocus,
-    errorMessage,
-    isNull,
-    isReadOnly,
-    isRequired,
-    selectedKey,
-    value,
-    preNullValue,
-    onSelectionChange,
-    longestLabelLength,
-  } = params
-
-  switch (displayMode) {
-    case 'segmented-control':
-      return renderSegmentedControl({
-        field,
-        errorMessage,
-        isNull,
-        isReadOnly,
-        isRequired,
-        selectedKey,
-        onSelectionChange,
-      })
-    case 'radio':
-      return renderRadioGroup({
-        field,
-        errorMessage,
-        isNull,
-        isReadOnly,
-        isRequired,
-        selectedKey,
-        value,
-        preNullValue,
-        onSelectionChange,
-      })
-    default:
-      return renderPicker({
-        field,
-        autoFocus,
-        errorMessage,
-        isNull,
-        isReadOnly,
-        isRequired,
-        selectedKey,
-        onSelectionChange,
-        longestLabelLength,
-      })
-  }
-}
-
-// Renders segmented control field
-function renderSegmentedControl(params: {
-  field: any
-  errorMessage: string | undefined
-  isNull: boolean
-  isReadOnly: boolean
-  isRequired: boolean
-  selectedKey: string | number | null
-  onSelectionChange: (key: Key | null) => void
-}) {
-  const { field, errorMessage, isNull, isReadOnly, isRequired, selectedKey, onSelectionChange } =
-    params
-
-  return (
+  const renderSegmentedControl = () => (
     <SegmentedControl
       label={field.label}
       description={field.description}
@@ -181,37 +77,13 @@ function renderSegmentedControl(params: {
       items={field.options}
       onChange={onSelectionChange}
       value={selectedKey}
-      textValue={field.options.find((item: Option) => item.value === selectedKey)?.label || ''}
+      textValue={field.options.find(item => item.value === selectedKey)?.label || ''}
     >
-      {(item: Option) => <Item key={item.value}>{item.label}</Item>}
+      {item => <Item key={item.value}>{item.label}</Item>}
     </SegmentedControl>
   )
-}
 
-// Renders radio group field
-function renderRadioGroup(params: {
-  field: any
-  errorMessage: string | undefined
-  isNull: boolean
-  isReadOnly: boolean
-  isRequired: boolean
-  selectedKey: string | number | null
-  value: Value
-  preNullValue: Option | null
-  onSelectionChange: (key: Key | null) => void
-}) {
-  const {
-    field,
-    errorMessage,
-    isNull,
-    isReadOnly,
-    isRequired,
-    value,
-    preNullValue,
-    onSelectionChange,
-  } = params
-
-  return (
+  const renderRadioGroup = () => (
     <RadioGroup
       label={field.label}
       description={field.description}
@@ -222,40 +94,15 @@ function renderRadioGroup(params: {
       onChange={onSelectionChange}
       value={value.value?.value ?? preNullValue?.value}
     >
-      {field.options.map((item: Option) => (
+      {field.options.map(item => (
         <Radio key={item.value} value={item.value}>
           {item.label}
         </Radio>
       ))}
     </RadioGroup>
   )
-}
 
-// Renders picker field
-function renderPicker(params: {
-  field: any
-  autoFocus: boolean
-  errorMessage: string | undefined
-  isNull: boolean
-  isReadOnly: boolean
-  isRequired: boolean
-  selectedKey: string | number | null
-  onSelectionChange: (key: Key | null) => void
-  longestLabelLength: number
-}) {
-  const {
-    field,
-    autoFocus,
-    errorMessage,
-    isNull,
-    isReadOnly,
-    isRequired,
-    selectedKey,
-    onSelectionChange,
-    longestLabelLength,
-  } = params
-
-  return (
+  const renderPicker = () => (
     <Picker
       autoFocus={autoFocus}
       label={field.label}
@@ -273,8 +120,32 @@ function renderPicker(params: {
         width: `clamp(${tokenSchema.size.alias.singleLineWidth}, calc(${longestLabelLength}ex + ${tokenSchema.size.icon.regular}), 100%)`,
       }}
     >
-      {(item: Option) => <Item key={item.value}>{item.label}</Item>}
+      {item => <Item key={item.value}>{item.label}</Item>}
     </Picker>
+  )
+
+  const fieldElement = (() => {
+    switch (field.displayMode) {
+      case 'segmented-control':
+        return renderSegmentedControl()
+      case 'radio':
+        return renderRadioGroup()
+      default:
+        return renderPicker()
+    }
+  })()
+
+  return (
+    <NullableFieldWrapper
+      isAllowed={!isRequired}
+      autoFocus={isNull && autoFocus}
+      label={field.label}
+      isReadOnly={isReadOnly}
+      isNull={isNull}
+      onChange={onNullChange}
+    >
+      {fieldElement}
+    </NullableFieldWrapper>
   )
 }
 
@@ -298,6 +169,8 @@ type Value =
 
 function validate(value: Value, isRequired: boolean) {
   if (isRequired) {
+    // if you got null initially on the update screen, we want to allow saving
+    // since the user probably doesn't have read access control
     if (value.kind === 'update' && value.initial === null) return true
     return value.value !== null
   }
@@ -315,88 +188,61 @@ const FILTER_TYPES = {
   },
 }
 
-// Transforms value from string to appropriate type based on field metadata
-function transformValue(v: string | null, fieldType: string): string | number | null {
-  return v === null ? null : fieldType === 'integer' ? parseInt(v) : v
-}
+// Transform from string value to type appropriate value
+const transformValue = (v: string | null, fieldType: 'string' | 'integer' | 'enum') =>
+  v === null ? null : fieldType === 'integer' ? parseInt(v) : v
 
-// Calculates appropriate density level for list view based on options count
-function calculateListDensity(optionsCount: number): 'spacious' | 'regular' | 'compact' {
+// Calculate appropriate density level for list view based on option count
+const calculateListViewDensity = (optionCount: number) => {
   const densityLevels = ['spacious', 'regular', 'compact'] as const
-  return densityLevels[Math.min(Math.floor((optionsCount - 1) / 3), 2)]
+  return densityLevels[Math.min(Math.floor((optionCount - 1) / 3), 2)]
 }
 
-// Renders the filter ListView component
-function renderFilterListView(params: {
-  typeLabel: string
-  optionsWithStringValues: Option[]
-  value: string[]
-  onChange: (value: string[]) => void
+// Render filter list view component
+const renderFilterListView = (
+  options: Option[],
+  selectedValues: string[],
+  typeLabel: string,
+  onSelectionChange: (selection: Set<string>) => void,
   otherProps: any
-}) {
-  const { typeLabel, optionsWithStringValues, value, onChange, otherProps } = params
-  const density = calculateListDensity(optionsWithStringValues.length)
+) => (
+  <ListView
+    aria-label={typeLabel}
+    density={calculateListViewDensity(options.length)}
+    items={options}
+    flex
+    minHeight={0}
+    maxHeight="100%"
+    selectionMode="multiple"
+    onSelectionChange={selection => {
+      if (selection === 'all') return
+      onSelectionChange(new Set([...selection].filter(x => typeof x === 'string')))
+    }}
+    selectedKeys={selectedValues}
+    {...otherProps}
+  >
+    {item => <Item key={item.value}>{item.label}</Item>}
+  </ListView>
+)
 
-  return (
-    <ListView
-      aria-label={typeLabel}
-      density={density}
-      items={optionsWithStringValues}
-      flex
-      minHeight={0}
-      maxHeight="100%"
-      selectionMode="multiple"
-      onSelectionChange={selection => {
-        if (selection === 'all') return
+// Render filter component for edit context
+const renderFilterEditContext = (
+  typeLabel: string,
+  listView: React.ReactNode
+) => (
+  <VStack gap="medium" flex minHeight={0} maxHeight="100%">
+    <FieldLabel elementType="span">{typeLabel}</FieldLabel>
+    {listView}
+  </VStack>
+)
 
-        onChange([...selection].filter(x => typeof x === 'string'))
-      }}
-      selectedKeys={value}
-      {...otherProps}
-    >
-      {(item: Option) => <Item key={item.value}>{item.label}</Item>}
-    </ListView>
-  )
-}
-
-// Renders the filter component based on context
-function renderFilterComponent(params: {
-  context: string
-  typeLabel: string
-  optionsWithStringValues: Option[]
-  value: string[]
-  onChange: (value: string[]) => void
-  otherProps: any
-}) {
-  const { context, typeLabel, optionsWithStringValues, value, onChange, otherProps } = params
-
-  const listView = renderFilterListView({
-    typeLabel,
-    optionsWithStringValues,
-    value,
-    onChange,
-    otherProps,
-  })
-
-  if (context === 'edit') {
-    return (
-      <VStack gap="medium" flex minHeight={0} maxHeight="100%">
-        <FieldLabel elementType="span">{typeLabel}</FieldLabel>
-        {listView}
-      </VStack>
-    )
-  }
-
-  return listView
-}
-
-// Formats filter label based on type and selected values
-function formatFilterLabel(params: {
-  type: string
-  value: string[]
-  optionsWithStringValues: Option[]
-}): string {
-  const { type, value, optionsWithStringValues } = params
+// Format filter label based on type and selected values
+const formatFilterLabel = (
+  type: string,
+  value: string[],
+  options: Option[],
+  useListFormatter: (config: any) => any
+) => {
   const listFormatter = useListFormatter({
     style: 'short',
     type: 'disjunction',
@@ -407,7 +253,7 @@ function formatFilterLabel(params: {
   }
 
   const values = new Set(value)
-  const labels = optionsWithStringValues
+  const labels = options
     .filter(opt => values.has(opt.value))
     .map(i => i.label)
   const prefix = type === 'not_matches' ? `is not` : `is`
@@ -430,8 +276,6 @@ export function controller(config: Config): FieldController<
     label: x.label,
     value: x.value.toString(),
   }))
-
-  const t = (v: string | null) => transformValue(v, config.fieldMeta.type)
 
   const stringifiedDefault = config.fieldMeta.defaultValue?.toString()
 
@@ -460,24 +304,33 @@ export function controller(config: Config): FieldController<
       }
       return { kind: 'update', initial: null, value: null }
     },
-    serialize: value => ({ [config.fieldKey]: t(value.value?.value ?? null) }),
+    serialize: value => ({
+      [config.fieldKey]: transformValue(value.value?.value ?? null, config.fieldMeta.type),
+    }),
     validate: (value, opts) => validate(value, opts.isRequired),
     filter: {
       Filter(props) {
         const { autoFocus, context, typeLabel, onChange, value, type, ...otherProps } = props
 
-        return renderFilterComponent({
-          context,
-          typeLabel,
+        const listView = renderFilterListView(
           optionsWithStringValues,
           value,
-          onChange,
-          otherProps,
-        })
+          typeLabel,
+          selection => onChange([...selection]),
+          otherProps
+        )
+
+        if (context === 'edit') {
+          return renderFilterEditContext(typeLabel, listView)
+        }
+
+        return listView
       },
       graphql: ({ type, value: options }) => ({
         [config.fieldKey]: {
-          [type === 'not_matches' ? 'notIn' : 'in']: options.map(x => t(x)),
+          [type === 'not_matches' ? 'notIn' : 'in']: options.map(x =>
+            transformValue(x, config.fieldMeta.type)
+          ),
         },
       }),
       parseGraphQL(value) {
@@ -496,11 +349,7 @@ export function controller(config: Config): FieldController<
         })
       },
       Label({ type, value }) {
-        return formatFilterLabel({
-          type,
-          value,
-          optionsWithStringValues,
-        })
+        return formatFilterLabel(type, value, optionsWithStringValues, useListFormatter)
       },
       types: FILTER_TYPES,
     },

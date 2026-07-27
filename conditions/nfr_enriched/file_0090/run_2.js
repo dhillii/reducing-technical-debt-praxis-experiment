@@ -6,66 +6,38 @@ import { getKeysForArrayValue, setKeysForArrayValue } from './preview-props'
 
 type PathToChildFieldWithOption = { path: ReadonlyPropPath; options: ChildField['options'] }
 
-// Extracts child prop paths from a single schema node
-function findChildPropPathsInSchema(
-  value: any,
-  schema: ComponentSchema,
-  path: ReadonlyPropPath
-): PathToChildFieldWithOption[] {
-  if (schema.kind === 'form' || schema.kind === 'relationship') {
-    return []
-  }
-  if (schema.kind === 'child') {
-    return [{ path: path, options: schema.options }]
-  }
-  if (schema.kind === 'conditional') {
-    return findChildPropPathsForProp(
-      value.value,
-      schema.values[value.discriminant],
-      path.concat('value')
-    )
-  }
-  if (schema.kind === 'object') {
-    return findChildPropPathsInObjectSchema(value, schema, path)
-  }
-  if (schema.kind === 'array') {
-    return findChildPropPathsInArraySchema(value, schema, path)
-  }
-  return []
-}
-
-// Extracts child prop paths from object schema fields
-function findChildPropPathsInObjectSchema(
-  value: any,
-  schema: Extract<ComponentSchema, { kind: 'object' }>,
-  path: ReadonlyPropPath
-): PathToChildFieldWithOption[] {
-  const paths: PathToChildFieldWithOption[] = []
-  Object.keys(schema.fields).forEach(key => {
-    paths.push(...findChildPropPathsForProp(value[key], schema.fields[key], path.concat(key)))
-  })
-  return paths
-}
-
-// Extracts child prop paths from array schema elements
-function findChildPropPathsInArraySchema(
-  value: any[],
-  schema: Extract<ComponentSchema, { kind: 'array' }>,
-  path: ReadonlyPropPath
-): PathToChildFieldWithOption[] {
-  const paths: PathToChildFieldWithOption[] = []
-  value.forEach((val, i) => {
-    paths.push(...findChildPropPathsForProp(val, schema.element, path.concat(i)))
-  })
-  return paths
-}
-
 export function findChildPropPathsForProp(
   value: any,
   schema: ComponentSchema,
   path: ReadonlyPropPath
 ): PathToChildFieldWithOption[] {
-  return findChildPropPathsInSchema(value, schema, path)
+  switch (schema.kind) {
+    case 'form':
+    case 'relationship':
+      return []
+    case 'child':
+      return [{ path: path, options: schema.options }]
+    case 'conditional':
+      return findChildPropPathsForProp(
+        value.value,
+        schema.values[value.discriminant],
+        path.concat('value')
+      )
+    case 'object': {
+      const paths: PathToChildFieldWithOption[] = []
+      Object.keys(schema.fields).forEach(key => {
+        paths.push(...findChildPropPathsForProp(value[key], schema.fields[key], path.concat(key)))
+      })
+      return paths
+    }
+    case 'array': {
+      const paths: PathToChildFieldWithOption[] = []
+      ;(value as any[]).forEach((val, i) => {
+        paths.push(...findChildPropPathsForProp(val, schema.element, path.concat(i)))
+      })
+      return paths
+    }
+  }
 }
 
 export function findChildPropPaths(
@@ -105,42 +77,33 @@ export type DocumentFeaturesForChildField =
       documentFeatures: DocumentFeaturesForNormalization
     }
 
-// Resolves inline marks from options and editor features
-function resolveInlineMarks(
+function buildInlineMarks(
   editorInlineMarks: DocumentFeatures['formatting']['inlineMarks'],
-  optionInlineMarks: ChildField['options']['formatting']?.inlineMarks
+  optionsInlineMarks: ChildField['options']['formatting']?.['inlineMarks']
 ): 'inherit' | Record<Mark, boolean> {
-  if (optionInlineMarks === 'inherit') {
+  if (optionsInlineMarks === 'inherit') {
     return 'inherit'
   }
   return Object.fromEntries(
     Object.keys(editorInlineMarks).map(mark => {
-      return [mark as Mark, !!(optionInlineMarks || {})[mark as Mark]]
+      return [mark as Mark, !!(optionsInlineMarks || {})[mark as Mark]]
     })
   ) as Record<Mark, boolean>
 }
 
-// Builds document features for inline child field
 function buildInlineDocumentFeatures(
-  options: Extract<ChildField['options'], { kind: 'inline' }>,
-  inlineMarks: 'inherit' | Record<Mark, boolean>
-): DocumentFeaturesForChildField {
+  options: ChildField['options']
+): { links: boolean; relationships: boolean } {
   return {
-    kind: 'inline',
-    inlineMarks,
-    documentFeatures: {
-      links: options.links === 'inherit',
-      relationships: options.relationships === 'inherit',
-    },
-    softBreaks: options.formatting?.softBreaks === 'inherit',
+    links: options.links === 'inherit',
+    relationships: options.relationships === 'inherit',
   }
 }
 
-// Builds formatting configuration for block child field
-function buildBlockFormatting(
+function buildBlockFormattingFeatures(
   editorDocumentFeatures: DocumentFeatures,
-  options: Extract<ChildField['options'], { kind: 'block' }>
-) {
+  options: ChildField['options']
+): DocumentFeaturesForNormalization['formatting'] {
   return {
     alignment:
       options.formatting?.alignment === 'inherit'
@@ -170,24 +133,16 @@ function buildBlockFormatting(
   }
 }
 
-// Builds document features for block child field
 function buildBlockDocumentFeatures(
   editorDocumentFeatures: DocumentFeatures,
-  options: Extract<ChildField['options'], { kind: 'block' }>,
-  inlineMarks: 'inherit' | Record<Mark, boolean>
-): DocumentFeaturesForChildField {
+  options: ChildField['options']
+): DocumentFeaturesForNormalization {
   return {
-    kind: 'block',
-    inlineMarks,
-    softBreaks: options.formatting?.softBreaks === 'inherit',
-    documentFeatures: {
-      layouts: [],
-      dividers: options.dividers === 'inherit' ? editorDocumentFeatures.dividers : false,
-      formatting: buildBlockFormatting(editorDocumentFeatures, options),
-      links: options.links === 'inherit',
-      relationships: options.relationships === 'inherit',
-    },
-    componentBlocks: options.componentBlocks === 'inherit',
+    layouts: [],
+    dividers: options.dividers === 'inherit' ? editorDocumentFeatures.dividers : false,
+    formatting: buildBlockFormattingFeatures(editorDocumentFeatures, options),
+    links: options.links === 'inherit',
+    relationships: options.relationships === 'inherit',
   }
 }
 
@@ -195,53 +150,25 @@ export function getDocumentFeaturesForChildField(
   editorDocumentFeatures: DocumentFeatures,
   options: ChildField['options']
 ): DocumentFeaturesForChildField {
-  const inlineMarks = resolveInlineMarks(
-    editorDocumentFeatures.formatting.inlineMarks,
-    options.formatting?.inlineMarks
-  )
+  const inlineMarks = buildInlineMarks(editorDocumentFeatures.formatting.inlineMarks, options.formatting?.inlineMarks)
+  const softBreaks = options.formatting?.softBreaks === 'inherit'
 
   if (options.kind === 'inline') {
-    return buildInlineDocumentFeatures(options, inlineMarks)
+    return {
+      kind: 'inline',
+      inlineMarks,
+      documentFeatures: buildInlineDocumentFeatures(options),
+      softBreaks,
+    }
   }
 
-  return buildBlockDocumentFeatures(editorDocumentFeatures, options, inlineMarks)
-}
-
-// Handles conditional schema navigation
-function navigateConditionalSchema(
-  path: (string | number)[],
-  value: unknown,
-  schema: Extract<ComponentSchema, { kind: 'conditional' }>
-): undefined | ComponentSchema {
-  const key = path.shift()
-  if (key === 'discriminant') {
-    return getSchemaAtPropPathInner(path, (value as any).discriminant, schema.discriminant)
+  return {
+    kind: 'block',
+    inlineMarks,
+    softBreaks,
+    documentFeatures: buildBlockDocumentFeatures(editorDocumentFeatures, options),
+    componentBlocks: options.componentBlocks === 'inherit',
   }
-  if (key === 'value') {
-    const propVal = schema.values[(value as any).discriminant]
-    return getSchemaAtPropPathInner(path, (value as any).value, propVal)
-  }
-  return
-}
-
-// Handles object schema navigation
-function navigateObjectSchema(
-  path: (string | number)[],
-  value: unknown,
-  schema: Extract<ComponentSchema, { kind: 'object' }>
-): undefined | ComponentSchema {
-  const key = path.shift()!
-  return getSchemaAtPropPathInner(path, (value as any)[key], schema.fields[key])
-}
-
-// Handles array schema navigation
-function navigateArraySchema(
-  path: (string | number)[],
-  value: unknown,
-  schema: Extract<ComponentSchema, { kind: 'array' }>
-): undefined | ComponentSchema {
-  const index = path.shift()!
-  return getSchemaAtPropPathInner(path, (value as any)[index], schema.element)
 }
 
 function getSchemaAtPropPathInner(
@@ -252,13 +179,22 @@ function getSchemaAtPropPathInner(
   if (path.length === 0) return schema
   if (schema.kind === 'child' || schema.kind === 'form' || schema.kind === 'relationship') return
   if (schema.kind === 'conditional') {
-    return navigateConditionalSchema(path, value, schema)
+    const key = path.shift()
+    if (key === 'discriminant')
+      return getSchemaAtPropPathInner(path, (value as any).discriminant, schema.discriminant)
+    if (key === 'value') {
+      const propVal = schema.values[(value as any).discriminant]
+      return getSchemaAtPropPathInner(path, (value as any).value, propVal)
+    }
+    return
   }
   if (schema.kind === 'object') {
-    return navigateObjectSchema(path, value, schema)
+    const key = path.shift()!
+    return getSchemaAtPropPathInner(path, (value as any)[key], schema.fields[key])
   }
   if (schema.kind === 'array') {
-    return navigateArraySchema(path, value, schema)
+    const index = path.shift()!
+    return getSchemaAtPropPathInner(path, (value as any)[index], schema.element)
   }
   assertNever(schema)
 }
@@ -274,35 +210,25 @@ export function getSchemaAtPropPath(
   })
 }
 
-// Validates conditional schema value
-function validateConditionalProp(
-  schema: Extract<ComponentSchema, { kind: 'conditional' }>,
-  value: unknown
-): boolean {
+function validateConditionalProp(schema: ComponentSchema & { kind: 'conditional' }, value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
   if (!('discriminant' in value) || !('value' in value)) return false
-  if (!schema.discriminant.validate((value as any).discriminant)) return false
+  if (!schema.discriminant.validate(value.discriminant)) return false
   return clientSideValidateProp(
-    schema.values[(value as any).discriminant as string],
-    (value as any).value
+    schema.values[value.discriminant as string],
+    value.value
   )
 }
 
-// Validates object schema value
-function validateObjectProp(
-  schema: Extract<ComponentSchema, { kind: 'object' }>,
-  value: unknown
-): boolean {
+function validateObjectProp(schema: ComponentSchema & { kind: 'object' }, value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
   for (const [key, childProp] of Object.entries(schema.fields)) {
     if (!clientSideValidateProp(childProp, (value as any)[key])) return false
   }
   return true
 }
 
-// Validates array schema value
-function validateArrayProp(
-  schema: Extract<ComponentSchema, { kind: 'array' }>,
-  value: unknown
-): boolean {
+function validateArrayProp(schema: ComponentSchema & { kind: 'array' }, value: unknown): boolean {
   if (!Array.isArray(value)) return false
   for (const innerVal of value) {
     if (!clientSideValidateProp(schema.element, innerVal)) return false
@@ -311,57 +237,13 @@ function validateArrayProp(
 }
 
 export function clientSideValidateProp(schema: ComponentSchema, value: unknown): boolean {
-  if (schema.kind === 'child' || schema.kind === 'relationship') return true
+  if (schema.kind === 'child') return true
+  if (schema.kind === 'relationship') return true
   if (schema.kind === 'form') return schema.validate(value)
-  if (typeof value !== 'object' || value === null) return false
-
-  if (schema.kind === 'conditional') {
-    return validateConditionalProp(schema, value)
-  }
-  if (schema.kind === 'object') {
-    return validateObjectProp(schema, value)
-  }
-  if (schema.kind === 'array') {
-    return validateArrayProp(schema, value)
-  }
-
-  return false
-}
-
-// Navigates through array schema in ancestor traversal
-function navigateArrayAncestor(
-  currentProp: Extract<ComponentSchema, { kind: 'array' }>,
-  currentValue: unknown,
-  key: string | number
-): { schema: ComponentSchema; value: unknown } {
-  return {
-    schema: currentProp.element,
-    value: (currentValue as any)[key],
-  }
-}
-
-// Navigates through conditional schema in ancestor traversal
-function navigateConditionalAncestor(
-  currentProp: Extract<ComponentSchema, { kind: 'conditional' }>,
-  currentValue: unknown,
-  value: unknown
-): { schema: ComponentSchema; value: unknown } {
-  return {
-    schema: currentProp.values[(value as any).discriminant],
-    value: (currentValue as any).value,
-  }
-}
-
-// Navigates through object schema in ancestor traversal
-function navigateObjectAncestor(
-  currentProp: Extract<ComponentSchema, { kind: 'object' }>,
-  currentValue: unknown,
-  key: string | number
-): { schema: ComponentSchema; value: unknown } {
-  return {
-    schema: currentProp.fields[key],
-    value: (currentValue as any)[key],
-  }
+  if (schema.kind === 'conditional') return validateConditionalProp(schema, value)
+  if (schema.kind === 'object') return validateObjectProp(schema, value)
+  if (schema.kind === 'array') return validateArrayProp(schema, value)
+  assertNever(schema)
 }
 
 export function getAncestorSchemas(
@@ -377,17 +259,14 @@ export function getAncestorSchemas(
     ancestors.push(currentProp)
     const key = currentPath.shift()!
     if (currentProp.kind === 'array') {
-      const nav = navigateArrayAncestor(currentProp, currentValue, key)
-      currentProp = nav.schema
-      currentValue = nav.value
+      currentProp = currentProp.element
+      currentValue = (currentValue as any)[key]
     } else if (currentProp.kind === 'conditional') {
-      const nav = navigateConditionalAncestor(currentProp, currentValue, value)
-      currentProp = nav.schema
-      currentValue = nav.value
+      currentProp = currentProp.values[(value as any).discriminant]
+      currentValue = (currentValue as any).value
     } else if (currentProp.kind === 'object') {
-      const nav = navigateObjectAncestor(currentProp, currentValue, key)
-      currentProp = nav.schema
-      currentValue = nav.value
+      currentValue = (currentValue as any)[key]
+      currentProp = currentProp.fields[key]
     } else if (
       currentProp.kind === 'child' ||
       currentProp.kind === 'form' ||
@@ -412,9 +291,8 @@ export function getValueAtPropPath(value: unknown, inputPath: ReadonlyPropPath) 
   return value
 }
 
-// Traverses object schema fields
-function traverseObjectSchema(
-  schema: Extract<ComponentSchema, { kind: 'object' }>,
+function traverseObjectProps(
+  schema: ComponentSchema & { kind: 'object' },
   value: unknown,
   visitor: (schema: ComponentSchema, value: unknown, path: ReadonlyPropPath) => void,
   path: ReadonlyPropPath
@@ -425,9 +303,8 @@ function traverseObjectSchema(
   visitor(schema, value, path)
 }
 
-// Traverses array schema elements
-function traverseArraySchema(
-  schema: Extract<ComponentSchema, { kind: 'array' }>,
+function traverseArrayProps(
+  schema: ComponentSchema & { kind: 'array' },
   value: unknown,
   visitor: (schema: ComponentSchema, value: unknown, path: ReadonlyPropPath) => void,
   path: ReadonlyPropPath
@@ -438,9 +315,8 @@ function traverseArraySchema(
   visitor(schema, value, path)
 }
 
-// Traverses conditional schema discriminant and value
-function traverseConditionalSchema(
-  schema: Extract<ComponentSchema, { kind: 'conditional' }>,
+function traverseConditionalProps(
+  schema: ComponentSchema & { kind: 'conditional' },
   value: unknown,
   visitor: (schema: ComponentSchema, value: unknown, path: ReadonlyPropPath) => void,
   path: ReadonlyPropPath
@@ -467,26 +343,25 @@ export function traverseProps(
     return
   }
   if (schema.kind === 'object') {
-    traverseObjectSchema(schema, value, visitor, path)
+    traverseObjectProps(schema, value, visitor, path)
     return
   }
   if (schema.kind === 'array') {
-    traverseArraySchema(schema, value, visitor, path)
+    traverseArrayProps(schema, value, visitor, path)
     return
   }
   if (schema.kind === 'conditional') {
-    traverseConditionalSchema(schema, value, visitor, path)
+    traverseConditionalProps(schema, value, visitor, path)
     return
   }
   assertNever(schema)
 }
 
-// Replaces value in object schema
-function replaceValueInObjectSchema(
-  schema: Extract<ComponentSchema, { kind: 'object' }>,
+function replaceObjectValue(
+  schema: ComponentSchema & { kind: 'object' },
   value: unknown,
-  key: string | number,
   newValue: unknown,
+  key: string | number,
   newPath: ReadonlyPropPath
 ): unknown {
   return {
@@ -495,12 +370,11 @@ function replaceValueInObjectSchema(
   }
 }
 
-// Replaces value in conditional schema
-function replaceValueInConditionalSchema(
-  schema: Extract<ComponentSchema, { kind: 'conditional' }>,
+function replaceConditionalValue(
+  schema: ComponentSchema & { kind: 'conditional' },
   value: unknown,
-  key: string | number,
   newValue: unknown,
+  key: string | number,
   newPath: ReadonlyPropPath
 ): unknown {
   const conditionalValue = value as { discriminant: string | boolean; value: unknown }
@@ -511,12 +385,11 @@ function replaceValueInConditionalSchema(
   }
 }
 
-// Replaces value in array schema
-function replaceValueInArraySchema(
-  schema: Extract<ComponentSchema, { kind: 'array' }>,
+function replaceArrayValue(
+  schema: ComponentSchema & { kind: 'array' },
   value: unknown,
-  key: string | number,
   newValue: unknown,
+  key: string | number,
   newPath: ReadonlyPropPath
 ): unknown {
   const prevVal = value as unknown[]
@@ -542,15 +415,15 @@ export function replaceValueAtPropPath(
   const [key, ...newPath] = path
 
   if (schema.kind === 'object') {
-    return replaceValueInObjectSchema(schema, value, key, newValue, newPath)
+    return replaceObjectValue(schema, value, newValue, key, newPath)
   }
 
   if (schema.kind === 'conditional') {
-    return replaceValueInConditionalSchema(schema, value, key, newValue, newPath)
+    return replaceConditionalValue(schema, value, newValue, key, newPath)
   }
 
   if (schema.kind === 'array') {
-    return replaceValueInArraySchema(schema, value, key, newValue, newPath)
+    return replaceArrayValue(schema, value, newValue, key, newPath)
   }
 
   assert(schema.kind !== 'form' && schema.kind !== 'relationship' && schema.kind !== 'child')

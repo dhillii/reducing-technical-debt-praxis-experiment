@@ -160,6 +160,48 @@ function ResetButton(props: { onReset: () => void; hasChanges?: boolean }) {
   )
 }
 
+/** Determines if the item is not found based on singleton status and item existence */
+function isItemNotFound(item: unknown, isSingleton: boolean, itemId: string | undefined): boolean {
+  return item == null
+}
+
+/** Renders the appropriate not found message based on singleton status and item ID */
+function renderItemNotFoundContent(
+  isSingleton: boolean,
+  itemId: string | undefined,
+  listLabel: string,
+  listPath: string,
+  hideCreate: boolean
+) {
+  if (!isSingleton) {
+    return (
+      <ItemNotFound>
+        <Text>
+          The item with ID <strong>"{itemId}"</strong> doesn't exist, or you don't have access to
+          it.
+        </Text>
+      </ItemNotFound>
+    )
+  }
+
+  if (itemId === '1') {
+    return (
+      <ItemNotFound>
+        <Text>"{listLabel}" doesn't exist, or you don't have access to it.</Text>
+        {!hideCreate && <CreateButtonLink list={{ path: listPath, label: listLabel } as any} />}
+      </ItemNotFound>
+    )
+  }
+
+  return (
+    <ItemNotFound>
+      <Text>
+        An item with ID <strong>"{itemId}"</strong> does not exist.
+      </Text>
+    </ItemNotFound>
+  )
+}
+
 function ItemForm({
   listKey,
   initialValue,
@@ -306,78 +348,27 @@ function ItemForm({
 
 export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
 
-/** Determines the navigation action to perform after an item action completes. */
-function getNavigationAction(
-  navigation: string,
-  resultId: string | null,
-  itemId: string,
-  list: ListMeta
-): { type: 'refetch' } | { type: 'navigate'; path: string } {
-  if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
-    return { type: 'refetch' }
-  }
-  if (navigation === 'follow' && resultId) {
-    return { type: 'navigate'; path: `/${list.path}/${resultId}` }
-  }
-  return { type: 'navigate'; path: list.isSingleton ? '/' : `/${list.path}` }
-}
-
-/** Renders the appropriate not found message based on list type and item ID. */
-function renderItemNotFoundContent(
-  list: ListMeta,
-  itemId: string | undefined
-): React.ReactNode {
-  if (list.isSingleton) {
-    if (itemId === '1') {
-      return (
-        <ItemNotFound>
-          <Text>"{list.label}" doesn't exist, or you don't have access to it.</Text>
-          {!list.hideCreate && <CreateButtonLink list={list} />}
-        </ItemNotFound>
-      )
-    }
-    return (
-      <ItemNotFound>
-        <Text>
-          An item with ID <strong>"{itemId}"</strong> does not exist.
-        </Text>
-      </ItemNotFound>
-    )
-  }
-  return (
-    <ItemNotFound>
-      <Text>
-        The item with ID <strong>"{itemId}"</strong> doesn't exist, or you don't have access to
-        it.
-      </Text>
-    </ItemNotFound>
-  )
-}
-
-/** Builds field and action metadata from list configuration and GraphQL data. */
-function buildItemViewMetadata(
-  list: ListMeta,
-  adminMeta: any
-): {
-  actionModes: Record<string, string>
-  fieldModes: Record<string, any>
-  fieldPositions: Record<string, string>
-  isRequireds: Record<string, any>
-} {
+/** Processes field metadata from GraphQL response and merges with list configuration */
+function processFieldMetadata(
+  listFields: Record<string, any>,
+  adminMetaFields: any[],
+  adminMetaActions: any[],
+  listActions: any[]
+) {
   const actionModes = Object.fromEntries(
-    Object.entries(list.actions).map(([k, v]) => [k, v.itemView.actionMode])
+    Object.entries(listActions).map(([k, v]: [string, any]) => [k, v.itemView.actionMode])
   )
   const fieldModes = Object.fromEntries(
-    Object.entries(list.fields).map(([k, v]) => [k, v.itemView.fieldMode])
+    Object.entries(listFields).map(([k, v]: [string, any]) => [k, v.itemView.fieldMode])
   )
   const fieldPositions = Object.fromEntries(
-    Object.entries(list.fields).map(([k, v]) => [k, v.itemView.fieldPosition])
+    Object.entries(listFields).map(([k, v]: [string, any]) => [k, v.itemView.fieldPosition])
   )
   const isRequireds = Object.fromEntries(
-    Object.entries(list.fields).map(([k, v]) => [k, v.itemView.isRequired])
+    Object.entries(listFields).map(([k, v]: [string, any]) => [k, v.itemView.isRequired])
   )
 
-  for (const field of adminMeta?.list?.fields ?? []) {
+  for (const field of adminMetaFields ?? []) {
     if (
       !field?.itemView ||
       !field.key ||
@@ -391,20 +382,25 @@ function buildItemViewMetadata(
     isRequireds[field.key] = field.itemView.isRequired
   }
 
-  for (const action of adminMeta?.list?.actions ?? []) {
+  for (const action of adminMetaActions ?? []) {
     if (!action?.itemView?.actionMode || !action.key) continue
     actionModes[action.key] = action.itemView.actionMode
   }
 
-  return { actionModes, fieldModes, fieldPositions, isRequireds }
+  return {
+    actionModes,
+    fieldModes,
+    fieldPositions,
+    isRequireds,
+  }
 }
 
-/** Filters actions to include only those visible in item view context. */
-function filterActionsForContext(
-  actions: ActionMeta[],
+/** Filters actions to only include those visible in item context */
+function filterActionsInContext(
+  listActions: any[],
   actionModes: Record<string, string>
-): ActionMeta[] {
-  return actions
+): any[] {
+  return listActions
     .map(action => ({
       ...action,
       itemView: {
@@ -413,6 +409,25 @@ function filterActionsForContext(
       },
     }))
     .filter(action => action.itemView.actionMode !== 'hidden')
+}
+
+/** Determines navigation behavior based on action configuration and result */
+function handleActionNavigation(
+  action: ActionMeta,
+  resultId: string | null,
+  itemId: string | undefined,
+  listPath: string,
+  isSingleton: boolean
+) {
+  const { navigation } = action.itemView
+
+  if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
+    return 'refetch'
+  }
+  if (navigation === 'follow' && resultId) {
+    return { type: 'push', path: `/${listPath}/${resultId}` }
+  }
+  return { type: 'push', path: isSingleton ? '/' : `/${listPath}` }
 }
 
 function ItemPage({ listKey }: ItemPageProps) {
@@ -433,11 +448,14 @@ function ItemPage({ listKey }: ItemPageProps) {
   }, [list.fields, data?.item])
 
   const { actionsInContext, fieldModes, fieldPositions, isRequireds } = useMemo(() => {
-    const { actionModes, fieldModes, fieldPositions, isRequireds } = buildItemViewMetadata(
-      list,
-      data?.keystone?.adminMeta
+    const { actionModes, fieldModes, fieldPositions, isRequireds } = processFieldMetadata(
+      list.fields,
+      data?.keystone?.adminMeta?.list?.fields,
+      data?.keystone?.adminMeta?.list?.actions,
+      list.actions
     )
-    const actionsInContext = filterActionsForContext(list.actions, actionModes)
+
+    const actionsInContext = filterActionsInContext(list.actions, actionModes)
 
     return {
       actionsInContext,
@@ -448,17 +466,18 @@ function ItemPage({ listKey }: ItemPageProps) {
   }, [data?.keystone?.adminMeta, list.fields, list.actions])
 
   function onAction(action: ActionMeta, resultId: string | null) {
-    const navigationAction = getNavigationAction(
-      action.itemView.navigation,
+    const navigationResult = handleActionNavigation(
+      action,
       resultId,
-      itemId ?? '',
-      list
+      itemId,
+      list.path,
+      list.isSingleton
     )
 
-    if (navigationAction.type === 'refetch') {
+    if (navigationResult === 'refetch') {
       refetch()
     } else {
-      router.push(navigationAction.path)
+      router.push(navigationResult.path)
     }
   }
 
@@ -484,7 +503,14 @@ function ItemPage({ listKey }: ItemPageProps) {
         <ColumnLayout>
           <Box marginY="xlarge">
             <GraphQLErrorNotice errors={[error]} />
-            {item == null && renderItemNotFoundContent(list, itemId)}
+            {isItemNotFound(item, list.isSingleton, itemId) &&
+              renderItemNotFoundContent(
+                list.isSingleton,
+                itemId,
+                list.label,
+                list.path,
+                list.hideCreate
+              )}
           </Box>
           {initialValue && (
             <ItemForm

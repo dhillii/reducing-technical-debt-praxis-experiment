@@ -264,57 +264,40 @@ function isErrorInstance (err) {
 }
 
 /**
- * Check if value is a plain object.
- * @param {*} val
+ * Check if value is a Promise.
+ * @param {*} result
  * @return {boolean}
  */
-function isPlainObject (val) {
-  return Object.prototype.toString.call(val) === '[object Object]';
+function isPromiseResult (result) {
+  return result && typeof result.then === 'function';
 }
 
 /**
- * Handle async callback errors with type checking.
+ * Check if error is a plain object.
  * @param {*} err
- * @param {*} result
- * @param {Function} done
- * @return {boolean} true if error was handled
+ * @return {boolean}
  */
-function handleAsyncCallbackError (err, result, done) {
+function isPlainObjectError (err) {
+  return Object.prototype.toString.call(err) === '[object Object]';
+}
+
+/**
+ * Handle error from done callback.
+ * @param {*} err
+ * @param {Function} done
+ * @return {*}
+ */
+function handleDoneError (err, done) {
   if (isErrorInstance(err)) {
-    done(err);
-    return true;
+    return done(err);
   }
   if (err) {
-    if (isPlainObject(err)) {
-      done(new Error('done() invoked with non-Error: ' + JSON.stringify(err)));
-    } else {
-      done(new Error('done() invoked with non-Error: ' + err));
+    if (isPlainObjectError(err)) {
+      return done(new Error('done() invoked with non-Error: ' +
+        JSON.stringify(err)));
     }
-    return true;
+    return done(new Error('done() invoked with non-Error: ' + err));
   }
-  if (result && utils.isPromise(result)) {
-    done(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
-    return true;
-  }
-  return false;
-}
-
-/**
- * Handle promise result with timeout reset.
- * @param {Promise} result
- * @param {Function} done
- * @param {Runnable} self
- */
-function handlePromiseResult (result, done, self) {
-  self.resetTimeout();
-  result
-    .then(function () {
-      done();
-      return null;
-    },
-    function (reason) {
-      done(reason || new Error('Promise rejected with no or falsy reason'));
-    });
 }
 
 /**
@@ -335,7 +318,10 @@ Runnable.prototype.run = function (fn) {
     ctx.runnable(this);
   }
 
-  // called multiple times
+  /**
+   * Handle multiple done() calls.
+   * @param {Error} err
+   */
   function multiple (err) {
     if (emitted) {
       return;
@@ -344,7 +330,10 @@ Runnable.prototype.run = function (fn) {
     self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
   }
 
-  // finished
+  /**
+   * Mark test as finished and invoke callback.
+   * @param {Error} err
+   */
   function done (err) {
     const ms = self.timeout();
     if (self.timedOut) {
@@ -393,33 +382,44 @@ Runnable.prototype.run = function (fn) {
   }
 
   // sync or promise-returning
-  const shouldSkip = this.isPending();
-  const shouldAllowUncaught = this.allowUncaught;
-
-  if (shouldAllowUncaught) {
-    if (shouldSkip) {
+  const executeTest = () => {
+    if (this.isPending()) {
       done();
     } else {
       callFn(this.fn);
     }
+  };
+
+  if (this.allowUncaught) {
+    executeTest();
     return;
   }
 
   try {
-    if (shouldSkip) {
-      done();
-    } else {
-      callFn(this.fn);
-    }
+    executeTest();
   } catch (err) {
     emitted = true;
     done(utils.getError(err));
   }
 
+  /**
+   * Call synchronous or promise-returning function.
+   * @param {Function} fn
+   */
   function callFn (fn) {
     const result = fn.call(ctx);
-    if (result && typeof result.then === 'function') {
-      handlePromiseResult(result, done, self);
+    if (isPromiseResult(result)) {
+      self.resetTimeout();
+      result
+        .then(function () {
+          done();
+          // Return null so libraries like bluebird do not warn about
+          // subsequently constructed Promises.
+          return null;
+        },
+        function (reason) {
+          done(reason || new Error('Promise rejected with no or falsy reason'));
+        });
     } else {
       if (self.asyncOnly) {
         return done(new Error('--async-only option in use without declaring `done()` or returning a promise'));
@@ -429,10 +429,18 @@ Runnable.prototype.run = function (fn) {
     }
   }
 
+  /**
+   * Call asynchronous function with done callback.
+   * @param {Function} fn
+   */
   function callFnAsync (fn) {
     const result = fn.call(ctx, function (err) {
-      if (handleAsyncCallbackError(err, result, done)) {
-        return;
+      const errorHandled = handleDoneError(err, done);
+      if (errorHandled !== undefined) {
+        return errorHandled;
+      }
+      if (isPromiseResult(result)) {
+        return done(new Error('Resolution method is overspecified. Specify a callback *or* return a Promise; not both.'));
       }
 
       done();

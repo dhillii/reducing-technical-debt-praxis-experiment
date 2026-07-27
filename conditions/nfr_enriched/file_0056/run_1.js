@@ -110,7 +110,6 @@ function addWorkspaceToArgumentsIfExists(args, workspace) {
   return args;
 }
 
-// Builds editor-specific arguments for opening a file at a specific line and column
 function getArgumentsForLineNumber(
   editor,
   fileName,
@@ -119,12 +118,6 @@ function getArgumentsForLineNumber(
   workspace
 ) {
   const editorBasename = path.basename(editor).replace(/\.(exe|cmd|bat)$/i, '');
-  const args = buildEditorArguments(editorBasename, fileName, lineNumber, colNumber);
-  return addWorkspaceToArgumentsIfExists(args, workspace);
-}
-
-// Maps editor names to their argument formats
-function buildEditorArguments(editorBasename, fileName, lineNumber, colNumber) {
   switch (editorBasename) {
     case 'atom':
     case 'Atom':
@@ -156,7 +149,10 @@ function buildEditorArguments(editorBasename, fileName, lineNumber, colNumber) {
     case 'Code - Insiders':
     case 'vscodium':
     case 'VSCodium':
-      return ['-g', fileName + ':' + lineNumber + ':' + colNumber];
+      return addWorkspaceToArgumentsIfExists(
+        ['-g', fileName + ':' + lineNumber + ':' + colNumber],
+        workspace
+      );
     case 'appcode':
     case 'clion':
     case 'clion64':
@@ -174,85 +170,92 @@ function buildEditorArguments(editorBasename, fileName, lineNumber, colNumber) {
     case 'goland64':
     case 'rider':
     case 'rider64':
-      return ['--line', lineNumber, fileName];
+      return addWorkspaceToArgumentsIfExists(
+        ['--line', lineNumber, fileName],
+        workspace
+      );
   }
 
   return [fileName];
 }
 
-// Detects running editor process on macOS
-function findEditorOnMacOS() {
-  const output = child_process.execSync('ps x').toString();
-  const processNames = Object.keys(COMMON_EDITORS_OSX);
-  for (let i = 0; i < processNames.length; i++) {
-    const processName = processNames[i];
-    if (output.indexOf(processName) !== -1) {
-      return [COMMON_EDITORS_OSX[processName]];
-    }
-  }
-  return null;
-}
-
-// Detects running editor process on Windows
-function findEditorOnWindows() {
-  const output = child_process
-    .execSync(
-      'wmic process where "executablepath is not null" get executablepath'
-    )
-    .toString();
-  const runningProcesses = output.split('\r\n');
-  for (let i = 0; i < runningProcesses.length; i++) {
-    const processPath = runningProcesses[i].trim();
-    const processName = path.basename(processPath);
-    if (COMMON_EDITORS_WIN.indexOf(processName) !== -1) {
-      return [processPath];
-    }
-  }
-  return null;
-}
-
-// Detects running editor process on Linux
-function findEditorOnLinux() {
-  const output = child_process
-    .execSync('ps x --no-heading -o comm --sort=comm')
-    .toString();
-  const processNames = Object.keys(COMMON_EDITORS_LINUX);
-  for (let i = 0; i < processNames.length; i++) {
-    const processName = processNames[i];
-    if (output.indexOf(processName) !== -1) {
-      return [COMMON_EDITORS_LINUX[processName]];
-    }
-  }
-  return null;
-}
-
-// Attempts to detect editor from running processes
-function detectEditorFromRunningProcess() {
+function findEditorOnDarwin() {
+  // Detect running editor on macOS
   try {
-    if (process.platform === 'darwin') {
-      return findEditorOnMacOS();
-    } else if (process.platform === 'win32') {
-      return findEditorOnWindows();
-    } else if (process.platform === 'linux') {
-      return findEditorOnLinux();
+    const output = child_process.execSync('ps x').toString();
+    const processNames = Object.keys(COMMON_EDITORS_OSX);
+    for (let i = 0; i < processNames.length; i++) {
+      const processName = processNames[i];
+      if (output.indexOf(processName) !== -1) {
+        return [COMMON_EDITORS_OSX[processName]];
+      }
     }
   } catch (error) {
-    // Ignore errors during process detection
+    // Ignore
   }
   return null;
 }
 
-// Determines the editor to use, checking environment variables and running processes
+function findEditorOnWin32() {
+  // Detect running editor on Windows
+  try {
+    const output = child_process
+      .execSync(
+        'wmic process where "executablepath is not null" get executablepath'
+      )
+      .toString();
+    const runningProcesses = output.split('\r\n');
+    for (let i = 0; i < runningProcesses.length; i++) {
+      const processPath = runningProcesses[i].trim();
+      const processName = path.basename(processPath);
+      if (COMMON_EDITORS_WIN.indexOf(processName) !== -1) {
+        return [processPath];
+      }
+    }
+  } catch (error) {
+    // Ignore
+  }
+  return null;
+}
+
+function findEditorOnLinux() {
+  // Detect running editor on Linux
+  try {
+    const output = child_process
+      .execSync('ps x --no-heading -o comm --sort=comm')
+      .toString();
+    const processNames = Object.keys(COMMON_EDITORS_LINUX);
+    for (let i = 0; i < processNames.length; i++) {
+      const processName = processNames[i];
+      if (output.indexOf(processName) !== -1) {
+        return [COMMON_EDITORS_LINUX[processName]];
+      }
+    }
+  } catch (error) {
+    // Ignore
+  }
+  return null;
+}
+
 function guessEditor() {
+  // Explicit config always wins
   if (process.env.REACT_EDITOR) {
     return shellQuote.parse(process.env.REACT_EDITOR);
   }
 
-  const detectedEditor = detectEditorFromRunningProcess();
-  if (detectedEditor) {
-    return detectedEditor;
+  // Detect running editor by platform
+  if (process.platform === 'darwin') {
+    const editor = findEditorOnDarwin();
+    if (editor) return editor;
+  } else if (process.platform === 'win32') {
+    const editor = findEditorOnWin32();
+    if (editor) return editor;
+  } else if (process.platform === 'linux') {
+    const editor = findEditorOnLinux();
+    if (editor) return editor;
   }
 
+  // Last resort, use old skool env vars
   if (process.env.VISUAL) {
     return [process.env.VISUAL];
   } else if (process.env.EDITOR) {
@@ -288,37 +291,26 @@ function printInstructions(fileName, errorMessage) {
   console.log();
 }
 
-// Validates that lineNumber is a positive integer
-function isValidLineNumber(lineNumber) {
+function validateLineNumber(lineNumber) {
+  // Sanitize lineNumber to prevent malicious use on win32
+  // Should be a positive integer
   return Number.isInteger(lineNumber) && lineNumber > 0;
 }
 
-// Validates that colNumber is a positive integer, defaults to 1
-function normalizeColNumber(colNumber) {
-  if (!(Number.isInteger(colNumber) && colNumber > 0)) {
-    return 1;
+function validateColNumber(colNumber) {
+  // colNumber is optional, but should be a positive integer
+  // default is 1
+  if (Number.isInteger(colNumber) && colNumber > 0) {
+    return colNumber;
   }
-  return colNumber;
+  return 1;
 }
 
-// Handles WSL path conversion for Windows editors
-function convertWSLPath(fileName) {
-  if (
-    process.platform === 'linux' &&
-    fileName.startsWith('/mnt/') &&
-    /Microsoft/i.test(os.release())
-  ) {
-    return path.relative('', fileName);
-  }
-  return fileName;
-}
-
-// Validates Windows file name against whitelist to prevent RCE
 function validateWindowsFileName(fileName) {
-  if (
-    process.platform === 'win32' &&
-    !WINDOWS_FILE_NAME_WHITELIST.test(fileName.trim())
-  ) {
+  // cmd.exe on Windows is vulnerable to RCE attacks given a file name of the
+  // form "C:\Users\myusername\Downloads\& curl 172.21.93.52". Use a whitelist
+  // to validate user-provided file names.
+  if (!WINDOWS_FILE_NAME_WHITELIST.test(fileName.trim())) {
     console.log();
     console.log(
       chalk.red('Could not open ' + path.basename(fileName) + ' in the editor.')
@@ -336,8 +328,42 @@ function validateWindowsFileName(fileName) {
   return true;
 }
 
-// Spawns the editor process with appropriate arguments
+function normalizeFilePathForWSL(fileName) {
+  // Handle WSL / "Bash on Ubuntu on Windows" path translation
+  if (
+    process.platform === 'linux' &&
+    fileName.startsWith('/mnt/') &&
+    /Microsoft/i.test(os.release())
+  ) {
+    return path.relative('', fileName);
+  }
+  return fileName;
+}
+
+function buildEditorArgs(editor, fileName, lineNumber, colNumber) {
+  // Build arguments for editor, with line/column info if available
+  let args = [];
+  const workspace = null;
+  
+  if (lineNumber) {
+    args = args.concat(
+      getArgumentsForLineNumber(
+        editor,
+        fileName,
+        lineNumber,
+        colNumber,
+        workspace
+      )
+    );
+  } else {
+    args.push(fileName);
+  }
+  
+  return args;
+}
+
 function spawnEditorProcess(editor, args) {
+  // Spawn editor process with platform-specific handling
   if (process.platform === 'win32') {
     return child_process.spawn(
       'cmd.exe',
@@ -349,10 +375,11 @@ function spawnEditorProcess(editor, args) {
   }
 }
 
-// Attaches event handlers to editor process
 function attachEditorProcessHandlers(childProcess, fileName) {
+  // Attach exit and error handlers to editor process
   childProcess.on('exit', function (errorCode) {
     _childProcess = null;
+
     if (errorCode) {
       printInstructions(fileName, '(code ' + errorCode + ')');
     }
@@ -364,17 +391,16 @@ function attachEditorProcessHandlers(childProcess, fileName) {
 }
 
 let _childProcess = null;
-
 function launchEditor(fileName, lineNumber, colNumber) {
   if (!fs.existsSync(fileName)) {
     return;
   }
 
-  if (!isValidLineNumber(lineNumber)) {
+  if (!validateLineNumber(lineNumber)) {
     return;
   }
 
-  colNumber = normalizeColNumber(colNumber);
+  colNumber = validateColNumber(colNumber);
 
   let [editor, ...args] = guessEditor();
 
@@ -387,25 +413,13 @@ function launchEditor(fileName, lineNumber, colNumber) {
     return;
   }
 
-  fileName = convertWSLPath(fileName);
+  fileName = normalizeFilePathForWSL(fileName);
 
-  if (!validateWindowsFileName(fileName)) {
+  if (process.platform === 'win32' && !validateWindowsFileName(fileName)) {
     return;
   }
 
-  if (lineNumber) {
-    args = args.concat(
-      getArgumentsForLineNumber(
-        editor,
-        fileName,
-        lineNumber,
-        colNumber,
-        null
-      )
-    );
-  } else {
-    args.push(fileName);
-  }
+  args = buildEditorArgs(editor, fileName, lineNumber, colNumber);
 
   if (_childProcess && isTerminalEditor(editor)) {
     _childProcess.kill('SIGKILL');

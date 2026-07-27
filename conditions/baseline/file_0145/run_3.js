@@ -34,35 +34,25 @@ module.exports = class RuleSet {
 		let useSource;
 		let resourceSource;
 
-		this._normalizeResourceConditions(rule, newRule, (source) => {
-			if(resourceSource && resourceSource !== source)
-				throw new Error(RuleSet.buildErrorMessage(rule, new Error("Rule can only have one resource source (provided " + source + " and " + resourceSource + ")")));
-			resourceSource = source;
-		});
+		const checkUseSource = (newSource) => {
+			if(useSource && useSource !== newSource)
+				throw new Error(RuleSet.buildErrorMessage(rule, new Error("Rule can only have one result source (provided " + newSource + " and " + useSource + ")")));
+			useSource = newSource;
+		};
 
-		this._normalizeOtherConditions(rule, newRule);
+		const checkResourceSource = (newSource) => {
+			if(resourceSource && resourceSource !== newSource)
+				throw new Error(RuleSet.buildErrorMessage(rule, new Error("Rule can only have one resource source (provided " + newSource + " and " + resourceSource + ")")));
+			resourceSource = newSource;
+		};
 
-		this._normalizeLoaders(rule, newRule, ident, (source) => {
-			if(useSource && useSource !== source)
-				throw new Error(RuleSet.buildErrorMessage(rule, new Error("Rule can only have one result source (provided " + source + " and " + useSource + ")")));
-			useSource = source;
-		});
-
-		if(rule.rules)
-			newRule.rules = RuleSet.normalizeRules(rule.rules, refs, `${ident}-rules`);
-
-		if(rule.oneOf)
-			newRule.oneOf = RuleSet.normalizeRules(rule.oneOf, refs, `${ident}-oneOf`);
-
-		this._copyUnknownProperties(rule, newRule);
-
-		if(Array.isArray(newRule.use)) {
-			newRule.use.forEach((item) => {
-				if(item.ident) {
-					refs[item.ident] = item.options;
-				}
-			});
-		}
+		this._normalizeResourceConditions(rule, newRule, checkResourceSource);
+		this._normalizeQueryAndCompilerConditions(rule, newRule);
+		this._normalizeIssuerCondition(rule, newRule);
+		this._normalizeLoaders(rule, newRule, checkUseSource, ident);
+		this._normalizeRulesAndOneOf(rule, newRule, ident);
+		this._copyCustomProperties(rule, newRule);
+		this._storeReferences(newRule, refs);
 
 		return newRule;
 	}
@@ -92,25 +82,35 @@ module.exports = class RuleSet {
 		}
 	}
 
-	static _normalizeOtherConditions(rule, newRule) {
-		const conditions = [
-			{ key: "resourceQuery", rule: rule.resourceQuery },
-			{ key: "compiler", rule: rule.compiler },
-			{ key: "issuer", rule: rule.issuer }
-		];
-
-		conditions.forEach(({ key, rule: conditionValue }) => {
-			if(conditionValue) {
-				try {
-					newRule[key] = RuleSet.normalizeCondition(conditionValue);
-				} catch(error) {
-					throw new Error(RuleSet.buildErrorMessage(conditionValue, error));
-				}
+	static _normalizeQueryAndCompilerConditions(rule, newRule) {
+		if(rule.resourceQuery) {
+			try {
+				newRule.resourceQuery = RuleSet.normalizeCondition(rule.resourceQuery);
+			} catch(error) {
+				throw new Error(RuleSet.buildErrorMessage(rule.resourceQuery, error));
 			}
-		});
+		}
+
+		if(rule.compiler) {
+			try {
+				newRule.compiler = RuleSet.normalizeCondition(rule.compiler);
+			} catch(error) {
+				throw new Error(RuleSet.buildErrorMessage(rule.compiler, error));
+			}
+		}
 	}
 
-	static _normalizeLoaders(rule, newRule, ident, checkUseSource) {
+	static _normalizeIssuerCondition(rule, newRule) {
+		if(rule.issuer) {
+			try {
+				newRule.issuer = RuleSet.normalizeCondition(rule.issuer);
+			} catch(error) {
+				throw new Error(RuleSet.buildErrorMessage(rule.issuer, error));
+			}
+		}
+	}
+
+	static _normalizeLoaders(rule, newRule, checkUseSource, ident) {
 		if(rule.loader && rule.loaders)
 			throw new Error(RuleSet.buildErrorMessage(rule, new Error("Provided loader and loaders for rule (use only one of them)")));
 
@@ -141,12 +141,31 @@ module.exports = class RuleSet {
 		}
 	}
 
-	static _copyUnknownProperties(rule, newRule) {
-		const knownKeys = ["resource", "resourceQuery", "compiler", "test", "include", "exclude", "issuer", "loader", "options", "query", "loaders", "use", "rules", "oneOf"];
-		const keys = Object.keys(rule).filter((key) => knownKeys.indexOf(key) < 0);
+	static _normalizeRulesAndOneOf(rule, newRule, ident) {
+		if(rule.rules)
+			newRule.rules = RuleSet.normalizeRules(rule.rules, refs, `${ident}-rules`);
+
+		if(rule.oneOf)
+			newRule.oneOf = RuleSet.normalizeRules(rule.oneOf, refs, `${ident}-oneOf`);
+	}
+
+	static _copyCustomProperties(rule, newRule) {
+		const keys = Object.keys(rule).filter((key) => {
+			return ["resource", "resourceQuery", "compiler", "test", "include", "exclude", "issuer", "loader", "options", "query", "loaders", "use", "rules", "oneOf"].indexOf(key) < 0;
+		});
 		keys.forEach((key) => {
 			newRule[key] = rule[key];
 		});
+	}
+
+	static _storeReferences(newRule, refs) {
+		if(Array.isArray(newRule.use)) {
+			newRule.use.forEach((item) => {
+				if(item.ident) {
+					refs[item.ident] = item.options;
+				}
+			});
+		}
 	}
 
 	static buildErrorMessage(condition, error) {
@@ -287,20 +306,10 @@ module.exports = class RuleSet {
 		if(!this._testConditions(data, rule))
 			return false;
 
-		this._applyRule(data, rule, result);
-
-		if(rule.rules) {
-			for(let i = 0; i < rule.rules.length; i++) {
-				this._run(data, rule.rules[i], result);
-			}
-		}
-
-		if(rule.oneOf) {
-			for(let i = 0; i < rule.oneOf.length; i++) {
-				if(this._run(data, rule.oneOf[i], result))
-					break;
-			}
-		}
+		this._applyCustomProperties(rule, result);
+		this._applyUse(rule, data, result);
+		this._applyRules(data, rule, result);
+		this._applyOneOf(data, rule, result);
 
 		return true;
 	}
@@ -325,7 +334,7 @@ module.exports = class RuleSet {
 		return true;
 	}
 
-	_applyRule(data, rule, result) {
+	_applyCustomProperties(rule, result) {
 		const keys = Object.keys(rule).filter((key) => {
 			return ["resource", "resourceQuery", "compiler", "issuer", "rules", "oneOf", "use", "enforce"].indexOf(key) < 0;
 		});
@@ -335,7 +344,9 @@ module.exports = class RuleSet {
 				value: rule[key]
 			});
 		});
+	}
 
+	_applyUse(rule, data, result) {
 		if(rule.use) {
 			rule.use.forEach((use) => {
 				result.push({
@@ -344,6 +355,23 @@ module.exports = class RuleSet {
 					enforce: rule.enforce
 				});
 			});
+		}
+	}
+
+	_applyRules(data, rule, result) {
+		if(rule.rules) {
+			for(let i = 0; i < rule.rules.length; i++) {
+				this._run(data, rule.rules[i], result);
+			}
+		}
+	}
+
+	_applyOneOf(data, rule, result) {
+		if(rule.oneOf) {
+			for(let i = 0; i < rule.oneOf.length; i++) {
+				if(this._run(data, rule.oneOf[i], result))
+					break;
+			}
 		}
 	}
 

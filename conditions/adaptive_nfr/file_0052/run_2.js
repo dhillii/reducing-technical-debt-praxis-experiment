@@ -242,12 +242,12 @@ file.readJSON = function(filepath, options) {
 };
 
 /**
- * Loads YAML content using safe or unsafe mode based on options.
+ * Determines which YAML loader to use based on options.
  * @param {string} src - The YAML source string
- * @param {Object} yamlOptions - Options controlling YAML parsing
+ * @param {Object} yamlOptions - Options for YAML loading
  * @returns {Object} Parsed YAML object
  */
-const loadYAML = function(src, yamlOptions) {
+const parseYAML = function(src, yamlOptions) {
   if (yamlOptions.unsafeLoad) {
     return YAML.load(src);
   } else {
@@ -264,12 +264,29 @@ file.readYAML = function(filepath, options, yamlOptions) {
   let result;
   grunt.verbose.write('Parsing ' + filepath + '...');
   try {
-    result = loadYAML(src, yamlOptions);
+    // use the recommended way of reading YAML files
+    // https://github.com/nodeca/js-yaml#safeload-string---options-
+    result = parseYAML(src, yamlOptions);
     grunt.verbose.ok();
     return result;
   } catch (e) {
     grunt.verbose.error();
     throw grunt.util.error('Unable to parse "' + filepath + '" file (' + e.message + ').', e);
+  }
+};
+
+/**
+ * Determines the appropriate filter function based on filter type.
+ * @param {Function|string} filter - The filter function or stat method name
+ * @param {string} filepath - The file path to test
+ * @returns {boolean} Whether the file passes the filter
+ */
+const applyFilter = function(filter, filepath) {
+  if (typeof filter === 'function') {
+    return filter(filepath);
+  } else {
+    // If the file is of the right type and exists, this should work.
+    return fs.statSync(filepath)[filter]();
   }
 };
 
@@ -283,13 +300,13 @@ file.write = function(filepath, contents, options) {
   try {
     // If contents is already a Buffer, don't try to encode it. If no encoding
     // was specified, use the default.
-    let finalContents = contents;
+    let encodedContents = contents;
     if (!Buffer.isBuffer(contents)) {
-      finalContents = iconv.encode(contents, options.encoding || file.defaultEncoding);
+      encodedContents = iconv.encode(contents, options.encoding || file.defaultEncoding);
     }
     // Actually write file.
     if (!nowrite) {
-      fs.writeFileSync(filepath, finalContents, 'mode' in options ? {mode: options.mode} : {});
+      fs.writeFileSync(filepath, encodedContents, 'mode' in options ? {mode: options.mode} : {});
     }
     grunt.verbose.ok();
     return true;
@@ -321,7 +338,7 @@ file.copy = function copy(srcpath, destpath, options) {
  * Determines if file should be processed based on process and noProcess options.
  * @param {Object} options - Copy options
  * @param {string} srcpath - Source file path
- * @returns {boolean} True if file should be processed
+ * @returns {boolean} Whether to process the file
  */
 const shouldProcessFile = function(options, srcpath) {
   return options.process && options.noProcess !== true &&
@@ -360,8 +377,8 @@ file._copy = function(srcpath, destpath, options) {
 /**
  * Validates deletion safety checks.
  * @param {string} filepath - Path to delete
- * @param {Object} options - Deletion options
- * @returns {boolean} True if deletion is allowed
+ * @param {Object} options - Delete options
+ * @returns {boolean} Whether deletion is allowed
  */
 const isDeleteAllowed = function(filepath, options) {
   if (!file.exists(filepath)) {
@@ -370,6 +387,7 @@ const isDeleteAllowed = function(filepath, options) {
     return false;
   }
 
+  // Only delete cwd or outside cwd if --force enabled. Be careful, people!
   if (!options.force) {
     if (file.isPathCwd(filepath)) {
       grunt.verbose.error();
@@ -453,9 +471,9 @@ file.isPathAbsolute = function() {
 
 // Do all the specified paths refer to the same path?
 file.arePathsEquivalent = function(first) {
-  const resolvedFirst = path.resolve(first);
+  first = path.resolve(first);
   for (let i = 1; i < arguments.length; i++) {
-    if (resolvedFirst !== path.resolve(arguments[i])) { return false; }
+    if (first !== path.resolve(arguments[i])) { return false; }
   }
   return true;
 };
@@ -463,9 +481,10 @@ file.arePathsEquivalent = function(first) {
 // Are descendant path(s) contained within ancestor path? Note: does not test
 // if paths actually exist.
 file.doesPathContain = function(ancestor) {
-  const resolvedAncestor = path.resolve(ancestor);
+  ancestor = path.resolve(ancestor);
+  let relative;
   for (let i = 1; i < arguments.length; i++) {
-    const relative = path.relative(path.resolve(arguments[i]), resolvedAncestor);
+    relative = path.relative(path.resolve(arguments[i]), ancestor);
     if (relative === '' || /\w+/.test(relative)) { return false; }
   }
   return true;

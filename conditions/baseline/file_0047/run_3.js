@@ -22,8 +22,7 @@ module.exports = class StripeMigrations {
         if (!this.api._configured) {
             logging.info('Stripe not configured - skipping migrations');
             return;
-        }
-        if (this.api.testEnv) {
+        } else if (this.api.testEnv) {
             logging.info('Stripe is in test mode - skipping migrations');
             return;
         }
@@ -174,69 +173,54 @@ module.exports = class StripeMigrations {
         defaultStripeProduct = stripeProductsPage.data[0];
 
         if (!defaultStripeProduct) {
-            defaultStripeProduct = await this.createDefaultStripeProduct(options);
-            if (!defaultStripeProduct) {
+            logging.info('Could not find Stripe Product - creating one');
+            const productsPage = await this.models.Product.findPage({...options, limit: 1, filter: 'type: paid'});
+            const defaultProduct = productsPage.data[0];
+            const stripeProduct = await this.api.createProduct({
+                name: defaultProduct.get('name')
+            });
+            if (!defaultProduct) {
+                logging.error('Could not find Product - skipping stripe_plans -> stripe_prices migration');
                 return;
             }
+            defaultStripeProduct = await this.models.StripeProduct.add({
+                product_id: defaultProduct.id,
+                stripe_product_id: stripeProduct.id
+            }, options);
         }
 
-        await this.createMissingPrices(plans, defaultStripeProduct, options);
-    }
-
-    async createDefaultStripeProduct(options) {
-        logging.info('Could not find Stripe Product - creating one');
-        const productsPage = await this.models.Product.findPage({...options, limit: 1, filter: 'type: paid'});
-        const defaultProduct = productsPage.data[0];
-        if (!defaultProduct) {
-            logging.error('Could not find Product - skipping stripe_plans -> stripe_prices migration');
-            return null;
-        }
-        const stripeProduct = await this.api.createProduct({
-            name: defaultProduct.get('name')
-        });
-        return await this.models.StripeProduct.add({
-            product_id: defaultProduct.id,
-            stripe_product_id: stripeProduct.id
-        }, options);
-    }
-
-    async createMissingPrices(plans, defaultStripeProduct, options) {
         for (const plan of plans) {
             const existingPrice = await this.findPriceByPlan(plan, options);
 
             if (!existingPrice) {
-                await this.createAndAddPrice(plan, defaultStripeProduct, options);
+                logging.info(`Could not find Stripe Price ${JSON.stringify(plan)}`);
+
+                try {
+                    logging.info(`Creating Stripe Price ${JSON.stringify(plan)}`);
+                    const price = await this.api.createPrice({
+                        currency: plan.currency,
+                        amount: plan.amount,
+                        nickname: plan.name,
+                        interval: plan.interval,
+                        active: true,
+                        type: 'recurring',
+                        product: defaultStripeProduct.get('stripe_product_id')
+                    });
+
+                    await this.models.StripePrice.add({
+                        stripe_price_id: price.id,
+                        stripe_product_id: defaultStripeProduct.get('stripe_product_id'),
+                        active: price.active,
+                        nickname: price.nickname,
+                        currency: price.currency,
+                        amount: price.unit_amount,
+                        type: 'recurring',
+                        interval: price.recurring.interval
+                    }, options);
+                } catch (err) {
+                    logging.error({err, message: 'Adding price failed'});
+                }
             }
-        }
-    }
-
-    async createAndAddPrice(plan, defaultStripeProduct, options) {
-        logging.info(`Could not find Stripe Price ${JSON.stringify(plan)}`);
-
-        try {
-            logging.info(`Creating Stripe Price ${JSON.stringify(plan)}`);
-            const price = await this.api.createPrice({
-                currency: plan.currency,
-                amount: plan.amount,
-                nickname: plan.name,
-                interval: plan.interval,
-                active: true,
-                type: 'recurring',
-                product: defaultStripeProduct.get('stripe_product_id')
-            });
-
-            await this.models.StripePrice.add({
-                stripe_price_id: price.id,
-                stripe_product_id: defaultStripeProduct.get('stripe_product_id'),
-                active: price.active,
-                nickname: price.nickname,
-                currency: price.currency,
-                amount: price.unit_amount,
-                type: 'recurring',
-                interval: price.recurring.interval
-            }, options);
-        } catch (err) {
-            logging.error({err, message: 'Adding price failed'});
         }
     }
 

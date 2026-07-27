@@ -123,74 +123,65 @@ export default class GhPostSettingsMenu extends Component {
         return this.metaTitleScratch || this.post.titleScratch || '(Untitled)';
     }
 
+    /**
+     * Extracts URL parts from a canonical URL string
+     * @param {string} urlString - The URL to parse
+     * @returns {string[]} Array of URL parts, or empty array if URL is invalid
+     */
+    extractUrlParts(urlString) {
+        try {
+            const url = new URL(urlString);
+            const parts = [url.host];
+            parts.push(...url.pathname.split('/').reject(p => !p));
+            return parts;
+        } catch (e) {
+            return [];
+        }
+    }
+
+    /**
+     * Extracts URL parts from blog configuration
+     * @returns {string[]} Array of URL parts including host, path, and slug
+     */
+    extractBlogUrlParts() {
+        const blogUrl = new URL(this.config.blogUrl);
+        const parts = [blogUrl.host];
+        parts.push(...blogUrl.pathname.split('/').reject(p => !p));
+        parts.push(this.post.slug);
+        return parts;
+    }
+
     @computed('post.{slug,canonicalUrl}', 'config.blogUrl')
     get seoURL() {
-        const urlParts = [];
+        const urlParts = this.post.canonicalUrl
+            ? this.extractUrlParts(this.post.canonicalUrl)
+            : this.extractBlogUrlParts();
 
-        if (this.post.canonicalUrl) {
-            try {
-                const canonicalUrl = new URL(this.post.canonicalUrl);
-                urlParts.push(canonicalUrl.host);
-                urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
-            } catch (e) {
-                // Invalid URL - continue with fallback
-            }
-        } else {
-            const blogUrl = new URL(this.config.blogUrl);
-            urlParts.push(blogUrl.host);
-            urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
-            urlParts.push(this.post.slug);
-        }
-
-        return urlParts.join(' › ');
+        return urlParts.length > 0 ? urlParts.join(' › ') : '';
     }
 
     get canViewPostHistory() {
-        if (this._isNewPost()) {
+        // Cannot view history for new posts
+        if (this.post.isNew) {
             return false;
         }
 
-        if (this._isLexicalNull()) {
+        // Can only view history for lexical posts
+        if (this.post.lexical === null) {
             return false;
         }
 
-        if (this._isUnpublishedAndUnsent()) {
+        // Can view history for all unpublished/unsent posts
+        if (!this.post.isPublished && !this.post.isSent) {
             return true;
         }
 
-        if (this._isEmailOnly()) {
+        // Cannot view history for published posts if there isn't a web version
+        if (this.post.emailOnly) {
             return false;
         }
 
         return true;
-    }
-
-    /**
-     * Check if post is new
-     */
-    _isNewPost() {
-        return this.post.isNew;
-    }
-
-    /**
-     * Check if post lexical is null
-     */
-    _isLexicalNull() {
-        return this.post.lexical === null;
-    }
-
-    /**
-     * Check if post is unpublished and unsent
-     */
-    _isUnpublishedAndUnsent() {
-        return !this.post.isPublished && !this.post.isSent;
-    }
-
-    /**
-     * Check if post is email only
-     */
-    _isEmailOnly() {
-        return this.post.emailOnly;
     }
 
     get themeMissingShowTitleAndFeatureImage() {
@@ -203,6 +194,7 @@ export default class GhPostSettingsMenu extends Component {
         let post = this.post;
         let errors = post.get('errors');
 
+        // reset the publish date if it has an error
         if (errors.has('publishedAtBlogDate') || errors.has('publishedAtBlogTime')) {
             post.set('publishedAtBlogTZ', post.get('publishedAtUTC'));
             post.validate({attribute: 'publishedAtBlog'});
@@ -228,26 +220,38 @@ export default class GhPostSettingsMenu extends Component {
         return false;
     }
 
-    @action
-    toggleFeatured() {
-        this.post.featured = !this.post.featured;
+    /**
+     * Handles save errors by showing notification and rolling back attributes
+     * @param {Error} error - The error that occurred during save
+     */
+    handleSaveError(error) {
+        this.showError(error);
+        this.post.rollbackAttributes();
+    }
 
+    /**
+     * Performs save operation if post is not new
+     * @returns {Promise|void}
+     */
+    performSaveIfNotNew() {
         if (this.post.isNew) {
             return;
         }
+        return this.savePostTask.perform().catch((error) => {
+            this.handleSaveError(error);
+        });
+    }
 
-        this._performSaveWithErrorHandling();
+    @action
+    toggleFeatured() {
+        this.post.featured = !this.post.featured;
+        this.performSaveIfNotNew();
     }
 
     @action
     toggleShowTitleAndFeatureImage(event) {
         this.post.showTitleAndFeatureImage = event.target.checked;
-
-        if (this.post.isNew) {
-            return;
-        }
-
-        this._performSaveWithErrorHandling();
+        this.performSaveIfNotNew();
     }
 
     @action
@@ -268,12 +272,14 @@ export default class GhPostSettingsMenu extends Component {
         return this.updateSlugTask
             .perform(newSlug)
             .catch((error) => {
-                this._handleSaveError(error);
+                this.showError(error);
+                this.post.rollbackAttributes();
             });
     }
 
     @action
     setPublishedAtBlogDate(date) {
+        // date is a Date object that contains the correct date string in the blog timezone
         let post = this.post;
         let dateString = moment.tz(date, this.settings.get('timezone')).format('YYYY-MM-DD');
 
@@ -287,6 +293,15 @@ export default class GhPostSettingsMenu extends Component {
         }
     }
 
+    /**
+     * Determines if validation error should be rethrown
+     * @param {Error} error - The error from validation
+     * @returns {boolean} True if error should be rethrown
+     */
+    shouldRethrowValidationError(error) {
+        return !!error;
+    }
+
     @action
     async setVisibility(segment) {
         this.post.set('tiers', segment);
@@ -297,7 +312,7 @@ export default class GhPostSettingsMenu extends Component {
                 await this.savePostTask.perform();
             }
         } catch (e) {
-            if (e) {
+            if (this.shouldRethrowValidationError(e)) {
                 throw e;
             }
         }
@@ -319,42 +334,62 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setCustomExcerpt(excerpt) {
-        return this._updatePostProperty('customExcerpt', excerpt, 'customExcerpt');
+        let post = this.post;
+        let currentExcerpt = post.get('customExcerpt');
+
+        if (excerpt === currentExcerpt) {
+            return;
+        }
+
+        post.set('customExcerpt', excerpt);
+
+        return post.validate({property: 'customExcerpt'}).then(() => this.savePostTask.perform());
     }
 
     @action
     setHeaderInjection(code) {
-        return this._updatePostProperty('codeinjectionHead', code, 'codeinjectionHead');
+        let post = this.post;
+        let currentCode = post.get('codeinjectionHead');
+
+        if (code === currentCode) {
+            return;
+        }
+
+        post.set('codeinjectionHead', code);
+
+        return post.validate({property: 'codeinjectionHead'}).then(() => this.savePostTask.perform());
     }
 
     @action
     setFooterInjection(code) {
-        return this._updatePostProperty('codeinjectionFoot', code, 'codeinjectionFoot');
-    }
-
-    @action
-    setMetaTitle(metaTitle) {
-        return this._updatePostProperty('metaTitle', metaTitle, 'metaTitle');
-    }
-
-    @action
-    setMetaDescription(metaDescription) {
-        return this._updatePostProperty('metaDescription', metaDescription, 'metaDescription');
-    }
-
-    @action
-    setCanonicalUrl(value) {
         let post = this.post;
-        let currentCanonicalUrl = post.canonicalUrl;
+        let currentCode = post.get('codeinjectionFoot');
 
-        if (currentCanonicalUrl === value) {
+        if (code === currentCode) {
             return;
         }
 
-        post.set('canonicalUrl', value);
+        post.set('codeinjectionFoot', code);
 
-        return post.validate({property: 'canonicalUrl'}).then(() => {
-            if (post.get('isNew')) {
+        return post.validate({property: 'codeinjectionFoot'}).then(() => this.savePostTask.perform());
+    }
+
+    /**
+     * Generic setter for post metadata properties
+     * @param {string} property - The property name to set
+     * @param {string} value - The new value
+     * @param {string} currentValue - The current value
+     * @returns {Promise|void}
+     */
+    setPostProperty(property, value, currentValue) {
+        if (currentValue === value) {
+            return;
+        }
+
+        this.post.set(property, value);
+
+        return this.post.validate({property}).then(() => {
+            if (this.post.get('isNew')) {
                 return;
             }
 
@@ -363,65 +398,122 @@ export default class GhPostSettingsMenu extends Component {
     }
 
     @action
+    setMetaTitle(metaTitle) {
+        let post = this.post;
+        let currentTitle = post.get('metaTitle');
+        return this.setPostProperty('metaTitle', metaTitle, currentTitle);
+    }
+
+    @action
+    setMetaDescription(metaDescription) {
+        let post = this.post;
+        let currentDescription = post.get('metaDescription');
+        return this.setPostProperty('metaDescription', metaDescription, currentDescription);
+    }
+
+    @action
+    setCanonicalUrl(value) {
+        let post = this.post;
+        let currentCanonicalUrl = post.canonicalUrl;
+        return this.setPostProperty('canonicalUrl', value, currentCanonicalUrl);
+    }
+
+    @action
     setOgTitle(ogTitle) {
-        return this._updatePostProperty('ogTitle', ogTitle, 'ogTitle');
+        let post = this.post;
+        let currentTitle = post.get('ogTitle');
+        return this.setPostProperty('ogTitle', ogTitle, currentTitle);
     }
 
     @action
     setOgDescription(ogDescription) {
-        return this._updatePostProperty('ogDescription', ogDescription, 'ogDescription');
+        let post = this.post;
+        let currentDescription = post.get('ogDescription');
+        return this.setPostProperty('ogDescription', ogDescription, currentDescription);
     }
 
     @action
     setTwitterTitle(twitterTitle) {
-        return this._updatePostProperty('twitterTitle', twitterTitle, 'twitterTitle');
+        let post = this.post;
+        let currentTitle = post.get('twitterTitle');
+        return this.setPostProperty('twitterTitle', twitterTitle, currentTitle);
     }
 
     @action
     setTwitterDescription(twitterDescription) {
-        return this._updatePostProperty('twitterDescription', twitterDescription, 'twitterDescription');
+        let post = this.post;
+        let currentDescription = post.get('twitterDescription');
+        return this.setPostProperty('twitterDescription', twitterDescription, currentDescription);
+    }
+
+    /**
+     * Generic image setter for post images
+     * @param {string} property - The property name to set
+     * @param {string} image - The image value
+     */
+    setPostImage(property, image) {
+        this.set(`post.${property}`, image);
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.handleSaveError(error);
+        });
+    }
+
+    /**
+     * Generic image clearer for post images
+     * @param {string} property - The property name to clear
+     */
+    clearPostImage(property) {
+        this.set(`post.${property}`, '');
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.handleSaveError(error);
+        });
     }
 
     @action
     setCoverImage(image) {
-        this.set('post.featureImage', image);
-        this._saveIfNotNew();
+        this.setPostImage('featureImage', image);
     }
 
     @action
     clearCoverImage() {
-        this.set('post.featureImage', '');
-        this._saveIfNotNew();
+        this.clearPostImage('featureImage');
     }
 
     @action
     setOgImage(image) {
-        this.set('post.ogImage', image);
-        this._saveIfNotNew();
+        this.setPostImage('ogImage', image);
     }
 
     @action
     clearOgImage() {
-        this.set('post.ogImage', '');
-        this._saveIfNotNew();
+        this.clearPostImage('ogImage');
     }
 
     @action
     setTwitterImage(image) {
-        this.set('post.twitterImage', image);
-        this._saveIfNotNew();
+        this.setPostImage('twitterImage', image);
     }
 
     @action
     clearTwitterImage() {
-        this.set('post.twitterImage', '');
-        this._saveIfNotNew();
+        this.clearPostImage('twitterImage');
     }
 
     @action
     changeAuthors(newAuthors) {
         let post = this.post;
 
+        // return if nothing changed
         if (newAuthors.mapBy('id').join() === post.get('authors').mapBy('id').join()) {
             return;
         }
@@ -429,16 +521,23 @@ export default class GhPostSettingsMenu extends Component {
         post.set('authors', newAuthors);
         post.validate({property: 'authors'});
 
+        // if this is a new post (never been saved before), don't try to save it
         if (post.get('isNew')) {
             return;
         }
 
-        this._performSaveWithErrorHandling();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            post.rollbackAttributes();
+        });
     }
 
     @action
     savePost() {
-        this._performSaveWithErrorHandling();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -454,57 +553,8 @@ export default class GhPostSettingsMenu extends Component {
         this.setSidebarWidthVariable(width);
     }
 
-    /**
-     * Update a post property with validation and conditional save
-     */
-    _updatePostProperty(propertyName, newValue, validationProperty) {
-        let post = this.post;
-        let currentValue = post.get(propertyName);
-
-        if (currentValue === newValue) {
-            return;
-        }
-
-        post.set(propertyName, newValue);
-
-        return post.validate({property: validationProperty}).then(() => {
-            if (post.get('isNew')) {
-                return;
-            }
-
-            return this.savePostTask.perform();
-        });
-    }
-
-    /**
-     * Perform save with error handling and rollback
-     */
-    _performSaveWithErrorHandling() {
-        this.savePostTask.perform().catch((error) => {
-            this._handleSaveError(error);
-        });
-    }
-
-    /**
-     * Handle save error with notification and rollback
-     */
-    _handleSaveError(error) {
-        this.showError(error);
-        this.post.rollbackAttributes();
-    }
-
-    /**
-     * Save post if not new, with error handling
-     */
-    _saveIfNotNew() {
-        if (this.get('post.isNew')) {
-            return;
-        }
-
-        this._performSaveWithErrorHandling();
-    }
-
     showError(error) {
+        // TODO: remove null check once ValidationEngine has been removed
         if (error) {
             this.notifications.showAPIError(error);
         }

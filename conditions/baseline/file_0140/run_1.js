@@ -37,8 +37,6 @@ const isPermissionEnabled = (permission, role) =>
       (defaultPerm.roleType === null || role.type === defaultPerm.roleType)
   );
 
-const hasUsers = (users) => users && users.length > 0;
-
 module.exports = {
   async createRole(params) {
     if (!params.type) {
@@ -68,7 +66,7 @@ module.exports = {
     }, []);
 
     // Use Content Manager business logic to handle relation.
-    if (hasUsers(params.users))
+    if (params.users && params.users.length > 0)
       arrayOfPromises.push(
         strapi.query('role', 'users-permissions').update(
           {
@@ -201,7 +199,7 @@ module.exports = {
     // Group by `type`.
     const permissions = role.permissions.reduce((acc, permission) => {
       _.set(acc, `${permission.type}.controllers.${permission.controller}.${permission.action}`, {
-        enabled: _.toNumber(permission.enabled) === 1,
+        enabled: _.toNumber(permission.enabled) !== 0,
         policy: permission.policy,
       });
 

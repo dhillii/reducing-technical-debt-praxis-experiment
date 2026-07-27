@@ -225,9 +225,9 @@ export function isAcceptedResponse(errorOrStatus) {
 
 /**
  * Error response handler strategy mapping
- * Maps error detection functions to their corresponding error classes
+ * Maps error detection functions to their corresponding error constructors
  */
-const errorHandlers = [
+const errorHandlerStrategies = [
     {
         check: (service, status, headers, payload) => service.isTwoFactorTokenRequiredError(status, headers, payload),
         create: (payload) => new TwoFactorTokenRequiredError(payload)
@@ -271,45 +271,39 @@ const errorHandlers = [
 ];
 
 /**
- * Attempts to match and create an error response using registered handlers
+ * Attempts to match and create an error response using registered strategies
  * @param {Object} service - The ajax service instance
  * @param {number} status - HTTP status code
  * @param {Object} headers - Response headers
- * @param {Object} payload - Response payload
- * @returns {Object|null} Error instance or null if no handler matches
+ * @param {*} payload - Response payload
+ * @returns {Object|null} Error instance or null if no strategy matches
  */
-function createErrorResponse(service, status, headers, payload) {
-    for (const handler of errorHandlers) {
-        if (handler.check(service, status, headers, payload)) {
-            return handler.create(payload);
+function tryCreateErrorResponse(service, status, headers, payload) {
+    for (const strategy of errorHandlerStrategies) {
+        if (strategy.check(service, status, headers, payload)) {
+            return strategy.create(payload);
         }
     }
     return null;
 }
 
 /**
- * Determines if request should be retried based on error type
- * @param {Object} error - The error object
- * @param {Array} retryChecks - Array of error check functions
- * @returns {boolean} True if error is retryable
+ * Checks if request is a Ghost API request
+ * @param {string} url - Request URL
+ * @returns {boolean}
  */
-function isRetryableError(error, retryChecks) {
-    return retryChecks.some(check => check(error.response));
+function isGhostApiRequest(url) {
+    return GHOST_REQUEST.test(url);
 }
 
 /**
- * Determines if session should be invalidated based on error conditions
- * @param {boolean} isAuthenticated - Whether user is authenticated
- * @param {boolean} isGhostRequest - Whether request is to Ghost API
- * @param {boolean} isUnauthorized - Whether response is 401
- * @param {boolean} isForbidden - Whether response is 403
+ * Checks if authorization error requires session invalidation
+ * @param {boolean} isUnauthorized - Whether response is unauthorized
+ * @param {boolean} isForbidden - Whether response is forbidden
  * @param {Object} payload - Response payload
- * @returns {boolean} True if session should be invalidated
+ * @returns {boolean}
  */
-function shouldInvalidateSession(isAuthenticated, isGhostRequest, isUnauthorized, isForbidden, payload) {
-    if (!isAuthenticated || !isGhostRequest) {
-        return false;
-    }
+function shouldInvalidateSession(isUnauthorized, isForbidden, payload) {
     if (isUnauthorized) {
         return true;
     }
@@ -418,7 +412,7 @@ class ajaxService extends AjaxService {
                     throw error;
                 }
 
-                if (isRetryableError(error, retryErrorChecks) && retryingMs <= maxRetryingMs) {
+                if (retryErrorChecks.some(check => check(error.response)) && retryingMs <= maxRetryingMs) {
                     await timeout(retryPeriods[attempts] || retryPeriods[retryPeriods.length - 1]);
                     attempts += 1;
                 } else if (attempts > 0 && this.config.sentry_dsn) {
@@ -442,6 +436,23 @@ class ajaxService extends AjaxService {
         Sentry.setTag('ajax_url', request.url.slice(0, 200)); // the max length of a tag value is 200 characters
         Sentry.setTag('ajax_method', request.method);
 
+        this._handleVersionMismatch(headers);
+
+        const errorResponse = tryCreateErrorResponse(this, status, headers, payload);
+        if (errorResponse) {
+            return errorResponse;
+        }
+
+        this._handleAuthorizationErrors(status, headers, payload, request);
+
+        return super.handleResponse(...arguments);
+    }
+
+    /**
+     * Handles version mismatch detection and upgrade status
+     * @private
+     */
+    _handleVersionMismatch(headers) {
         if (headers['content-version']) {
             const contentVersion = semverCoerce(headers['content-version']);
             const appVersion = semverCoerce(config.APP.version);
@@ -450,28 +461,27 @@ class ajaxService extends AjaxService {
                 this.upgradeStatus.refreshRequired = true;
             }
         }
+    }
 
-        const errorResponse = createErrorResponse(this, status, headers, payload);
-        if (errorResponse) {
-            return errorResponse;
-        }
-
-        let isGhostRequest = GHOST_REQUEST.test(request.url);
-        let isAuthenticated = this.get('session.isAuthenticated');
-        let isUnauthorized = this.isUnauthorizedError(status, headers, payload);
-        let isForbidden = isForbiddenError(status, headers, payload);
+    /**
+     * Handles authorization and session invalidation
+     * @private
+     */
+    _handleAuthorizationErrors(status, headers, payload, request) {
+        const isGhostRequest = isGhostApiRequest(request.url);
+        const isAuthenticated = this.get('session.isAuthenticated');
+        const isUnauthorized = this.isUnauthorizedError(status, headers, payload);
+        const isForbidden = isForbiddenError(status, headers, payload);
 
         // used when reporting connection errors, helps distinguish CDN
         if (isGhostRequest) {
             this._responseServer = headers.server;
         }
 
-        if (shouldInvalidateSession(isAuthenticated, isGhostRequest, isUnauthorized, isForbidden, payload)) {
+        if (isAuthenticated && isGhostRequest && shouldInvalidateSession(isUnauthorized, isForbidden, payload)) {
             this.skipSessionDeletion = true;
             this.session.invalidate();
         }
-
-        return super.handleResponse(...arguments);
     }
 
     normalizeErrorResponse(status, headers, payload) {

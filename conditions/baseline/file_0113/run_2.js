@@ -36,7 +36,10 @@ exports.specialProperties = specialProperties;
  */
 
 exports.toCollectionName = function(name, pluralize) {
-  if (name === 'system.profile' || name === 'system.indexes') {
+  if (name === 'system.profile') {
+    return name;
+  }
+  if (name === 'system.indexes') {
     return name;
   }
   if (typeof pluralize === 'function') {
@@ -56,57 +59,110 @@ exports.toCollectionName = function(name, pluralize) {
  * @api private
  */
 
-function _isDateEqual(a, b) {
-  return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
+function _checkPrimitiveEquality(a, b) {
+  if (a === b) {
+    return true;
+  }
+  if (typeof a !== 'object' && typeof b !== 'object') {
+    return a === b;
+  }
+  return null;
 }
 
-function _isBsonEqual(a, b) {
-  return (isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
-      (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128'));
+function _checkDateEquality(a, b) {
+  if (a instanceof Date && b instanceof Date) {
+    return a.getTime() === b.getTime();
+  }
+  return null;
 }
 
-function _isRegExpEqual(a, b) {
-  return a instanceof RegExp && b instanceof RegExp &&
-      a.source === b.source &&
-      a.ignoreCase === b.ignoreCase &&
-      a.multiline === b.multiline &&
-      a.global === b.global;
+function _checkBsonEquality(a, b) {
+  if ((isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
+      (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128'))) {
+    return a.toString() === b.toString();
+  }
+  return null;
 }
 
-function _isMapEqual(a, b) {
-  return a instanceof Map && b instanceof Map &&
-    exports.deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
-    exports.deepEqual(Array.from(a.values()), Array.from(b.values()));
+function _checkRegExpEquality(a, b) {
+  if (a instanceof RegExp && b instanceof RegExp) {
+    return a.source === b.source &&
+        a.ignoreCase === b.ignoreCase &&
+        a.multiline === b.multiline &&
+        a.global === b.global;
+  }
+  return null;
 }
 
-function _isNumberEqual(a, b) {
-  return a instanceof Number && b instanceof Number && a.valueOf() === b.valueOf();
+function _checkNullEquality(a, b) {
+  if (a == null || b == null) {
+    return false;
+  }
+  return null;
 }
 
-function _isArrayEqual(a, b) {
+function _checkPrototypeEquality(a, b) {
+  if (a.prototype !== b.prototype) {
+    return false;
+  }
+  return null;
+}
+
+function _checkMapEquality(a, b, deepEqual) {
+  if (a instanceof Map && b instanceof Map) {
+    return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
+      deepEqual(Array.from(a.values()), Array.from(b.values()));
+  }
+  return null;
+}
+
+function _checkNumberEquality(a, b) {
+  if (a instanceof Number && b instanceof Number) {
+    return a.valueOf() === b.valueOf();
+  }
+  return null;
+}
+
+function _checkBufferEquality(a, b) {
+  if (Buffer.isBuffer(a)) {
+    return exports.buffer.areEqual(a, b);
+  }
+  return null;
+}
+
+function _checkArrayEquality(a, b, deepEqual) {
+  if (!Array.isArray(a) || !Array.isArray(b)) {
+    return null;
+  }
   const len = a.length;
   if (len !== b.length) {
     return false;
   }
   for (let i = 0; i < len; ++i) {
-    if (!exports.deepEqual(a[i], b[i])) {
+    if (!deepEqual(a[i], b[i])) {
       return false;
     }
   }
   return true;
 }
 
-function _normalizeForComparison(obj) {
-  if (obj.$__ != null) {
-    return obj._doc;
+function _normalizeObjects(a, b) {
+  if (a.$__ != null) {
+    a = a._doc;
+  } else if (isMongooseObject(a)) {
+    a = a.toObject();
   }
-  if (isMongooseObject(obj)) {
-    return obj.toObject();
+
+  if (b.$__ != null) {
+    b = b._doc;
+  } else if (isMongooseObject(b)) {
+    b = b.toObject();
   }
-  return obj;
+
+  return [a, b];
 }
 
-function _compareObjectKeys(a, b) {
+function _checkObjectEquality(a, b, deepEqual) {
   const ka = Object.keys(a);
   const kb = Object.keys(b);
   const kaLength = ka.length;
@@ -125,7 +181,7 @@ function _compareObjectKeys(a, b) {
   }
 
   for (const key of ka) {
-    if (!exports.deepEqual(a[key], b[key])) {
+    if (!deepEqual(a[key], b[key])) {
       return false;
     }
   }
@@ -134,42 +190,39 @@ function _compareObjectKeys(a, b) {
 }
 
 exports.deepEqual = function deepEqual(a, b) {
-  if (a === b) {
-    return true;
-  }
+  let result = _checkPrimitiveEquality(a, b);
+  if (result !== null) return result;
 
-  if (typeof a !== 'object' && typeof b !== 'object') {
-    return a === b;
-  }
+  result = _checkDateEquality(a, b);
+  if (result !== null) return result;
 
-  if (_isDateEqual(a, b) || _isBsonEqual(a, b) || _isRegExpEqual(a, b)) {
-    return a.toString() === b.toString();
-  }
+  result = _checkBsonEquality(a, b);
+  if (result !== null) return result;
 
-  if (a == null || b == null) {
-    return false;
-  }
+  result = _checkRegExpEquality(a, b);
+  if (result !== null) return result;
 
-  if (a.prototype !== b.prototype) {
-    return false;
-  }
+  result = _checkNullEquality(a, b);
+  if (result !== null) return result;
 
-  if (_isMapEqual(a, b) || _isNumberEqual(a, b)) {
-    return true;
-  }
+  result = _checkPrototypeEquality(a, b);
+  if (result !== null) return result;
 
-  if (Buffer.isBuffer(a)) {
-    return exports.buffer.areEqual(a, b);
-  }
+  result = _checkMapEquality(a, b, deepEqual);
+  if (result !== null) return result;
 
-  if (Array.isArray(a) && Array.isArray(b)) {
-    return _isArrayEqual(a, b);
-  }
+  result = _checkNumberEquality(a, b);
+  if (result !== null) return result;
 
-  a = _normalizeForComparison(a);
-  b = _normalizeForComparison(b);
+  result = _checkBufferEquality(a, b);
+  if (result !== null) return result;
 
-  return _compareObjectKeys(a, b);
+  result = _checkArrayEquality(a, b, deepEqual);
+  if (result !== null) return result;
+
+  [a, b] = _normalizeObjects(a, b);
+
+  return _checkObjectEquality(a, b, deepEqual);
 };
 
 /*!
@@ -247,43 +300,6 @@ exports.random = function() {
   return Math.random().toString().substr(3);
 };
 
-function _shouldSkipMergeKey(key, options, omitNested, path) {
-  if (options.omit && options.omit[key]) {
-    return true;
-  }
-  if (omitNested[path]) {
-    return true;
-  }
-  if (specialProperties.has(key)) {
-    return true;
-  }
-  return false;
-}
-
-function _isDiscriminatorConflict(options, fromVal, toVal) {
-  if (!options.isDiscriminatorSchemaMerge) {
-    return false;
-  }
-  return (fromVal.$isSingleNested && toVal.$isMongooseDocumentArray) ||
-         (fromVal.$isMongooseDocumentArray && toVal.$isSingleNested);
-}
-
-function _handleSchemaValue(to, key, from, options) {
-  if (from[key].instanceOfSchema) {
-    if (to[key].instanceOfSchema) {
-      schemaMerge(to[key], from[key].clone(), options.isDiscriminatorSchemaMerge);
-    } else {
-      to[key] = from[key].clone();
-    }
-    return true;
-  }
-  if (from[key] instanceof ObjectId) {
-    to[key] = new ObjectId(from[key]);
-    return true;
-  }
-  return false;
-}
-
 /*!
  * Merges `from` into `to` without overwriting existing properties.
  *
@@ -305,7 +321,13 @@ exports.merge = function merge(to, from, options, path) {
 
   while (i < len) {
     key = keys[i++];
-    if (_shouldSkipMergeKey(key, options, omitNested, path)) {
+    if (options.omit && options.omit[key]) {
+      continue;
+    }
+    if (omitNested[path]) {
+      continue;
+    }
+    if (specialProperties.has(key)) {
       continue;
     }
     if (to[key] == null) {
@@ -315,10 +337,22 @@ exports.merge = function merge(to, from, options, path) {
         to[key] = {};
       }
       if (from[key] != null) {
-        if (_isDiscriminatorConflict(options, from[key], to[key])) {
+        // Skip merging schemas if we're creating a discriminator schema and
+        // base schema has a given path as a single nested but discriminator schema
+        // has the path as a document array, or vice versa (gh-9534)
+        if (options.isDiscriminatorSchemaMerge &&
+            (from[key].$isSingleNested && to[key].$isMongooseDocumentArray) ||
+            (from[key].$isMongooseDocumentArray && to[key].$isSingleNested)) {
           continue;
-        }
-        if (_handleSchemaValue(to, key, from, options)) {
+        } else if (from[key].instanceOfSchema) {
+          if (to[key].instanceOfSchema) {
+            schemaMerge(to[key], from[key].clone(), options.isDiscriminatorSchemaMerge);
+          } else {
+            to[key] = from[key].clone();
+          }
+          continue;
+        } else if (from[key] instanceof ObjectId) {
+          to[key] = new ObjectId(from[key]);
           continue;
         }
       }
@@ -516,69 +550,42 @@ exports.expires = function expires(object) {
  * populate helper
  */
 
-function _makeSingles(arr) {
-  const ret = [];
-  arr.forEach(function(obj) {
-    if (/[\s]/.test(obj.path)) {
-      const paths = obj.path.split(' ');
-      paths.forEach(function(p) {
-        const copy = Object.assign({}, obj);
-        copy.path = p;
-        ret.push(copy);
-      });
-    } else {
-      ret.push(obj);
-    }
-  });
-  return ret;
-}
-
-function _buildPopulateObject(path, select, model, match, options, subPopulate, justOne, count) {
+exports.populate = function populate(path, select, model, match, options, subPopulate, justOne, count) {
+  // might have passed an object specifying all arguments
+  let obj = null;
   if (arguments.length === 1) {
     if (path instanceof PopulateOptions) {
-      return path;
+      return [path];
     }
+
     if (Array.isArray(path)) {
-      return path;
+      const singles = makeSingles(path);
+      return singles.map(o => exports.populate(o)[0]);
     }
+
     if (exports.isObject(path)) {
-      return Object.assign({}, path);
+      obj = Object.assign({}, path);
+    } else {
+      obj = { path: path };
     }
-    return { path: path };
-  }
-  
-  if (typeof model === 'object') {
-    return {
+  } else if (typeof model === 'object') {
+    obj = {
       path: path,
       select: select,
       match: model,
       options: match
     };
-  }
-  
-  return {
-    path: path,
-    select: select,
-    model: model,
-    match: match,
-    options: options,
-    populate: subPopulate,
-    justOne: justOne,
-    count: count
-  };
-}
-
-exports.populate = function populate(path, select, model, match, options, subPopulate, justOne, count) {
-  let obj = _buildPopulateObject(path, select, model, match, options, subPopulate, justOne, count);
-  
-  if (arguments.length === 1) {
-    if (path instanceof PopulateOptions) {
-      return [path];
-    }
-    if (Array.isArray(path)) {
-      const singles = _makeSingles(path);
-      return singles.map(o => exports.populate(o)[0]);
-    }
+  } else {
+    obj = {
+      path: path,
+      select: select,
+      model: model,
+      match: match,
+      options: options,
+      populate: subPopulate,
+      justOne: justOne,
+      count: count
+    };
   }
 
   if (typeof obj.path !== 'string') {
@@ -586,6 +593,27 @@ exports.populate = function populate(path, select, model, match, options, subPop
   }
 
   return _populateObj(obj);
+
+  // The order of select/conditions args is opposite Model.find but
+  // necessary to keep backward compatibility (select could be
+  // an array, string, or object literal).
+  function makeSingles(arr) {
+    const ret = [];
+    arr.forEach(function(obj) {
+      if (/[\s]/.test(obj.path)) {
+        const paths = obj.path.split(' ');
+        paths.forEach(function(p) {
+          const copy = Object.assign({}, obj);
+          copy.path = p;
+          ret.push(copy);
+        });
+      } else {
+        ret.push(obj);
+      }
+    });
+
+    return ret;
+  }
 };
 
 function _populateObj(obj) {
@@ -856,34 +884,6 @@ exports.decorate = function(destination, source) {
   }
 };
 
-function _getCloneOptions() {
-  return {
-    transform: false,
-    virtuals: false,
-    depopulate: true,
-    getters: false,
-    flattenDecimals: false
-  };
-}
-
-function _mergeCloneValue(to, key, val) {
-  if (val != null && val.valueOf && !(val instanceof Date)) {
-    val = val.valueOf();
-  }
-  if (exports.isObject(val)) {
-    let obj = val;
-    if (isMongooseObject(val) && !val.isMongooseBuffer) {
-      obj = obj.toObject(_getCloneOptions());
-    }
-    if (val.isMongooseBuffer) {
-      obj = Buffer.from(obj);
-    }
-    exports.mergeClone(to[key], obj);
-  } else {
-    to[key] = exports.clone(val, { flattenDecimals: false });
-  }
-}
-
 /**
  * merges to with a copy of from
  *
@@ -894,7 +894,13 @@ function _mergeCloneValue(to, key, val) {
 
 exports.mergeClone = function(to, fromObj) {
   if (isMongooseObject(fromObj)) {
-    fromObj = fromObj.toObject(_getCloneOptions());
+    fromObj = fromObj.toObject({
+      transform: false,
+      virtuals: false,
+      depopulate: true,
+      getters: false,
+      flattenDecimals: false
+    });
   }
   const keys = Object.keys(fromObj);
   const len = keys.length;
@@ -907,9 +913,38 @@ exports.mergeClone = function(to, fromObj) {
       continue;
     }
     if (typeof to[key] === 'undefined') {
-      to[key] = exports.clone(fromObj[key], _getCloneOptions());
+      to[key] = exports.clone(fromObj[key], {
+        transform: false,
+        virtuals: false,
+        depopulate: true,
+        getters: false,
+        flattenDecimals: false
+      });
     } else {
-      _mergeCloneValue(to, key, fromObj[key]);
+      let val = fromObj[key];
+      if (val != null && val.valueOf && !(val instanceof Date)) {
+        val = val.valueOf();
+      }
+      if (exports.isObject(val)) {
+        let obj = val;
+        if (isMongooseObject(val) && !val.isMongooseBuffer) {
+          obj = obj.toObject({
+            transform: false,
+            virtuals: false,
+            depopulate: true,
+            getters: false,
+            flattenDecimals: false
+          });
+        }
+        if (val.isMongooseBuffer) {
+          obj = Buffer.from(obj);
+        }
+        exports.mergeClone(to[key], obj);
+      } else {
+        to[key] = exports.clone(val, {
+          flattenDecimals: false
+        });
+      }
     }
   }
 };

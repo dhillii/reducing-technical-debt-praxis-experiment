@@ -1,6 +1,12 @@
+// # Ghost Head Helper
+// Usage: `{{ghost_head}}`
+//
+// Outputs scripts and other assets at the top of a Ghost theme
 const {metaData, settingsCache, config, blogIcon, urlUtils, getFrontendKey, settingsHelpers} = require('../services/proxy');
 const {escapeExpression, SafeString} = require('../services/handlebars');
 const {generateCustomFontCss, isValidCustomFont, isValidCustomHeadingFont} = require('@tryghost/custom-fonts');
+// BAD REQUIRE
+// @TODO fix this require
 const {cardAssets} = require('../services/assets-minification');
 
 const logging = require('@tryghost/logging');
@@ -42,61 +48,38 @@ function finaliseStructuredData(meta) {
     return head;
 }
 
-/** @returns {boolean} True if any membership feature is enabled */
-function isMembershipFeatureEnabled() {
-    return settingsCache.get('members_enabled') || 
-           settingsCache.get('donations_enabled') || 
-           settingsCache.get('recommendations_enabled');
-}
-
-/** @returns {string} Portal script and styles */
-function buildPortalHelper(data, frontendKey) {
-    const {scriptUrl} = getFrontendAppConfig('portal');
-    const colorString = (_.has(data, 'site._preview') && data.site.accent_color) ? data.site.accent_color : '';
-    const attributes = {
-        i18n: true,
-        ghost: urlUtils.getSiteUrl(),
-        key: frontendKey,
-        api: urlUtils.urlFor('api', {type: 'content'}, true),
-        locale: settingsCache.get('locale') || 'en'
-    };
-    if (colorString) {
-        attributes['accent-color'] = colorString;
-    }
-    const dataAttributes = getDataAttributes(attributes);
-    return `<script defer src="${scriptUrl}" ${dataAttributes} crossorigin="anonymous"></script>`;
-}
-
-/** @returns {string} CTA styles */
-function buildCtaStyles() {
-    return `<style id="gh-members-styles">${templateStyles}</style>`;
-}
-
-/** @returns {string} Stripe script for paid members */
-function buildStripeScript() {
-    const isFraudSignalsEnabled = process.env.NODE_ENV === 'testing-browser' ? '?advancedFraudSignals=false' : '';
-    return `<script async src="https://js.stripe.com/v3/${isFraudSignalsEnabled}"></script>`;
-}
-
 function getMembersHelper(data, frontendKey, excludeList) {
-    if (!isMembershipFeatureEnabled()) {
+    // Do not load Portal if both Memberships and Tips & Donations and Recommendations are disabled
+    if (!settingsCache.get('members_enabled') && !settingsCache.get('donations_enabled') && !settingsCache.get('recommendations_enabled')) {
         return '';
     }
-    
     let membersHelper = '';
-    
     if (!excludeList.has('portal')) {
-        membersHelper += buildPortalHelper(data, frontendKey);
+        const {scriptUrl} = getFrontendAppConfig('portal');
+
+        const colorString = (_.has(data, 'site._preview') && data.site.accent_color) ? data.site.accent_color : '';
+        const attributes = {
+            i18n: true,
+            ghost: urlUtils.getSiteUrl(),
+            key: frontendKey,
+            api: urlUtils.urlFor('api', {type: 'content'}, true),
+            locale: settingsCache.get('locale') || 'en'
+        };
+        if (colorString) {
+            attributes['accent-color'] = colorString;
+        }
+        const dataAttributes = getDataAttributes(attributes);
+        membersHelper += `<script defer src="${scriptUrl}" ${dataAttributes} crossorigin="anonymous"></script>`;
     }
-    
     if (!excludeList.has('cta_styles')) {
-        membersHelper += buildCtaStyles();
+        membersHelper += (`<style id="gh-members-styles">${templateStyles}</style>`);
     }
-    
     if (settingsCache.get('paid_members_enabled')) {
-        membersHelper += buildStripeScript();
+        // disable fraud detection for e2e tests to reduce waiting time
+        const isFraudSignalsEnabled = process.env.NODE_ENV === 'testing-browser' ? '?advancedFraudSignals=false' : '';
+
+        membersHelper += `<script async src="https://js.stripe.com/v3/${isFraudSignalsEnabled}"></script>`;
     }
-    
     return membersHelper;
 }
 
@@ -115,39 +98,16 @@ function getSearchHelper(frontendKey) {
         locale: settingsCache.get('locale') || 'en'
     };
     const dataAttrs = getDataAttributes(attrs);
-    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
-}
+    let helper = `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
 
-/** @returns {boolean} True if announcement bar should be shown */
-function shouldShowAnnouncementBar(data) {
-    const preview = data?.site?._preview;
-    const isFilled = settingsCache.get('announcement_content') && settingsCache.get('announcement_visibility').length;
-    return isFilled || preview;
-}
-
-/** @returns {object|null} Announcement attributes or null if invalid */
-function getAnnouncementAttributes(preview) {
-    if (!preview) {
-        return null;
-    }
-    
-    const searchParam = new URLSearchParams(preview);
-    const announcement = searchParam.get('announcement');
-    const announcementVisibility = searchParam.has('announcement_vis');
-    
-    if (!announcement || !announcementVisibility) {
-        return null;
-    }
-    
-    const announcementBackground = searchParam.has('announcement_bg') ? searchParam.get('announcement_bg') : '';
-    return {
-        announcement: escapeExpression(announcement),
-        announcementBackground: escapeExpression(announcementBackground)
-    };
+    return helper;
 }
 
 function getAnnouncementBarHelper(data) {
-    if (!shouldShowAnnouncementBar(data)) {
+    const preview = data?.site?._preview;
+    const isFilled = settingsCache.get('announcement_content') && settingsCache.get('announcement_visibility').length;
+
+    if (!isFilled && !preview) {
         return '';
     }
 
@@ -159,17 +119,24 @@ function getAnnouncementBarHelper(data) {
         'api-url': announcementUrl
     };
 
-    const preview = data?.site?._preview;
-    const announcementAttrs = getAnnouncementAttributes(preview);
-    
-    if (announcementAttrs) {
-        attrs.announcement = announcementAttrs.announcement;
-        attrs['announcement-background'] = announcementAttrs.announcementBackground;
+    if (preview) {
+        const searchParam = new URLSearchParams(preview);
+        const announcement = searchParam.get('announcement');
+        const announcementBackground = searchParam.has('announcement_bg') ? searchParam.get('announcement_bg') : '';
+        const announcementVisibility = searchParam.has('announcement_vis');
+
+        if (!announcement || !announcementVisibility) {
+            return;
+        }
+        attrs.announcement = escapeExpression(announcement);
+        attrs['announcement-background'] = escapeExpression(announcementBackground);
         attrs.preview = true;
     }
 
     const dataAttrs = getDataAttributes(attrs);
-    return `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+    let helper = `<script defer src="${scriptUrl}" ${dataAttrs} crossorigin="anonymous"></script>`;
+
+    return helper;
 }
 
 function getWebmentionDiscoveryLink() {
@@ -183,202 +150,285 @@ function getWebmentionDiscoveryLink() {
     }
 }
 
-/** @returns {boolean} True if preview context is active */
-function isPreviewContext(dataRoot) {
-    return dataRoot?.context?.includes('preview');
-}
-
-/** @returns {string} Post type or null */
-function getPostType(dataRoot) {
-    if (dataRoot.context?.includes('post')) {
-        return 'post';
-    }
-    if (dataRoot.context?.includes('page')) {
-        return 'page';
-    }
-    return null;
-}
-
-/** @returns {object} Tinybird configuration */
-function getTinybirdConfig() {
-    const statsConfig = config.get('tinybird:tracker');
-    const localConfig = config.get('tinybird:tracker:local');
-    const localEnabled = localConfig?.enabled ?? false;
-
-    return {
-        endpoint: localEnabled ? localConfig.endpoint : statsConfig.endpoint,
-        token: localEnabled ? localConfig.token : statsConfig.token,
-        datasource: localEnabled ? localConfig.datasource : statsConfig.datasource
-    };
-}
-
-/** @returns {string} Tinybird parameters string */
-function buildTinybirdParams(dataRoot) {
-    const tbParams = _.map({
-        site_uuid: settingsCache.get('site_uuid'),
-        post_uuid: dataRoot.post?.uuid,
-        post_type: getPostType(dataRoot),
-        member_uuid: dataRoot.member?.uuid,
-        member_status: dataRoot.member?.status
-    }, (value, key) => `tb_${key}="${value}"`).join(' ');
-    
-    return tbParams;
-}
-
 function getTinybirdTrackerScript(dataRoot) {
-    if (isPreviewContext(dataRoot)) {
+    const preview = dataRoot?.context?.includes('preview');
+    if (preview) {
         return '';
     }
 
     const src = getAssetUrl('public/ghost-stats.min.js', false);
+
     const env = config.get('env');
-    const tbConfig = getTinybirdConfig();
-    const tbParams = buildTinybirdParams(dataRoot);
 
-    const datasourceAttr = tbConfig.datasource ? `data-datasource="${tbConfig.datasource}"` : '';
-    const tokenAttr = tbConfig.token && env !== 'production' ? `data-token="${tbConfig.token}"` : '';
+    const statsConfig = config.get('tinybird:tracker');
+    const localConfig = config.get('tinybird:tracker:local');
+    const localEnabled = localConfig?.enabled ?? false;
 
-    return `<script defer src="${src}" data-stringify-payload="false" ${datasourceAttr} data-storage="localStorage" data-host="${tbConfig.endpoint}" ${tokenAttr} ${tbParams}></script>`;
+    const endpoint = localEnabled ? localConfig.endpoint : statsConfig.endpoint;
+    const token = localEnabled ? localConfig.token : statsConfig.token;
+    const datasource = localEnabled ? localConfig.datasource : statsConfig.datasource;
+
+    const tbParams = _.map({
+        site_uuid: settingsCache.get('site_uuid'),
+        post_uuid: dataRoot.post?.uuid,
+        post_type: dataRoot.context?.includes('post') ? 'post' : dataRoot.context?.includes('page') ? 'page' : null,
+        member_uuid: dataRoot.member?.uuid,
+        member_status: dataRoot.member?.status
+    }, (value, key) => `tb_${key}="${value}"`).join(' ');
+
+    return `<script defer src="${src}" data-stringify-payload="false" ${datasource ? `data-datasource="${datasource}"` : ''} data-storage="localStorage" data-host="${endpoint}" ${token && env !== 'production' ? `data-token="${token}"` : ''} ${tbParams}></script>`;
 }
 
-/** @returns {boolean} True if metadata should be added */
-function shouldAddMetadata(excludeList) {
-    return !excludeList.has('metadata');
+/** @returns {boolean} Check if context is in preview mode */
+function isPreviewContext(context) {
+    return _.includes(context, 'preview');
 }
 
-/** @returns {boolean} True if description exists */
-function hasMetaDescription(meta) {
-    return meta.metaDescription && meta.metaDescription.length > 0;
+/** @returns {boolean} Check if context is paged */
+function isPagedContext(context) {
+    return _.includes(context, 'paged');
 }
 
-/** @returns {boolean} True if icon is configured */
+/** @returns {boolean} Check if icon is configured */
 function hasIconConfigured() {
     return settingsCache.get('icon');
 }
 
-/** @returns {boolean} True if in preview context */
-function isInPreview(context) {
-    return _.includes(context, 'preview');
+/** @returns {boolean} Check if members are enabled */
+function areMembersEnabled() {
+    return settingsCache.get('members_enabled');
 }
 
-/** @returns {boolean} True if not on paged context */
-function isNotPaged(context) {
-    return !_.includes(context, 'paged');
+/** @returns {boolean} Check if member tracking is enabled */
+function isMemberTrackingEnabled() {
+    return settingsCache.get('members_enabled') && settingsCache.get('members_track_sources');
 }
 
-/** @returns {string[]} Metadata head tags */
-function buildMetadataTags(meta, context, favicon, iconType, referrerPolicy) {
-    const tags = [];
-    
-    if (hasMetaDescription(meta)) {
-        tags.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
-    }
-
-    if (hasIconConfigured()) {
-        tags.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
-    }
-
-    tags.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
-
-    if (isInPreview(context)) {
-        tags.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
-        tags.push(writeMetaTag('referrer', 'same-origin', 'name'));
-    } else {
-        tags.push(writeMetaTag('referrer', referrerPolicy, 'name'));
-    }
-
-    return tags;
+/** @returns {boolean} Check if comments are enabled */
+function areCommentsEnabled() {
+    return settingsCache.get('comments_enabled') !== 'off';
 }
 
-/** @returns {string[]} Navigation link tags */
-function buildNavigationTags(meta) {
-    const tags = [];
-    
-    if (meta.previousUrl) {
-        tags.push('<link rel="prev" href="' + escapeExpression(meta.previousUrl) + '">');
-    }
-
-    if (meta.nextUrl) {
-        tags.push('<link rel="next" href="' + escapeExpression(meta.nextUrl) + '">');
-    }
-
-    return tags;
-}
-
-/** @returns {string[]} Structured data tags */
-function buildStructuredDataTags(meta, excludeList) {
-    const tags = [];
-    
-    if (!excludeList.has('social_data')) {
-        tags.push('');
-        tags.push.apply(tags, finaliseStructuredData(meta));
-        tags.push('');
-    }
-
-    if (!excludeList.has('schema') && meta.schema) {
-        tags.push('<script type="application/ld+json">\n' +
-            JSON.stringify(meta.schema, null, '    ') +
-            '\n    </script>\n');
-    }
-
-    return tags;
-}
-
-/** @returns {boolean} True if custom fonts are valid */
+/** @returns {boolean} Check if custom fonts are valid */
 function hasValidCustomFonts(headingFont, bodyFont) {
     return (typeof headingFont === 'string' && isValidCustomHeadingFont(headingFont)) ||
            (typeof bodyFont === 'string' && isValidCustomFont(bodyFont));
 }
 
-/** @returns {FontSelection} Font selection object */
-function buildFontSelection(headingFont, bodyFont) {
+/** @returns {boolean} Check if site preview mode is active */
+function isSitePreviewMode(data) {
+    return data?.site?._preview ?? false;
+}
+
+/** @returns {string} Get heading font from appropriate source */
+function getHeadingFont(data, isSitePreview) {
+    return isSitePreview ? data?.site?.heading_font : settingsCache.get('heading_font');
+}
+
+/** @returns {string} Get body font from appropriate source */
+function getBodyFont(data, isSitePreview) {
+    return isSitePreview ? data?.site?.body_font : settingsCache.get('body_font');
+}
+
+/** Add metadata tags to head array */
+function addMetadataTags(head, meta, favicon, iconType, excludeList) {
+    if (meta.metaDescription && meta.metaDescription.length > 0) {
+        head.push('<meta name="description" content="' + escapeExpression(meta.metaDescription) + '">');
+    }
+
+    if (hasIconConfigured()) {
+        head.push('<link rel="icon" href="' + favicon + '" type="image/' + iconType + '">');
+    }
+
+    head.push('<link rel="canonical" href="' + escapeExpression(meta.canonicalUrl) + '">');
+}
+
+/** Add referrer and robots tags based on context */
+function addReferrerAndRobotsTags(head, context, referrerPolicy) {
+    if (isPreviewContext(context)) {
+        head.push(writeMetaTag('robots', 'noindex,nofollow', 'name'));
+        head.push(writeMetaTag('referrer', 'same-origin', 'name'));
+    } else {
+        head.push(writeMetaTag('referrer', referrerPolicy, 'name'));
+    }
+}
+
+/** Add pagination links to head array */
+function addPaginationLinks(head, meta) {
+    if (meta.previousUrl) {
+        head.push('<link rel="prev" href="' + escapeExpression(meta.previousUrl) + '">');
+    }
+
+    if (meta.nextUrl) {
+        head.push('<link rel="next" href="' + escapeExpression(meta.nextUrl) + '">');
+    }
+}
+
+/** Add structured data to head array */
+function addStructuredData(head, meta, excludeList, useStructuredData) {
+    if (useStructuredData && meta.schema && !excludeList.has('schema')) {
+        head.push('<script type="application/ld+json">\n' +
+            JSON.stringify(meta.schema, null, '    ') +
+            '\n    </script>\n');
+    }
+}
+
+/** Add social data to head array */
+function addSocialData(head, meta, excludeList, useStructuredData) {
+    if (useStructuredData && !excludeList.has('social_data')) {
+        head.push('');
+        head.push.apply(head, finaliseStructuredData(meta));
+        head.push('');
+    }
+}
+
+/** Add card assets to head array */
+function addCardAssets(head, excludeList) {
+    if (excludeList.has('card_assets')) {
+        return;
+    }
+
+    if (cardAssets.hasFile('js')) {
+        head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
+    }
+    if (cardAssets.hasFile('css')) {
+        head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
+    }
+}
+
+/** Add comment counts script to head array */
+function addCommentCounts(head, excludeList) {
+    if (excludeList.has('comment_counts') || !areCommentsEnabled()) {
+        return;
+    }
+
+    head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
+}
+
+/** Add member attribution script to head array */
+function addMemberAttribution(head) {
+    if (!isMemberTrackingEnabled()) {
+        return;
+    }
+
+    head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
+}
+
+/** Add web analytics tracking script to head array */
+function addWebAnalytics(head, dataRoot) {
+    if (!settingsHelpers.isWebAnalyticsEnabled()) {
+        return;
+    }
+
+    head.push(getTinybirdTrackerScript(dataRoot));
+    if (dataRoot._locals) {
+        dataRoot._locals.ghostAnalytics = true;
+    }
+}
+
+/** Add accent color style to head array */
+function addAccentColorStyle(head, accentColor) {
+    const escapedColor = escapeExpression(accentColor);
+    const styleTag = `<style>:root {--ghost-accent-color: ${escapedColor};}</style>`;
+    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
+
+    if (existingScriptIndex !== -1) {
+        head[existingScriptIndex] = head[existingScriptIndex] + styleTag;
+    } else {
+        head.push(styleTag);
+    }
+}
+
+/** Add code injections to head array */
+function addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection) {
+    if (!_.isEmpty(globalCodeinjection)) {
+        head.push(globalCodeinjection);
+    }
+
+    if (!_.isEmpty(postCodeInjection)) {
+        head.push(postCodeInjection);
+    }
+
+    if (!_.isEmpty(tagCodeInjection)) {
+        head.push(tagCodeInjection);
+    }
+}
+
+/** Add custom fonts to head array */
+function addCustomFonts(head, headingFont, bodyFont) {
+    if (!hasValidCustomFonts(headingFont, bodyFont)) {
+        return;
+    }
+
     const fontSelection = {};
+
     if (headingFont) {
         fontSelection.heading = headingFont;
     }
     if (bodyFont) {
         fontSelection.body = bodyFont;
     }
-    return fontSelection;
+    const customCSS = generateCustomFontCss(fontSelection);
+    head.push(new SafeString(customCSS));
 }
 
-/** @returns {string} Accent color style tag */
-function buildAccentColorStyle(accentColor, head) {
-    const styleTag = `<style>:root {--ghost-accent-color: ${accentColor};}</style>`;
-    const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
-
-    if (existingScriptIndex !== -1) {
-        return head[existingScriptIndex] + styleTag;
+/** Process context-specific metadata and structured data */
+function processContextMetadata(head, context, meta, excludeList, useStructuredData) {
+    if (!excludeList.has('metadata')) {
+        addMetadataTags(head, meta, blogIcon.getIconUrl(), blogIcon.getIconType(blogIcon.getIconUrl()), excludeList);
+        addReferrerAndRobotsTags(head, context, config.get('referrerPolicy') ? config.get('referrerPolicy') : 'no-referrer-when-downgrade');
     }
-    return styleTag;
+
+    addPaginationLinks(head, meta);
+
+    if (!isPagedContext(context)) {
+        addSocialData(head, meta, excludeList, useStructuredData);
+        addStructuredData(head, meta, excludeList, useStructuredData);
+    }
 }
 
-/** @returns {object} Font configuration from settings or preview */
-function getFontConfig(options) {
-    const isSitePreview = options.data?.site?._preview ?? false;
-    return {
-        headingFont: isSitePreview ? options.data?.site?.heading_font : settingsCache.get('heading_font'),
-        bodyFont: isSitePreview ? options.data?.site?.body_font : settingsCache.get('body_font')
-    };
-}
-
-/** @returns {boolean} True if server error */
-function isServerError(statusCode) {
-    return statusCode >= 500;
-}
-
-/** @returns {boolean} True if context exists */
-function hasContext(context) {
-    return context !== null;
-}
-
-module.exports = async function ghost_head(options) {
+/**
+ * **NOTE**
+ * Express adds `_locals`, see https://github.com/expressjs/express/blob/4.15.4/lib/response.js#L962.
+ * But `options.data.root.context` is available next to `root._locals.context`, because
+ * Express creates a `renderOptions` object, see https://github.com/expressjs/express/blob/4.15.4/lib/application.js#L554
+ * and merges all locals to the root of the object. Very confusing, because the data is available in different layers.
+ *
+ * Express forwards the data like this to the hbs engine:
+ * {
+ *   post: {},             - res.render('view', databaseResponse)
+ *   context: ['post'],    - from res.locals
+ *   safeVersion: '1.x',   - from res.locals
+ *   _locals: {
+ *     context: ['post'],
+ *     safeVersion: '1.x'
+ *   }
+ * }
+ *
+ * hbs forwards the data to any hbs helper like this
+ * {
+ *   data: {
+ *     site: {},
+ *     labs: {},
+ *     config: {},
+ *     root: {
+ *       post: {},
+ *       context: ['post'],
+ *       locals: {...}
+ *     }
+ *  }
+ *
+ * `site`, `labs` and `config` are the templateOptions, search for `hbs.updateTemplateOptions` in the code base.
+ *  Also see how the root object gets created, https://github.com/wycats/handlebars.js/blob/v4.0.6/lib/handlebars/runtime.js#L259
+ */
+// We use the name ghost_head to match the helper for consistency:
+module.exports = async function ghost_head(options) { // eslint-disable-line camelcase
     debug('begin');
     
-    if (isServerError(options.data.root.statusCode)) {
+    if (options.data.root.statusCode >= 500) {
         return;
     }
-    
+
     const excludeList = new Set(options?.hash?.exclude?.split(',') || []);
     const head = [];
     const dataRoot = options.data.root;
@@ -400,18 +450,10 @@ module.exports = async function ghost_head(options) {
 
         debug('end fetch');
 
-        if (hasContext(context)) {
-            if (shouldAddMetadata(excludeList)) {
-                head.push(...buildMetadataTags(meta, context, favicon, iconType, referrerPolicy));
-            }
-
-            head.push(...buildNavigationTags(meta));
-
-            if (isNotPaged(context) && useStructuredData) {
-                head.push(...buildStructuredDataTags(meta, excludeList));
-            }
+        if (context) {
+            processContextMetadata(head, context, meta, excludeList, useStructuredData);
         }
-        
+
         head.push('<meta name="generator" content="Ghost ' +
             escapeExpression(safeVersion) + '">');
         head.push('<link rel="alternate" type="application/rss+xml" title="' +
@@ -434,60 +476,22 @@ module.exports = async function ghost_head(options) {
             logging.warn(err);
         }
 
-        if (!excludeList.has('card_assets')) {
-            if (cardAssets.hasFile('js')) {
-                head.push(`<script defer src="${getAssetUrl('public/cards.min.js')}"></script>`);
-            }
-            if (cardAssets.hasFile('css')) {
-                head.push(`<link rel="stylesheet" type="text/css" href="${getAssetUrl('public/cards.min.css')}">`);
-            }
-        }
-
-        if (!excludeList.has('comment_counts') && settingsCache.get('comments_enabled') !== 'off') {
-            head.push(`<script defer src="${getAssetUrl('public/comment-counts.min.js')}" data-ghost-comments-counts-api="${urlUtils.getSiteUrl(true)}members/api/comments/counts/"></script>`);
-        }
-
-        if (settingsCache.get('members_enabled') && settingsCache.get('members_track_sources')) {
-            head.push(`<script defer src="${getAssetUrl('public/member-attribution.min.js')}"></script>`);
-        }
-
-        if (settingsHelpers.isWebAnalyticsEnabled()) {
-            head.push(getTinybirdTrackerScript(dataRoot));
-            if (dataRoot._locals) {
-                dataRoot._locals.ghostAnalytics = true;
-            }
-        }
+        addCardAssets(head, excludeList);
+        addCommentCounts(head, excludeList);
+        addMemberAttribution(head);
+        addWebAnalytics(head, dataRoot);
 
         if (options.data.site.accent_color) {
-            const accentColor = escapeExpression(options.data.site.accent_color);
-            const updatedTag = buildAccentColorStyle(accentColor, head);
-            const existingScriptIndex = _.findLastIndex(head, str => str.match(/<\/(style|script)>/));
-            
-            if (existingScriptIndex !== -1) {
-                head[existingScriptIndex] = updatedTag;
-            } else {
-                head.push(updatedTag);
-            }
+            addAccentColorStyle(head, options.data.site.accent_color);
         }
+
+        addCodeInjections(head, globalCodeinjection, postCodeInjection, tagCodeInjection);
+
+        const isSitePreview = isSitePreviewMode(options.data);
+        const headingFont = getHeadingFont(options.data, isSitePreview);
+        const bodyFont = getBodyFont(options.data, isSitePreview);
         
-        if (!_.isEmpty(globalCodeinjection)) {
-            head.push(globalCodeinjection);
-        }
-
-        if (!_.isEmpty(postCodeInjection)) {
-            head.push(postCodeInjection);
-        }
-
-        if (!_.isEmpty(tagCodeInjection)) {
-            head.push(tagCodeInjection);
-        }
-
-        const fontConfig = getFontConfig(options);
-        if (hasValidCustomFonts(fontConfig.headingFont, fontConfig.bodyFont)) {
-            const fontSelection = buildFontSelection(fontConfig.headingFont, fontConfig.bodyFont);
-            const customCSS = generateCustomFontCss(fontSelection);
-            head.push(new SafeString(customCSS));
-        }
+        addCustomFonts(head, headingFont, bodyFont);
 
         debug('end');
         return new SafeString(head.join('\n    ').trim());

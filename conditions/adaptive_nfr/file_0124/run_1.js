@@ -262,7 +262,7 @@ const handleSqliteRebuild = async ({ table, attributes, attributesNames, definit
  * @param {Object} params - Configuration parameters
  * @returns {Promise<boolean>} Success status
  */
-const handleDefaultAlter = async ({ table, attributes, columnsToAlter, definition, ORM, tableExists, alterColumns }) => {
+const handleDefaultAlter = async ({ table, attributes, columnsToAlter, definition, ORM, alterColumns, tableExists }) => {
   const alterTable = async trx => {
     await Promise.all(
       columnsToAlter.map(col => {
@@ -301,17 +301,17 @@ const handleDefaultAlter = async ({ table, attributes, columnsToAlter, definitio
 };
 
 /**
- * Execute table rebuild or alteration based on client type
+ * Execute rebuild strategy based on database client
  * @param {Object} params - Configuration parameters
  * @returns {Promise<boolean>} Success status
  */
-const executeTableRebuild = async (params) => {
+const executeRebuild = async (params) => {
   const { definition } = params;
-
+  
   if (definition.client === 'sqlite3') {
     return handleSqliteRebuild(params);
   }
-
+  
   return handleDefaultAlter(params);
 };
 
@@ -417,17 +417,17 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
     columnsToAlter.length > 0 || (definition.client === 'sqlite3' && context.recreateSqliteTable);
 
   if (shouldRebuild) {
-    await executeTableRebuild({
+    await executeRebuild({
       table,
       attributes,
       attributesNames,
+      columnsToAlter,
       definition,
       ORM,
       createTable,
       isColumn,
-      columnsToAlter,
-      tableExists,
       alterColumns,
+      tableExists,
     });
   }
 };

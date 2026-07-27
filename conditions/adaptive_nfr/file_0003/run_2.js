@@ -37,8 +37,8 @@ const hexToRgba = (hex: string, alpha: number) => {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
-/** Color scheme strategy for background colors */
-const backgroundColorScheme: Record<'light' | 'dark' | 'accent', {bg: string; text: string}> = {
+/** Strategy object for background color styling */
+const backgroundColorStrategies: Record<'light' | 'dark' | 'accent', {bg: string; text: string}> = {
     light: {bg: '#fff', text: '#15171a'},
     dark: {bg: '#15171a', text: '#fff'},
     accent: {bg: '', text: '#fff'}
@@ -49,65 +49,65 @@ const getBackgroundColor = (backgroundColor: 'light' | 'dark' | 'accent', accent
     if (backgroundColor === 'accent') {
         return accentColor || '#15171a';
     }
-    return backgroundColorScheme[backgroundColor].bg;
+    return backgroundColorStrategies[backgroundColor].bg;
 };
 
 /** Get text color based on theme */
 const getTextColor = (backgroundColor: 'light' | 'dark' | 'accent'): string => {
-    return backgroundColorScheme[backgroundColor].text;
+    return backgroundColorStrategies[backgroundColor].text;
 };
 
-/** Gradient strategy for background themes */
+/** Strategy object for gradient backgrounds */
 const gradientStrategies: Record<'light' | 'dark' | 'accent', (accentColor?: string) => string> = {
     light: () => `linear-gradient(to bottom left, #EBEEF0, ${hexToRgba('#EBEEF0', 0)})`,
     dark: () => `linear-gradient(to bottom left, ${hexToRgba('#1A1E22', 1)}, ${hexToRgba('#343C48', 1)})`,
     accent: (accentColor?: string) => `linear-gradient(to bottom left, ${hexToRgba(accentColor || '#15171a', 0.08)}, ${hexToRgba(accentColor || '#15171a', 0.06)})`
 };
 
-/** Get gradient based on background color */
+/** Get gradient background based on theme */
 const getGradient = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string): string => {
     return gradientStrategies[backgroundColor](accentColor);
 };
 
-/** Dots pattern color strategy */
+/** Strategy object for dots pattern colors */
 const dotsPatternColorStrategies: Record<'light' | 'dark' | 'accent', (accentColor?: string) => string> = {
     light: () => hexToRgba('#15171a', 0.025),
     dark: () => hexToRgba('#15171a', 0.23),
     accent: () => 'rgba(0, 0, 0, 0.02)'
 };
 
-/** Get dots pattern color based on background */
+/** Get dots pattern color based on theme */
 const getDotsPatternColor = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string): string => {
     return dotsPatternColorStrategies[backgroundColor](accentColor);
 };
 
-/** Determine banner gradient color */
+/** Determine banner gradient color based on background theme */
 const getBannerGradientColor = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string): string => {
     return backgroundColor === 'accent' ? '#ffffff' : (accentColor || '#15171a');
 };
 
-/** Determine banner gradient opacity color */
+/** Determine banner gradient opacity color based on background theme */
 const getBannerGradientOpacityColor = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string): string => {
-    return hexToRgba(getBannerGradientColor(backgroundColor, accentColor), 0.5);
+    return hexToRgba(getBannerGradientColor(backgroundColor, accentColor), backgroundColor === 'accent' ? 0.2 : 0.5);
 };
 
-/** Determine dots pattern color for banner */
-const getBannerDotsColor = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string): string => {
+/** Determine dots pattern color for banner based on background theme */
+const getBannerDotsPatternColor = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string): string => {
     return backgroundColor === 'accent' ? hexToRgba(accentColor || '#15171a', 0.2) : 'rgba(255, 255, 255, 0.2)';
 };
 
-/** Determine handle box text color */
-const getHandleTextColor = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string): string => {
+/** Determine handle box text color based on background theme */
+const getHandleBoxTextColor = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string): string => {
     return backgroundColor !== 'light' ? '#fff' : (accentColor || '#fff');
 };
 
-/** Determine handle box border color */
-const getHandleBorderColor = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string): string | undefined => {
+/** Determine handle box border color based on background theme */
+const getHandleBoxBorderColor = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string): string | undefined => {
     return accentColor ? hexToRgba(backgroundColor === 'accent' ? '#ffffff' : accentColor, backgroundColor !== 'light' ? 0.7 : 0.2) : undefined;
 };
 
-/** Determine handle box background gradient */
-const getHandleBackgroundGradient = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string): string | undefined => {
+/** Determine handle box background gradient based on background theme */
+const getHandleBoxGradient = (backgroundColor: 'light' | 'dark' | 'accent', accentColor?: string): string | undefined => {
     if (!accentColor) return undefined;
     const color = backgroundColor === 'accent' ? '#ffffff' : accentColor;
     const startOpacity = backgroundColor === 'dark' ? 0.12 : 0.04;
@@ -169,10 +169,10 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
 
     const bannerGradientColor = getBannerGradientColor(backgroundColor, accentColor);
     const bannerGradientOpacityColor = getBannerGradientOpacityColor(backgroundColor, accentColor);
-    const bannerDotsColor = getBannerDotsColor(backgroundColor, accentColor);
-    const handleTextColor = getHandleTextColor(backgroundColor, accentColor);
-    const handleBorderColor = getHandleBorderColor(backgroundColor, accentColor);
-    const handleBackgroundGradient = getHandleBackgroundGradient(backgroundColor, accentColor);
+    const bannerDotsColor = getBannerDotsPatternColor(backgroundColor, accentColor);
+    const handleBoxTextColor = getHandleBoxTextColor(backgroundColor, accentColor);
+    const handleBoxBorderColor = getHandleBoxBorderColor(backgroundColor, accentColor);
+    const handleBoxGradient = getHandleBoxGradient(backgroundColor, accentColor);
 
     return (
         <div className={`relative z-20 flex flex-col ${margin} ${cardWidth} ${cardHeight} rounded-[32px] ${borderClass} ${format === 'square' ? 'flex flex-col' : ''}`} style={{backgroundColor: cardBackgroundColor}}>
@@ -184,7 +184,7 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
                         referrerPolicy='no-referrer'
                         src={bannerImageSrc}
                     /> :
-                    <div className='relative size-full overflow-hidden rounded-[26px] rounded-b-none' style={{background: `linear-gradient(to bottom, ${hexToRgba(bannerGradientColor, 1)}, ${hexToRgba(bannerGradientOpacityColor, 1)})`}}>
+                    <div className='relative size-full overflow-hidden rounded-[26px] rounded-b-none' style={{background: `linear-gradient(to bottom, ${bannerGradientColor}, ${bannerGradientOpacityColor})`}}>
                         <DotsPattern className='absolute' style={{color: bannerDotsColor, top: isScreenshot ? '-42px' : '-84px', left: isScreenshot ? '-69px' : '-138px'}} />
                     </div>
                 }
@@ -211,9 +211,9 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
                 <div
                     className={`mt-auto flex max-h-[60px] min-h-12 w-full items-center justify-center break-all rounded-full border px-4 py-2 font-medium leading-7 ${isScreenshot && 'tracking-normal'}`}
                     style={{
-                        color: handleTextColor,
-                        borderColor: handleBorderColor,
-                        background: handleBackgroundGradient
+                        color: handleBoxTextColor,
+                        borderColor: handleBoxBorderColor,
+                        background: handleBoxGradient
                     }}
                 >
                     <div className='mb-0.5'>
@@ -221,7 +221,7 @@ const ProfileCard: React.FC<ProfileCardProps> = memo(({
                         {!isScreenshot && account?.handle && (
                             <Button
                                 className='relative top-[3px] ml-1.5 size-4 p-0 hover:opacity-80'
-                                style={{color: handleTextColor}}
+                                style={{color: handleBoxTextColor}}
                                 title='Copy handle'
                                 variant='link'
                                 onClick={handleCopy}
@@ -295,6 +295,7 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
 
         setIsProcessing(true);
 
+        // Wait for the next frame to ensure the loading indicator is painted
         await new Promise((resolve) => {
             requestAnimationFrame(() => {
                 requestAnimationFrame(resolve);
@@ -445,6 +446,7 @@ const Profile: React.FC<ProfileProps> = ({account, isLoading}) => {
                     <div className='absolute inset-0' style={{background: getGradient(backgroundColor, accentColor)}} />
                 </div>
 
+                {/* Hidden clone for screenshots */}
                 <div
                     ref={profileCardRef}
                     className='fixed left-[-9999px] top-0 z-[-1] flex w-fit justify-center overflow-hidden rounded-2xl bg-gray-50'

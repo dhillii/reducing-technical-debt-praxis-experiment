@@ -65,22 +65,20 @@ function DollarIcon({...props}) {
 
 export function decoratePostSearchResult(item, settings) {
     const date = moment.utc(item.publishedAt).tz(settings.timezone).format('D MMM YYYY');
+
     item.metaText = date;
 
-    if (!settings.membersEnabled || !item.visibility) {
-        return;
-    }
-
-    const visibilityConfig = {
-        members: {icon: LockIcon, title: 'Members only'},
-        paid: {icon: DollarIcon, title: 'Paid-members only'},
-        tiers: {icon: DollarIcon, title: 'Specific tiers only'}
-    };
-
-    const config = visibilityConfig[item.visibility];
-    if (config) {
-        item.MetaIcon = config.icon;
-        item.metaIconTitle = config.title;
+    if (settings.membersEnabled && item.visibility) {
+        if (item.visibility === 'members') {
+            item.MetaIcon = LockIcon;
+            item.metaIconTitle = 'Members only';
+        } else if (item.visibility === 'paid') {
+            item.MetaIcon = DollarIcon;
+            item.metaIconTitle = 'Paid-members only';
+        } else if (item.visibility === 'tiers') {
+            item.MetaIcon = DollarIcon;
+            item.metaIconTitle = 'Specific tiers only';
+        }
     }
 }
 
@@ -94,6 +92,7 @@ export async function offerUrls() {
     try {
         offers = await this.fetchOffersTask.perform();
     } catch (e) {
+        // No-op: if offers are not available (e.g. missing permissions), return an empty array
         return [];
     }
 
@@ -157,50 +156,45 @@ const TKCountPlugin = ({editorResource, ...props}) => {
     return <_TKCountPlugin {...props} />;
 };
 
-// Helper: Validate file extension against allowed types
+// Helper function to create XHR with progress tracking
+function createXhrWithProgress(progressTracker, file, updateProgress) {
+    const xhr = new window.XMLHttpRequest();
+
+    xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable) {
+            progressTracker.current.set(file, (event.loaded / event.total) * 100);
+            updateProgress();
+        }
+    }, false);
+
+    return xhr;
+}
+
+// Helper function to validate file extension
 function validateFileExtension(file, type) {
     if (type === 'file') {
         return true;
     }
 
-    let extensions = fileTypes[type].extensions;
-    let [, extension] = (/(?:\.([^.]+))?$/).exec(file.name);
+    const extensions = fileTypes[type].extensions;
+    const [, extension] = (/(?:\.([^.]+))?$/).exec(file.name);
 
     if (!extensions) {
         return true;
     }
 
-    if (!Array.isArray(extensions)) {
-        extensions = extensions.split(',');
-    }
+    const extensionList = Array.isArray(extensions) ? extensions : extensions.split(',');
 
-    if (!extension || extensions.indexOf(extension.toLowerCase()) === -1) {
-        let validExtensions = `.${extensions.join(', .').toUpperCase()}`;
+    if (!extension || extensionList.indexOf(extension.toLowerCase()) === -1) {
+        const validExtensions = `.${extensionList.join(', .').toUpperCase()}`;
         return `The file type you uploaded is not supported. Please use ${validExtensions}`;
     }
 
     return true;
 }
 
-// Helper: Validate multiple files
-function validateFiles(files, type) {
-    const validationResult = [];
-
-    for (let i = 0; i < files.length; i += 1) {
-        let file = files[i];
-        let result = validateFileExtension(file, type);
-        if (result === true) {
-            continue;
-        }
-
-        validationResult.push({fileName: file.name, message: result});
-    }
-
-    return validationResult;
-}
-
-// Helper: Extract resource URL from upload response
-function extractResourceUrl(response, type) {
+// Helper function to parse upload response
+function parseUploadResponse(response, type) {
     let uploadResponse;
     let responseUrl;
 
@@ -222,8 +216,8 @@ function extractResourceUrl(response, type) {
     return responseUrl;
 }
 
-// Helper: Build error result from upload failure
-function buildErrorResult(error, fileName) {
+// Helper function to extract error message from response
+function extractErrorMessage(error) {
     let message = error.payload?.errors?.[0]?.message || '';
     let context = error.payload?.errors?.[0]?.context || '';
 
@@ -231,137 +225,19 @@ function buildErrorResult(error, fileName) {
         message = error.message;
     }
 
-    return {
-        message,
-        context,
-        fileName
-    };
+    return {message, context};
 }
 
-// Helper: Build member links for autocomplete
-function buildMemberLinks(membersUtils) {
-    let links = [];
-    if (membersUtils.paidMembersEnabled) {
-        links = [
-            {
-                label: 'Paid signup',
-                value: '#/portal/signup'
-            },
-            {
-                label: 'Upgrade or change plan',
-                value: '#/portal/account/plans'
-            }
-        ];
-    }
-    return links;
-}
+// Helper function to build form data for upload
+function buildFormData(file, formData) {
+    const fileFormData = new FormData();
+    fileFormData.append('file', file, file.name);
 
-// Helper: Build donation link for autocomplete
-function buildDonationLink(settings) {
-    if (settings.donationsEnabled) {
-        return [{
-            label: 'Tips and donations',
-            value: '#/portal/support'
-        }];
-    }
-    return [];
-}
+    Object.keys(formData || {}).forEach((key) => {
+        fileFormData.append(key, formData[key]);
+    });
 
-// Helper: Build recommendation link for autocomplete
-function buildRecommendationLink(settings) {
-    if (settings.recommendationsEnabled) {
-        return [{
-            label: 'Recommendations',
-            value: '#/portal/recommendations'
-        }];
-    }
-    return [];
-}
-
-// Helper: Filter search results by group type
-function filterSearchResultsByGroup(group, settings) {
-    let items = group.options;
-
-    if (group.groupName === 'Posts' || group.groupName === 'Pages') {
-        items = items.filter(i => i.status === 'published');
-    }
-
-    if (group.groupName === 'Staff') {
-        items = items.filter(i => !/\/404\//.test(i.url));
-    }
-
-    if (items.length === 0) {
-        return null;
-    }
-
-    if (group.groupName === 'Posts' || group.groupName === 'Pages') {
-        items.forEach(item => decoratePostSearchResult(item, settings));
-    }
-
-    return {
-        label: group.groupName,
-        items
-    };
-}
-
-// Helper: Build default latest posts links
-function buildDefaultLatestPostsLinks(posts, settings) {
-    const results = posts.toArray().map(post => ({
-        groupName: 'Latest posts',
-        id: post.id,
-        title: post.title,
-        url: post.url,
-        visibility: post.visibility,
-        publishedAt: post.publishedAtUTC.toISOString()
-    }));
-
-    results.forEach(item => decoratePostSearchResult(item, settings));
-
-    return [{
-        label: 'Latest posts',
-        items: results
-    }];
-}
-
-// Helper: Check if Stripe is enabled
-function isStripeEnabled(settings, config) {
-    const hasDirectKeys = !!(settings.stripeSecretKey && settings.stripePublishableKey);
-    const hasConnectKeys = !!(settings.stripeConnectSecretKey && settings.stripeConnectPublishableKey);
-
-    if (config.stripeDirect) {
-        return hasDirectKeys;
-    }
-    return hasDirectKeys || hasConnectKeys;
-}
-
-// Helper: Build default card configuration
-function buildDefaultCardConfig(settings, config, session, feature, membersUtils) {
-    const unsplashConfig = {
-        defaultHeaders: {
-            Authorization: `Client-ID 8672af113b0a8573edae3aa3713886265d9bb741d707f6c01a486cde8c278980`,
-            'Accept-Version': 'v1',
-            'Content-Type': 'application/json',
-            'App-Pragma': 'no-cache',
-            'X-Unsplash-Cache': true
-        }
-    };
-
-    return {
-        unsplash: settings.unsplash ? unsplashConfig.defaultHeaders : null,
-        tenor: config.tenor?.googleApiKey ? config.tenor : null,
-        renderLabels: !session.user.isContributor,
-        feature: {
-            transistor: feature.transistor
-        },
-        deprecated: {
-            headerV1: true
-        },
-        membersEnabled: settings.membersSignupAccess === 'all',
-        siteTitle: settings.title,
-        siteDescription: settings.description,
-        siteUrl: config.getSiteUrl('/'),
-        stripeEnabled: isStripeEnabled(settings, config)
-    };
+    return fileFormData;
 }
 
 export default class KoenigLexicalEditor extends Component {
@@ -416,6 +292,7 @@ export default class KoenigLexicalEditor extends Component {
             return null;
         }
 
+        // load the script from admin root if relative
         if (importUrl.startsWith('/')) {
             importUrl = window.location.origin + this.ghostPaths.adminRoot.replace(/\/$/, '') + importUrl;
         }
@@ -429,6 +306,7 @@ export default class KoenigLexicalEditor extends Component {
             return null;
         }
 
+        // load the css from admin root if relative
         if (cssImportUrl.startsWith('/')) {
             cssImportUrl = window.location.origin + this.ghostPaths.adminRoot.replace(/\/$/, '') + cssImportUrl;
         }
@@ -437,6 +315,7 @@ export default class KoenigLexicalEditor extends Component {
 
     @action
     onError(error) {
+        // ensure we're still showing errors in development
         console.error(error); // eslint-disable-line
 
         if (this.config.sentry_dsn) {
@@ -449,6 +328,7 @@ export default class KoenigLexicalEditor extends Component {
                 }
             });
         }
+        // don't rethrow, Lexical will attempt to gracefully recover
     }
 
     @task({restartable: false})
@@ -457,6 +337,9 @@ export default class KoenigLexicalEditor extends Component {
             return this.offers;
         }
 
+        // Only fetch active signup offers for use in link dropdowns
+        // - Archived offers (status:archived) should not appear
+        // - Retention offers (redemption_type:retention) are only triggered during cancellation flows, not via offer links
         this.offers = yield this.store.query('offer', {filter: 'status:active+redemption_type:signup'});
 
         return this.offers;
@@ -472,8 +355,207 @@ export default class KoenigLexicalEditor extends Component {
         return this.labels;
     }
 
-    // Helper: Create file upload hook
-    createFileUploadHook = (type = 'image') => {
+    // Helper method to build member links
+    buildMemberLinks() {
+        let links = [];
+        if (this.membersUtils.paidMembersEnabled) {
+            links = [
+                {
+                    label: 'Paid signup',
+                    value: '#/portal/signup'
+                },
+                {
+                    label: 'Upgrade or change plan',
+                    value: '#/portal/account/plans'
+                }
+            ];
+        }
+        return links;
+    }
+
+    // Helper method to build donation link
+    buildDonationLink() {
+        if (this.settings.donationsEnabled) {
+            return [{
+                label: 'Tips and donations',
+                value: '#/portal/support'
+            }];
+        }
+        return [];
+    }
+
+    // Helper method to build recommendation link
+    buildRecommendationLink() {
+        if (this.settings.recommendationsEnabled) {
+            return [{
+                label: 'Recommendations',
+                value: '#/portal/recommendations'
+            }];
+        }
+        return [];
+    }
+
+    // Helper method to fetch autocomplete links
+    async fetchAutocompleteLinks() {
+        const defaults = [
+            {label: 'Homepage', value: window.location.origin + '/'},
+            {label: 'Free signup', value: '#/portal/signup/free'}
+        ];
+
+        const memberLinks = this.buildMemberLinks();
+        const donationLink = this.buildDonationLink();
+        const recommendationLink = this.buildRecommendationLink();
+        const offersLinks = await offerUrls.call(this);
+
+        return [...defaults, ...memberLinks, ...donationLink, ...recommendationLink, ...offersLinks];
+    }
+
+    // Helper method to fetch labels
+    async fetchLabels() {
+        let labels = [];
+        try {
+            labels = await this.fetchLabelsTask.perform();
+        } catch (e) {
+            // Do not throw cancellation errors
+            if (didCancel(e)) {
+                return;
+            }
+
+            throw e;
+        }
+
+        return labels.map(label => label.name);
+    }
+
+    // Helper method to filter search results
+    filterSearchResults(results) {
+        const filteredResults = [];
+        results.forEach((group) => {
+            let items = group.options;
+
+            if (group.groupName === 'Posts' || group.groupName === 'Pages') {
+                items = items.filter(i => i.status === 'published');
+            }
+
+            if (group.groupName === 'Staff') {
+                items = items.filter(i => !/\/404\//.test(i.url));
+            }
+
+            if (items.length === 0) {
+                return;
+            }
+
+            // update the group items with metadata
+            if (group.groupName === 'Posts' || group.groupName === 'Pages') {
+                items.forEach(item => decoratePostSearchResult(item, this.settings));
+            }
+
+            filteredResults.push({
+                label: group.groupName,
+                items
+            });
+        });
+
+        return filteredResults;
+    }
+
+    // Helper method to search links
+    async searchLinks(term) {
+        // when no term is present we should show latest 5 posts
+        if (!term) {
+            // we cache the default links to avoid fetching them every time
+            if (this.defaultLinks) {
+                return this.defaultLinks;
+            }
+
+            const posts = await this.store.query('post', {filter: 'status:published', fields: 'id,url,title,visibility,published_at', order: 'published_at desc', limit: 5});
+            // NOTE: these posts are Ember Data models, not plain objects like the search results
+            const results = posts.toArray().map(post => ({
+                groupName: 'Latest posts',
+                id: post.id,
+                title: post.title,
+                url: post.url,
+                visibility: post.visibility,
+                publishedAt: post.publishedAtUTC.toISOString()
+            }));
+
+            results.forEach(item => decoratePostSearchResult(item, this.settings));
+
+            this.defaultLinks = [{
+                label: 'Latest posts',
+                items: results
+            }];
+            return this.defaultLinks;
+        }
+
+        let results = [];
+
+        try {
+            results = await this.search.searchTask.perform(term);
+        } catch (error) {
+            // don't surface task cancellation errors
+            if (!didCancel(error)) {
+                throw error;
+            }
+            return;
+        }
+
+        // only published posts/pages and staff with posts have URLs
+        return this.filterSearchResults(results);
+    }
+
+    // Helper method to check if Stripe is enabled
+    checkStripeEnabled() {
+        const hasDirectKeys = !!(this.settings.stripeSecretKey && this.settings.stripePublishableKey);
+        const hasConnectKeys = !!(this.settings.stripeConnectSecretKey && this.settings.stripeConnectPublishableKey);
+
+        if (this.config.stripeDirect) {
+            return hasDirectKeys;
+        }
+        return hasDirectKeys || hasConnectKeys;
+    }
+
+    // Helper method to build unsplash config
+    buildUnsplashConfig() {
+        return {
+            defaultHeaders: {
+                Authorization: `Client-ID 8672af113b0a8573edae3aa3713886265d9bb741d707f6c01a486cde8c278980`,
+                'Accept-Version': 'v1',
+                'Content-Type': 'application/json',
+                'App-Pragma': 'no-cache',
+                'X-Unsplash-Cache': true
+            }
+        };
+    }
+
+    // Helper method to build default card config
+    buildDefaultCardConfig(fetchAutocompleteLinks, fetchEmbed, fetchLabels, searchLinks) {
+        const unsplashConfig = this.buildUnsplashConfig();
+
+        return {
+            unsplash: this.settings.unsplash ? unsplashConfig.defaultHeaders : null,
+            tenor: this.config.tenor?.googleApiKey ? this.config.tenor : null,
+            fetchAutocompleteLinks,
+            fetchEmbed,
+            fetchLabels,
+            renderLabels: !this.session.user.isContributor,
+            feature: {
+                transistor: this.feature.transistor
+            },
+            deprecated: {
+                headerV1: true
+            },
+            membersEnabled: this.settings.membersSignupAccess === 'all',
+            searchLinks,
+            siteTitle: this.settings.title,
+            siteDescription: this.settings.description,
+            siteUrl: this.config.getSiteUrl('/'),
+            stripeEnabled: this.checkStripeEnabled()
+        };
+    }
+
+    // Helper method to create file upload hook
+    createFileUploadHook(type = 'image') {
         const [progress, setProgress] = React.useState(0);
         const [isLoading, setLoading] = React.useState(false);
         const [errors, setErrors] = React.useState([]);
@@ -488,20 +570,32 @@ export default class KoenigLexicalEditor extends Component {
             }
 
             let totalProgress = 0;
+
             progressTracker.current.forEach(value => totalProgress += value);
+
             setProgress(Math.round(totalProgress / progressTracker.current.size));
+        };
+
+        const validate = (files = []) => {
+            const validationResult = [];
+
+            for (let i = 0; i < files.length; i += 1) {
+                let file = files[i];
+                let result = validateFileExtension(file, type);
+                if (result === true) {
+                    continue;
+                }
+
+                validationResult.push({fileName: file.name, message: result});
+            }
+
+            return validationResult;
         };
 
         const uploadFile = async (file, {formData = {}} = {}) => {
             progressTracker.current[file] = 0;
 
-            const fileFormData = new FormData();
-            fileFormData.append('file', file, file.name);
-
-            Object.keys(formData || {}).forEach((key) => {
-                fileFormData.append(key, formData[key]);
-            });
-
+            const fileFormData = buildFormData(file, formData);
             const url = `${ghostPaths().apiRoot}${fileTypes[type].endpoint}`;
 
             try {
@@ -511,24 +605,14 @@ export default class KoenigLexicalEditor extends Component {
                     processData: false,
                     contentType: false,
                     dataType: 'text',
-                    xhr: () => {
-                        const xhr = new window.XMLHttpRequest();
-
-                        xhr.upload.addEventListener('progress', (event) => {
-                            if (event.lengthComputable) {
-                                progressTracker.current.set(file, (event.loaded / event.total) * 100);
-                                updateProgress();
-                            }
-                        }, false);
-
-                        return xhr;
-                    }
+                    xhr: () => createXhrWithProgress(progressTracker, file, updateProgress)
                 });
 
+                // force tracker progress to 100% in case we didn't get a final event
                 progressTracker.current.set(file, 100);
                 updateProgress();
 
-                const responseUrl = extractResourceUrl(response, type);
+                const responseUrl = parseUploadResponse(response, type);
 
                 return {
                     url: responseUrl,
@@ -537,7 +621,14 @@ export default class KoenigLexicalEditor extends Component {
             } catch (error) {
                 console.error(error); // eslint-disable-line
 
-                const errorResult = buildErrorResult(error, file.name);
+                const {message, context} = extractErrorMessage(error);
+
+                const errorResult = {
+                    message,
+                    context,
+                    fileName: file.name
+                };
+
                 throw errorResult;
             }
         };
@@ -546,7 +637,7 @@ export default class KoenigLexicalEditor extends Component {
             setFilesNumber(files.length);
             setLoading(true);
 
-            const validationResult = validateFiles(files, type);
+            const validationResult = validate(files);
 
             if (validationResult.length) {
                 setErrors(validationResult);
@@ -569,6 +660,7 @@ export default class KoenigLexicalEditor extends Component {
                 progressTracker.current.clear();
 
                 setLoading(false);
+
                 setErrors([]);
 
                 return uploadResult;
@@ -585,17 +677,17 @@ export default class KoenigLexicalEditor extends Component {
         };
 
         return {progress, isLoading, upload, errors, filesNumber};
-    };
+    }
 
-    // Helper: Create KG editor component
-    createKGEditorComponent = (cardConfig) => {
-        return ({isInitInstance}) => {
+    // Helper method to create KG editor component
+    createKGEditorComponent(cardConfig) {
+        const KGEditorComponent = ({isInitInstance}) => {
             return (
                 <div data-secondary-instance={isInitInstance ? true : false} style={isInitInstance ? {display: 'none'} : {}}>
                     <KoenigComposer
                         editorResource={this.editorResource}
                         cardConfig={cardConfig}
-                        fileUploader={{useFileUpload: this.createFileUploadHook, fileTypes}}
+                        fileUploader={{useFileUpload: (type) => this.createFileUploadHook(type), fileTypes}}
                         initialEditorState={this.args.lexical}
                         onError={this.onError}
                         darkMode={this.feature.nightShift}
@@ -615,103 +707,25 @@ export default class KoenigLexicalEditor extends Component {
                 </div>
             );
         };
-    };
 
-    // Helper: Create fetch embed function
-    createFetchEmbed = () => {
-        return async (url, {type}) => {
+        return KGEditorComponent;
+    }
+
+    ReactComponent = (props) => {
+        const fetchEmbed = async (url, {type}) => {
             let oembedEndpoint = this.ghostPaths.url.api('oembed');
             let response = await this.ajax.request(oembedEndpoint, {
                 data: {url, type}
             });
             return response;
         };
-    };
 
-    // Helper: Create fetch labels function
-    createFetchLabels = () => {
-        return async () => {
-            let labels = [];
-            try {
-                labels = await this.fetchLabelsTask.perform();
-            } catch (e) {
-                if (didCancel(e)) {
-                    return;
-                }
-                throw e;
-            }
+        const fetchAutocompleteLinks = () => this.fetchAutocompleteLinks();
+        const fetchLabels = () => this.fetchLabels();
+        const searchLinks = (term) => this.searchLinks(term);
 
-            return labels.map(label => label.name);
-        };
-    };
-
-    // Helper: Create fetch autocomplete links function
-    createFetchAutocompleteLinks = () => {
-        return async () => {
-            const defaults = [
-                {label: 'Homepage', value: window.location.origin + '/'},
-                {label: 'Free signup', value: '#/portal/signup/free'}
-            ];
-
-            const memberLinks = buildMemberLinks(this.membersUtils);
-            const donationLink = buildDonationLink(this.settings);
-            const recommendationLink = buildRecommendationLink(this.settings);
-            const offersLinks = await offerUrls.call(this);
-
-            return [...defaults, ...memberLinks, ...donationLink, ...recommendationLink, ...offersLinks];
-        };
-    };
-
-    // Helper: Create search links function
-    createSearchLinks = () => {
-        return async (term) => {
-            if (!term) {
-                if (this.defaultLinks) {
-                    return this.defaultLinks;
-                }
-
-                const posts = await this.store.query('post', {filter: 'status:published', fields: 'id,url,title,visibility,published_at', order: 'published_at desc', limit: 5});
-                this.defaultLinks = buildDefaultLatestPostsLinks(posts, this.settings);
-                return this.defaultLinks;
-            }
-
-            let results = [];
-
-            try {
-                results = await this.search.searchTask.perform(term);
-            } catch (error) {
-                if (!didCancel(error)) {
-                    throw error;
-                }
-                return;
-            }
-
-            const filteredResults = [];
-            results.forEach((group) => {
-                const filtered = filterSearchResultsByGroup(group, this.settings);
-                if (filtered) {
-                    filteredResults.push(filtered);
-                }
-            });
-
-            return filteredResults;
-        };
-    };
-
-    ReactComponent = (props) => {
-        const fetchEmbed = this.createFetchEmbed();
-        const fetchLabels = this.createFetchLabels();
-        const fetchAutocompleteLinks = this.createFetchAutocompleteLinks();
-        const searchLinks = this.createSearchLinks();
-
-        const defaultCardConfig = buildDefaultCardConfig(this.settings, this.config, this.session, this.feature, this.membersUtils);
-        const cardConfig = Object.assign({}, defaultCardConfig, props.cardConfig, {
-            fetchAutocompleteLinks,
-            fetchEmbed,
-            fetchLabels,
-            searchLinks,
-            pinturaConfig: this.pinturaConfig
-        });
+        const defaultCardConfig = this.buildDefaultCardConfig(fetchAutocompleteLinks, fetchEmbed, fetchLabels, searchLinks);
+        const cardConfig = Object.assign({}, defaultCardConfig, props.cardConfig, {pinturaConfig: this.pinturaConfig});
 
         const KGEditorComponent = this.createKGEditorComponent(cardConfig);
 

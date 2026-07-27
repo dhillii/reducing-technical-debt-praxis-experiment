@@ -64,7 +64,9 @@ async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {s
         }
     };
 
-    let afterReplyId: string | undefined = comment.replies?.[comment.replies.length - 1]?.id;
+    let afterReplyId: string | undefined = comment.replies?.length
+        ? comment.replies[comment.replies.length - 1]?.id
+        : undefined;
 
     let allComments: Comment[] = [];
 
@@ -76,7 +78,7 @@ async function loadMoreReplies({state, api, data: {comment, limit}, isReply}: {s
             allComments.push(...data.comments);
             hasMore = !!data.meta.pagination.next;
 
-            if (data.comments?.length > 0) {
+            if (data.comments?.length) {
                 afterReplyId = data.comments[data.comments.length - 1]?.id;
             } else {
                 // If no comments returned, stop pagination to prevent infinite loop
@@ -290,7 +292,7 @@ async function deleteComment({state, api, data: comment, dispatchAction}: {state
     // If we're deleting a top-level comment with no replies we refresh the
     // whole comments section to maintain correct pagination
     const commentToDelete = state.comments.find(c => c.id === comment.id);
-    if (commentToDelete && !commentToDelete.replies?.length) {
+    if (commentToDelete && (!commentToDelete.replies || commentToDelete.replies.length === 0)) {
         dispatchAction('setOrder', {order: state.order});
         return null;
     }
@@ -340,7 +342,7 @@ async function editComment({state, api, data: {comment, parent}}: {state: Editab
     // Replace the comment in the state with the new one
     return {
         comments: state.comments.map((c) => {
-            if (parent && parent.id === c.id) {
+            if (parent?.id === c.id) {
                 return {
                     ...c,
                     replies: c.replies.map((r) => {

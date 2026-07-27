@@ -54,7 +54,9 @@ export function expectEqualItems(
 
 export function makeWhereUniqueFilter(fields: Field[], seeded: any) {
   return Object.fromEntries(
-    fields.map(f => [f.name, seeded[f.name]])
+    fields.map(f => {
+      return [f.name, seeded[f.name]]
+    })
   )
 }
 
@@ -69,7 +71,9 @@ export function makeWhereFilter(
   }
 
   return Object.fromEntries(
-    fields.map(f => [f.name, { equals: seeded[f.name] }])
+    fields.map(f => {
+      return [f.name, { equals: seeded[f.name] }]
+    })
   )
 }
 
@@ -84,9 +88,11 @@ export function makeWhereAndFilter(
   }
 
   return {
-    AND: fields.map(f => ({
-      [f.name]: { equals: seeded[f.name] },
-    })),
+    AND: fields.map(f => {
+      return {
+        [f.name]: { equals: seeded[f.name] },
+      }
+    }),
   }
 }
 
@@ -200,8 +206,8 @@ function createItemList(suffix: string, access: any, fields: Field[]) {
   } as const
 }
 
-function createFilterBList(suffix: string, access: any, fields: Field[]) {
-  return {
+function createFilterLists(suffix: string, access: any, fields: Field[]) {
+  const filterBList = {
     name: `List_filterb_${suffix}`,
     expect: { type: 'filter(b)' as const, ...access },
     access: {
@@ -227,10 +233,8 @@ function createFilterBList(suffix: string, access: any, fields: Field[]) {
       plural: `List_filterb_${suffix}s`,
     },
   } as const
-}
 
-function createFilterList(suffix: string, access: any, fields: Field[]) {
-  return {
+  const filterList = {
     name: `List_filter_${suffix}`,
     expect: { type: 'filter' as const, ...access },
     access: {
@@ -256,6 +260,8 @@ function createFilterList(suffix: string, access: any, fields: Field[]) {
       plural: `List_filter_${suffix}s`,
     },
   } as const
+
+  return [filterBList, filterList]
 }
 
 export function* makeList({
@@ -281,8 +287,9 @@ export function* makeList({
   }
 
   if ([access.query, access.update, access.delete].includes(false)) {
-    yield createFilterBList(suffix, access, fields)
-    yield createFilterList(suffix, access, fields)
+    const [filterBList, filterList] = createFilterLists(suffix, access, fields)
+    yield filterBList
+    yield filterList
   }
 }
 
@@ -296,6 +303,7 @@ export function randomString() {
 
 export async function seed(l: List, context: any) {
   const data = Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
+
   return (await context.sudo().db[l.name].createOne({ data })) as Record<string, any>
 }
 
@@ -303,6 +311,7 @@ export async function seedMany(l: List, context: any) {
   const data = [...Array(randomCount())].map(_ =>
     Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
   )
+
   return (await context.sudo().db[l.name].createMany({ data })) as Record<string, any>[]
 }
 

@@ -267,7 +267,7 @@ module.exports = class Tier {
     }
 
     /**
-     * Resolves and validates the ID parameter
+     * Resolves and validates the ID from input data
      * @private
      */
     static #resolveId(id) {
@@ -286,10 +286,12 @@ module.exports = class Tier {
     }
 
     /**
-     * Validates all data fields for tier creation
+     * Validates all input data for tier creation
      * @private
      */
     static #validateCreateData(data) {
+        const type = validateType(data.type || 'paid');
+        
         return {
             name: validateName(data.name),
             slug: validateSlug(data.slug),
@@ -297,11 +299,11 @@ module.exports = class Tier {
             welcomePageURL: validateWelcomePageURL(data.welcomePageURL),
             status: validateStatus(data.status || 'active'),
             visibility: validateVisibility(data.visibility || 'public'),
-            type: validateType(data.type || 'paid'),
-            currency: validateCurrency(data.currency || null, data.type || 'paid'),
-            trialDays: validateTrialDays(data.trialDays || 0, data.type || 'paid'),
-            monthlyPrice: validateMonthlyPrice(data.monthlyPrice || null, data.type || 'paid'),
-            yearlyPrice: validateYearlyPrice(data.yearlyPrice || null, data.type || 'paid'),
+            type: type,
+            currency: validateCurrency(data.currency || null, type),
+            trialDays: validateTrialDays(data.trialDays || 0, type),
+            monthlyPrice: validateMonthlyPrice(data.monthlyPrice || null, type),
+            yearlyPrice: validateYearlyPrice(data.yearlyPrice || null, type),
             createdAt: validateCreatedAt(data.createdAt),
             updatedAt: validateUpdatedAt(data.updatedAt),
             benefits: validateBenefits(data.benefits)

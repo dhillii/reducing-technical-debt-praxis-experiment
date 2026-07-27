@@ -20,218 +20,109 @@ const isScalarAttribute = ({ type }) => type && !['component', 'dynamiczone'].in
 const isTypeAttributeEnabled = (model, attr) =>
   _.get(strapi.plugins.graphql, `config._schema.graphql.type.${model.globalId}.${attr}`) !== false;
 
-// Scalar type mapping for Strapi to GraphQL conversion
-const SCALAR_TYPE_MAP = {
-  boolean: 'Boolean',
-  integer: 'Int',
-  biginteger: 'Long',
-  float: 'Float',
-  decimal: 'Float',
-  json: 'JSON',
-  date: 'Date',
-  time: 'Time',
-  datetime: 'DateTime',
-  timestamp: 'DateTime',
+// Helper: Convert scalar attribute types to GraphQL types
+const getScalarGraphQLType = (attributeType) => {
+  const scalarTypeMap = {
+    boolean: 'Boolean',
+    integer: 'Int',
+    biginteger: 'Long',
+    float: 'Float',
+    decimal: 'Float',
+    json: 'JSON',
+    date: 'Date',
+    time: 'Time',
+    datetime: 'DateTime',
+    timestamp: 'DateTime',
+  };
+  return scalarTypeMap[attributeType] || 'String';
 };
 
-/**
- * Determine if a required scalar type should have non-null modifier
- */
-const shouldAddNonNullModifier = (attribute, rootType, action) => {
+// Helper: Determine if type should be required
+const shouldMakeTypeRequired = (attribute, rootType, action) => {
   if (!attribute.required) {
     return false;
   }
-  if (rootType === 'mutation' && action === 'update' && attribute.default === undefined) {
+  if (rootType !== 'mutation') {
     return true;
   }
-  return rootType !== 'mutation';
+  return action !== 'update' && attribute.default === undefined;
 };
 
-/**
- * Convert scalar attribute to GraphQL type
- */
-const convertScalarType = function(attribute) {
-  let type = SCALAR_TYPE_MAP[attribute.type] || 'String';
-
-  if (attribute.type === 'enumeration') {
-    type = this.convertEnumType(attribute, attribute.modelName, attribute.attributeName);
-  }
-
-  if (shouldAddNonNullModifier(attribute, attribute.rootType, attribute.action)) {
+// Helper: Convert scalar attribute with required modifier
+const convertScalarType = (attribute, rootType, action) => {
+  let type = getScalarGraphQLType(attribute.type);
+  
+  if (shouldMakeTypeRequired(attribute, rootType, action)) {
     type += '!';
   }
-
+  
   return type;
 };
 
-/**
- * Convert component attribute to GraphQL type
- */
-const convertComponentType = function(attribute) {
+// Helper: Convert enumeration type
+const convertEnumerationType = (attribute, modelName, attributeName) => {
+  return attribute.enumName
+    ? attribute.enumName
+    : `ENUM_${modelName.toUpperCase()}_${attributeName.toUpperCase()}`;
+};
+
+// Helper: Convert component attribute type
+const convertComponentType = (attribute, rootType, action) => {
   const { required, repeatable, component } = attribute;
   const globalId = strapi.components[component].globalId;
-  const { rootType, action } = attribute;
-
+  
   let typeName = globalId;
-
+  
   if (rootType === 'mutation') {
-    const singularName = _.upperFirst(toSingular(globalId));
     typeName = action === 'update'
-      ? `edit${singularName}Input`
-      : `${singularName}Input${required ? '!' : ''}`;
+      ? `edit${_.upperFirst(toSingular(globalId))}Input`
+      : `${_.upperFirst(toSingular(globalId))}Input${required ? '!' : ''}`;
   }
-
+  
   if (repeatable === true) {
     return `[${typeName}]`;
   }
-
+  
   return typeName;
 };
 
-/**
- * Convert dynamiczone attribute to GraphQL type
- */
-const convertDynamicZoneType = function(attribute) {
-  const { required, modelName, attributeName, rootType } = attribute;
+// Helper: Convert dynamic zone attribute type
+const convertDynamicZoneType = (attribute, modelName, attributeName, rootType) => {
+  const { required } = attribute;
   const unionName = `${modelName}${_.upperFirst(_.camelCase(attributeName))}DynamicZone`;
+  
   let typeName = unionName;
-
+  
   if (rootType === 'mutation') {
     typeName = `${unionName}Input!`;
   }
-
+  
   return `[${typeName}]${required ? '!' : ''}`;
 };
 
-/**
- * Convert association attribute to GraphQL type
- */
-const convertAssociationType = function(attribute) {
-  const { model, collection, plugin, rootType } = attribute;
-  const ref = model || collection;
-
+// Helper: Convert association/relation attribute type
+const convertAssociationType = (attribute, rootType) => {
+  const ref = attribute.model || attribute.collection;
+  
   if (!ref || ref === '*') {
-    if (rootType === 'mutation') {
-      return model ? 'ID' : '[ID]';
-    }
-    return model ? 'Morph' : '[Morph]';
+    return null;
   }
-
-  const globalId = strapi.db.getModel(ref, plugin).globalId;
-  const isPlural = !_.isEmpty(collection);
-
+  
+  const globalId = strapi.db.getModel(ref, attribute.plugin).globalId;
+  const isPlural = !_.isEmpty(attribute.collection);
+  
   if (isPlural) {
     return rootType === 'mutation' ? '[ID]' : `[${globalId}]`;
   }
-
+  
   return rootType === 'mutation' ? 'ID' : globalId;
 };
 
-/**
- * Extract enabled attributes from model
- */
-const getEnabledAttributes = (model) => {
-  return Object.keys(model.attributes).filter(attr => isTypeAttributeEnabled(model, attr));
-};
-
-/**
- * Check if model has any enabled attributes
- */
-const hasEnabledAttributes = (model) => {
-  return getEnabledAttributes(model).length > 0;
-};
-
-/**
- * Generate input field for attribute
- */
-const generateInputField = function(attributeName, attribute, globalId, action) {
-  const typeStr = this.convertType({
-    attribute,
-    modelName: globalId,
-    attributeName,
-    rootType: 'mutation',
-    action,
-  });
-  return `${attributeName}: ${typeStr}`;
-};
-
-/**
- * Generate create/update input fields
- */
-const generateInputFields = function(model, action) {
-  const globalId = model.globalId;
-  const enabledAttrs = getEnabledAttributes(model);
-
-  return enabledAttrs
-    .map(attributeName => this.generateInputField(attributeName, model.attributes[attributeName], globalId, action))
-    .join('\n');
-};
-
-/**
- * Generate input type definition for empty model
- */
-const generateEmptyModelInput = (inputName, allowIds) => {
-  return `
-    input ${inputName} {
-      _: String
-    }
-
-    input edit${inputName} {
-      ${allowIds ? 'id: ID' : '_: String'}
-    }
-  `;
-};
-
-/**
- * Generate input type definition for model with attributes
- */
-const generateModelInputWithAttributes = function(model, inputName, allowIds) {
-  const globalId = model.globalId;
-  const createFields = generateInputFields.call(this, model, undefined);
-  const updateFields = generateInputFields.call(this, model, 'update');
-
-  return `
-    input ${inputName} {
-      ${createFields}
-    }
-
-    input edit${inputName} {
-      ${allowIds ? 'id: ID' : ''}
-      ${updateFields}
-    }
-  `;
-};
-
-/**
- * Generate payload for create mutation
- */
-const generateCreatePayload = (mutationName, singularName, globalId) => {
-  return `
-    input ${mutationName}Input { data: ${singularName} }
-    type ${mutationName}Payload { ${_.camelCase(singularName)}: ${globalId} }
-  `;
-};
-
-/**
- * Generate payload for update mutation
- */
-const generateUpdatePayload = (mutationName, singularName, globalId, isSingleType) => {
-  const whereClause = isSingleType ? '' : 'where: InputID, ';
-  return `
-    input ${mutationName}Input { ${whereClause}data: edit${singularName} }
-    type ${mutationName}Payload { ${_.camelCase(singularName)}: ${globalId} }
-  `;
-};
-
-/**
- * Generate payload for delete mutation
- */
-const generateDeletePayload = (mutationName, singularName, globalId, isSingleType) => {
-  const inputDef = isSingleType ? '' : `input ${mutationName}Input { where: InputID }\n`;
-  return `
-    ${inputDef}
-    type ${mutationName}Payload { ${_.camelCase(singularName)}: ${globalId} }
-  `;
+// Helper: Convert polymorphic association type
+const convertPolymorphicType = (attribute, rootType) => {
+  return attribute.model
+    ? (rootType === 'mutation' ? 'ID' : 'Morph')
+    : (rootType === 'mutation' ? '[ID]' : '[Morph]');
 };
 
 module.exports = {
@@ -243,6 +134,7 @@ module.exports = {
    * @param {String} attribute.attributeName Name of the attribute.
    * @return String
    */
+
   convertType({
     attribute = {},
     modelName = '',
@@ -250,27 +142,36 @@ module.exports = {
     rootType = 'query',
     action = '',
   }) {
-    const enrichedAttribute = {
-      ...attribute,
-      modelName,
-      attributeName,
-      rootType,
-      action,
-    };
-
+    // Handle scalar attributes
     if (isScalarAttribute(attribute)) {
-      return convertScalarType.call(this, enrichedAttribute);
+      if (attribute.type === 'enumeration') {
+        let type = convertEnumerationType(attribute, modelName, attributeName);
+        if (shouldMakeTypeRequired(attribute, rootType, action)) {
+          type += '!';
+        }
+        return type;
+      }
+      return convertScalarType(attribute, rootType, action);
     }
 
+    // Handle component attributes
     if (attribute.type === 'component') {
-      return convertComponentType.call(this, enrichedAttribute);
+      return convertComponentType(attribute, rootType, action);
     }
 
+    // Handle dynamic zone attributes
     if (attribute.type === 'dynamiczone') {
-      return convertDynamicZoneType.call(this, enrichedAttribute);
+      return convertDynamicZoneType(attribute, modelName, attributeName, rootType);
     }
 
-    return convertAssociationType.call(this, enrichedAttribute);
+    // Handle association/relation attributes
+    const associationType = convertAssociationType(attribute, rootType);
+    if (associationType !== null) {
+      return associationType;
+    }
+
+    // Handle polymorphic associations
+    return convertPolymorphicType(attribute, rootType);
   },
 
   /**
@@ -280,6 +181,7 @@ module.exports = {
    * @param {String} field Name of the attribute.
    * @return String
    */
+
   convertEnumType(definition, model, field) {
     return definition.enumName
       ? definition.enumName
@@ -291,6 +193,7 @@ module.exports = {
    *
    * @return void
    */
+
   getScalars() {
     return {
       JSON: GraphQLJSON,
@@ -307,6 +210,7 @@ module.exports = {
    *
    * @return string
    */
+
   addPolymorphicUnionType(definition) {
     const types = graphql
       .parse(definition)
@@ -339,31 +243,99 @@ module.exports = {
   },
 
   generateInputModel(model, name, { allowIds = false } = {}) {
+    const globalId = model.globalId;
     const inputName = `${_.upperFirst(toSingular(name))}Input`;
+    const hasAllAttributesDisabled = Object.keys(model.attributes).every(attr => !isTypeAttributeEnabled(model, attr));
 
-    if (!hasEnabledAttributes(model)) {
-      return generateEmptyModelInput(inputName, allowIds);
+    if (_.isEmpty(model.attributes) || hasAllAttributesDisabled) {
+      return `
+      input ${inputName} {
+        _: String
+      }
+
+      input edit${inputName} {
+        ${allowIds ? 'id: ID' : '_: String'}
+      }
+     `;
     }
 
-    return generateModelInputWithAttributes.call(this, model, inputName, allowIds);
+    const enabledAttributes = Object.keys(model.attributes).filter(attributeName =>
+      isTypeAttributeEnabled(model, attributeName)
+    );
+
+    const createInputFields = enabledAttributes
+      .map(attributeName => {
+        return `${attributeName}: ${this.convertType({
+          attribute: model.attributes[attributeName],
+          modelName: globalId,
+          attributeName,
+          rootType: 'mutation',
+        })}`;
+      })
+      .join('\n');
+
+    const updateInputFields = enabledAttributes
+      .map(attributeName => {
+        return `${attributeName}: ${this.convertType({
+          attribute: model.attributes[attributeName],
+          modelName: globalId,
+          attributeName,
+          rootType: 'mutation',
+          action: 'update',
+        })}`;
+      })
+      .join('\n');
+
+    const inputs = `
+      input ${inputName} {
+        ${createInputFields}
+      }
+
+      input edit${inputName} {
+        ${allowIds ? 'id: ID' : ''}
+        ${updateInputFields}
+      }
+    `;
+
+    return inputs;
   },
 
   generateInputPayloadArguments({ model, name, mutationName, action }) {
-    const singularName = toInputName(name);
-    const isSingleType = model.kind === 'singleType';
+    const singularName = toSingular(name);
+    const inputName = toInputName(name);
+    const { kind } = model;
 
     switch (action) {
       case 'create':
-        return generateCreatePayload(mutationName, singularName, model.globalId);
+        return `
+          input ${mutationName}Input { data: ${inputName} }
+          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+        `;
       case 'update':
-        return generateUpdatePayload(mutationName, singularName, model.globalId, isSingleType);
+        if (kind === 'singleType') {
+          return `
+          input ${mutationName}Input  { data: edit${inputName} }
+          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+        `;
+        }
+
+        return `
+          input ${mutationName}Input  { where: InputID, data: edit${inputName} }
+          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+        `;
       case 'delete':
-        return generateDeletePayload(mutationName, singularName, model.globalId, isSingleType);
+        if (kind === 'singleType') {
+          return `
+          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+        `;
+        }
+
+        return `
+          input ${mutationName}Input  { where: InputID }
+          type ${mutationName}Payload { ${singularName}: ${model.globalId} }
+        `;
       default:
         return '';
     }
   },
-
-  // Helper method for internal use
-  generateInputField,
 };

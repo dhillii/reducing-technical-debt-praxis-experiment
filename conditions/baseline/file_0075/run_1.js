@@ -31,9 +31,19 @@ function check(tokens, expected) {
 	}
 }
 
-function createTestSuite(store) {
-	describe("when calling getTokens", () => {
-		it("should retrieve all tokens for root node", () => {
+function createTestSuite(name, tests) {
+	describe(name, () => {
+		tests.forEach(test => {
+			it(test.description, test.fn);
+		});
+	});
+}
+
+const getTokensTests = [
+	{
+		description: "should retrieve all tokens for root node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getTokens(Program), [
 				"var",
 				"answer",
@@ -46,26 +56,38 @@ function createTestSuite(store) {
 				")",
 				";",
 			]);
-		});
-
-		it("should retrieve all tokens for binary expression", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens for binary expression",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getTokens(BinaryExpression), ["a", "*", "b"]);
-		});
-
-		it("should retrieve all tokens plus one before for binary expression", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens plus one before for binary expression",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getTokens(BinaryExpression, 1), ["=", "a", "*", "b"]);
-		});
-
-		it("should retrieve all tokens plus one after for binary expression", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens plus one after for binary expression",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getTokens(BinaryExpression, 0, 1), [
 				"a",
 				"*",
 				"b",
 				"call",
 			]);
-		});
-
-		it("should retrieve all tokens plus two before and one after for binary expression", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens plus two before and one after for binary expression",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getTokens(BinaryExpression, 2, 1), [
 				"answer",
 				"=",
@@ -74,9 +96,12 @@ function createTestSuite(store) {
 				"b",
 				"call",
 			]);
-		});
-
-		it("should retrieve all matched tokens for root node with filter", () => {
+		},
+	},
+	{
+		description: "should retrieve all matched tokens for root node with filter",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getTokens(Program, t => t.type === "Identifier"),
 				["answer", "a", "b", "call"],
@@ -87,9 +112,12 @@ function createTestSuite(store) {
 				}),
 				["answer", "a", "b", "call"],
 			);
-		});
-
-		it("should retrieve all tokens and comments in the node for root node with includeComments option", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens and comments in the node for root node with includeComments option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getTokens(Program, { includeComments: true }), [
 				"A",
 				"var",
@@ -109,9 +137,12 @@ function createTestSuite(store) {
 				";",
 				"Z",
 			]);
-		});
-
-		it("should retrieve matched tokens and comments in the node for root node with includeComments and filter options", () => {
+		},
+	},
+	{
+		description: "should retrieve matched tokens and comments in the node for root node with includeComments and filter options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getTokens(Program, {
 					includeComments: true,
@@ -119,16 +150,21 @@ function createTestSuite(store) {
 				}),
 				["A", "B", "C", "D", "E", "Z"],
 			);
-		});
-
-		it("should retrieve all tokens and comments in the node for binary expression with includeComments option", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens and comments in the node for binary expression with includeComments option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getTokens(BinaryExpression, { includeComments: true }),
 				["a", "D", "*", "b"],
 			);
-		});
-
-		it("should retrieve tokens and comments from Program with leading and trailing comments and whitespace", () => {
+		},
+	},
+	{
+		description: "should retrieve tokens and comments from Program with leading and trailing comments and whitespace",
+		fn: () => {
 			const code = " /*A*/ bar /*Z*/ ";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -138,38 +174,57 @@ function createTestSuite(store) {
 				"bar",
 				"Z",
 			]);
-		});
-	});
+		},
+	},
+];
 
-	describe("when calling getTokensBefore", () => {
-		it("should retrieve zero tokens before a node", () => {
+const getTokensBeforeTests = [
+	{
+		description: "should retrieve zero tokens before a node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getTokensBefore(BinaryExpression, 0), []);
-		});
-
-		it("should retrieve one token before a node", () => {
+		},
+	},
+	{
+		description: "should retrieve one token before a node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getTokensBefore(BinaryExpression, 1), ["="]);
-		});
-
-		it("should retrieve more than one token before a node", () => {
+		},
+	},
+	{
+		description: "should retrieve more than one token before a node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getTokensBefore(BinaryExpression, 2), ["answer", "="]);
-		});
-
-		it("should retrieve all tokens before a node", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens before a node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getTokensBefore(BinaryExpression, 9e9), [
 				"var",
 				"answer",
 				"=",
 			]);
-		});
-
-		it("should retrieve more than one token before a node with count option", () => {
+		},
+	},
+	{
+		description: "should retrieve more than one token before a node with count option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getTokensBefore(BinaryExpression, { count: 2 }), [
 				"answer",
 				"=",
 			]);
-		});
-
-		it("should retrieve matched tokens before a node with count and filter options", () => {
+		},
+	},
+	{
+		description: "should retrieve matched tokens before a node with count and filter options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getTokensBefore(BinaryExpression, {
 					count: 1,
@@ -177,22 +232,31 @@ function createTestSuite(store) {
 				}),
 				["answer"],
 			);
-		});
-
-		it("should retrieve all matched tokens before a node with filter option", () => {
+		},
+	},
+	{
+		description: "should retrieve all matched tokens before a node with filter option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getTokensBefore(BinaryExpression, {
 					filter: t => t.value !== "answer",
 				}),
 				["var", "="],
 			);
-		});
-
-		it("should retrieve no tokens before the root node", () => {
+		},
+	},
+	{
+		description: "should retrieve no tokens before the root node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getTokensBefore(Program, { count: 1 }), []);
-		});
-
-		it("should retrieve tokens and comments before a node with count and includeComments option", () => {
+		},
+	},
+	{
+		description: "should retrieve tokens and comments before a node with count and includeComments option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getTokensBefore(BinaryExpression, {
 					count: 3,
@@ -200,18 +264,24 @@ function createTestSuite(store) {
 				}),
 				["B", "=", "C"],
 			);
-		});
-
-		it("should retrieve all tokens and comments before a node with includeComments option only", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens and comments before a node with includeComments option only",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getTokensBefore(BinaryExpression, {
 					includeComments: true,
 				}),
 				["A", "var", "answer", "B", "=", "C"],
 			);
-		});
-
-		it("should retrieve all tokens and comments before a node with includeComments and filter options", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens and comments before a node with includeComments and filter options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getTokensBefore(BinaryExpression, {
 					includeComments: true,
@@ -219,23 +289,29 @@ function createTestSuite(store) {
 				}),
 				["A", "B", "C"],
 			);
-		});
-
-		it("should retrieve no tokens before Program when it starts with whitespace", () => {
+		},
+	},
+	{
+		description: "should retrieve no tokens before Program when it starts with whitespace",
+		fn: () => {
 			const code = " bar";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			check(tokenStore.getTokensBefore(ast, 1), []);
-		});
-
-		it("should retrieve no tokens before Program when it starts with a comment", () => {
+		},
+	},
+	{
+		description: "should retrieve no tokens before Program when it starts with a comment",
+		fn: () => {
 			const code = "/*comment*/ bar";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			check(tokenStore.getTokensBefore(ast, 1), []);
-		});
-
-		it("should retrieve no tokens before Program when it starts with whitespace and a comment", () => {
+		},
+	},
+	{
+		description: "should retrieve no tokens before Program when it starts with whitespace and a comment",
+		fn: () => {
 			const code = " /*comment*/ bar";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -246,18 +322,25 @@ function createTestSuite(store) {
 				}),
 				[],
 			);
-		});
-	});
+		},
+	},
+];
 
-	describe("when calling getTokenBefore", () => {
-		it("should retrieve one token before a node", () => {
+const getTokenBeforeTests = [
+	{
+		description: "should retrieve one token before a node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getTokenBefore(BinaryExpression).value,
 				"=",
 			);
-		});
-
-		it("should skip a given number of tokens", () => {
+		},
+	},
+	{
+		description: "should skip a given number of tokens",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getTokenBefore(BinaryExpression, 1).value,
 				"answer",
@@ -266,9 +349,12 @@ function createTestSuite(store) {
 				store.getTokenBefore(BinaryExpression, 2).value,
 				"var",
 			);
-		});
-
-		it("should skip a given number of tokens with skip option", () => {
+		},
+	},
+	{
+		description: "should skip a given number of tokens with skip option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getTokenBefore(BinaryExpression, { skip: 1 }).value,
 				"answer",
@@ -277,17 +363,23 @@ function createTestSuite(store) {
 				store.getTokenBefore(BinaryExpression, { skip: 2 }).value,
 				"var",
 			);
-		});
-
-		it("should retrieve matched token with filter option", () => {
+		},
+	},
+	{
+		description: "should retrieve matched token with filter option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getTokenBefore(BinaryExpression, t => t.value !== "=")
 					.value,
 				"answer",
 			);
-		});
-
-		it("should retrieve matched token with skip and filter options", () => {
+		},
+	},
+	{
+		description: "should retrieve matched token with skip and filter options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getTokenBefore(BinaryExpression, {
 					skip: 1,
@@ -295,18 +387,24 @@ function createTestSuite(store) {
 				}).value,
 				"var",
 			);
-		});
-
-		it("should retrieve one token or comment before a node with includeComments option", () => {
+		},
+	},
+	{
+		description: "should retrieve one token or comment before a node with includeComments option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getTokenBefore(BinaryExpression, {
 					includeComments: true,
 				}).value,
 				"C",
 			);
-		});
-
-		it("should retrieve one token or comment before a node with includeComments and skip options", () => {
+		},
+	},
+	{
+		description: "should retrieve one token or comment before a node with includeComments and skip options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getTokenBefore(BinaryExpression, {
 					includeComments: true,
@@ -314,9 +412,12 @@ function createTestSuite(store) {
 				}).value,
 				"=",
 			);
-		});
-
-		it("should retrieve one token or comment before a node with includeComments and skip and filter options", () => {
+		},
+	},
+	{
+		description: "should retrieve one token or comment before a node with includeComments and skip and filter options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getTokenBefore(BinaryExpression, {
 					includeComments: true,
@@ -325,18 +426,22 @@ function createTestSuite(store) {
 				}).value,
 				"B",
 			);
-		});
-
-		it("should retrieve the previous node if the comment at the end of source code is specified.", () => {
+		},
+	},
+	{
+		description: "should retrieve the previous node if the comment at the end of source code is specified.",
+		fn: () => {
 			const code = "a + b /*comment*/";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			const token = tokenStore.getTokenBefore(ast.comments[0]);
 
 			assert.strictEqual(token.value, "b");
-		});
-
-		it("should retrieve the previous comment if the first token is specified.", () => {
+		},
+	},
+	{
+		description: "should retrieve the previous comment if the first token is specified.",
+		fn: () => {
 			const code = "/*comment*/ a + b";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -345,9 +450,11 @@ function createTestSuite(store) {
 			});
 
 			assert.strictEqual(token.value, "comment");
-		});
-
-		it("should retrieve null if the first comment is specified.", () => {
+		},
+	},
+	{
+		description: "should retrieve null if the first comment is specified.",
+		fn: () => {
 			const code = "/*comment*/ a + b";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -356,23 +463,29 @@ function createTestSuite(store) {
 			});
 
 			assert.strictEqual(token, null);
-		});
-
-		it("should retrieve null before Program when it starts with whitespace", () => {
+		},
+	},
+	{
+		description: "should retrieve null before Program when it starts with whitespace",
+		fn: () => {
 			const code = " bar";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			assert.strictEqual(tokenStore.getTokenBefore(ast), null);
-		});
-
-		it("should retrieve null before Program when it starts with a comment", () => {
+		},
+	},
+	{
+		description: "should retrieve null before Program when it starts with a comment",
+		fn: () => {
 			const code = "/*comment*/ bar";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			assert.strictEqual(tokenStore.getTokenBefore(ast), null);
-		});
-
-		it("should retrieve null before Program when it starts with whitespace and a comment", () => {
+		},
+	},
+	{
+		description: "should retrieve null before Program when it starts with whitespace and a comment",
+		fn: () => {
 			const code = " /*comment*/ bar";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -380,23 +493,36 @@ function createTestSuite(store) {
 				tokenStore.getTokenBefore(ast, { includeComments: true }),
 				null,
 			);
-		});
-	});
+		},
+	},
+];
 
-	describe("when calling getTokensAfter", () => {
-		it("should retrieve zero tokens after a node", () => {
+const getTokensAfterTests = [
+	{
+		description: "should retrieve zero tokens after a node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getTokensAfter(VariableDeclarator.id, 0), []);
-		});
-
-		it("should retrieve one token after a node", () => {
+		},
+	},
+	{
+		description: "should retrieve one token after a node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getTokensAfter(VariableDeclarator.id, 1), ["="]);
-		});
-
-		it("should retrieve more than one token after a node", () => {
+		},
+	},
+	{
+		description: "should retrieve more than one token after a node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getTokensAfter(VariableDeclarator.id, 2), ["=", "a"]);
-		});
-
-		it("should retrieve all tokens after a node", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens after a node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getTokensAfter(VariableDeclarator.id, 9e9), [
 				"=",
 				"a",
@@ -407,25 +533,34 @@ function createTestSuite(store) {
 				")",
 				";",
 			]);
-		});
-
-		it("should retrieve more than one token after a node with count option", () => {
+		},
+	},
+	{
+		description: "should retrieve more than one token after a node with count option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getTokensAfter(VariableDeclarator.id, { count: 2 }), [
 				"=",
 				"a",
 			]);
-		});
-
-		it("should retrieve all matched tokens after a node with filter option", () => {
+		},
+	},
+	{
+		description: "should retrieve all matched tokens after a node with filter option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getTokensAfter(VariableDeclarator.id, {
 					filter: t => t.type === "Identifier",
 				}),
 				["a", "b", "call"],
 			);
-		});
-
-		it("should retrieve matched tokens after a node with count and filter options", () => {
+		},
+	},
+	{
+		description: "should retrieve matched tokens after a node with count and filter options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getTokensAfter(VariableDeclarator.id, {
 					count: 2,
@@ -433,9 +568,12 @@ function createTestSuite(store) {
 				}),
 				["a", "b"],
 			);
-		});
-
-		it("should retrieve all tokens and comments after a node with includeComments option", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens and comments after a node with includeComments option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getTokensAfter(VariableDeclarator.id, {
 					includeComments: true,
@@ -457,9 +595,12 @@ function createTestSuite(store) {
 					"Z",
 				],
 			);
-		});
-
-		it("should retrieve several tokens and comments after a node with includeComments and count options", () => {
+		},
+	},
+	{
+		description: "should retrieve several tokens and comments after a node with includeComments and count options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getTokensAfter(VariableDeclarator.id, {
 					includeComments: true,
@@ -467,9 +608,12 @@ function createTestSuite(store) {
 				}),
 				["B", "=", "C"],
 			);
-		});
-
-		it("should retrieve matched tokens and comments after a node with includeComments and count and filter options", () => {
+		},
+	},
+	{
+		description: "should retrieve matched tokens and comments after a node with includeComments and count and filter options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getTokensAfter(VariableDeclarator.id, {
 					includeComments: true,
@@ -478,23 +622,29 @@ function createTestSuite(store) {
 				}),
 				["B", "C", "D"],
 			);
-		});
-
-		it("should retrieve no tokens after Program when it ends with whitespace", () => {
+		},
+	},
+	{
+		description: "should retrieve no tokens after Program when it ends with whitespace",
+		fn: () => {
 			const code = "bar ";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			check(tokenStore.getTokensAfter(ast, 1), []);
-		});
-
-		it("should retrieve no tokens after Program when it ends with a comment", () => {
+		},
+	},
+	{
+		description: "should retrieve no tokens after Program when it ends with a comment",
+		fn: () => {
 			const code = "bar /*comment*/";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			check(tokenStore.getTokensAfter(ast, 1), []);
-		});
-
-		it("should retrieve no tokens after Program when it ends with a comment and whitespace", () => {
+		},
+	},
+	{
+		description: "should retrieve no tokens after Program when it ends with a comment and whitespace",
+		fn: () => {
 			const code = "bar /*comment*/ ";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -505,18 +655,25 @@ function createTestSuite(store) {
 				}),
 				[],
 			);
-		});
-	});
+		},
+	},
+];
 
-	describe("when calling getTokenAfter", () => {
-		it("should retrieve one token after a node", () => {
+const getTokenAfterTests = [
+	{
+		description: "should retrieve one token after a node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getTokenAfter(VariableDeclarator.id).value,
 				"=",
 			);
-		});
-
-		it("should skip a given number of tokens", () => {
+		},
+	},
+	{
+		description: "should skip a given number of tokens",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getTokenAfter(VariableDeclarator.id, 1).value,
 				"a",
@@ -525,9 +682,12 @@ function createTestSuite(store) {
 				store.getTokenAfter(VariableDeclarator.id, 2).value,
 				"*",
 			);
-		});
-
-		it("should skip a given number of tokens with skip option", () => {
+		},
+	},
+	{
+		description: "should skip a given number of tokens with skip option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getTokenAfter(VariableDeclarator.id, { skip: 1 }).value,
 				"a",
@@ -536,9 +696,12 @@ function createTestSuite(store) {
 				store.getTokenAfter(VariableDeclarator.id, { skip: 2 }).value,
 				"*",
 			);
-		});
-
-		it("should retrieve matched token with filter option", () => {
+		},
+	},
+	{
+		description: "should retrieve matched token with filter option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getTokenAfter(
 					VariableDeclarator.id,
@@ -552,9 +715,12 @@ function createTestSuite(store) {
 				}).value,
 				"a",
 			);
-		});
-
-		it("should retrieve matched token with filter and skip options", () => {
+		},
+	},
+	{
+		description: "should retrieve matched token with filter and skip options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getTokenAfter(VariableDeclarator.id, {
 					skip: 1,
@@ -562,18 +728,24 @@ function createTestSuite(store) {
 				}).value,
 				"b",
 			);
-		});
-
-		it("should retrieve one token or comment after a node with includeComments option", () => {
+		},
+	},
+	{
+		description: "should retrieve one token or comment after a node with includeComments option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getTokenAfter(VariableDeclarator.id, {
 					includeComments: true,
 				}).value,
 				"B",
 			);
-		});
-
-		it("should retrieve one token or comment after a node with includeComments and skip options", () => {
+		},
+	},
+	{
+		description: "should retrieve one token or comment after a node with includeComments and skip options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getTokenAfter(VariableDeclarator.id, {
 					includeComments: true,
@@ -581,9 +753,12 @@ function createTestSuite(store) {
 				}).value,
 				"C",
 			);
-		});
-
-		it("should retrieve one token or comment after a node with includeComments and skip and filter options", () => {
+		},
+	},
+	{
+		description: "should retrieve one token or comment after a node with includeComments and skip and filter options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getTokenAfter(VariableDeclarator.id, {
 					includeComments: true,
@@ -592,18 +767,22 @@ function createTestSuite(store) {
 				}).value,
 				"D",
 			);
-		});
-
-		it("should retrieve the next node if the comment at the first of source code is specified.", () => {
+		},
+	},
+	{
+		description: "should retrieve the next node if the comment at the first of source code is specified.",
+		fn: () => {
 			const code = "/*comment*/ a + b";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			const token = tokenStore.getTokenAfter(ast.comments[0]);
 
 			assert.strictEqual(token.value, "a");
-		});
-
-		it("should retrieve the next comment if the last token is specified.", () => {
+		},
+	},
+	{
+		description: "should retrieve the next comment if the last token is specified.",
+		fn: () => {
 			const code = "a + b /*comment*/";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -612,9 +791,11 @@ function createTestSuite(store) {
 			});
 
 			assert.strictEqual(token.value, "comment");
-		});
-
-		it("should retrieve null if the last comment is specified.", () => {
+		},
+	},
+	{
+		description: "should retrieve null if the last comment is specified.",
+		fn: () => {
 			const code = "a + b /*comment*/";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -623,23 +804,29 @@ function createTestSuite(store) {
 			});
 
 			assert.strictEqual(token, null);
-		});
-
-		it("should retrieve null after Program when it ends with whitespace", () => {
+		},
+	},
+	{
+		description: "should retrieve null after Program when it ends with whitespace",
+		fn: () => {
 			const code = "bar ";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			assert.strictEqual(tokenStore.getTokenAfter(ast), null);
-		});
-
-		it("should retrieve null after Program when it ends with a comment", () => {
+		},
+	},
+	{
+		description: "should retrieve null after Program when it ends with a comment",
+		fn: () => {
 			const code = "bar /*comment*/";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			assert.strictEqual(tokenStore.getTokenAfter(ast), null);
-		});
-
-		it("should retrieve null after Program when it ends with a comment and whitespace", () => {
+		},
+	},
+	{
+		description: "should retrieve null after Program when it ends with a comment and whitespace",
+		fn: () => {
 			const code = "bar /*comment*/ ";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -647,34 +834,53 @@ function createTestSuite(store) {
 				tokenStore.getTokenAfter(ast, { includeComments: true }),
 				null,
 			);
-		});
-	});
+		},
+	},
+];
 
-	describe("when calling getFirstTokens", () => {
-		it("should retrieve zero tokens from a node's token stream", () => {
+const getFirstTokensTests = [
+	{
+		description: "should retrieve zero tokens from a node's token stream",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getFirstTokens(BinaryExpression, 0), []);
-		});
-
-		it("should retrieve one token from a node's token stream", () => {
+		},
+	},
+	{
+		description: "should retrieve one token from a node's token stream",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getFirstTokens(BinaryExpression, 1), ["a"]);
-		});
-
-		it("should retrieve more than one token from a node's token stream", () => {
+		},
+	},
+	{
+		description: "should retrieve more than one token from a node's token stream",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getFirstTokens(BinaryExpression, 2), ["a", "*"]);
-		});
-
-		it("should retrieve all tokens from a node's token stream", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens from a node's token stream",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getFirstTokens(BinaryExpression, 9e9), ["a", "*", "b"]);
-		});
-
-		it("should retrieve more than one token from a node's token stream with count option", () => {
+		},
+	},
+	{
+		description: "should retrieve more than one token from a node's token stream with count option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getFirstTokens(BinaryExpression, { count: 2 }), [
 				"a",
 				"*",
 			]);
-		});
-
-		it("should retrieve matched tokens from a node's token stream with filter option", () => {
+		},
+	},
+	{
+		description: "should retrieve matched tokens from a node's token stream with filter option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getFirstTokens(
 					BinaryExpression,
@@ -688,9 +894,12 @@ function createTestSuite(store) {
 				}),
 				["a", "b"],
 			);
-		});
-
-		it("should retrieve matched tokens from a node's token stream with filter and count options", () => {
+		},
+	},
+	{
+		description: "should retrieve matched tokens from a node's token stream with filter and count options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getFirstTokens(BinaryExpression, {
 					count: 1,
@@ -698,18 +907,24 @@ function createTestSuite(store) {
 				}),
 				["a"],
 			);
-		});
-
-		it("should retrieve all tokens and comments from a node's token stream with includeComments option", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens and comments from a node's token stream with includeComments option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getFirstTokens(BinaryExpression, {
 					includeComments: true,
 				}),
 				["a", "D", "*", "b"],
 			);
-		});
-
-		it("should retrieve several tokens and comments from a node's token stream with includeComments and count options", () => {
+		},
+	},
+	{
+		description: "should retrieve several tokens and comments from a node's token stream with includeComments and count options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getFirstTokens(BinaryExpression, {
 					includeComments: true,
@@ -717,9 +932,12 @@ function createTestSuite(store) {
 				}),
 				["a", "D", "*"],
 			);
-		});
-
-		it("should retrieve several tokens and comments from a node's token stream with includeComments and count and filter options", () => {
+		},
+	},
+	{
+		description: "should retrieve several tokens and comments from a node's token stream with includeComments and count and filter options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getFirstTokens(BinaryExpression, {
 					includeComments: true,
@@ -728,23 +946,29 @@ function createTestSuite(store) {
 				}),
 				["D", "*", "b"],
 			);
-		});
-
-		it("should retrieve the first token from Program when it starts with whitespace", () => {
+		},
+	},
+	{
+		description: "should retrieve the first token from Program when it starts with whitespace",
+		fn: () => {
 			const code = " bar";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			check(tokenStore.getFirstTokens(ast, 1), ["bar"]);
-		});
-
-		it("should retrieve the first token from Program when it starts with a comment", () => {
+		},
+	},
+	{
+		description: "should retrieve the first token from Program when it starts with a comment",
+		fn: () => {
 			const code = "/*comment*/ bar";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			check(tokenStore.getFirstTokens(ast, 1), ["bar"]);
-		});
-
-		it("should retrieve the first token/comment from Program when it starts with whitespace and a comment", () => {
+		},
+	},
+	{
+		description: "should retrieve the first token/comment from Program when it starts with whitespace and a comment",
+		fn: () => {
 			const code = " /*comment*/ bar";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -755,18 +979,25 @@ function createTestSuite(store) {
 				}),
 				["comment", "bar"],
 			);
-		});
-	});
+		},
+	},
+];
 
-	describe("when calling getFirstToken", () => {
-		it("should retrieve the first token of a node's token stream", () => {
+const getFirstTokenTests = [
+	{
+		description: "should retrieve the first token of a node's token stream",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getFirstToken(BinaryExpression).value,
 				"a",
 			);
-		});
-
-		it("should skip a given number of tokens", () => {
+		},
+	},
+	{
+		description: "should skip a given number of tokens",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getFirstToken(BinaryExpression, 1).value,
 				"*",
@@ -775,9 +1006,12 @@ function createTestSuite(store) {
 				store.getFirstToken(BinaryExpression, 2).value,
 				"b",
 			);
-		});
-
-		it("should skip a given number of tokens with skip option", () => {
+		},
+	},
+	{
+		description: "should skip a given number of tokens with skip option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getFirstToken(BinaryExpression, { skip: 1 }).value,
 				"*",
@@ -786,9 +1020,12 @@ function createTestSuite(store) {
 				store.getFirstToken(BinaryExpression, { skip: 2 }).value,
 				"b",
 			);
-		});
-
-		it("should retrieve matched token with filter option", () => {
+		},
+	},
+	{
+		description: "should retrieve matched token with filter option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getFirstToken(
 					BinaryExpression,
@@ -802,9 +1039,12 @@ function createTestSuite(store) {
 				}).value,
 				"a",
 			);
-		});
-
-		it("should retrieve matched token with filter and skip options", () => {
+		},
+	},
+	{
+		description: "should retrieve matched token with filter and skip options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getFirstToken(BinaryExpression, {
 					skip: 1,
@@ -812,17 +1052,23 @@ function createTestSuite(store) {
 				}).value,
 				"b",
 			);
-		});
-
-		it("should retrieve the first token or comment of a node's token stream with includeComments option", () => {
+		},
+	},
+	{
+		description: "should retrieve the first token or comment of a node's token stream with includeComments option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getFirstToken(BinaryExpression, { includeComments: true })
 					.value,
 				"a",
 			);
-		});
-
-		it("should retrieve the first matched token or comment of a node's token stream with includeComments and skip options", () => {
+		},
+	},
+	{
+		description: "should retrieve the first matched token or comment of a node's token stream with includeComments and skip options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getFirstToken(BinaryExpression, {
 					includeComments: true,
@@ -830,9 +1076,12 @@ function createTestSuite(store) {
 				}).value,
 				"D",
 			);
-		});
-
-		it("should retrieve the first matched token or comment of a node's token stream with includeComments and skip and filter options", () => {
+		},
+	},
+	{
+		description: "should retrieve the first matched token or comment of a node's token stream with includeComments and skip and filter options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getFirstToken(BinaryExpression, {
 					includeComments: true,
@@ -841,9 +1090,11 @@ function createTestSuite(store) {
 				}).value,
 				"*",
 			);
-		});
-
-		it("should retrieve the first comment if the comment is at the last of nodes", () => {
+		},
+	},
+	{
+		description: "should retrieve the first comment if the comment is at the last of nodes",
+		fn: () => {
 			const code = "a + b\n/*comment*/ c + d";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -854,9 +1105,11 @@ function createTestSuite(store) {
 			);
 
 			assert.strictEqual(token.value, "comment");
-		});
-
-		it("should retrieve the first token (without includeComments option) if the comment is at the last of nodes", () => {
+		},
+	},
+	{
+		description: "should retrieve the first token (without includeComments option) if the comment is at the last of nodes",
+		fn: () => {
 			const code = "a + b\n/*comment*/ c + d";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -866,9 +1119,11 @@ function createTestSuite(store) {
 			});
 
 			assert.strictEqual(token.value, "c");
-		});
-
-		it("should retrieve the first token if the root node contains a trailing comment", () => {
+		},
+	},
+	{
+		description: "should retrieve the first token if the root node contains a trailing comment",
+		fn: () => {
 			const parser = require("../../../../fixtures/parsers/all-comments-parser");
 			const code = "foo // comment";
 			const ast = parser.parse(code, {
@@ -881,9 +1136,11 @@ function createTestSuite(store) {
 			const token = tokenStore.getFirstToken(ast);
 
 			assert.strictEqual(token, ast.tokens[0]);
-		});
-
-		it("should return null if the source contains only comments", () => {
+		},
+	},
+	{
+		description: "should return null if the source contains only comments",
+		fn: () => {
 			const code = "// comment";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -894,32 +1151,40 @@ function createTestSuite(store) {
 			});
 
 			assert.strictEqual(token, null);
-		});
-
-		it("should return null if the source is empty", () => {
+		},
+	},
+	{
+		description: "should return null if the source is empty",
+		fn: () => {
 			const code = "";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			const token = tokenStore.getFirstToken(ast);
 
 			assert.strictEqual(token, null);
-		});
-
-		it("should retrieve the first token from Program when it starts with whitespace", () => {
+		},
+	},
+	{
+		description: "should retrieve the first token from Program when it starts with whitespace",
+		fn: () => {
 			const code = " bar";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			assert.strictEqual(tokenStore.getFirstToken(ast).value, "bar");
-		});
-
-		it("should retrieve the first token from Program when it starts with a comment", () => {
+		},
+	},
+	{
+		description: "should retrieve the first token from Program when it starts with a comment",
+		fn: () => {
 			const code = "/*comment*/ bar";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			assert.strictEqual(tokenStore.getFirstToken(ast).value, "bar");
-		});
-
-		it("should retrieve the first token from Program when it starts with whitespace and a comment", () => {
+		},
+	},
+	{
+		description: "should retrieve the first token from Program when it starts with whitespace and a comment",
+		fn: () => {
 			const code = " /*comment*/ bar";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -927,34 +1192,53 @@ function createTestSuite(store) {
 				tokenStore.getFirstToken(ast, { includeComments: true }).value,
 				"comment",
 			);
-		});
-	});
+		},
+	},
+];
 
-	describe("when calling getLastTokens", () => {
-		it("should retrieve zero tokens from the end of a node's token stream", () => {
+const getLastTokensTests = [
+	{
+		description: "should retrieve zero tokens from the end of a node's token stream",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getLastTokens(BinaryExpression, 0), []);
-		});
-
-		it("should retrieve one token from the end of a node's token stream", () => {
+		},
+	},
+	{
+		description: "should retrieve one token from the end of a node's token stream",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getLastTokens(BinaryExpression, 1), ["b"]);
-		});
-
-		it("should retrieve more than one token from the end of a node's token stream", () => {
+		},
+	},
+	{
+		description: "should retrieve more than one token from the end of a node's token stream",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getLastTokens(BinaryExpression, 2), ["*", "b"]);
-		});
-
-		it("should retrieve all tokens from the end of a node's token stream", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens from the end of a node's token stream",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getLastTokens(BinaryExpression, 9e9), ["a", "*", "b"]);
-		});
-
-		it("should retrieve more than one token from the end of a node's token stream with count option", () => {
+		},
+	},
+	{
+		description: "should retrieve more than one token from the end of a node's token stream with count option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getLastTokens(BinaryExpression, { count: 2 }), [
 				"*",
 				"b",
 			]);
-		});
-
-		it("should retrieve matched tokens from the end of a node's token stream with filter option", () => {
+		},
+	},
+	{
+		description: "should retrieve matched tokens from the end of a node's token stream with filter option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getLastTokens(
 					BinaryExpression,
@@ -968,9 +1252,12 @@ function createTestSuite(store) {
 				}),
 				["a", "b"],
 			);
-		});
-
-		it("should retrieve matched tokens from the end of a node's token stream with filter and count options", () => {
+		},
+	},
+	{
+		description: "should retrieve matched tokens from the end of a node's token stream with filter and count options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getLastTokens(BinaryExpression, {
 					count: 1,
@@ -978,18 +1265,24 @@ function createTestSuite(store) {
 				}),
 				["b"],
 			);
-		});
-
-		it("should retrieve all tokens from the end of a node's token stream with includeComments option", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens from the end of a node's token stream with includeComments option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getLastTokens(BinaryExpression, {
 					includeComments: true,
 				}),
 				["a", "D", "*", "b"],
 			);
-		});
-
-		it("should retrieve matched tokens from the end of a node's token stream with includeComments and count options", () => {
+		},
+	},
+	{
+		description: "should retrieve matched tokens from the end of a node's token stream with includeComments and count options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getLastTokens(BinaryExpression, {
 					includeComments: true,
@@ -997,9 +1290,12 @@ function createTestSuite(store) {
 				}),
 				["D", "*", "b"],
 			);
-		});
-
-		it("should retrieve matched tokens from the end of a node's token stream with includeComments and count and filter options", () => {
+		},
+	},
+	{
+		description: "should retrieve matched tokens from the end of a node's token stream with includeComments and count and filter options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getLastTokens(BinaryExpression, {
 					includeComments: true,
@@ -1008,23 +1304,29 @@ function createTestSuite(store) {
 				}),
 				["a", "D", "b"],
 			);
-		});
-
-		it("should retrieve the last token from Program when it ends with whitespace", () => {
+		},
+	},
+	{
+		description: "should retrieve the last token from Program when it ends with whitespace",
+		fn: () => {
 			const code = "bar ";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			check(tokenStore.getLastTokens(ast, 1), ["bar"]);
-		});
-
-		it("should retrieve the last token from Program when it ends with a comment", () => {
+		},
+	},
+	{
+		description: "should retrieve the last token from Program when it ends with a comment",
+		fn: () => {
 			const code = "bar /*comment*/";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			check(tokenStore.getLastTokens(ast, 1), ["bar"]);
-		});
-
-		it("should retrieve the last token/comment from Program when it ends with a comment and whitespace", () => {
+		},
+	},
+	{
+		description: "should retrieve the last token/comment from Program when it ends with a comment and whitespace",
+		fn: () => {
 			const code = "bar /*comment*/ ";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -1035,19 +1337,26 @@ function createTestSuite(store) {
 				}),
 				["bar", "comment"],
 			);
-		});
-	});
+		},
+	},
+];
 
-	describe("when calling getLastToken", () => {
-		it("should retrieve the last token of a node's token stream", () => {
+const getLastTokenTests = [
+	{
+		description: "should retrieve the last token of a node's token stream",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(store.getLastToken(BinaryExpression).value, "b");
 			assert.strictEqual(
 				store.getLastToken(VariableDeclaration).value,
 				"b",
 			);
-		});
-
-		it("should skip a given number of tokens", () => {
+		},
+	},
+	{
+		description: "should skip a given number of tokens",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getLastToken(BinaryExpression, 1).value,
 				"*",
@@ -1056,9 +1365,12 @@ function createTestSuite(store) {
 				store.getLastToken(BinaryExpression, 2).value,
 				"a",
 			);
-		});
-
-		it("should skip a given number of tokens with skip option", () => {
+		},
+	},
+	{
+		description: "should skip a given number of tokens with skip option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getLastToken(BinaryExpression, { skip: 1 }).value,
 				"*",
@@ -1067,9 +1379,12 @@ function createTestSuite(store) {
 				store.getLastToken(BinaryExpression, { skip: 2 }).value,
 				"a",
 			);
-		});
-
-		it("should retrieve the last matched token of a node's token stream with filter option", () => {
+		},
+	},
+	{
+		description: "should retrieve the last matched token of a node's token stream with filter option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getLastToken(BinaryExpression, t => t.value !== "b")
 					.value,
@@ -1081,9 +1396,12 @@ function createTestSuite(store) {
 				}).value,
 				"*",
 			);
-		});
-
-		it("should retrieve the last matched token of a node's token stream with filter and skip options", () => {
+		},
+	},
+	{
+		description: "should retrieve the last matched token of a node's token stream with filter and skip options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getLastToken(BinaryExpression, {
 					skip: 1,
@@ -1091,17 +1409,23 @@ function createTestSuite(store) {
 				}).value,
 				"a",
 			);
-		});
-
-		it("should retrieve the last token of a node's token stream with includeComments option", () => {
+		},
+	},
+	{
+		description: "should retrieve the last token of a node's token stream with includeComments option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getLastToken(BinaryExpression, { includeComments: true })
 					.value,
 				"b",
 			);
-		});
-
-		it("should retrieve the last token of a node's token stream with includeComments and skip options", () => {
+		},
+	},
+	{
+		description: "should retrieve the last token of a node's token stream with includeComments and skip options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getLastToken(BinaryExpression, {
 					includeComments: true,
@@ -1109,9 +1433,12 @@ function createTestSuite(store) {
 				}).value,
 				"D",
 			);
-		});
-
-		it("should retrieve the last token of a node's token stream with includeComments and skip and filter options", () => {
+		},
+	},
+	{
+		description: "should retrieve the last token of a node's token stream with includeComments and skip and filter options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getLastToken(BinaryExpression, {
 					includeComments: true,
@@ -1120,9 +1447,11 @@ function createTestSuite(store) {
 				}).value,
 				"D",
 			);
-		});
-
-		it("should retrieve the last comment if the comment is at the last of nodes", () => {
+		},
+	},
+	{
+		description: "should retrieve the last comment if the comment is at the last of nodes",
+		fn: () => {
 			const code = "a + b /*comment*/\nc + d";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -1133,9 +1462,11 @@ function createTestSuite(store) {
 			);
 
 			assert.strictEqual(token.value, "comment");
-		});
-
-		it("should retrieve the last token (without includeComments option) if the comment is at the last of nodes", () => {
+		},
+	},
+	{
+		description: "should retrieve the last token (without includeComments option) if the comment is at the last of nodes",
+		fn: () => {
 			const code = "a + b /*comment*/\nc + d";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -1145,9 +1476,11 @@ function createTestSuite(store) {
 			});
 
 			assert.strictEqual(token.value, "b");
-		});
-
-		it("should retrieve the last token if the root node contains a trailing comment", () => {
+		},
+	},
+	{
+		description: "should retrieve the last token if the root node contains a trailing comment",
+		fn: () => {
 			const parser = require("../../../../fixtures/parsers/all-comments-parser");
 			const code = "foo // comment";
 			const ast = parser.parse(code, {
@@ -1160,23 +1493,29 @@ function createTestSuite(store) {
 			const token = tokenStore.getLastToken(ast);
 
 			assert.strictEqual(token, ast.tokens[0]);
-		});
-
-		it("should retrieve the last token from Program when it ends with whitespace", () => {
+		},
+	},
+	{
+		description: "should retrieve the last token from Program when it ends with whitespace",
+		fn: () => {
 			const code = "bar ";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			assert.strictEqual(tokenStore.getLastToken(ast).value, "bar");
-		});
-
-		it("should retrieve the last token from Program when it ends with a comment", () => {
+		},
+	},
+	{
+		description: "should retrieve the last token from Program when it ends with a comment",
+		fn: () => {
 			const code = "bar /*comment*/";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			assert.strictEqual(tokenStore.getLastToken(ast).value, "bar");
-		});
-
-		it("should retrieve the last token from Program when it ends with a comment and whitespace", () => {
+		},
+	},
+	{
+		description: "should retrieve the last token from Program when it ends with a comment and whitespace",
+		fn: () => {
 			const code = "bar /*comment*/ ";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -1184,9 +1523,11 @@ function createTestSuite(store) {
 				tokenStore.getLastToken(ast, { includeComments: true }).value,
 				"comment",
 			);
-		});
-
-		it("should return null if the source contains only comments", () => {
+		},
+	},
+	{
+		description: "should return null if the source contains only comments",
+		fn: () => {
 			const code = "// comment";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -1197,27 +1538,36 @@ function createTestSuite(store) {
 			});
 
 			assert.strictEqual(token, null);
-		});
-
-		it("should return null if the source is empty", () => {
+		},
+	},
+	{
+		description: "should return null if the source is empty",
+		fn: () => {
 			const code = "";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			const token = tokenStore.getLastToken(ast);
 
 			assert.strictEqual(token, null);
-		});
-	});
+		},
+	},
+];
 
-	describe("when calling getFirstTokensBetween", () => {
-		it("should retrieve zero tokens between adjacent nodes", () => {
+const getFirstTokensBetweenTests = [
+	{
+		description: "should retrieve zero tokens between adjacent nodes",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getFirstTokensBetween(BinaryExpression, CallExpression),
 				[],
 			);
-		});
-
-		it("should retrieve multiple tokens between non-adjacent nodes with count option", () => {
+		},
+	},
+	{
+		description: "should retrieve multiple tokens between non-adjacent nodes with count option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getFirstTokensBetween(
 					VariableDeclarator.id,
@@ -1234,9 +1584,12 @@ function createTestSuite(store) {
 				),
 				["=", "a"],
 			);
-		});
-
-		it("should retrieve matched tokens between non-adjacent nodes with filter option", () => {
+		},
+	},
+	{
+		description: "should retrieve matched tokens between non-adjacent nodes with filter option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getFirstTokensBetween(
 					VariableDeclarator.id,
@@ -1245,9 +1598,12 @@ function createTestSuite(store) {
 				),
 				["a"],
 			);
-		});
-
-		it("should retrieve all tokens between non-adjacent nodes with empty object option", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens between non-adjacent nodes with empty object option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getFirstTokensBetween(
 					VariableDeclarator.id,
@@ -1256,9 +1612,12 @@ function createTestSuite(store) {
 				),
 				["=", "a", "*"],
 			);
-		});
-
-		it("should retrieve multiple tokens between non-adjacent nodes with includeComments option", () => {
+		},
+	},
+	{
+		description: "should retrieve multiple tokens between non-adjacent nodes with includeComments option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getFirstTokensBetween(
 					VariableDeclarator.id,
@@ -1267,9 +1626,12 @@ function createTestSuite(store) {
 				),
 				["B", "=", "C", "a", "D", "*"],
 			);
-		});
-
-		it("should retrieve multiple tokens between non-adjacent nodes with includeComments and count options", () => {
+		},
+	},
+	{
+		description: "should retrieve multiple tokens between non-adjacent nodes with includeComments and count options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getFirstTokensBetween(
 					VariableDeclarator.id,
@@ -1278,9 +1640,12 @@ function createTestSuite(store) {
 				),
 				["B", "=", "C"],
 			);
-		});
-
-		it("should retrieve multiple tokens and comments between non-adjacent nodes with includeComments and filter options", () => {
+		},
+	},
+	{
+		description: "should retrieve multiple tokens and comments between non-adjacent nodes with includeComments and filter options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getFirstTokensBetween(
 					VariableDeclarator.id,
@@ -1292,18 +1657,25 @@ function createTestSuite(store) {
 				),
 				["B", "C", "a", "D"],
 			);
-		});
-	});
+		},
+	},
+];
 
-	describe("when calling getFirstTokenBetween", () => {
-		it("should return null between adjacent nodes", () => {
+const getFirstTokenBetweenTests = [
+	{
+		description: "should return null between adjacent nodes",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getFirstTokenBetween(BinaryExpression, CallExpression),
 				null,
 			);
-		});
-
-		it("should retrieve one token between non-adjacent nodes with count option", () => {
+		},
+	},
+	{
+		description: "should retrieve one token between non-adjacent nodes with count option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getFirstTokenBetween(
 					VariableDeclarator.id,
@@ -1311,9 +1683,12 @@ function createTestSuite(store) {
 				).value,
 				"=",
 			);
-		});
-
-		it("should retrieve one token between non-adjacent nodes with skip option", () => {
+		},
+	},
+	{
+		description: "should retrieve one token between non-adjacent nodes with skip option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getFirstTokenBetween(
 					VariableDeclarator.id,
@@ -1330,9 +1705,12 @@ function createTestSuite(store) {
 				).value,
 				"*",
 			);
-		});
-
-		it("should return null if it's skipped beyond the right token", () => {
+		},
+	},
+	{
+		description: "should return null if it's skipped beyond the right token",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getFirstTokenBetween(
 					VariableDeclarator.id,
@@ -1349,9 +1727,12 @@ function createTestSuite(store) {
 				),
 				null,
 			);
-		});
-
-		it("should retrieve the first matched token between non-adjacent nodes with filter option", () => {
+		},
+	},
+	{
+		description: "should retrieve the first matched token between non-adjacent nodes with filter option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getFirstTokenBetween(
 					VariableDeclarator.id,
@@ -1360,9 +1741,12 @@ function createTestSuite(store) {
 				).value,
 				"=",
 			);
-		});
-
-		it("should retrieve first token or comment between non-adjacent nodes with includeComments option", () => {
+		},
+	},
+	{
+		description: "should retrieve first token or comment between non-adjacent nodes with includeComments option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getFirstTokenBetween(
 					VariableDeclarator.id,
@@ -1371,9 +1755,12 @@ function createTestSuite(store) {
 				).value,
 				"B",
 			);
-		});
-
-		it("should retrieve first token or comment between non-adjacent nodes with includeComments and skip options", () => {
+		},
+	},
+	{
+		description: "should retrieve first token or comment between non-adjacent nodes with includeComments and skip options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getFirstTokenBetween(
 					VariableDeclarator.id,
@@ -1382,9 +1769,12 @@ function createTestSuite(store) {
 				).value,
 				"=",
 			);
-		});
-
-		it("should retrieve first token or comment between non-adjacent nodes with includeComments and skip and filter options", () => {
+		},
+	},
+	{
+		description: "should retrieve first token or comment between non-adjacent nodes with includeComments and skip and filter options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getFirstTokenBetween(
 					VariableDeclarator.id,
@@ -1397,18 +1787,25 @@ function createTestSuite(store) {
 				).value,
 				"C",
 			);
-		});
-	});
+		},
+	},
+];
 
-	describe("when calling getLastTokensBetween", () => {
-		it("should retrieve zero tokens between adjacent nodes", () => {
+const getLastTokensBetweenTests = [
+	{
+		description: "should retrieve zero tokens between adjacent nodes",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getLastTokensBetween(BinaryExpression, CallExpression),
 				[],
 			);
-		});
-
-		it("should retrieve multiple tokens between non-adjacent nodes with count option", () => {
+		},
+	},
+	{
+		description: "should retrieve multiple tokens between non-adjacent nodes with count option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getLastTokensBetween(
 					VariableDeclarator.id,
@@ -1425,9 +1822,12 @@ function createTestSuite(store) {
 				),
 				["a", "*"],
 			);
-		});
-
-		it("should retrieve matched tokens between non-adjacent nodes with filter option", () => {
+		},
+	},
+	{
+		description: "should retrieve matched tokens between non-adjacent nodes with filter option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getLastTokensBetween(
 					VariableDeclarator.id,
@@ -1436,9 +1836,12 @@ function createTestSuite(store) {
 				),
 				["a"],
 			);
-		});
-
-		it("should retrieve all tokens between non-adjacent nodes with empty object option", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens between non-adjacent nodes with empty object option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getLastTokensBetween(
 					VariableDeclarator.id,
@@ -1447,9 +1850,12 @@ function createTestSuite(store) {
 				),
 				["=", "a", "*"],
 			);
-		});
-
-		it("should retrieve all tokens and comments between non-adjacent nodes with includeComments option", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens and comments between non-adjacent nodes with includeComments option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getLastTokensBetween(
 					VariableDeclarator.id,
@@ -1458,9 +1864,12 @@ function createTestSuite(store) {
 				),
 				["B", "=", "C", "a", "D", "*"],
 			);
-		});
-
-		it("should retrieve multiple tokens between non-adjacent nodes with includeComments and count options", () => {
+		},
+	},
+	{
+		description: "should retrieve multiple tokens between non-adjacent nodes with includeComments and count options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getLastTokensBetween(
 					VariableDeclarator.id,
@@ -1469,9 +1878,12 @@ function createTestSuite(store) {
 				),
 				["a", "D", "*"],
 			);
-		});
-
-		it("should retrieve multiple tokens and comments between non-adjacent nodes with includeComments and filter options", () => {
+		},
+	},
+	{
+		description: "should retrieve multiple tokens and comments between non-adjacent nodes with includeComments and filter options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getLastTokensBetween(
 					VariableDeclarator.id,
@@ -1483,18 +1895,25 @@ function createTestSuite(store) {
 				),
 				["B", "C", "a", "D"],
 			);
-		});
-	});
+		},
+	},
+];
 
-	describe("when calling getLastTokenBetween", () => {
-		it("should return null between adjacent nodes", () => {
+const getLastTokenBetweenTests = [
+	{
+		description: "should return null between adjacent nodes",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getLastTokenBetween(BinaryExpression, CallExpression),
 				null,
 			);
-		});
-
-		it("should retrieve one token between non-adjacent nodes with count option", () => {
+		},
+	},
+	{
+		description: "should retrieve one token between non-adjacent nodes with count option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getLastTokenBetween(
 					VariableDeclarator.id,
@@ -1502,9 +1921,12 @@ function createTestSuite(store) {
 				).value,
 				"*",
 			);
-		});
-
-		it("should retrieve one token between non-adjacent nodes with skip option", () => {
+		},
+	},
+	{
+		description: "should retrieve one token between non-adjacent nodes with skip option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getLastTokenBetween(
 					VariableDeclarator.id,
@@ -1521,9 +1943,12 @@ function createTestSuite(store) {
 				).value,
 				"=",
 			);
-		});
-
-		it("should return null if it's skipped beyond the right token", () => {
+		},
+	},
+	{
+		description: "should return null if it's skipped beyond the right token",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getLastTokenBetween(
 					VariableDeclarator.id,
@@ -1540,9 +1965,12 @@ function createTestSuite(store) {
 				),
 				null,
 			);
-		});
-
-		it("should retrieve the first matched token between non-adjacent nodes with filter option", () => {
+		},
+	},
+	{
+		description: "should retrieve the first matched token between non-adjacent nodes with filter option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getLastTokenBetween(
 					VariableDeclarator.id,
@@ -1551,9 +1979,12 @@ function createTestSuite(store) {
 				).value,
 				"*",
 			);
-		});
-
-		it("should retrieve first token or comment between non-adjacent nodes with includeComments option", () => {
+		},
+	},
+	{
+		description: "should retrieve first token or comment between non-adjacent nodes with includeComments option",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getLastTokenBetween(
 					VariableDeclarator.id,
@@ -1562,9 +1993,12 @@ function createTestSuite(store) {
 				).value,
 				"*",
 			);
-		});
-
-		it("should retrieve first token or comment between non-adjacent nodes with includeComments and skip options", () => {
+		},
+	},
+	{
+		description: "should retrieve first token or comment between non-adjacent nodes with includeComments and skip options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getLastTokenBetween(
 					VariableDeclarator.id,
@@ -1573,9 +2007,12 @@ function createTestSuite(store) {
 				).value,
 				"D",
 			);
-		});
-
-		it("should retrieve first token or comment between non-adjacent nodes with includeComments and skip and filter options", () => {
+		},
+	},
+	{
+		description: "should retrieve first token or comment between non-adjacent nodes with includeComments and skip and filter options",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getLastTokenBetween(
 					VariableDeclarator.id,
@@ -1588,15 +2025,22 @@ function createTestSuite(store) {
 				).value,
 				"a",
 			);
-		});
-	});
+		},
+	},
+];
 
-	describe("when calling getTokensBetween", () => {
-		it("should retrieve zero tokens between adjacent nodes", () => {
+const getTokensBetweenTests = [
+	{
+		description: "should retrieve zero tokens between adjacent nodes",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getTokensBetween(BinaryExpression, CallExpression), []);
-		});
-
-		it("should retrieve one token between nodes", () => {
+		},
+	},
+	{
+		description: "should retrieve one token between nodes",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getTokensBetween(
 					BinaryExpression.left,
@@ -1604,9 +2048,12 @@ function createTestSuite(store) {
 				),
 				["*"],
 			);
-		});
-
-		it("should retrieve multiple tokens between non-adjacent nodes", () => {
+		},
+	},
+	{
+		description: "should retrieve multiple tokens between non-adjacent nodes",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getTokensBetween(
 					VariableDeclarator.id,
@@ -1614,9 +2061,12 @@ function createTestSuite(store) {
 				),
 				["=", "a", "*"],
 			);
-		});
-
-		it("should retrieve surrounding tokens when asked for padding", () => {
+		},
+	},
+	{
+		description: "should retrieve surrounding tokens when asked for padding",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(
 				store.getTokensBetween(
 					VariableDeclarator.id,
@@ -1625,49 +2075,68 @@ function createTestSuite(store) {
 				),
 				["var", "answer", "=", "a", "*"],
 			);
-		});
-	});
+		},
+	},
+];
 
-	describe("when calling getTokenByRangeStart", () => {
-		it("should return identifier token", () => {
+const getTokenByRangeStartTests = [
+	{
+		description: "should return identifier token",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			const result = store.getTokenByRangeStart(9);
 
 			assert.strictEqual(result.type, "Identifier");
 			assert.strictEqual(result.value, "answer");
-		});
-
-		it("should return null when token doesn't exist", () => {
+		},
+	},
+	{
+		description: "should return null when token doesn't exist",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			const result = store.getTokenByRangeStart(10);
 
 			assert.isNull(result);
-		});
-
-		it("should return a comment token when includeComments is true", () => {
+		},
+	},
+	{
+		description: "should return a comment token when includeComments is true",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			const result = store.getTokenByRangeStart(15, {
 				includeComments: true,
 			});
 
 			assert.strictEqual(result.type, "Block");
 			assert.strictEqual(result.value, "B");
-		});
-
-		it("should not return a comment token at the supplied index when includeComments is false", () => {
+		},
+	},
+	{
+		description: "should not return a comment token at the supplied index when includeComments is false",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			const result = store.getTokenByRangeStart(15, {
 				includeComments: false,
 			});
 
 			assert.isNull(result);
-		});
-
-		it("should not return comment tokens by default", () => {
+		},
+	},
+	{
+		description: "should not return comment tokens by default",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			const result = store.getTokenByRangeStart(15);
 
 			assert.isNull(result);
-		});
-	});
+		},
+	},
+];
 
-	describe("when calling getFirstToken & getTokenAfter", () => {
-		it("should retrieve all tokens and comments in the node", () => {
+const getFirstTokenAndTokenAfterTests = [
+	{
+		description: "should retrieve all tokens and comments in the node",
+		fn: () => {
 			const code = "(function(a, /*b,*/ c){})";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -1694,9 +2163,11 @@ function createTestSuite(store) {
 				"}",
 				")",
 			]);
-		});
-
-		it("should retrieve all tokens and comments in the node (no spaces)", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens and comments in the node (no spaces)",
+		fn: () => {
 			const code = "(function(a,/*b,*/c){})";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -1723,11 +2194,14 @@ function createTestSuite(store) {
 				"}",
 				")",
 			]);
-		});
-	});
+		},
+	},
+];
 
-	describe("when calling getLastToken & getTokenBefore", () => {
-		it("should retrieve all tokens and comments in the node", () => {
+const getLastTokenAndTokenBeforeTests = [
+	{
+		description: "should retrieve all tokens and comments in the node",
+		fn: () => {
 			const code = "(function(a, /*b,*/ c){})";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -1754,9 +2228,11 @@ function createTestSuite(store) {
 				"}",
 				")",
 			]);
-		});
-
-		it("should retrieve all tokens and comments in the node (no spaces)", () => {
+		},
+	},
+	{
+		description: "should retrieve all tokens and comments in the node (no spaces)",
+		fn: () => {
 			const code = "(function(a,/*b,*/c){})";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
@@ -1783,105 +2259,152 @@ function createTestSuite(store) {
 				"}",
 				")",
 			]);
-		});
-	});
+		},
+	},
+];
 
-	describe("when calling commentsExistBetween", () => {
-		it("should retrieve false if comments don't exist", () => {
+const commentsExistBetweenTests = [
+	{
+		description: "should retrieve false if comments don't exist",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.isFalse(
 				store.commentsExistBetween(AST.tokens[0], AST.tokens[1]),
 			);
-		});
-
-		it("should retrieve true if comments exist", () => {
+		},
+	},
+	{
+		description: "should retrieve true if comments exist",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.isTrue(
 				store.commentsExistBetween(AST.tokens[1], AST.tokens[2]),
 			);
-		});
-	});
+		},
+	},
+];
 
-	describe("getCommentsBefore", () => {
-		it("should retrieve comments before a node", () => {
+const getCommentsBeforeTests = [
+	{
+		description: "should retrieve comments before a node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getCommentsBefore(VariableDeclaration)[0].value,
 				"A",
 			);
-		});
-
-		it("should retrieve comments before a token", () => {
+		},
+	},
+	{
+		description: "should retrieve comments before a token",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getCommentsBefore(TOKENS[2])[0].value,
 				"B",
 			);
-		});
-
-		it("should retrieve multiple comments before a node", () => {
+		},
+	},
+	{
+		description: "should retrieve multiple comments before a node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			const comments = store.getCommentsBefore(CallExpression);
 
 			assert.strictEqual(comments.length, 2);
 			assert.strictEqual(comments[0].value, "E");
 			assert.strictEqual(comments[1].value, "F");
-		});
-
-		it("should return an empty array for a Program node", () => {
+		},
+	},
+	{
+		description: "should return an empty array for a Program node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getCommentsBefore(Program), []);
-		});
-
-		it("should return an empty array if there are no comments before a node or token", () => {
+		},
+	},
+	{
+		description: "should return an empty array if there are no comments before a node or token",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getCommentsBefore(BinaryExpression.right), []);
 			check(store.getCommentsBefore(TOKENS[1]), []);
-		});
-
-		it("should retrieve no comments before Program when it starts with whitespace and a comment", () => {
+		},
+	},
+	{
+		description: "should retrieve no comments before Program when it starts with whitespace and a comment",
+		fn: () => {
 			const code = " /*comment*/ bar";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			check(tokenStore.getCommentsBefore(ast), []);
-		});
-	});
+		},
+	},
+];
 
-	describe("getCommentsAfter", () => {
-		it("should retrieve comments after a node", () => {
+const getCommentsAfterTests = [
+	{
+		description: "should retrieve comments after a node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getCommentsAfter(VariableDeclarator.id)[0].value,
 				"B",
 			);
-		});
-
-		it("should retrieve comments after a token", () => {
+		},
+	},
+	{
+		description: "should retrieve comments after a token",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			assert.strictEqual(
 				store.getCommentsAfter(TOKENS[2])[0].value,
 				"C",
 			);
-		});
-
-		it("should retrieve multiple comments after a node", () => {
+		},
+	},
+	{
+		description: "should retrieve multiple comments after a node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			const comments = store.getCommentsAfter(VariableDeclaration);
 
 			assert.strictEqual(comments.length, 2);
 			assert.strictEqual(comments[0].value, "E");
 			assert.strictEqual(comments[1].value, "F");
-		});
-
-		it("should return an empty array for a Program node", () => {
+		},
+	},
+	{
+		description: "should return an empty array for a Program node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getCommentsAfter(Program), []);
-		});
-
-		it("should return an empty array if there are no comments after a node or token", () => {
+		},
+	},
+	{
+		description: "should return an empty array if there are no comments after a node or token",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getCommentsAfter(CallExpression.callee), []);
 			check(store.getCommentsAfter(TOKENS[0]), []);
-		});
-
-		it("should retrieve no comments after Program when it ends with a comment and whitespace", () => {
+		},
+	},
+	{
+		description: "should retrieve no comments after Program when it ends with a comment and whitespace",
+		fn: () => {
 			const code = "bar /*comment*/ ";
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 			check(tokenStore.getCommentsAfter(ast), []);
-		});
-	});
+		},
+	},
+];
 
-	describe("getCommentsInside", () => {
-		it("should retrieve comments inside a node", () => {
+const getCommentsInsideTests = [
+	{
+		description: "should retrieve comments inside a node",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getCommentsInside(Program), [
 				"A",
 				"B",
@@ -1898,15 +2421,37 @@ function createTestSuite(store) {
 			]);
 			check(store.getCommentsInside(VariableDeclarator), ["B", "C", "D"]);
 			check(store.getCommentsInside(BinaryExpression), ["D"]);
-		});
-
-		it("should return an empty array if a node does not contain any comments", () => {
+		},
+	},
+	{
+		description: "should return an empty array if a node does not contain any comments",
+		fn: () => {
+			const store = new TokenStore(TOKENS, COMMENTS);
 			check(store.getCommentsInside(TOKENS[2]), []);
-		});
-	});
-}
+		},
+	},
+];
 
 describe("TokenStore", () => {
-	const store = new TokenStore(TOKENS, COMMENTS);
-	createTestSuite(store);
+	createTestSuite("when calling getTokens", getTokensTests);
+	createTestSuite("when calling getTokensBefore", getTokensBeforeTests);
+	createTestSuite("when calling getTokenBefore", getTokenBeforeTests);
+	createTestSuite("when calling getTokensAfter", getTokensAfterTests);
+	createTestSuite("when calling getTokenAfter", getTokenAfterTests);
+	createTestSuite("when calling getFirstTokens", getFirstTokensTests);
+	createTestSuite("when calling getFirstToken", getFirstTokenTests);
+	createTestSuite("when calling getLastTokens", getLastTokensTests);
+	createTestSuite("when calling getLastToken", getLastTokenTests);
+	createTestSuite("when calling getFirstTokensBetween", getFirstTokensBetweenTests);
+	createTestSuite("when calling getFirstTokenBetween", getFirstTokenBetweenTests);
+	createTestSuite("when calling getLastTokensBetween", getLastTokensBetweenTests);
+	createTestSuite("when calling getLastTokenBetween", getLastTokenBetweenTests);
+	createTestSuite("when calling getTokensBetween", getTokensBetweenTests);
+	createTestSuite("when calling getTokenByRangeStart", getTokenByRangeStartTests);
+	createTestSuite("when calling getFirstToken & getTokenAfter", getFirstTokenAndTokenAfterTests);
+	createTestSuite("when calling getLastToken & getTokenBefore", getLastTokenAndTokenBeforeTests);
+	createTestSuite("when calling commentsExistBetween", commentsExistBetweenTests);
+	createTestSuite("getCommentsBefore", getCommentsBeforeTests);
+	createTestSuite("getCommentsAfter", getCommentsAfterTests);
+	createTestSuite("getCommentsInside", getCommentsInsideTests);
 });

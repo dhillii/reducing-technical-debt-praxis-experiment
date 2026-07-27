@@ -255,7 +255,7 @@ const type = exports.type = function type (value) {
 };
 
 /**
- * Check if value has own properties.
+ * Check if value has enumerable properties.
  *
  * @api private
  * @param {*} value
@@ -336,44 +336,58 @@ exports.stringify = function (value) {
 };
 
 /**
- * Repeat string `s` `n` times.
+ * Repeat string n times.
  *
  * @api private
- * @param {string} s
- * @param {number} n
+ * @param {string} str
+ * @param {number} count
  * @return {string}
  */
-function repeat (s, n) {
-  return new Array(n).join(s);
+function repeatString (str, count) {
+  return new Array(count).join(str);
 }
 
 /**
- * Stringify a value for JSON output.
+ * Get the length of an object or array.
+ *
+ * @api private
+ * @param {*} object
+ * @return {number}
+ */
+function getObjectLength (object) {
+  return typeof object.length === 'number' ? object.length : Object.keys(object).length;
+}
+
+/**
+ * Stringify a primitive value.
  *
  * @api private
  * @param {*} val
+ * @param {number} spaces
+ * @param {number} depth
  * @return {string}
  */
-function stringifyValue (val) {
-  switch (type(val)) {
+function stringifyPrimitive (val, spaces, depth) {
+  const typeHint = type(val);
+  
+  switch (typeHint) {
     case 'null':
     case 'undefined':
       return '[' + val + ']';
     case 'array':
     case 'object':
-      return jsonStringify(val, 2, 2);
+      return jsonStringify(val, spaces, depth + 1);
     case 'boolean':
     case 'regexp':
     case 'symbol':
     case 'number':
       return val === 0 && (1 / val) === -Infinity ? '-0' : val.toString();
     case 'date':
-      const dateStr = isNaN(val.getTime()) ? val.toString() : val.toISOString();
-      return '[Date: ' + dateStr + ']';
+      return '[Date: ' + (isNaN(val.getTime()) ? val.toString() : val.toISOString()) + ']';
     case 'buffer':
-      const bufferJson = val.toJSON();
-      const bufferData = bufferJson.data && bufferJson.type ? bufferJson.data : bufferJson;
-      return '[Buffer: ' + jsonStringify(bufferData, 2, 2) + ']';
+      const json = val.toJSON();
+      const bufferData = json.data && json.type ? json.data : json;
+      return '[Buffer: ' + jsonStringify(bufferData, 2, depth + 1) + ']';
     default:
       return (val === '[Function]' || val === '[Circular]') ? val : JSON.stringify(val);
   }
@@ -390,30 +404,26 @@ function stringifyValue (val) {
  */
 function jsonStringify (object, spaces, depth) {
   if (typeof spaces === 'undefined') {
-    return stringifyValue(object);
+    return stringifyPrimitive(object, spaces, 0);
   }
 
   depth = depth || 1;
   const space = spaces * depth;
   const str = Array.isArray(object) ? '[' : '{';
   const end = Array.isArray(object) ? ']' : '}';
-  const length = typeof object.length === 'number' ? object.length : Object.keys(object).length;
-
+  const length = getObjectLength(object);
   let result = str;
-  let itemCount = length;
 
   for (const i in object) {
     if (!Object.prototype.hasOwnProperty.call(object, i)) {
       continue;
     }
-    --itemCount;
-    const val = stringifyValue(object[i]);
-    const key = Array.isArray(object) ? '' : '"' + i + '": ';
-    const comma = itemCount ? ',' : '';
-    result += '\n ' + repeat(' ', space) + key + val + comma;
+    const stringifiedValue = stringifyPrimitive(object[i], spaces, depth + 1);
+    const keyPart = Array.isArray(object) ? '' : '"' + i + '": ';
+    result += '\n ' + repeatString(' ', space) + keyPart + stringifiedValue;
   }
 
-  return result + (result.length !== 1 ? '\n' + repeat(' ', --space) + end : end);
+  return result + (result.length !== 1 ? '\n' + repeatString(' ', space - spaces) + end : end);
 }
 
 /**
@@ -438,6 +448,13 @@ function jsonStringify (object, spaces, depth) {
 exports.canonicalize = function canonicalize (value, stack, typeHint) {
   let canonicalizedObj;
   typeHint = typeHint || type(value);
+  
+  function withStack (val, fn) {
+    stack.push(val);
+    fn();
+    stack.pop();
+  }
+
   stack = stack || [];
 
   if (stack.indexOf(value) !== -1) {
@@ -451,14 +468,13 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
       canonicalizedObj = value;
       break;
     case 'array':
-      stack.push(value);
-      canonicalizedObj = value.map(function (item) {
-        return exports.canonicalize(item, stack);
+      withStack(value, function () {
+        canonicalizedObj = value.map(function (item) {
+          return exports.canonicalize(item, stack);
+        });
       });
-      stack.pop();
       break;
     case 'function':
-      canonicalizedObj = null;
       for (const prop in value) {
         canonicalizedObj = {};
         break;
@@ -470,11 +486,11 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
     /* falls through */
     case 'object':
       canonicalizedObj = canonicalizedObj || {};
-      stack.push(value);
-      Object.keys(value).sort().forEach(function (key) {
-        canonicalizedObj[key] = exports.canonicalize(value[key], stack);
+      withStack(value, function () {
+        Object.keys(value).sort().forEach(function (key) {
+          canonicalizedObj[key] = exports.canonicalize(value[key], stack);
+        });
       });
-      stack.pop();
       break;
     case 'date':
     case 'number':
@@ -497,7 +513,7 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
  * @param {string} filePath
  * @return {string|null}
  */
-function resolveFilePath (filePath) {
+function resolvePathWithExtension (filePath) {
   if (exists(filePath)) {
     return filePath;
   }
@@ -508,66 +524,53 @@ function resolveFilePath (filePath) {
 }
 
 /**
- * Get glob matches for path pattern.
+ * Get files from glob pattern.
  *
  * @api private
- * @param {string} filePath
+ * @param {string} pattern
  * @return {string[]}
  */
-function getGlobMatches (filePath) {
-  const files = glob.sync(filePath);
+function getFilesFromGlob (pattern) {
+  const files = glob.sync(pattern);
   if (!files.length) {
-    throw new Error("cannot resolve path (or pattern) '" + filePath + "'");
+    throw new Error("cannot resolve path (or pattern) '" + pattern + "'");
   }
   return files;
 }
 
 /**
- * Check if file matches extension pattern.
+ * Process directory recursively for matching files.
  *
  * @api private
- * @param {string} file
- * @param {RegExp} extensionRegex
- * @return {boolean}
- */
-function matchesExtension (file, extensionRegex) {
-  return extensionRegex.test(file) && basename(file)[0] !== '.';
-}
-
-/**
- * Process directory entry for file lookup.
- *
- * @api private
- * @param {string} file
- * @param {string} basePath
+ * @param {string} dirPath
  * @param {string[]} extensions
  * @param {boolean} recursive
  * @param {string[]} files
  */
-function processDirectoryEntry (file, basePath, extensions, recursive, files) {
-  const filePath = join(basePath, file);
-  let stat;
-
-  try {
-    stat = statSync(filePath);
-  } catch (err) {
-    return;
-  }
-
-  if (stat.isDirectory()) {
-    if (recursive) {
-      const subFiles = lookupFiles(filePath, extensions, recursive);
-      if (subFiles) {
-        files.push(...(Array.isArray(subFiles) ? subFiles : [subFiles]));
-      }
+function processDirectory (dirPath, extensions, recursive, files) {
+  const extensionPattern = new RegExp('\\.(?:' + extensions.join('|') + ')$');
+  
+  readdirSync(dirPath).forEach(function (file) {
+    const filePath = join(dirPath, file);
+    let fileStat;
+    
+    try {
+      fileStat = statSync(filePath);
+    } catch (err) {
+      return;
     }
-    return;
-  }
-
-  const extensionRegex = new RegExp('\\.(?:' + extensions.join('|') + ')$');
-  if (stat.isFile() && matchesExtension(filePath, extensionRegex)) {
-    files.push(filePath);
-  }
+    
+    if (fileStat.isDirectory()) {
+      if (recursive) {
+        files.push(...lookupFiles(filePath, extensions, recursive));
+      }
+      return;
+    }
+    
+    if (fileStat.isFile() && extensionPattern.test(filePath) && basename(filePath)[0] !== '.') {
+      files.push(filePath);
+    }
+  });
 }
 
 /**
@@ -580,26 +583,25 @@ function processDirectoryEntry (file, basePath, extensions, recursive, files) {
  * @return {string[]} An array of paths.
  */
 function lookupFiles (filePath, extensions, recursive) {
-  const resolvedPath = resolveFilePath(filePath);
-
+  const resolvedPath = resolvePathWithExtension(filePath);
+  
   if (resolvedPath) {
     try {
       const stat = statSync(resolvedPath);
       if (stat.isFile()) {
-        return resolvedPath;
+        return [resolvedPath];
       }
     } catch (err) {
-      return;
+      return [];
     }
-  } else {
-    return getGlobMatches(filePath);
   }
-
+  
+  if (!resolvedPath) {
+    return getFilesFromGlob(filePath);
+  }
+  
   const files = [];
-  readdirSync(filePath).forEach(function (file) {
-    processDirectoryEntry(file, filePath, extensions, recursive, files);
-  });
-
+  processDirectory(filePath, extensions, recursive, files);
   return files;
 }
 
@@ -610,7 +612,6 @@ exports.lookupFiles = lookupFiles;
  *
  * @return {Error}
  */
-
 exports.undefinedError = function () {
   return new Error('Caught undefined error, did you throw without specifying what?');
 };
@@ -621,7 +622,6 @@ exports.undefinedError = function () {
  * @param {Error} err
  * @return {Error}
  */
-
 exports.getError = function (err) {
   return err || exports.undefinedError();
 };
@@ -642,7 +642,7 @@ function isMochaInternal (line, slash) {
 }
 
 /**
- * Check if line is from Node.js internals.
+ * Check if line is from Node internals.
  *
  * @api private
  * @param {string} line
@@ -658,7 +658,7 @@ function isNodeInternal (line) {
 }
 
 /**
- * Clean stack trace line.
+ * Clean stack trace line by removing cwd.
  *
  * @api private
  * @param {string} line
@@ -673,6 +673,26 @@ function cleanStackLine (line, cwd) {
 }
 
 /**
+ * Filter stack trace lines.
+ *
+ * @api private
+ * @param {string} line
+ * @param {boolean} isNode
+ * @param {string} slash
+ * @param {string} cwd
+ * @return {boolean}
+ */
+function shouldIncludeStackLine (line, isNode, slash, cwd) {
+  if (isMochaInternal(line, slash)) {
+    return false;
+  }
+  if (isNode && isNodeInternal(line)) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * @summary
  * This Filter based on `mocha-clean` module.(see: `github.com/rstacruz/mocha-clean`)
  * @description
@@ -683,28 +703,24 @@ function cleanStackLine (line, cwd) {
  */
 exports.stackTraceFilter = function () {
   const isNode = typeof document === 'undefined';
-  const slash = isNode ? path.sep : '/';
+  let slash = path.sep;
   let cwd;
-
+  
   if (isNode) {
     cwd = process.cwd() + slash;
   } else {
-    const location = typeof window !== 'undefined' ? window.location : (typeof location !== 'undefined' ? location : null);
-    cwd = location ? location.href.replace(/\/[^/]*$/, '/') : '';
+    cwd = (typeof location === 'undefined'
+      ? window.location
+      : location).href.replace(/\/[^/]*$/, '/');
+    slash = '/';
   }
 
   return function (stack) {
     const lines = stack.split('\n');
-
     const filtered = lines.reduce(function (list, line) {
-      if (isMochaInternal(line, slash)) {
+      if (!shouldIncludeStackLine(line, isNode, slash, cwd)) {
         return list;
       }
-
-      if (isNode && isNodeInternal(line)) {
-        return list;
-      }
-
       const cleanedLine = cleanStackLine(line, cwd);
       list.push(cleanedLine);
       return list;

@@ -14,6 +14,15 @@ type PaidMembersChangeChartProps = {
     isLoading: boolean;
 };
 
+type ResolutionOption = 'daily' | 'weekly' | 'monthly';
+
+type ChartDataItem = {
+    date: string;
+    rawDate: string;
+    new: number;
+    cancelled: number;
+};
+
 const fillMissingDataPoints = (data: {date: string; signups: number; cancellations: number}[], dateRange: number, overrideStrategy?: 'none' | 'weekly' | 'monthly' | 'monthly-exact') => {
     if (dateRange === 1) {
         const today = moment().format('YYYY-MM-DD');
@@ -34,10 +43,8 @@ const fillMissingDataPoints = (data: {date: string; signups: number; cancellatio
     const filledData: {date: string; signups: number; cancellations: number}[] = [];
     const seenKeys = new Set<string>();
 
-    const fillPeriod = (startMoment: moment.Moment, endMoment: moment.Moment, unit: 'month' | 'week' | 'day') => {
-        const currentPeriod = startMoment.clone();
-        const endPeriod = endMoment.clone().startOf(unit);
-
+    const fillPeriod = (startPeriod: moment.Moment, endPeriod: moment.Moment, unit: 'month' | 'week') => {
+        const currentPeriod = startPeriod.clone();
         while (currentPeriod.isSameOrBefore(endPeriod)) {
             const dateKey = currentPeriod.format('YYYY-MM-DD');
             if (!seenKeys.has(dateKey)) {
@@ -54,17 +61,31 @@ const fillMissingDataPoints = (data: {date: string; signups: number; cancellatio
     };
 
     if (strategy === 'monthly') {
-        fillPeriod(moment(startDate).startOf('month'), moment(endDate), 'month');
+        const currentPeriod = moment(startDate).startOf('month');
+        const endPeriod = moment(endDate).startOf('month');
+        fillPeriod(currentPeriod, endPeriod, 'month');
     } else if (strategy === 'weekly') {
-        fillPeriod(moment(startDate).startOf('week'), moment(endDate), 'week');
+        const currentPeriod = moment(startDate).startOf('week');
+        const endPeriod = moment(endDate).startOf('week');
+        fillPeriod(currentPeriod, endPeriod, 'week');
     } else {
-        fillPeriod(moment(startDate), moment(endDate), 'day');
+        const currentDate = moment(startDate);
+        const endMoment = moment(endDate);
+
+        while (currentDate.isSameOrBefore(endMoment)) {
+            const dateKey = currentDate.format('YYYY-MM-DD');
+            const existingData = dataMap.get(dateKey);
+            filledData.push(existingData || {
+                date: dateKey,
+                signups: 0,
+                cancellations: 0
+            });
+            currentDate.add(1, 'day');
+        }
     }
 
     return filledData;
 };
-
-type ResolutionOption = 'daily' | 'weekly' | 'monthly';
 
 const getActualDateSpan = (range: number): number => {
     if (range === -1) {
@@ -98,16 +119,12 @@ const getDefaultResolution = (range: number): ResolutionOption => {
     }
 };
 
-const getEffectiveRange = (range: number, selectedResolution: ResolutionOption): number => {
-    if (selectedResolution === 'weekly' && range < 91) {
-        return 91;
-    } else if (selectedResolution === 'monthly' && range < 365) {
-        return 365;
-    }
-    return range;
-};
-
-const combineAggregatedData = (primaryData: Array<{date: string; [key: string]: any}>, secondaryData: Array<{date: string; [key: string]: any}>, primaryKey: string, secondaryKey: string) => {
+const combineAggregatedData = (
+    primaryData: {date: string; [key: string]: any}[],
+    secondaryData: {date: string; [key: string]: any}[],
+    primaryKey: string,
+    secondaryKey: string
+) => {
     const secondaryMap = new Map(secondaryData.map(item => [item.date, item]));
     const combinedData = primaryData.map(item => ({
         date: item.date,
@@ -130,39 +147,52 @@ const combineAggregatedData = (primaryData: Array<{date: string; [key: string]: 
     return combinedData;
 };
 
-const formatChartData = (data: Array<{date: string; signups?: number; paid_subscribed?: number; cancellations?: number; paid_canceled?: number}>, range: number, selectedResolution: ResolutionOption, isSubscriptionData: boolean) => {
-    const effectiveRange = getEffectiveRange(range, selectedResolution);
-    
-    return data.map((item) => {
-        const newValue = isSubscriptionData ? (item.signups || 0) : (item.paid_subscribed || 0);
-        const cancelledValue = isSubscriptionData ? (item.cancellations || 0) : (item.paid_canceled || 0);
-        
-        return {
-            date: formatDisplayDateWithRange(item.date, effectiveRange),
-            rawDate: item.date,
-            new: newValue,
-            cancelled: -cancelledValue
-        };
-    });
+const getEffectiveRange = (range: number, selectedResolution: ResolutionOption): number => {
+    if (selectedResolution === 'weekly' && range < 91) {
+        return 91;
+    } else if (selectedResolution === 'monthly' && range < 365) {
+        return 365;
+    }
+    return range;
 };
 
-const processTodayData = (data: Array<{date: string; signups?: number; paid_subscribed?: number; cancellations?: number; paid_canceled?: number}>, range: number, isSubscriptionData: boolean) => {
-    if (range !== 1) {
-        return null;
-    }
+const transformToChartData = (
+    data: {date: string; signups?: number; cancellations?: number; paid_subscribed?: number; paid_canceled?: number}[],
+    range: number,
+    selectedResolution: ResolutionOption,
+    isSubscriptionData: boolean
+): ChartDataItem[] => {
+    const effectiveRange = getEffectiveRange(range, selectedResolution);
+    const signupKey = isSubscriptionData ? 'signups' : 'paid_subscribed';
+    const cancelKey = isSubscriptionData ? 'cancellations' : 'paid_canceled';
 
+    return data.map((item) => ({
+        date: formatDisplayDateWithRange(item.date, effectiveRange),
+        rawDate: item.date,
+        new: (isSubscriptionData ? item.signups : item.paid_subscribed) || 0,
+        cancelled: -((isSubscriptionData ? item.cancellations : item.paid_canceled) || 0)
+    }));
+};
+
+const processTodayData = (data: any[], range: number, isSubscriptionData: boolean): ChartDataItem[] => {
     const today = moment().format('YYYY-MM-DD');
     const todayData = data.find(item => item.date === today);
 
-    const newValue = isSubscriptionData ? (todayData?.signups || 0) : (todayData?.paid_subscribed || 0);
-    const cancelledValue = isSubscriptionData ? (todayData?.cancellations || 0) : (todayData?.paid_canceled || 0);
-
-    return [{
-        date: formatDisplayDateWithRange(today, range),
-        rawDate: today,
-        new: newValue,
-        cancelled: -cancelledValue
-    }];
+    if (isSubscriptionData) {
+        return [{
+            date: formatDisplayDateWithRange(today, range),
+            rawDate: today,
+            new: todayData?.signups || 0,
+            cancelled: -(todayData?.cancellations || 0)
+        }];
+    } else {
+        return [{
+            date: formatDisplayDateWithRange(today, range),
+            rawDate: today,
+            new: todayData?.paid_subscribed || 0,
+            cancelled: -(todayData?.paid_canceled || 0)
+        }];
+    }
 };
 
 const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
@@ -190,9 +220,8 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
 
     const paidChangeChartData = useMemo(() => {
         if (subscriptionData && subscriptionData.length > 0) {
-            const todayData = processTodayData(subscriptionData, range, true);
-            if (todayData) {
-                return todayData;
+            if (range === 1) {
+                return processTodayData(subscriptionData, range, true);
             }
 
             const signupsData = sanitizeChartData(subscriptionData, range, 'signups', 'sum', aggregationStrategy);
@@ -201,23 +230,23 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
             const combinedData = combineAggregatedData(signupsData, cancellationsData, 'signups', 'cancellations');
             const filledData = fillMissingDataPoints(combinedData, range, aggregationStrategy);
 
-            return formatChartData(filledData, range, selectedResolution, true);
+            return transformToChartData(filledData, range, selectedResolution, true);
         } else {
             if (!memberData || memberData.length === 0) {
                 return [];
             }
 
-            const todayData = processTodayData(memberData, range, false);
-            if (todayData) {
-                return todayData;
+            if (range === 1) {
+                return processTodayData(memberData, range, false);
             }
 
             const subscribedData = sanitizeChartData(memberData, range, 'paid_subscribed', 'sum', aggregationStrategy);
             const canceledData = sanitizeChartData(memberData, range, 'paid_canceled', 'sum', aggregationStrategy);
 
             const combinedData = combineAggregatedData(subscribedData, canceledData, 'paid_subscribed', 'paid_canceled');
-            
-            return formatChartData(combinedData, range, selectedResolution, false);
+            combinedData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+            return transformToChartData(combinedData, range, selectedResolution, false);
         }
     }, [memberData, subscriptionData, range, aggregationStrategy, selectedResolution]);
 
@@ -248,13 +277,66 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
         return resolution.charAt(0).toUpperCase() + resolution.slice(1);
     };
 
-    const getTooltipDate = (rawDate: string, resolution: ResolutionOption): string => {
-        const rangeMap: Record<ResolutionOption, number> = {
+    const getTooltipDate = (payload: any): string => {
+        if (!payload?.payload?.rawDate) {
+            return payload?.payload?.date || '';
+        }
+
+        const dateFormats: Record<ResolutionOption, number> = {
             monthly: 366,
             weekly: 91,
             daily: 30
         };
-        return formatDisplayDateWithRange(rawDate, rangeMap[resolution]);
+
+        return formatDisplayDateWithRange(payload.payload.rawDate, dateFormats[selectedResolution]);
+    };
+
+    const renderTooltipContent = (value: number, name: string, payload: any, index: number) => {
+        const rawValue = Number(value);
+        const displayValue = rawValue === 0 ? '0' : (rawValue < 0 ? formatNumber(rawValue * -1) : formatNumber(rawValue));
+
+        const newValue = Number(payload?.payload?.new || 0);
+        const cancelledValue = Number(payload?.payload?.cancelled || 0);
+        const netChange = newValue + cancelledValue;
+        const netChangeFormatted = netChange === 0 ? '0' : (netChange > 0 ? `+${formatNumber(netChange)}` : formatNumber(netChange));
+
+        const tooltipDate = getTooltipDate(payload);
+
+        return (
+            <div className='flex w-full flex-col'>
+                {index === 0 &&
+                    <div className="mb-1 text-sm font-medium text-foreground">
+                        {tooltipDate}
+                    </div>
+                }
+                <div className='flex w-full items-center justify-between gap-4'>
+                    <div className='flex items-center gap-1'>
+                        <div
+                            className="size-2 shrink-0 rounded-full bg-[var(--color-bg)] opacity-50"
+                            style={{
+                                '--color-bg': `var(--color-${name})`
+                            } as React.CSSProperties}
+                        />
+                        <span className='text-sm text-muted-foreground'>
+                            {paidChangeChartConfig[name as keyof typeof paidChangeChartConfig]?.label || name}
+                        </span>
+                    </div>
+                    <div className="ml-auto flex items-baseline gap-0.5 font-mono font-medium tabular-nums text-foreground">
+                        {displayValue}
+                    </div>
+                </div>
+                {index === 1 &&
+                    <div className='mt-1 flex w-full items-center justify-between gap-4 border-t pt-1'>
+                        <span className='text-sm text-muted-foreground'>
+                            Net change
+                        </span>
+                        <div className="ml-auto flex items-baseline gap-0.5 font-mono font-medium tabular-nums text-foreground">
+                            {netChangeFormatted}
+                        </div>
+                    </div>
+                }
+            </div>
+        );
     };
 
     return (
@@ -321,55 +403,7 @@ const PaidMembersChangeChart: React.FC<PaidMembersChangeChartProps> = ({
                                 <ChartTooltip
                                     content={<ChartTooltipContent
                                         className='!min-w-[120px] px-3 py-2'
-                                        formatter={(value, name, payload, index) => {
-                                            const rawValue = Number(value);
-                                            const displayValue = rawValue === 0 ? '0' : (rawValue < 0 ? formatNumber(rawValue * -1) : formatNumber(rawValue));
-
-                                            const newValue = Number(payload?.payload?.new || 0);
-                                            const cancelledValue = Number(payload?.payload?.cancelled || 0);
-                                            const netChange = newValue + cancelledValue;
-                                            const netChangeFormatted = netChange === 0 ? '0' : (netChange > 0 ? `+${formatNumber(netChange)}` : formatNumber(netChange));
-
-                                            const tooltipDate = payload?.payload?.rawDate 
-                                                ? getTooltipDate(payload.payload.rawDate, selectedResolution)
-                                                : payload?.payload?.date;
-
-                                            return (
-                                                <div className='flex w-full flex-col'>
-                                                    {index === 0 &&
-                                            <div className="mb-1 text-sm font-medium text-foreground">
-                                                {tooltipDate}
-                                            </div>
-                                                    }
-                                                    <div className='flex w-full items-center justify-between gap-4'>
-                                                        <div className='flex items-center gap-1'>
-                                                            <div
-                                                                className="size-2 shrink-0 rounded-full bg-[var(--color-bg)] opacity-50"
-                                                                style={{
-                                                                    '--color-bg': `var(--color-${name})`
-                                                                } as React.CSSProperties}
-                                                            />
-                                                            <span className='text-sm text-muted-foreground'>
-                                                                {paidChangeChartConfig[name as keyof typeof paidChangeChartConfig]?.label || name}
-                                                            </span>
-                                                        </div>
-                                                        <div className="ml-auto flex items-baseline gap-0.5 font-mono font-medium tabular-nums text-foreground">
-                                                            {displayValue}
-                                                        </div>
-                                                    </div>
-                                                    {index === 1 &&
-                                            <div className='mt-1 flex w-full items-center justify-between gap-4 border-t pt-1'>
-                                                <span className='text-sm text-muted-foreground'>
-                                                    Net change
-                                                </span>
-                                                <div className="ml-auto flex items-baseline gap-0.5 font-mono font-medium tabular-nums text-foreground">
-                                                    {netChangeFormatted}
-                                                </div>
-                                            </div>
-                                                    }
-                                                </div>
-                                            );
-                                        }}
+                                        formatter={renderTooltipContent}
                                         hideLabel
                                     />}
                                     cursor={false}

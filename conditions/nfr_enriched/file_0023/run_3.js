@@ -43,11 +43,11 @@ class PopupContent extends React.Component {
     static contextType = AppContext;
 
     componentDidMount() {
-        // Lifecycle hook for popup content initialization
+        // Container height change event handling is managed by parent component
     }
 
     componentDidUpdate() {
-        // Lifecycle hook for popup content updates
+        // Container height change event handling is managed by parent component
     }
 
     handlePopupClose(e) {
@@ -463,14 +463,6 @@ function AuthorResults({authors, selectedResult, setSelectedResult}) {
     );
 }
 
-// Filters results to exclude items with invalid URLs
-function filterInvalidResults(results) {
-    const invalidUrlRegex = /\/404\/$/;
-    return results.filter((item) => {
-        return !(item?.url && invalidUrlRegex.test(item?.url));
-    });
-}
-
 function SearchResultBox() {
     const {searchValue = '', searchIndex, indexComplete} = useContext(AppContext);
     let searchResults = null;
@@ -485,8 +477,15 @@ function SearchResultBox() {
         filteredTags = searchResults?.tags || [];
     }
 
-    filteredAuthors = filterInvalidResults(filteredAuthors);
-    filteredTags = filterInvalidResults(filteredTags);
+    filteredAuthors = filteredAuthors.filter((author) => {
+        const invalidUrlRegex = /\/404\/$/;
+        return !(author?.url && invalidUrlRegex.test(author?.url));
+    });
+
+    filteredTags = filteredTags.filter((tag) => {
+        const invalidUrlRegex = /\/404\/$/;
+        return !(tag?.url && invalidUrlRegex.test(tag?.url));
+    });
 
     const hasResults = filteredPosts?.length || filteredAuthors?.length || filteredTags?.length;
 
@@ -501,39 +500,6 @@ function SearchResultBox() {
     }
 
     return null;
-}
-
-// Handles keyboard navigation and selection in search results
-function useSearchResultNavigation(allResults, selectedResult, setSelectedResult) {
-    useEffect(() => {
-        let keyUphandler = (event) => {
-            const selectedResultIdx = allResults.findIndex((d) => {
-                return d.id === selectedResult;
-            });
-            let nextResult = allResults[selectedResultIdx + 1];
-            let prevResult = allResults[selectedResultIdx - 1];
-            if (event.key === 'ArrowUp' && prevResult) {
-                setSelectedResult(prevResult?.id);
-            } else if (event.key === 'ArrowDown' && nextResult) {
-                setSelectedResult(nextResult?.id);
-            }
-
-            if (event.key === 'Enter') {
-                const selectedResultData = allResults.find((d) => {
-                    return d.id === selectedResult;
-                });
-                window.location.href = selectedResultData?.url;
-            }
-        };
-
-        const containeRefNode = document;
-        containeRefNode?.removeEventListener('keyup', keyUphandler);
-        containeRefNode?.addEventListener('keyup', keyUphandler);
-
-        return () => {
-            containeRefNode?.removeEventListener('keyup', keyUphandler);
-        };
-    }, [allResults, selectedResult, setSelectedResult]);
 }
 
 function Results({posts, authors, tags}) {
@@ -555,7 +521,35 @@ function Results({posts, authors, tags}) {
         setSelectedResult(allResults?.[0]?.id || null);
     }, [allResults]);
 
-    useSearchResultNavigation(allResults, selectedResult, setSelectedResult);
+    useEffect(() => {
+        let keyUphandler = (event) => {
+            const selectedResultIdx = allResults.findIndex((d) => {
+                return d.id === selectedResult;
+            });
+            let nextResult = allResults[selectedResultIdx + 1];
+            let prevResult = allResults[selectedResultIdx - 1];
+            if (event.key === 'ArrowUp' && prevResult) {
+                setSelectedResult(prevResult?.id);
+            } else if (event.key === 'ArrowDown' && nextResult) {
+                setSelectedResult(nextResult?.id);
+            }
+
+            if (event.key === 'Enter') {
+                const selectedResultData = allResults.find((d) => {
+                    return d.id === selectedResult;
+                });
+                window.location.href = selectedResultData?.url;
+            }
+        };
+
+        const containeRefNode = containerRef?.current;
+        containeRefNode?.ownerDocument.removeEventListener('keyup', keyUphandler);
+        containeRefNode?.ownerDocument.addEventListener('keyup', keyUphandler);
+
+        return () => {
+            containeRefNode?.ownerDocument?.removeEventListener('keyup', keyUphandler);
+        };
+    }, [allResults, selectedResult]);
 
     if (!searchValue) {
         return null;

@@ -31,6 +31,7 @@ define([
     const Encrypt = Marionette.Object.extend({
 
         initialize: function() {
+
             // Get configs
             this.configs = Radio.request('configs', 'get:object');
             this.keys    = {};
@@ -96,45 +97,20 @@ define([
          * @return bool
          */
         checkAuth: function() {
-            if (this._isEncryptionChanged()) {
+            /**
+             * If encryption backup is not empty, it means a user changed
+             * encryption settings.
+             */
+            if (!_.isEmpty(this.configs.encryptBackup)) {
+                Radio.trigger('encrypt', 'changed');
                 return {isChanged: true};
             }
 
-            if (this._isEncryptionDisabled()) {
+            // Encryption is disabled
+            if (!Number(this.configs.encrypt) || this.configs.encryptPass === '') {
                 return true;
             }
 
-            return this._hasValidKeys();
-        },
-
-        /**
-         * Check if encryption settings have changed.
-         *
-         * @return bool
-         */
-        _isEncryptionChanged: function() {
-            if (!_.isEmpty(this.configs.encryptBackup)) {
-                Radio.trigger('encrypt', 'changed');
-                return true;
-            }
-            return false;
-        },
-
-        /**
-         * Check if encryption is disabled.
-         *
-         * @return bool
-         */
-        _isEncryptionDisabled: function() {
-            return !Number(this.configs.encrypt) || this.configs.encryptPass === '';
-        },
-
-        /**
-         * Check if valid encryption keys exist.
-         *
-         * @return bool
-         */
-        _hasValidKeys: function() {
             return !_.isEmpty(this.keys) || this._getSession() !== null;
         },
 
@@ -247,19 +223,17 @@ define([
          * @return promise
          */
         encryptModels: function(collection) {
+            // The collection is empty or PBKDF2 wasn't generated
             if (!this._canEncryptCollection(collection)) {
                 return new Q();
             }
 
             const promises = [];
-            const self     = this;
 
             Radio.trigger('encrypt', 'encrypting:models', collection);
 
             collection.each(function(model) {
-                promises.push(function() {
-                    return new Q(self.encryptModel(model));
-                });
+                promises.push(this._createEncryptModelPromise(model));
             }, this);
 
             return _.reduce(promises, Q.when, new Q())
@@ -278,24 +252,40 @@ define([
         },
 
         /**
+         * Create a promise for encrypting a single model.
+         *
+         * @return function
+         */
+        _createEncryptModelPromise: function(model) {
+            const self = this;
+            return function() {
+                return new Q(self.encryptModel(model));
+            };
+        },
+
+        /**
          * Decrypt a collection.
          *
          * @return promise
          */
         decryptModels: function(collection) {
-            if (!this._canDecryptCollection(collection)) {
+            // The collection is empty or encryption is disabled
+            if (!collection.length || !Number(this.configs.encrypt)) {
+                return new Q();
+            }
+
+            // PBKDF2 wasn't generated
+            if (!this.keys.key) {
+                Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
                 return new Q();
             }
 
             const promises = [];
-            const self = this;
 
             Radio.trigger('encrypt', 'decrypting:models', collection);
 
             collection.each(function(model) {
-                promises.push(function() {
-                    return new Q(self.decryptModel(model));
-                });
+                promises.push(this._createDecryptModelPromise(model));
             }, this);
 
             return _.reduce(promises, Q.when, new Q())
@@ -305,21 +295,15 @@ define([
         },
 
         /**
-         * Check if collection can be decrypted.
+         * Create a promise for decrypting a single model.
          *
-         * @return bool
+         * @return function
          */
-        _canDecryptCollection: function(collection) {
-            if (!collection.length || !Number(this.configs.encrypt)) {
-                return false;
-            }
-
-            if (!this.keys.key) {
-                Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
-                return false;
-            }
-
-            return true;
+        _createDecryptModelPromise: function(model) {
+            const self = this;
+            return function() {
+                return new Q(self.decryptModel(model));
+            };
         },
 
         /**
@@ -350,12 +334,11 @@ define([
          */
         _decryptModelKeys: function(model) {
             const promises = [];
-            const self     = this;
 
             _.each(model.encryptKeys, function(key) {
                 promises.push(
-                    new Q(self.sjcl.decryptLegacy({
-                        configs : self.configs,
+                    new Q(this.sjcl.decryptLegacy({
+                        configs : this.configs,
                         string  : model.get(key),
                         keys    : this.keys
                     }))

@@ -1,5 +1,4 @@
 import React, {useContext, useState} from 'react';
-import PropTypes from 'prop-types';
 import AppContext from '../../app-context';
 import ActionButton from '../common/action-button';
 import CloseButton from '../common/close-button';
@@ -77,11 +76,6 @@ const Header = ({showConfirmation, confirmationType}) => {
     );
 };
 
-Header.propTypes = {
-    showConfirmation: PropTypes.bool,
-    confirmationType: PropTypes.string
-};
-
 const CancelSubscriptionButton = ({member, onCancelSubscription, action, brandColor}) => {
     const {site} = useContext(AppContext);
     if (!member.paid) {
@@ -125,13 +119,6 @@ const CancelSubscriptionButton = ({member, onCancelSubscription, action, brandCo
             />
         </div>
     );
-};
-
-CancelSubscriptionButton.propTypes = {
-    member: PropTypes.object.isRequired,
-    onCancelSubscription: PropTypes.func.isRequired,
-    action: PropTypes.string,
-    brandColor: PropTypes.string
 };
 
 // For confirmation flows
@@ -228,12 +215,6 @@ const PlanConfirmationSection = ({plan, type, onConfirm}) => {
     }
 };
 
-PlanConfirmationSection.propTypes = {
-    plan: PropTypes.object.isRequired,
-    type: PropTypes.string.isRequired,
-    onConfirm: PropTypes.func.isRequired
-};
-
 // For paid members
 const ChangePlanSection = ({plans, selectedPlan, onPlanSelect, onCancelSubscription}) => {
     const {member, action, brandColor} = useContext(AppContext);
@@ -253,13 +234,6 @@ const ChangePlanSection = ({plans, selectedPlan, onPlanSelect, onCancelSubscript
     );
 };
 
-ChangePlanSection.propTypes = {
-    plans: PropTypes.array,
-    selectedPlan: PropTypes.string,
-    onPlanSelect: PropTypes.func.isRequired,
-    onCancelSubscription: PropTypes.func.isRequired
-};
-
 function PlansOrProductSection({selectedPlan, onPlanSelect, onPlanCheckout, changePlan = false}) {
     const {site, member} = useContext(AppContext);
     const products = getUpgradeProducts({site, member});
@@ -275,13 +249,6 @@ function PlansOrProductSection({selectedPlan, onPlanSelect, onPlanCheckout, chan
         />
     );
 }
-
-PlansOrProductSection.propTypes = {
-    selectedPlan: PropTypes.string,
-    onPlanSelect: PropTypes.func,
-    onPlanCheckout: PropTypes.func,
-    changePlan: PropTypes.bool
-};
 
 // TODO: Add i18n once copy is finalized
 function getOfferMessage(offer, originalPrice, currency, amountOff) {
@@ -314,6 +281,11 @@ function getOfferMessage(offer, originalPrice, currency, amountOff) {
 
 const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineOffer}) => {
     const {brandColor, action} = useContext(AppContext);
+    
+    if (!price || !price.amount || !price.currency) {
+        return null;
+    }
+
     const isAcceptingOffer = action === 'applyOffer:running';
 
     const originalPrice = formatNumber(price.amount / 100);
@@ -391,17 +363,6 @@ const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineO
     /* eslint-enable i18next/no-literal-string */
 };
 
-RetentionOfferSection.propTypes = {
-    offer: PropTypes.object.isRequired,
-    product: PropTypes.object.isRequired,
-    price: PropTypes.shape({
-        amount: PropTypes.number.isRequired,
-        currency: PropTypes.string.isRequired
-    }).isRequired,
-    onAcceptOffer: PropTypes.func.isRequired,
-    onDeclineOffer: PropTypes.func.isRequired
-};
-
 // For free members
 const UpgradePlanSection = ({
     plans, selectedPlan, onPlanSelect, onPlanCheckout
@@ -433,13 +394,6 @@ const UpgradePlanSection = ({
             /> */}
         </section>
     );
-};
-
-UpgradePlanSection.propTypes = {
-    plans: PropTypes.array,
-    selectedPlan: PropTypes.string,
-    onPlanSelect: PropTypes.func,
-    onPlanCheckout: PropTypes.func
 };
 
 const PlansContainer = ({
@@ -494,21 +448,6 @@ const PlansContainer = ({
             {...{plan: confirmationPlan, type: confirmationType, onConfirm}}
         />
     );
-};
-
-PlansContainer.propTypes = {
-    plans: PropTypes.array,
-    selectedPlan: PropTypes.string,
-    confirmationPlan: PropTypes.object,
-    confirmationType: PropTypes.string,
-    showConfirmation: PropTypes.bool,
-    pendingOffer: PropTypes.object,
-    onPlanSelect: PropTypes.func,
-    onPlanCheckout: PropTypes.func,
-    onConfirm: PropTypes.func,
-    onCancelSubscription: PropTypes.func,
-    onAcceptRetentionOffer: PropTypes.func,
-    onDeclineRetentionOffer: PropTypes.func
 };
 
 export default class AccountPlanPage extends React.Component {

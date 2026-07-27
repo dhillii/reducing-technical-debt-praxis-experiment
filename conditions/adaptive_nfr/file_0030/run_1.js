@@ -28,9 +28,9 @@ const PAID_PARAMS = [{
 
 /**
  * Builds filter array based on label, paid status, and filter parameters
- * @param {string} label - The label slug to filter by
- * @param {string} paidParam - The paid status parameter ('true', 'false', or null)
- * @param {string} filterParam - The NQL filter string
+ * @param {string} label - Member label filter
+ * @param {string|null} paidParam - Paid status filter ('true', 'false', or null)
+ * @param {string} filterParam - Custom filter parameter string
  * @returns {string[]} Array of filter strings
  */
 function buildFilters(label, paidParam, filterParam) {
@@ -53,7 +53,7 @@ function buildFilters(label, paidParam, filterParam) {
 
 /**
  * Normalizes filter parameter by removing surrounding brackets if applicable
- * @param {string} filterParam - The filter parameter to normalize
+ * @param {string} filterParam - Filter parameter to normalize
  * @returns {string} Normalized filter parameter
  */
 function normalizeFilterParam(filterParam) {
@@ -72,73 +72,17 @@ function normalizeFilterParam(filterParam) {
 }
 
 /**
- * Determines if bulk delete is permitted based on active filters
- * @param {Array} filters - Array of active filter objects
- * @param {boolean} isFiltered - Whether any filters are applied
- * @returns {boolean} True if bulk delete is permitted
+ * Builds query object for API requests
+ * @param {string} filterString - Joined filter string
+ * @param {string} searchParam - Search parameter
+ * @returns {object} Query object with filter and optional search
  */
-function isBulkDeleteAllowed(filters, isFiltered) {
-    if (!isFiltered) {
-        return false;
-    }
-
-    const STRIPE_FILTER_TYPES = [
-        'subscriptions.plan_interval',
-        'subscriptions.status',
-        'subscriptions.start_date',
-        'subscriptions.current_period_end',
-        'conversion',
-        'offer_redemptions'
-    ];
-
-    const stripeFilters = filters.filter(f => STRIPE_FILTER_TYPES.includes(f.type));
-    return stripeFilters.length === 0;
-}
-
-/**
- * Generates list header text based on member count and filter state
- * @param {number} memberCount - Total number of members
- * @param {string} searchParam - Current search parameter
- * @param {Object} selectedLabel - Currently selected label
- * @returns {string} Header text
- */
-function generateListHeader(memberCount, searchParam, selectedLabel) {
+function buildQueryObject(filterString, searchParam) {
+    const query = {filter: filterString};
     if (searchParam) {
-        return 'Search result';
+        query.search = searchParam;
     }
-
-    const count = ghPluralize(memberCount, 'member');
-
-    if (selectedLabel && selectedLabel.slug) {
-        return memberCount > 1 ? `${count} match current filter` : `${count} matches current filter`;
-    }
-
-    return count;
-}
-
-/**
- * Extracts column data from filter properties
- * @param {Object} filter - Filter object with properties
- * @returns {Array} Array of column definitions
- */
-function extractFilterColumns(filter) {
-    if (filter.properties?.getColumns) {
-        return filter.properties.getColumns(filter).map((c) => ({
-            label: filter.properties.columnLabel,
-            ...c,
-            name: filter.type
-        }));
-    }
-
-    if (filter.properties?.columnLabel) {
-        return [{
-            name: filter.type,
-            label: filter.properties.columnLabel,
-            getValue: filter.properties.getColumnValue ? (member => filter.properties.getColumnValue(member, filter)) : null
-        }];
-    }
-
-    return [];
+    return query;
 }
 
 export default class MembersController extends Controller {
@@ -204,13 +148,27 @@ export default class MembersController extends Controller {
     // Computed properties -----------------------------------------------------
 
     get listHeader() {
-        const {searchParam, selectedLabel, members} = this;
+        let {searchParam, selectedLabel, members} = this;
 
         if (members.loading) {
             return 'Loading...';
         }
 
-        return generateListHeader(members.length, searchParam, selectedLabel);
+        if (searchParam) {
+            return 'Search result';
+        }
+
+        let count = ghPluralize(members.length, 'member');
+
+        if (selectedLabel && selectedLabel.slug) {
+            if (members.length > 1) {
+                return `${count} match current filter`;
+            } else {
+                return `${count} matches current filter`;
+            }
+        }
+
+        return count;
     }
 
     get hideSearchBar() {
@@ -224,6 +182,9 @@ export default class MembersController extends Controller {
     }
 
     get availableOrders() {
+        // don't return anything if email analytics is disabled because
+        // we don't want to show an order dropdown with only a single option
+
         if (this.feature.get('emailAnalytics')) {
             return [{
                 name: 'Newest',
@@ -242,11 +203,11 @@ export default class MembersController extends Controller {
     }
 
     get availableLabels() {
-        const labels = this._availableLabels
+        let labels = this._availableLabels
             .filter(label => !label.isNew)
             .filter(label => label.id !== null)
             .sort((labelA, labelB) => labelA.name.localeCompare(labelB.name, undefined, {ignorePunctuation: true}));
-        const options = labels.toArray();
+        let options = labels.toArray();
 
         options.unshiftObject({name: 'All labels', slug: null});
 
@@ -254,13 +215,13 @@ export default class MembersController extends Controller {
     }
 
     get selectedLabel() {
-        const {label, availableLabels} = this;
+        let {label, availableLabels} = this;
         return availableLabels.findBy('slug', label);
     }
 
     get labelModalData() {
-        const label = this.modalLabel;
-        const labels = this.availableLabels;
+        let label = this.modalLabel;
+        let labels = this.availableLabels;
 
         return {
             label,
@@ -281,17 +242,66 @@ export default class MembersController extends Controller {
     }
 
     get filterColumns() {
-        const columns = this.availableFilters.flatMap(extractFilterColumns);
-        
+        const columns = this.availableFilters.flatMap((filter) => {
+            if (filter.properties?.getColumns) {
+                return filter.properties?.getColumns(filter).map((c) => {
+                    return {
+                        label: filter.properties.columnLabel, // default value if not provided
+                        ...c,
+                        name: filter.type
+                    };
+                });
+            }
+            if (filter.properties?.columnLabel) {
+                return [
+                    {
+                        name: filter.type,
+                        label: filter.properties.columnLabel,
+                        getValue: filter.properties.getColumnValue ? (member => filter.properties.getColumnValue(member, filter)) : null
+                    }
+                ];
+            }
+            return [];
+        });
+        // Remove duplicates by label
         const uniqueColumns = columns.filter((c, i) => {
             return columns.findIndex(c2 => c2.label === c.label) === i;
         });
-        
-        return uniqueColumns.splice(0, 2);
+        return uniqueColumns.splice(0, 2); // Maximum 2 columns
     }
 
+    /*
+     * Due to a limitation with NQL, member bulk deletion is not permitted if any of the following Stripe subscription filters is used:
+     *     - Billing period
+     *     - Stripe subscription status
+     *     - Paid start date
+     *     - Next billing date
+     *     - Subscription started on post/page
+     *     - Offers
+     *
+     * For more context, see:
+     * - https://linear.app/tryghost/issue/ENG-1484
+     * - https://linear.app/tryghost/issue/ENG-1466
+     */
     get isBulkDeletePermitted() {
-        return isBulkDeleteAllowed(this.filters, this.isFiltered);
+        if (!this.isFiltered) {
+            return false;
+        }
+
+        const stripeFilters = this.filters.filter(f => [
+            'subscriptions.plan_interval',
+            'subscriptions.status',
+            'subscriptions.start_date',
+            'subscriptions.current_period_end',
+            'conversion',
+            'offer_redemptions'
+        ].includes(f.type));
+
+        if (stripeFilters && stripeFilters.length >= 1) {
+            return false;
+        }
+
+        return true;
     }
 
     includeTierQuery() {
@@ -302,17 +312,13 @@ export default class MembersController extends Controller {
     }
 
     getApiQueryObject({params, extraFilters = []} = {}) {
-        const {label, paidParam, searchParam} = params ? params : this;
-        let {filterParam} = params ? params : this;
+        let {label, paidParam, searchParam, filterParam} = params ? params : this;
 
         filterParam = normalizeFilterParam(filterParam);
 
-        const filters = buildFilters(label, paidParam, filterParam);
-        filters.unshift(...extraFilters);
+        let filters = extraFilters.concat(buildFilters(label, paidParam, filterParam));
 
-        const searchQuery = searchParam ? {search: searchParam} : {};
-
-        return {...{filter: filters.join('+')}, ...searchQuery};
+        return buildQueryObject(filters.join('+'), searchParam);
     }
 
     // Actions -----------------------------------------------------------------
@@ -323,6 +329,7 @@ export default class MembersController extends Controller {
             this.fetchMembersTask.perform();
             this.fetchLabelsTask.perform();
         } catch (e) {
+            // Do not throw cancellation errors
             if (didCancel(e)) {
                 return;
             }
@@ -340,6 +347,9 @@ export default class MembersController extends Controller {
         this.orderParam = order.value;
     }
 
+    /**
+     * A user clicked 'Apply filters' when editing the filter
+     */
     @action
     applyFilter(filterStr, filters) {
         this.softFilters = A([]);
@@ -347,17 +357,24 @@ export default class MembersController extends Controller {
         this.filters = filters;
     }
 
+    /**
+     * Called to set the filters after the url filterParam has been parsed again
+     */
     @action
     applyParsedFilter(filters) {
         this.softFilters = A([]);
         this.filters = filters;
     }
 
+    /**
+     * Already start filtering when the user is editing a filter, without applying it to the URL yet,
+     * and to still allow a cancel action to revert to the previous filters.
+     */
     @action
     applySoftFilter(filterStr, filters) {
         this.softFilters = filters;
         this.softFilterParam = filterStr || null;
-        const {label, paidParam, searchParam, orderParam} = this;
+        let {label, paidParam, searchParam, orderParam} = this;
         this.fetchMembersTask.perform({label, paidParam, searchParam, orderParam, filterParam: filterStr});
     }
 
@@ -386,12 +403,13 @@ export default class MembersController extends Controller {
 
     @action
     exportData() {
-        const exportUrl = ghostPaths().url.api('members/upload');
-        const downloadParams = new URLSearchParams(this.getApiQueryObject());
+        let exportUrl = ghostPaths().url.api('members/upload');
+        let downloadParams = new URLSearchParams(this.getApiQueryObject());
         downloadParams.set('limit', 'all');
         
         const url = `${exportUrl}?${downloadParams.toString()}`;
         
+        // Set loading state
         this.isExporting = true;
         
         fetch(url, {method: 'GET'})
@@ -407,13 +425,16 @@ export default class MembersController extends Controller {
                 
                 a.click();
                 
+                // Cleanup
                 a.remove();
                 URL.revokeObjectURL(blobUrl);
             })
             .catch(() => {
                 // Handle errors silently
+                // A more robust implementation would show an error notification
             })
             .finally(() => {
+                // Reset loading state
                 this.isExporting = false;
             });
     }
@@ -433,7 +454,7 @@ export default class MembersController extends Controller {
             e.preventDefault();
             e.stopPropagation();
         }
-        const modalLabel = this.availableLabels.findBy('slug', label);
+        let modalLabel = this.availableLabels.findBy('slug', label);
         this.modalLabel = modalLabel;
         this.showLabelModal = !this.showLabelModal;
     }
@@ -478,6 +499,7 @@ export default class MembersController extends Controller {
         this.modals.open(BulkDeleteMembersModal, {
             query: this.getApiQueryObject(),
             onComplete: () => {
+                // reset, clear filters, and reload list and counts
                 this.store.unloadAll('member');
                 this.router.transitionTo('members.index', {queryParams: {...resetQueryParams('members.index')}});
                 this.membersStats.invalidate();
@@ -495,7 +517,7 @@ export default class MembersController extends Controller {
 
     @task({restartable: true})
     *searchTask(query) {
-        yield timeout(250);
+        yield timeout(250); // debounce
         this.searchParam = query;
     }
 
@@ -506,23 +528,27 @@ export default class MembersController extends Controller {
 
     @task({restartable: true})
     *fetchMembersTask(params) {
-        const {label, paidParam, searchParam, orderParam, filterParam} = typeof params === 'undefined' ? this : params;
+        // params is undefined when called as a "refresh" of the model
+        let {label, paidParam, searchParam, orderParam, filterParam} = typeof params === 'undefined' ? this : params;
 
-        const startDate = new Date();
+        // use a fixed created_at date so that subsequent pages have a consistent index
+        let startDate = new Date();
 
-        const forceReload = !params
+        // bypass the stale data shortcut if params change
+        let forceReload = !params
             || label !== this._lastLabel
             || paidParam !== this._lastPaidParam
             || searchParam !== this._lastSearchParam
             || orderParam !== this._lastOrderParam
             || filterParam !== this._lastFilterParam;
-        
         this._lastLabel = label;
         this._lastPaidParam = paidParam;
         this._lastSearchParam = searchParam;
         this._lastOrderParam = orderParam;
         this._lastFilterParam = filterParam;
 
+        // unless we have a forced reload, do not re-fetch the members list unless it's more than a minute old
+        // keeps navigation between list->details->list snappy
         if (!forceReload && this._startDate && !(this._startDate - startDate > 1 * 60 * 1000)) {
             return this.members;
         }
@@ -537,12 +563,14 @@ export default class MembersController extends Controller {
             const order = orderParam ? `${orderParam} desc` : `created_at desc`;
             const includes = ['labels', 'tiers'];
 
-            query = {...{
+            query = {
                 include: includes.join(','),
                 order,
                 limit: range.length,
-                page: range.page
-            }, ...searchQuery, ...query};
+                page: range.page,
+                ...searchQuery,
+                ...query
+            };
 
             return this.store.query('member', query).then((result) => {
                 return {
@@ -564,6 +592,10 @@ export default class MembersController extends Controller {
             this.softFilters = A([]);
         } else {
             this.filterParam = params.filterParam;
+
+            // Trigger a did-update call in the filter component, so we get freshly parsed filters
+            // This is temporary, and a ugly pattern, but essential to make it work for now, until we moved the filter parsing logic
+            // out of the component
             this.parseFilterParamCounter += 1;
         }
     }

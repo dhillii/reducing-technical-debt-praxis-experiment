@@ -58,7 +58,7 @@ const language = { columnStart: 0, lineStart: 1 };
 
 /**
  * Asserts that a message is correctly formatted.
- * @param {FileReport} fileReport The file report instance
+ * @param {Object} fileReport The file report instance
  * @param {string} expected The expected message.
  * @param  {...any} args The arguments to pass to `addRuleMessage`.
  * @returns {void}

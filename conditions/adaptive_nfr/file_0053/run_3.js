@@ -53,23 +53,23 @@ exports.usage = function() {
 };
 
 /**
- * Build option column string with long and short flags.
- * @param {string} long - The long option name
- * @param {Object} o - The option object from grunt.cli.optlist
- * @returns {string} Formatted option column string
+ * Build option column entry with short and long flags.
+ * @param {string} long - Long option name
+ * @param {Object} o - Option object from optlist
+ * @returns {string} Formatted column 1 text
  */
-function buildOptionColumn(long, o) {
+function buildOptionCol1(long, o) {
   return '--' + (o.negate ? 'no-' : '') + long + (o.short ? ', -' + o.short : '');
 }
 
 /**
  * Map option list to table format.
- * @returns {Array} Array of [column1, info] pairs for options
+ * @returns {Array} Array of [col1, info] pairs
  */
 function mapOptionsToTable() {
   return Object.keys(grunt.cli.optlist).map(function(long) {
     const o = grunt.cli.optlist[long];
-    const col1 = buildOptionColumn(long, o);
+    const col1 = buildOptionCol1(long, o);
     exports.initCol1(col1);
     return [col1, o.info];
   });
@@ -94,14 +94,14 @@ exports.optionsFooter = function() {
 };
 
 /**
- * Initialize the task system for help display.
+ * Initialize task system and build task list.
  */
 function initializeTaskSystem() {
   grunt.task.init([], {help: true});
 }
 
 /**
- * Collect all tasks from grunt task registry.
+ * Collect all tasks from task registry.
  * @returns {Array} Array of task objects
  */
 function collectTasks() {
@@ -125,8 +125,8 @@ exports.initTasks = function() {
 
 /**
  * Format task info with multi-task indicator.
- * @param {Object} task - The task object
- * @returns {string} Formatted task info
+ * @param {Object} task - Task object
+ * @returns {string} Formatted info string
  */
 function formatTaskInfo(task) {
   let info = task.info;
@@ -136,7 +136,7 @@ function formatTaskInfo(task) {
 
 /**
  * Convert tasks to table format.
- * @returns {Array} Array of [name, info] pairs for tasks
+ * @returns {Array} Array of [name, info] pairs
  */
 function mapTasksToTable() {
   return exports._tasks.map(function(task) {
@@ -145,16 +145,9 @@ function mapTasksToTable() {
 }
 
 /**
- * Display empty tasks message.
+ * Display task table and related information.
  */
-function displayNoTasks() {
-  grunt.log.writeln('(no tasks found)');
-}
-
-/**
- * Display available tasks table and documentation.
- */
-function displayTasksTable() {
+function displayTaskTable() {
   exports.table(mapTasksToTable());
 
   grunt.log.writeln().writelns(
@@ -166,9 +159,16 @@ function displayTasksTable() {
 }
 
 /**
- * Display tasks footer information.
+ * Display no tasks message.
  */
-function displayTasksFooter() {
+function displayNoTasks() {
+  grunt.log.writeln('(no tasks found)');
+}
+
+/**
+ * Display task availability notice.
+ */
+function displayTaskAvailabilityNotice() {
   grunt.log.writeln().writelns(
     'The list of available tasks may change based on tasks directories or ' +
     'grunt plugins specified in the Gruntfile or via command-line options.'
@@ -180,10 +180,10 @@ exports.tasks = function() {
   if (exports._tasks.length === 0) {
     displayNoTasks();
   } else {
-    displayTasksTable();
+    displayTaskTable();
   }
 
-  displayTasksFooter();
+  displayTaskAvailabilityNotice();
 };
 
 // Footer.

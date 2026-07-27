@@ -335,7 +335,10 @@ class Strapi {
     this.middleware = modules.middlewares;
     this.hook = modules.hook;
 
-    await bootstrap(this);
+    const bootstrapResult = bootstrap(this);
+    if (bootstrapResult && typeof bootstrapResult.then === 'function') {
+      await bootstrapResult;
+    }
 
     // init webhook runner
     this.webhookRunner = createWebhookRunner({
@@ -434,7 +437,7 @@ class Strapi {
         return;
       }
 
-      return await fn();
+      return fn();
     };
 
     const configPath = `functions.${lifecycleName}`;
@@ -457,7 +460,7 @@ class Strapi {
 
     // admin
     const adminFunc = _.get(this.admin.config, configPath);
-    return await execLifecycle(adminFunc).catch(err => {
+    return execLifecycle(adminFunc).catch(err => {
       strapi.log.error(`${lifecycleName} function in admin failed`);
       strapi.log.error(err);
       strapi.stop();

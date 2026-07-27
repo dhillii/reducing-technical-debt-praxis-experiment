@@ -849,70 +849,97 @@ function finalizeTestSegmentsOfFor(context, choiceContext, head) {
 }
 
 /**
- * Determines the previous fork context for a logical expression based on kind.
- * @param {ChoiceContext} choiceContext The choice context.
- * @returns {ForkContext} The appropriate fork context.
- * @throws {Error} (Unreachable.)
+ * Determines the midpoint index for splitting an array.
+ * @param {number} length The length of the array to split.
+ * @returns {number} The midpoint index.
  */
-function getPrevForkContextForLogical(choiceContext) {
-	switch (choiceContext.kind) {
-		case "&&":
-			return choiceContext.trueForkContext;
-		case "||":
-			return choiceContext.falseForkContext;
-		case "??":
-			return choiceContext.nullishForkContext;
-		default:
-			throw new Error("unreachable");
-	}
+function getMidpointIndex(length) {
+	return Math.trunc(length / 2);
 }
 
 /**
- * Seeds fork contexts for a logical expression based on kind.
- * @param {ChoiceContext} choiceContext The choice context.
- * @param {CodePathSegment[]} head The head segments.
+ * Dispatches choice context processing based on kind.
+ * @param {ChoiceContext} context The choice context to process.
+ * @param {CodePathSegment[]} head The current head segments.
+ * @returns {boolean} Whether to return early (for forking as result).
+ */
+function processChoiceContextByKind(context, head) {
+	if (!context.processed) {
+		context.trueForkContext.add(head);
+		context.falseForkContext.add(head);
+		context.nullishForkContext.add(head);
+	}
+
+	if (context.isForkingAsResult) {
+		return true;
+	}
+
+	return false;
+}
+
+/**
+ * Handles logical expression choice context finalization.
+ * @param {ChoiceContext} context The choice context.
+ * @param {CodePathSegment[]} head The current head segments.
+ * @returns {boolean} Whether to return early.
+ */
+function finalizeLogicalChoice(context, head) {
+	processChoiceContextByKind(context, head);
+
+	if (context.isForkingAsResult) {
+		return true;
+	}
+
+	return false;
+}
+
+/**
+ * Handles test expression choice context finalization.
+ * @param {ChoiceContext} context The choice context.
+ * @param {CodePathSegment[]} head The current head segments.
+ * @param {boolean} isProcessed Whether the context was already processed.
  * @returns {void}
- * @throws {Error} (Unreachable.)
  */
-function seedLogicalForkContexts(choiceContext, head) {
-	switch (choiceContext.kind) {
-		case "&&":
-			choiceContext.falseForkContext.add(head);
-			choiceContext.nullishForkContext.add(head);
-			break;
-		case "||":
-			choiceContext.trueForkContext.add(head);
-			break;
-		case "??":
-			choiceContext.trueForkContext.add(head);
-			choiceContext.falseForkContext.add(head);
-			break;
-		default:
-			throw new Error("unreachable");
+function finalizeTestChoice(context, head, isProcessed) {
+	if (!isProcessed) {
+		context.trueForkContext.clear();
+		context.trueForkContext.add(head);
+	} else {
+		context.falseForkContext.clear();
+		context.falseForkContext.add(head);
 	}
 }
 
 /**
- * Processes loop context based on type.
- * @param {CodePathState} state The state.
+ * Strategy map for choice context finalization by kind.
+ * @type {Object<string, Function>}
+ */
+const choiceFinalizationStrategies = {
+	"&&": finalizeLogicalChoice,
+	"||": finalizeLogicalChoice,
+	"??": finalizeLogicalChoice,
+};
+
+/**
+ * Dispatches loop context processing based on type.
+ * @param {CodePathState} state The code path state.
  * @param {LoopContext} context The loop context.
- * @param {ForkContext} forkContext The fork context.
  * @returns {void}
- * @throws {Error} (Unreachable.)
  */
-function processLoopContextEnd(state, context, forkContext) {
-	switch (context.type) {
-		case "WhileStatement":
-		case "ForStatement":
-			state.popChoiceContext();
-			makeLooped(
-				state,
-				forkContext.head,
-				context.continueDestSegments,
-			);
-			break;
+function processLoopContextByType(state, context) {
+	const forkContext = state.forkContext;
+	const brokenForkContext = state.popBreakContext().brokenForkContext;
 
-		case "DoWhileStatement": {
+	const loopProcessors = {
+		"WhileStatement": () => {
+			state.popChoiceContext();
+			makeLooped(state, forkContext.head, context.continueDestSegments);
+		},
+		"ForStatement": () => {
+			state.popChoiceContext();
+			makeLooped(state, forkContext.head, context.continueDestSegments);
+		},
+		"DoWhileStatement": () => {
 			const choiceContext = state.popChoiceContext();
 
 			if (!choiceContext.processed) {
@@ -921,7 +948,7 @@ function processLoopContextEnd(state, context, forkContext) {
 			}
 
 			if (context.test !== true) {
-				context.brokenForkContext.addAll(choiceContext.falseForkContext);
+				brokenForkContext.addAll(choiceContext.falseForkContext);
 			}
 
 			const segmentsList = choiceContext.trueForkContext.segmentsList;
@@ -929,43 +956,50 @@ function processLoopContextEnd(state, context, forkContext) {
 			for (let i = 0; i < segmentsList.length; ++i) {
 				makeLooped(state, segmentsList[i], context.entrySegments);
 			}
-			break;
-		}
-
-		case "ForInStatement":
-		case "ForOfStatement":
-			context.brokenForkContext.add(forkContext.head);
+		},
+		"ForInStatement": () => {
+			brokenForkContext.add(forkContext.head);
 			makeLooped(state, forkContext.head, context.leftSegments);
-			break;
+		},
+		"ForOfStatement": () => {
+			brokenForkContext.add(forkContext.head);
+			makeLooped(state, forkContext.head, context.leftSegments);
+		},
+	};
 
-		default:
-			throw new Error("unreachable");
+	const processor = loopProcessors[context.type];
+	if (processor) {
+		processor();
+	}
+
+	if (brokenForkContext.empty) {
+		forkContext.replaceHead(forkContext.makeUnreachable(-1, -1));
+	} else {
+		forkContext.replaceHead(brokenForkContext.makeNext(0, -1));
 	}
 }
 
 /**
- * Creates loop context based on type.
- * @param {CodePathState} state The state.
+ * Dispatches loop context creation based on type.
+ * @param {CodePathState} state The code path state.
  * @param {string} type The loop type.
- * @param {string|null} label The label.
+ * @param {string|null} label The loop label.
  * @param {BreakContext} breakContext The break context.
  * @returns {void}
- * @throws {Error} (Unreachable.)
  */
-function createLoopContext(state, type, label, breakContext) {
+function createLoopContextByType(state, type, label, breakContext) {
 	const forkContext = state.forkContext;
 
-	switch (type) {
-		case "WhileStatement":
+	const loopConstructors = {
+		"WhileStatement": () => {
 			state.pushChoiceContext("loop", false);
 			state.loopContext = new WhileLoopContext(
 				state.loopContext,
 				label,
 				breakContext,
 			);
-			break;
-
-		case "DoWhileStatement":
+		},
+		"DoWhileStatement": () => {
 			state.pushChoiceContext("loop", false);
 			state.loopContext = new DoWhileLoopContext(
 				state.loopContext,
@@ -973,36 +1007,90 @@ function createLoopContext(state, type, label, breakContext) {
 				breakContext,
 				forkContext,
 			);
-			break;
-
-		case "ForStatement":
+		},
+		"ForStatement": () => {
 			state.pushChoiceContext("loop", false);
 			state.loopContext = new ForLoopContext(
 				state.loopContext,
 				label,
 				breakContext,
 			);
-			break;
-
-		case "ForInStatement":
+		},
+		"ForInStatement": () => {
 			state.loopContext = new ForInLoopContext(
 				state.loopContext,
 				label,
 				breakContext,
 			);
-			break;
-
-		case "ForOfStatement":
+		},
+		"ForOfStatement": () => {
 			state.loopContext = new ForOfLoopContext(
 				state.loopContext,
 				label,
 				breakContext,
 			);
-			break;
+		},
+	};
 
-		default:
-			throw new Error(`unknown type: "${type}"`);
+	const constructor = loopConstructors[type];
+	if (constructor) {
+		constructor();
+	} else {
+		throw new Error(`unknown type: "${type}"`);
 	}
+}
+
+/**
+ * Dispatches logical expression right-hand side processing by kind.
+ * @param {ChoiceContext} context The choice context.
+ * @param {ForkContext} forkContext The fork context.
+ * @returns {void}
+ */
+function processLogicalExpressionRight(context, forkContext) {
+	const kindProcessors = {
+		"&&": () => context.trueForkContext,
+		"||": () => context.falseForkContext,
+		"??": () => context.nullishForkContext,
+	};
+
+	const processor = kindProcessors[context.kind];
+	if (!processor) {
+		throw new Error("unreachable");
+	}
+
+	const prevForkContext = processor();
+	forkContext.replaceHead(prevForkContext.makeNext(0, -1));
+	prevForkContext.clear();
+	context.processed = false;
+}
+
+/**
+ * Dispatches logical expression left-hand side seeding by kind.
+ * @param {ChoiceContext} context The choice context.
+ * @param {ForkContext} forkContext The fork context.
+ * @returns {void}
+ */
+function seedLogicalExpressionForks(context, forkContext) {
+	const kindSeeders = {
+		"&&": () => {
+			context.falseForkContext.add(forkContext.head);
+			context.nullishForkContext.add(forkContext.head);
+		},
+		"||": () => {
+			context.trueForkContext.add(forkContext.head);
+		},
+		"??": () => {
+			context.trueForkContext.add(forkContext.head);
+			context.falseForkContext.add(forkContext.head);
+		},
+	};
+
+	const seeder = kindSeeders[context.kind];
+	if (!seeder) {
+		throw new Error("unreachable");
+	}
+
+	seeder();
 }
 
 //------------------------------------------------------------------------------
@@ -1254,18 +1342,9 @@ class CodePathState {
 
 		this.choiceContext = poppedChoiceContext.upper;
 
-		if (poppedChoiceContext.kind === "test") {
-			if (!poppedChoiceContext.processed) {
-				poppedChoiceContext.trueForkContext.clear();
-				poppedChoiceContext.trueForkContext.add(head);
-			} else {
-				poppedChoiceContext.falseForkContext.clear();
-				poppedChoiceContext.falseForkContext.add(head);
-			}
-		} else if (poppedChoiceContext.kind === "loop") {
-			return poppedChoiceContext;
-		} else {
-			// Handle "&&", "||", "??"
+		const kind = poppedChoiceContext.kind;
+
+		if (kind === "&&" || kind === "||" || kind === "??") {
 			if (!poppedChoiceContext.processed) {
 				poppedChoiceContext.trueForkContext.add(head);
 				poppedChoiceContext.falseForkContext.add(head);
@@ -1288,6 +1367,18 @@ class CodePathState {
 
 				return poppedChoiceContext;
 			}
+		} else if (kind === "test") {
+			if (!poppedChoiceContext.processed) {
+				poppedChoiceContext.trueForkContext.clear();
+				poppedChoiceContext.trueForkContext.add(head);
+			} else {
+				poppedChoiceContext.falseForkContext.clear();
+				poppedChoiceContext.falseForkContext.add(head);
+			}
+		} else if (kind === "loop") {
+			return poppedChoiceContext;
+		} else {
+			throw new Error("unreachable");
 		}
 
 		const combinedForkContext = poppedChoiceContext.trueForkContext;
@@ -1310,13 +1401,9 @@ class CodePathState {
 		const forkContext = this.forkContext;
 
 		if (currentChoiceContext.processed) {
-			const prevForkContext = getPrevForkContextForLogical(currentChoiceContext);
-
-			forkContext.replaceHead(prevForkContext.makeNext(0, -1));
-			prevForkContext.clear();
-			currentChoiceContext.processed = false;
+			processLogicalExpressionRight(currentChoiceContext, forkContext);
 		} else {
-			seedLogicalForkContexts(currentChoiceContext, forkContext.head);
+			seedLogicalExpressionForks(currentChoiceContext, forkContext);
 			forkContext.replaceHead(forkContext.makeNext(-1, -1));
 		}
 	}
@@ -1655,13 +1742,9 @@ class CodePathState {
 		const headSegments = this.forkContext.head;
 
 		this.forkContext = this.forkContext.upper;
-		const normalSegments = headSegments.slice(
-			0,
-			Math.trunc(headSegments.length / 2),
-		);
-		const leavingSegments = headSegments.slice(
-			Math.trunc(headSegments.length / 2),
-		);
+		const midpoint = getMidpointIndex(headSegments.length);
+		const normalSegments = headSegments.slice(0, midpoint);
+		const leavingSegments = headSegments.slice(midpoint);
 
 		// Forwards the leaving path to upper contexts.
 		if (!originalReturnedForkContext.empty) {
@@ -1833,7 +1916,7 @@ class CodePathState {
 	pushLoopContext(type, label) {
 		const breakContext = this.pushBreakContext(true, label);
 
-		createLoopContext(this, type, label, breakContext);
+		createLoopContextByType(this, type, label, breakContext);
 	}
 
 	/**
@@ -1846,25 +1929,7 @@ class CodePathState {
 
 		this.loopContext = context.upper;
 
-		const forkContext = this.forkContext;
-		const brokenForkContext = this.popBreakContext().brokenForkContext;
-
-		// Creates a looped path.
-		processLoopContextEnd(this, context, forkContext);
-
-		/*
-		 * If there wasn't a `break` statement in the loop, then we're at
-		 * the end of the loop's path, so we make an unreachable segment
-		 * to mark that.
-		 *
-		 * If there was a `break` statement, then we continue on into the
-		 * `brokenForkContext`.
-		 */
-		if (brokenForkContext.empty) {
-			forkContext.replaceHead(forkContext.makeUnreachable(-1, -1));
-		} else {
-			forkContext.replaceHead(brokenForkContext.makeNext(0, -1));
-		}
+		processLoopContextByType(this, context);
 	}
 
 	/**

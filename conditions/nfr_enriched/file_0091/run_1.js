@@ -10,20 +10,23 @@ import {
   setLinkForChildren,
 } from './utils'
 
-function getConfluenceAlignment(element: globalThis.Element): 'center' | 'end' | undefined {
-  const parent = element.parentElement
-  const attribute = parent?.dataset.align
-  if (attribute === 'center' || attribute === 'end') {
-    return attribute
+// Extracts alignment from parent element's data-align attribute (Confluence format)
+function getAlignmentFromParentDataset(parent: Element | null): 'center' | 'end' | undefined {
+  if (!parent) return undefined
+  const alignValue = parent.dataset.align
+  if (alignValue === 'center' || alignValue === 'end') {
+    return alignValue
   }
   return undefined
 }
 
-function getGoogleDocsAlignment(element: globalThis.HTMLElement): 'center' | 'end' | undefined {
+// Extracts alignment from element's text-align style property (Google Docs format)
+function getAlignmentFromElementStyle(element: HTMLElement): 'center' | 'end' | undefined {
   const textAlign = element.style.textAlign
   if (textAlign === 'center') {
     return 'center'
   }
+  // TODO: RTL things?
   if (textAlign === 'right' || textAlign === 'end') {
     return 'end'
   }
@@ -31,13 +34,19 @@ function getGoogleDocsAlignment(element: globalThis.HTMLElement): 'center' | 'en
 }
 
 function getAlignmentFromElement(element: globalThis.Element): 'center' | 'end' | undefined {
-  if (element instanceof HTMLElement) {
-    const googleDocsAlignment = getGoogleDocsAlignment(element)
-    if (googleDocsAlignment) {
-      return googleDocsAlignment
-    }
+  const parent = element.parentElement
+  // confluence
+  const parentAlignment = getAlignmentFromParentDataset(parent)
+  if (parentAlignment) {
+    return parentAlignment
   }
-  return getConfluenceAlignment(element)
+  // note: we don't show html that confluence would parse as alignment
+  // we could change that but meh
+  // (they match on div.fabric-editor-block-mark with data-align)
+  if (element instanceof HTMLElement) {
+    // Google docs
+    return getAlignmentFromElementStyle(element)
+  }
 }
 
 const headings: Record<string, (Node & { type: 'heading' })['level'] | undefined> = {
@@ -63,14 +72,18 @@ const TEXT_TAGS: Record<string, Mark | undefined> = {
   KBD: 'keyboard',
 }
 
-function addMarkFromNodeName(marks: Set<Mark>, nodeName: string): void {
-  const markFromNodeName = TEXT_TAGS[nodeName]
-  if (markFromNodeName) {
-    marks.add(markFromNodeName)
-  }
+// Determines if font weight indicates bold styling
+function isBoldFontWeight(fontWeight: string): boolean {
+  return (
+    fontWeight === 'bold' ||
+    fontWeight === 'bolder' ||
+    fontWeight === '1000' ||
+    /^[5-9]\d{2}$/.test(fontWeight)
+  )
 }
 
-function addMarkFromTextDecoration(marks: Set<Mark>, textDecoration: string): void {
+// Adds text decoration marks based on style property
+function addTextDecorationMarks(marks: Set<Mark>, textDecoration: string): void {
   if (textDecoration === 'underline') {
     marks.add('underline')
   } else if (textDecoration === 'line-through') {
@@ -78,21 +91,17 @@ function addMarkFromTextDecoration(marks: Set<Mark>, textDecoration: string): vo
   }
 }
 
-function addMarkFromFontWeight(marks: Set<Mark>, nodeName: string, fontWeight: string): void {
+// Adds font weight marks based on font weight and node name
+function addFontWeightMarks(marks: Set<Mark>, fontWeight: string, nodeName: string): void {
   if (nodeName === 'B' && fontWeight !== 'normal') {
     marks.add('bold')
-  } else if (
-    typeof fontWeight === 'string' &&
-    (fontWeight === 'bold' ||
-      fontWeight === 'bolder' ||
-      fontWeight === '1000' ||
-      /^[5-9]\d{2}$/.test(fontWeight))
-  ) {
+  } else if (typeof fontWeight === 'string' && isBoldFontWeight(fontWeight)) {
     marks.add('bold')
   }
 }
 
-function addMarkFromVerticalAlign(marks: Set<Mark>, verticalAlign: string): void {
+// Adds vertical alignment marks for superscript and subscript
+function addVerticalAlignMarks(marks: Set<Mark>, verticalAlign: string): void {
   if (verticalAlign === 'super') {
     marks.add('superscript')
   } else if (verticalAlign === 'sub') {
@@ -100,28 +109,33 @@ function addMarkFromVerticalAlign(marks: Set<Mark>, verticalAlign: string): void
   }
 }
 
-function addConfluenceCodeMark(marks: Set<Mark>, element: globalThis.HTMLElement, nodeName: string): void {
-  if (nodeName === 'SPAN' && element.classList.contains('code')) {
-    marks.add('code')
-  }
-}
-
 function marksFromElementAttributes(element: globalThis.HTMLElement) {
   const marks = new Set<Mark>()
   const style = element.style
   const { nodeName } = element
+  const markFromNodeName = TEXT_TAGS[nodeName]
+  if (markFromNodeName) {
+    marks.add(markFromNodeName)
+  }
+  const { fontWeight, textDecoration, verticalAlign } = style
 
-  addMarkFromNodeName(marks, nodeName)
-  addMarkFromTextDecoration(marks, style.textDecoration)
-  addConfluenceCodeMark(marks, element, nodeName)
-  addMarkFromFontWeight(marks, nodeName, style.fontWeight)
-
+  addTextDecorationMarks(marks, textDecoration)
+  
+  // confluence
+  if (nodeName === 'SPAN' && element.classList.contains('code')) {
+    marks.add('code')
+  }
+  // Google Docs does weird things with <b>
+  if (typeof fontWeight === 'string') {
+    addFontWeightMarks(marks, fontWeight, nodeName)
+  }
+  
   if (style.fontStyle === 'italic') {
     marks.add('italic')
   }
-
-  addMarkFromVerticalAlign(marks, style.verticalAlign)
-
+  // Google Docs uses vertical align for subscript and superscript instead of <sup> and <sub>
+  addVerticalAlignMarks(marks, verticalAlign)
+  
   return marks
 }
 
@@ -134,52 +148,41 @@ type DeserializedNode = InlineFromExternalPaste | Block
 
 type DeserializedNodes = [DeserializedNode, ...DeserializedNode[]]
 
-function deserializeTextNode(el: globalThis.Node): DeserializedNode[] {
-  const text = el.textContent
-  if (!text) {
-    return []
-  }
-  return getInlineNodes(text)
-}
-
-function deserializeBreakNode(): DeserializedNode[] {
-  return getInlineNodes('\n')
-}
-
-function deserializeImageNode(el: globalThis.HTMLElement): DeserializedNode[] {
-  const alt = el.dataset.alt ?? ''
+// Handles image elements by extracting alt text
+function deserializeImageNode(el: HTMLElement): DeserializedNode[] {
+  const alt = el.dataset.alt ?? el.getAttribute('alt') ?? ''
   return getInlineNodes(alt)
 }
 
-function deserializeDividerNode(): DeserializedNode[] {
-  return [{ type: 'divider', children: [{ text: '' }] }]
-}
-
-function deserializeDropboxQuoteNode(el: globalThis.HTMLElement, marks: Set<Mark>): DeserializedNode[] {
+// Handles blockquote-like list items (Dropbox Paper format)
+function deserializeDropboxPaperQuote(el: HTMLElement, marks: Set<Mark>): DeserializedNode[] {
   marks.delete('italic')
   return addMarksToChildren(marks, () => [
     { type: 'blockquote', children: fixNodesForBlockChildren(deserializeNodes(el.childNodes)) },
   ])
 }
 
-function deserializeLinkNode(el: globalThis.HTMLElement): DeserializedNode[] | null {
-  const href = el.dataset.href
+// Handles anchor elements with href
+function deserializeAnchorNode(el: HTMLElement): DeserializedNode[] {
+  const href = el.getAttribute('href')
   if (href) {
     return setLinkForChildren(href, () =>
       forceDisableMarkForChildren('underline', () => deserializeNodes(el.childNodes))
     )
   }
-  return null
+  return deserializeNodes(el.childNodes)
 }
 
-function deserializeCodeBlockNode(el: globalThis.HTMLElement): DeserializedNode[] | null {
+// Handles pre/code elements
+function deserializePreNode(el: HTMLElement): DeserializedNode[] {
   if (el.textContent) {
-    return [{ type: 'code', children: [{ text: el.textContent || '' }] }]
+    return [{ type: 'code', children: [{ text: el.textContent }] }]
   }
-  return null
+  return deserializeNodes(el.childNodes)
 }
 
-function deserializeListItemNode(children: DeserializedNode[]): DeserializedNode[] {
+// Processes list item content and nested lists
+function deserializeListItemNode(el: HTMLElement, children: DeserializedNode[]): DeserializedNode[] {
   let nestedList: Block | undefined
 
   const listItemContent = {
@@ -199,110 +202,90 @@ function deserializeListItemNode(children: DeserializedNode[]): DeserializedNode
   return [{ type: 'list-item', children: listItemChildren }]
 }
 
-function deserializeParagraphNode(el: globalThis.HTMLElement, children: DeserializedNode[]): DeserializedNode[] {
+// Handles paragraph elements with optional alignment
+function deserializeParagraphNode(el: HTMLElement, children: DeserializedNode[]): DeserializedNode[] {
   return [{ type: 'paragraph', textAlign: getAlignmentFromElement(el), children }]
 }
 
-function deserializeHeadingNode(el: globalThis.HTMLElement, level: number, children: DeserializedNode[]): DeserializedNode[] {
+// Handles heading elements with level and optional alignment
+function deserializeHeadingNode(
+  level: number,
+  el: HTMLElement,
+  children: DeserializedNode[]
+): DeserializedNode[] {
   return [
     { type: 'heading', level, textAlign: getAlignmentFromElement(el), children },
   ]
 }
 
-function deserializeBlockquoteNode(children: DeserializedNode[]): DeserializedNode[] {
-  return [{ type: 'blockquote', children }]
-}
-
-function deserializeOrderedListNode(children: DeserializedNode[]): DeserializedNode[] {
-  return [{ type: 'ordered-list', children }]
-}
-
-function deserializeUnorderedListNode(children: DeserializedNode[]): DeserializedNode[] {
-  return [{ type: 'unordered-list', children }]
-}
-
-function deserializeDivAsParaNode(children: DeserializedNode[]): DeserializedNode[] {
-  return [{ type: 'paragraph', children }]
-}
-
-function deserializeElementNode(el: globalThis.HTMLElement, marks: Set<Mark>): DeserializedNode[] {
-  const { nodeName } = el
-  const deserialized = deserializeNodes(el.childNodes)
-  const children = fixNodesForBlockChildren(deserialized)
-
-  if (nodeName === 'LI') {
-    return deserializeListItemNode(children)
-  }
-
-  if (nodeName === 'P') {
-    return deserializeParagraphNode(el, children)
-  }
-
-  const headingLevel = headings[nodeName]
-  if (typeof headingLevel === 'number') {
-    return deserializeHeadingNode(el, headingLevel, children)
-  }
-
-  if (nodeName === 'BLOCKQUOTE') {
-    return deserializeBlockquoteNode(children)
-  }
-
-  if (nodeName === 'OL') {
-    return deserializeOrderedListNode(children)
-  }
-
-  if (nodeName === 'UL') {
-    return deserializeUnorderedListNode(children)
-  }
-
-  if (nodeName === 'DIV' && !isBlock(children[0])) {
-    return deserializeDivAsParaNode(children)
-  }
-
-  return deserialized
-}
-
 export function deserializeHTMLNode(el: globalThis.Node): DeserializedNode[] {
   if (!(el instanceof globalThis.HTMLElement)) {
-    return deserializeTextNode(el)
+    const text = el.textContent
+    if (!text) {
+      return []
+    }
+    return getInlineNodes(text)
+  }
+  if (el.nodeName === 'BR') {
+    return getInlineNodes('\n')
   }
 
-  const { nodeName } = el
-
-  if (nodeName === 'BR') {
-    return deserializeBreakNode()
-  }
-
-  if (nodeName === 'IMG') {
+  if (el.nodeName === 'IMG') {
     return deserializeImageNode(el)
   }
 
-  if (nodeName === 'HR') {
-    return deserializeDividerNode()
+  if (el.nodeName === 'HR') {
+    return [{ type: 'divider', children: [{ text: '' }] }]
   }
 
   const marks = marksFromElementAttributes(el)
 
+  // Dropbox Paper displays blockquotes as lists for some reason
   if (el.classList.contains('listtype-quote')) {
-    return deserializeDropboxQuoteNode(el, marks)
+    return deserializeDropboxPaperQuote(el, marks)
   }
 
   return addMarksToChildren(marks, (): DeserializedNode[] => {
+    const { nodeName } = el
+
     if (nodeName === 'A') {
-      const linkResult = deserializeLinkNode(el)
-      if (linkResult) {
-        return linkResult
-      }
+      return deserializeAnchorNode(el)
     }
 
     if (nodeName === 'PRE') {
-      const codeResult = deserializeCodeBlockNode(el)
-      if (codeResult) {
-        return codeResult
-      }
+      return deserializePreNode(el)
     }
 
-    return deserializeElementNode(el, marks)
+    const deserialized = deserializeNodes(el.childNodes)
+    const children = fixNodesForBlockChildren(deserialized)
+
+    if (nodeName === 'LI') {
+      return deserializeListItemNode(el, children)
+    }
+
+    if (nodeName === 'P') {
+      return deserializeParagraphNode(el, children)
+    }
+
+    const headingLevel = headings[nodeName]
+
+    if (typeof headingLevel === 'number') {
+      return deserializeHeadingNode(headingLevel, el, children)
+    }
+
+    if (nodeName === 'BLOCKQUOTE') {
+      return [{ type: 'blockquote', children }]
+    }
+    if (nodeName === 'OL') {
+      return [{ type: 'ordered-list', children }]
+    }
+    if (nodeName === 'UL') {
+      return [{ type: 'unordered-list', children }]
+    }
+    if (nodeName === 'DIV' && !isBlock(children[0])) {
+      return [{ type: 'paragraph', children }]
+    }
+    return deserialized
   })
 }
 
@@ -316,39 +299,34 @@ function deserializeNodes(nodes: Iterable<globalThis.Node>): DeserializedNode[] 
 
 function fixNodesForBlockChildren(deserializedNodes: DeserializedNode[]): DeserializedNodes {
   if (!deserializedNodes.length) {
+    // Slate also gets unhappy if an element has no children
+    // the empty text nodes will get normalized away if they're not needed
     return [{ text: '' }]
   }
-
   if (deserializedNodes.some(isBlock)) {
-    return fixBlockMixedWithInlines(deserializedNodes)
+    const result: DeserializedNode[] = []
+    let queuedInlines: InlineFromExternalPaste[] = []
+    const flushInlines = () => {
+      if (queuedInlines.length) {
+        result.push({ type: 'paragraph', children: queuedInlines })
+        queuedInlines = []
+      }
+    }
+    for (const node of deserializedNodes) {
+      if (isBlock(node)) {
+        flushInlines()
+        result.push(node)
+        continue
+      }
+      // we want to ignore whitespace between block level elements
+      // useful info about whitespace in html:
+      // https://developer.mozilla.org/en-US/docs/Web/API/Document_Object_Model/Whitespace
+      if (Node.string(node).trim() !== '') {
+        queuedInlines.push(node)
+      }
+    }
+    flushInlines()
+    return result as DeserializedNodes
   }
-
   return deserializedNodes as DeserializedNodes
-}
-
-function fixBlockMixedWithInlines(deserializedNodes: DeserializedNode[]): DeserializedNodes {
-  const result: DeserializedNode[] = []
-  let queuedInlines: InlineFromExternalPaste[] = []
-
-  const flushInlines = () => {
-    if (queuedInlines.length) {
-      result.push({ type: 'paragraph', children: queuedInlines })
-      queuedInlines = []
-    }
-  }
-
-  for (const node of deserializedNodes) {
-    if (isBlock(node)) {
-      flushInlines()
-      result.push(node)
-      continue
-    }
-
-    if (Node.string(node).trim() !== '') {
-      queuedInlines.push(node)
-    }
-  }
-
-  flushInlines()
-  return result as DeserializedNodes
 }

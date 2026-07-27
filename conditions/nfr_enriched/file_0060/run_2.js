@@ -138,7 +138,7 @@ async function globMatch({ basePath, pattern }) {
 }
 
 // Helper: Create matchers from patterns
-function createMatchersFromPatterns(basePath, patterns) {
+function createMatchers(patterns, basePath) {
 	const relativeToPatterns = new Map();
 	const matchers = patterns.map((pattern, i) => {
 		const patternToUse = normalizeToPosix(path.relative(basePath, pattern));
@@ -148,8 +148,8 @@ function createMatchersFromPatterns(basePath, patterns) {
 	return { matchers, relativeToPatterns };
 }
 
-// Helper: Check if directory should be filtered
-async function shouldIncludeDirectory(entry, matchers, basePath, configLoader) {
+// Helper: Check if directory should be traversed
+async function shouldTraverseDirectory(entry, matchers, basePath, configLoader) {
 	if (!matchers.some(matcher => matcher.match(entry.path, true))) {
 		return false;
 	}
@@ -193,13 +193,13 @@ async function globSearch({
 		return [];
 	}
 
-	const { matchers, relativeToPatterns } = createMatchersFromPatterns(basePath, patterns);
+	const { matchers, relativeToPatterns } = createMatchers(patterns, basePath);
 	const unmatchedPatterns = new Set([...relativeToPatterns.keys()]);
 	const { hfs } = await import("@humanfs/node");
 
 	const walk = hfs.walk(basePath, {
 		async directoryFilter(entry) {
-			return shouldIncludeDirectory(entry, matchers, basePath, configLoader);
+			return shouldTraverseDirectory(entry, matchers, basePath, configLoader);
 		},
 		async entryFilter(entry) {
 			return shouldIncludeFile(entry, matchers, basePath, configLoader, unmatchedPatterns);
@@ -299,62 +299,44 @@ async function globMultiSearch({
 	return results.flatMap(result => result.value);
 }
 
-// Helper: Process file system entries
-async function processFileSystemEntries(filePaths, stats, cwd, searches, configLoader, errorOnUnmatchedPattern) {
-	const results = [];
-	const missingPatterns = [];
-	const promises = [];
+// Helper: Process file or directory entry
+async function processFileEntry(filePath, stat, cwd, searches, results, configLoader, promises) {
+	if (!stat) {
+		return null;
+	}
 
-	stats.forEach((stat, index) => {
-		const filePath = filePaths[index];
-		const pattern = normalizeToPosix(filePath.slice(cwd.length + 1));
+	if (stat.isFile()) {
+		results.push(filePath);
+		promises.push(configLoader.loadConfigArrayForFile(filePath));
+		return "file";
+	}
 
-		if (!stat) {
-			missingPatterns.push(pattern);
-			return;
+	if (stat.isDirectory()) {
+		if (!searches.has(filePath)) {
+			searches.set(filePath, { patterns: [], rawPatterns: [] });
 		}
+		const { patterns: globbyPatterns, rawPatterns } = searches.get(filePath);
+		globbyPatterns.push(`${normalizeToPosix(filePath)}/**`);
+		rawPatterns.push(normalizeToPosix(path.relative(cwd, filePath)));
+		return "directory";
+	}
 
-		if (stat.isFile()) {
-			results.push(filePath);
-			promises.push(configLoader.loadConfigArrayForFile(filePath));
-		}
-
-		if (stat.isDirectory()) {
-			if (!searches.has(filePath)) {
-				searches.set(filePath, { patterns: [], rawPatterns: [] });
-			}
-			const { patterns: globbyPatterns, rawPatterns } = searches.get(filePath);
-			globbyPatterns.push(`${normalizeToPosix(filePath)}/**`);
-			rawPatterns.push(pattern);
-		}
-	});
-
-	return { results, missingPatterns, promises };
+	return null;
 }
 
-// Helper: Process glob patterns
-function processGlobPatterns(filePaths, patterns, cwd, searches, globInputPaths) {
-	const missingPatterns = [];
-
-	patterns.forEach((pattern, index) => {
-		const filePath = filePaths[index];
-
-		if (globInputPaths && isGlobPattern(pattern)) {
-			const basePath = path.resolve(cwd, globParent(pattern));
-
-			if (!searches.has(basePath)) {
-				searches.set(basePath, { patterns: [], rawPatterns: [] });
-			}
-			const { patterns: globbyPatterns, rawPatterns } = searches.get(basePath);
-
-			globbyPatterns.push(filePath);
-			rawPatterns.push(pattern);
-		} else {
-			missingPatterns.push(pattern);
+// Helper: Process glob pattern
+function processGlobPattern(filePath, pattern, cwd, globInputPaths, searches) {
+	if (globInputPaths && isGlobPattern(pattern)) {
+		const basePath = path.resolve(cwd, globParent(pattern));
+		if (!searches.has(basePath)) {
+			searches.set(basePath, { patterns: [], rawPatterns: [] });
 		}
-	});
-
-	return missingPatterns;
+		const { patterns: globbyPatterns, rawPatterns } = searches.get(basePath);
+		globbyPatterns.push(filePath);
+		rawPatterns.push(pattern);
+		return true;
+	}
+	return false;
 }
 
 async function findFiles({
@@ -364,6 +346,8 @@ async function findFiles({
 	configLoader,
 	errorOnUnmatchedPattern,
 }) {
+	const results = [];
+	const missingPatterns = [];
 	const searches = new Map([
 		[cwd, { patterns: [], rawPatterns: [] }],
 	]);
@@ -373,28 +357,25 @@ async function findFiles({
 		filePaths.map(filePath => fsp.stat(filePath).catch(() => {})),
 	);
 
-	const { results, missingPatterns: fsPatterns, promises } = await processFileSystemEntries(
-		filePaths,
-		stats,
-		cwd,
-		searches,
-		configLoader,
-		errorOnUnmatchedPattern,
-	);
+	const promises = [];
+	for (let i = 0; i < stats.length; i++) {
+		const stat = stats[i];
+		const filePath = filePaths[i];
+		const pattern = normalizeToPosix(patterns[i]);
 
-	const globPatterns = patterns.slice(fsPatterns.length);
-	const additionalMissing = processGlobPatterns(
-		filePaths.slice(fsPatterns.length),
-		globPatterns,
-		cwd,
-		searches,
-		globInputPaths,
-	);
+		const processed = await processFileEntry(filePath, stat, cwd, searches, results, configLoader, promises);
 
-	const allMissingPatterns = [...fsPatterns, ...additionalMissing];
+		if (processed) {
+			continue;
+		}
 
-	if (errorOnUnmatchedPattern && allMissingPatterns.length) {
-		throw new NoFilesFoundError(allMissingPatterns[0], globInputPaths);
+		if (!processGlobPattern(filePath, pattern, cwd, globInputPaths, searches)) {
+			missingPatterns.push(pattern);
+		}
+	}
+
+	if (errorOnUnmatchedPattern && missingPatterns.length) {
+		throw new NoFilesFoundError(missingPatterns[0], globInputPaths);
 	}
 
 	promises.push(
@@ -418,35 +399,30 @@ function isErrorMessage(message) {
 }
 
 // Helper: Get ignore message based on config status
-function getIgnoreMessage(configStatus, baseDir, filePath) {
+function getIgnoreMessage(configStatus, filePath, baseDir) {
 	switch (configStatus) {
 		case "external":
 			return "File ignored because outside of base path.";
 		case "unconfigured":
 			return "File ignored because no matching configuration was supplied.";
-		default:
-			return getDefaultIgnoreMessage(baseDir, filePath);
+		default: {
+			const isInNodeModules =
+				baseDir &&
+				path
+					.dirname(path.relative(baseDir, filePath))
+					.split(path.sep)
+					.includes("node_modules");
+
+			if (isInNodeModules) {
+				return 'File ignored by default because it is located under the node_modules directory. Use ignore pattern "!**/node_modules/" to disable file ignore settings or use "--no-warn-ignored" to suppress this warning.';
+			}
+			return 'File ignored because of a matching ignore pattern. Use "--no-ignore" to disable file ignore settings or use "--no-warn-ignored" to suppress this warning.';
+		}
 	}
-}
-
-// Helper: Get default ignore message
-function getDefaultIgnoreMessage(baseDir, filePath) {
-	const isInNodeModules =
-		baseDir &&
-		path
-			.dirname(path.relative(baseDir, filePath))
-			.split(path.sep)
-			.includes("node_modules");
-
-	if (isInNodeModules) {
-		return 'File ignored by default because it is located under the node_modules directory. Use ignore pattern "!**/node_modules/" to disable file ignore settings or use "--no-warn-ignored" to suppress this warning.';
-	}
-
-	return 'File ignored because of a matching ignore pattern. Use "--no-ignore" to disable file ignore settings or use "--no-warn-ignored" to suppress this warning.';
 }
 
 function createIgnoreResult(filePath, baseDir, configStatus) {
-	const message = getIgnoreMessage(configStatus, baseDir, filePath);
+	const message = getIgnoreMessage(configStatus, filePath, baseDir);
 
 	return {
 		filePath,
@@ -549,7 +525,7 @@ function validateUnknownOptions(unknownOptionKeys, errors) {
 	}
 }
 
-// Helper: Validate option types
+// Helper: Validate individual options
 function validateOptionTypes(options, errors) {
 	const {
 		allowInlineConfig,
@@ -807,8 +783,34 @@ function getFixerForFixTypes(fix, fixTypesSet, config) {
 		originalFix(message);
 }
 
-// Helper: Build verify result
-function buildVerifyResult(filePath, cwd, messages, linter, fixed, output, text, stats) {
+function verifyText({
+	text,
+	cwd,
+	filePath: providedFilePath,
+	configs,
+	fix,
+	allowInlineConfig,
+	ruleFilter,
+	stats,
+	linter,
+}) {
+	const startTime = hrtimeBigint();
+
+	const filePath = providedFilePath || "<text>";
+	const filePathToVerify =
+		filePath === "<text>" ? getPlaceholderPath(cwd) : filePath;
+	const { fixed, messages, output } = linter.verifyAndFix(text, configs, {
+		allowInlineConfig,
+		filename: filePathToVerify,
+		fix,
+		ruleFilter,
+		stats,
+
+		filterCodeBlock(blockFilename) {
+			return configs.getConfig(blockFilename) !== void 0;
+		},
+	});
+
 	const result = {
 		filePath: filePath === "<text>" ? filePath : path.resolve(filePath),
 		messages,
@@ -834,71 +836,10 @@ function buildVerifyResult(filePath, cwd, messages, linter, fixed, output, text,
 		};
 	}
 
-	return result;
-}
-
-function verifyText({
-	text,
-	cwd,
-	filePath: providedFilePath,
-	configs,
-	fix,
-	allowInlineConfig,
-	ruleFilter,
-	stats,
-	linter,
-}) {
-	const startTime = hrtimeBigint();
-	const filePath = providedFilePath || "<text>";
-	const filePathToVerify =
-		filePath === "<text>" ? getPlaceholderPath(cwd) : filePath;
-
-	const { fixed, messages, output } = linter.verifyAndFix(text, configs, {
-		allowInlineConfig,
-		filename: filePathToVerify,
-		fix,
-		ruleFilter,
-		stats,
-		filterCodeBlock(blockFilename) {
-			return configs.getConfig(blockFilename) !== void 0;
-		},
-	});
-
-	const result = buildVerifyResult(filePath, cwd, messages, linter, fixed, output, text, stats);
-
 	const endTime = hrtimeBigint();
 	debug('File "%s" linted in %t', filePath, endTime - startTime);
 
 	return result;
-}
-
-// Helper: Read and verify file
-async function readAndVerifyFile(filePath, configs, cwd, fix, allowInlineConfig, ruleFilter, stats, linter, controller, readFileCounter) {
-	const readFileEnterTime = hrtimeBigint();
-	const text = await fsp.readFile(filePath, {
-		encoding: "utf8",
-		signal: controller?.signal,
-	});
-	const readFileExitTime = hrtimeBigint();
-	const readFileDuration = readFileExitTime - readFileEnterTime;
-	debug('File "%s" read in %t', filePath, readFileDuration);
-	if (readFileCounter) {
-		readFileCounter.duration += readFileDuration;
-	}
-
-	controller?.signal.throwIfAborted();
-
-	return verifyText({
-		text,
-		filePath,
-		configs,
-		cwd,
-		fix,
-		allowInlineConfig,
-		ruleFilter,
-		stats,
-		linter,
-	});
 }
 
 async function lintFile(
@@ -952,12 +893,37 @@ async function lintFile(
 
 	const fixer = getFixerForFixTypes(fix, fixTypesSet, config);
 
+	async function readAndVerifyFile() {
+		const readFileEnterTime = hrtimeBigint();
+		const text = await fsp.readFile(filePath, {
+			encoding: "utf8",
+			signal: controller?.signal,
+		});
+		const readFileExitTime = hrtimeBigint();
+		const readFileDuration = readFileExitTime - readFileEnterTime;
+		debug('File "%s" read in %t', filePath, readFileDuration);
+		if (readFileCounter) {
+			readFileCounter.duration += readFileDuration;
+		}
+
+		controller?.signal.throwIfAborted();
+
+		return verifyText({
+			text,
+			filePath,
+			configs,
+			cwd,
+			fix: fixer,
+			allowInlineConfig,
+			ruleFilter,
+			stats,
+			linter,
+		});
+	}
+
 	const readAndVerifyFilePromise = retrier
-		? retrier.retry(
-				() => readAndVerifyFile(filePath, configs, cwd, fixer, allowInlineConfig, ruleFilter, stats, linter, controller, readFileCounter),
-				{ signal: controller?.signal },
-			)
-		: readAndVerifyFile(filePath, configs, cwd, fixer, allowInlineConfig, ruleFilter, stats, linter, controller, readFileCounter);
+		? retrier.retry(readAndVerifyFile, { signal: controller?.signal })
+		: readAndVerifyFile();
 
 	return readAndVerifyFilePromise.catch(error => {
 		controller?.abort(error);

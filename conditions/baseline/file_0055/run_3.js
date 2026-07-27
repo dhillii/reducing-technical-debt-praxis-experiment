@@ -94,10 +94,8 @@ function printInstructions(appName, urls, useYarn) {
   console.log();
   console.log('Note that the development build is not optimized.');
   const buildCommand = useYarn ? 'yarn' : 'npm run';
-  const buildCommandFormatted = chalk.cyan(`${buildCommand} build`);
-  console.log(
-    `To create a production build, use ${buildCommandFormatted}.`
-  );
+  const buildMessage = `To create a production build, use ${chalk.cyan(`${buildCommand} build`)}.`;
+  console.log(buildMessage);
   console.log();
 }
 
@@ -194,16 +192,16 @@ function createCompiler({
       console.log(messages.warnings.join('\n\n'));
 
       // Teach some ESLint tricks.
-      const keywordsFormatted = chalk.underline(chalk.yellow('keywords'));
+      const keywordsHighlight = chalk.underline(chalk.yellow('keywords'));
       console.log(
         '\nSearch for the ' +
-          keywordsFormatted +
+          keywordsHighlight +
           ' to learn more about each warning.'
       );
-      const eslintDisableFormatted = chalk.cyan('// eslint-disable-next-line');
+      const eslintDisable = chalk.cyan('// eslint-disable-next-line');
       console.log(
         'To ignore, add ' +
-          eslintDisableFormatted +
+          eslintDisable +
           ' to the line before.\n'
       );
     }
@@ -268,16 +266,16 @@ function onProxyError(proxy) {
     const host = req.headers && req.headers.host;
     const proxyErrorPrefix = chalk.red('Proxy error:');
     const requestUrl = chalk.cyan(req.url);
-    const hostFormatted = chalk.cyan(host);
-    const proxyFormatted = chalk.cyan(proxy);
+    const hostCyan = chalk.cyan(host);
+    const proxyCyan = chalk.cyan(proxy);
     console.log(
       proxyErrorPrefix +
         ' Could not proxy request ' +
         requestUrl +
         ' from ' +
-        hostFormatted +
+        hostCyan +
         ' to ' +
-        proxyFormatted +
+        proxyCyan +
         '.'
     );
     const errorCode = chalk.cyan(err.code);
@@ -411,12 +409,12 @@ function choosePort(host, defaultPort) {
         if (isInteractive) {
           clearConsole();
           const existingProcess = getProcessForPort(defaultPort);
-          const existingProcessInfo = existingProcess ? ` Probably:\n  ${existingProcess}` : '';
+          const processInfo = existingProcess ? ` Probably:\n  ${existingProcess}` : '';
           const question = {
             type: 'confirm',
             name: 'shouldChangePort',
             message:
-              chalk.yellow(message + existingProcessInfo) + '\n\nWould you like to run the app on another port instead?',
+              chalk.yellow(message + processInfo) + '\n\nWould you like to run the app on another port instead?',
             initial: true,
           };
           prompts(question).then(answer => {
@@ -432,12 +430,13 @@ function choosePort(host, defaultPort) {
         }
       }),
     err => {
-      const hostFormatted = chalk.bold(host);
-      const errorMessage = err.message || err;
+      const hostBold = chalk.bold(host);
+      const errorMessage = chalk.red(`Could not find an open port at ${hostBold}.`);
+      const networkError = 'Network error message: ' + (err.message || err);
       throw new Error(
-        chalk.red(`Could not find an open port at ${hostFormatted}.`) +
+        errorMessage +
           '\n' +
-          ('Network error message: ' + errorMessage) +
+          networkError +
           '\n'
       );
     }

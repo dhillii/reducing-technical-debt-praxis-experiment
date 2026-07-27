@@ -28,7 +28,7 @@ const ERROR_MESSAGE_MAP: Record<number, string> = {
     415: 'The file type is not supported.'
 };
 
-/** Gets error message for upload failure */
+/** Extracts error message from upload error object */
 const getUploadErrorMessage = (error: unknown): string => {
     if (error && typeof error === 'object' && 'statusCode' in error) {
         const statusCode = (error as {statusCode: number}).statusCode;
@@ -37,65 +37,13 @@ const getUploadErrorMessage = (error: unknown): string => {
     return 'Failed to upload image. Try again.';
 };
 
-/** Determines if modal is currently open */
-const isModalOpen = (externalOpen: boolean | undefined, internalOpen: boolean): boolean => {
-    return externalOpen !== undefined ? externalOpen : internalOpen;
+/** Determines if modal is currently open based on controlled/uncontrolled state */
+const isModalOpen = (propOpen: boolean | undefined, stateOpen: boolean): boolean => {
+    return propOpen !== undefined ? propOpen : stateOpen;
 };
 
-/** Resets modal form state */
-const resetFormState = (setters: {
-    setContent: (value: string) => void;
-    setImagePreview: (value: null) => void;
-    setUploadedImageUrl: (value: null) => void;
-    setAltText: (value: string) => void;
-    setShowAltInput: (value: boolean) => void;
-    imageInputRef: React.RefObject<HTMLInputElement>;
-    imagePreview: string | null;
-}): void => {
-    setters.setContent('');
-    setters.setImagePreview(null);
-    setters.setUploadedImageUrl(null);
-    setters.setAltText('');
-    setters.setShowAltInput(false);
-    if (setters.imagePreview) {
-        URL.revokeObjectURL(setters.imagePreview);
-    }
-    if (setters.imageInputRef.current) {
-        setters.imageInputRef.current.value = '';
-    }
-};
-
-/** Clears image and related state */
-const clearImageState = (setters: {
-    setImagePreview: (value: null) => void;
-    setUploadedImageUrl: (value: null) => void;
-    setAltText: (value: string) => void;
-    setShowAltInput: (value: boolean) => void;
-    imageInputRef: React.RefObject<HTMLInputElement>;
-    imagePreview: string | null;
-}): void => {
-    setters.setImagePreview(null);
-    setters.setUploadedImageUrl(null);
-    setters.setAltText('');
-    setters.setShowAltInput(false);
-    if (setters.imagePreview) {
-        URL.revokeObjectURL(setters.imagePreview);
-    }
-    if (setters.imageInputRef.current) {
-        setters.imageInputRef.current.value = '';
-    }
-};
-
-/** Validates file size and type */
-const validateImageFile = (file: File): {valid: boolean; error?: string} => {
-    if (file.size > MAX_FILE_SIZE) {
-        return {valid: false, error: FILE_SIZE_ERROR_MESSAGE};
-    }
-    return {valid: true};
-};
-
-/** Extracts username from reply target */
-const getReplyPlaceholder = (replyTo: {object: ObjectProperties; actor: ActorProperties} | undefined): string => {
+/** Generates placeholder text based on reply context */
+const getPlaceholder = (replyTo?: {object: ObjectProperties; actor: ActorProperties}): string => {
     if (!replyTo) {
         return 'What\'s new?';
     }
@@ -104,6 +52,36 @@ const getReplyPlaceholder = (replyTo: {object: ObjectProperties; actor: ActorPro
         return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
     }
     return 'What\'s new?';
+};
+
+/** Determines character count color based on content length */
+const getCharCountColor = (length: number, max: number): string => {
+    if (length >= max) return 'text-red-500';
+    if (length >= max * 0.9) return 'text-yellow-600';
+    return 'text-gray-500';
+};
+
+/** Resets modal form state to initial values */
+const resetFormState = (
+    setContent: (value: string) => void,
+    setImagePreview: (value: null) => void,
+    setUploadedImageUrl: (value: null) => void,
+    setAltText: (value: string) => void,
+    setShowAltInput: (value: boolean) => void,
+    imagePreview: string | null,
+    imageInputRef: React.RefObject<HTMLInputElement>
+): void => {
+    setContent('');
+    setImagePreview(null);
+    setUploadedImageUrl(null);
+    setAltText('');
+    setShowAltInput(false);
+    if (imagePreview) {
+        URL.revokeObjectURL(imagePreview);
+    }
+    if (imageInputRef.current) {
+        imageInputRef.current.value = '';
+    }
 };
 
 const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, onReplyError, onOpenChange, ...props}) => {
@@ -247,9 +225,8 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                 e.preventDefault();
                 const file = item.getAsFile();
                 if (file) {
-                    const validation = validateImageFile(file);
-                    if (!validation.valid) {
-                        toast.error(validation.error || FILE_SIZE_ERROR_MESSAGE);
+                    if (file.size > MAX_FILE_SIZE) {
+                        toast.error(FILE_SIZE_ERROR_MESSAGE);
                         return;
                     }
 
@@ -289,10 +266,9 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
         if (files && files.length > 0) {
             const file = files[0];
-            const validation = validateImageFile(file);
 
-            if (!validation.valid) {
-                toast.error(validation.error || FILE_SIZE_ERROR_MESSAGE);
+            if (file.size > MAX_FILE_SIZE) {
+                toast.error(FILE_SIZE_ERROR_MESSAGE);
                 e.target.value = '';
                 return;
             }
@@ -306,14 +282,17 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const handleClearImage = (e: React.MouseEvent) => {
         e.stopPropagation();
-        clearImageState({
-            setImagePreview,
-            setUploadedImageUrl,
-            setAltText,
-            setShowAltInput,
-            imageInputRef,
-            imagePreview
-        });
+        setImagePreview(null);
+        setUploadedImageUrl(null);
+        setAltText('');
+        setShowAltInput(false);
+        if (imagePreview) {
+            URL.revokeObjectURL(imagePreview);
+        }
+
+        if (imageInputRef.current) {
+            imageInputRef.current.value = '';
+        }
     };
 
     const handleToggleAltInput = (e: React.MouseEvent) => {
@@ -333,20 +312,12 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         };
     }, [imagePreview]);
 
-    const placeholder = getReplyPlaceholder(replyTo);
+    const placeholder = getPlaceholder(replyTo);
 
     return (
         <Dialog open={isModalOpen(props.open, isOpen)} onOpenChange={(open) => {
             if (open) {
-                resetFormState({
-                    setContent,
-                    setImagePreview,
-                    setUploadedImageUrl,
-                    setAltText,
-                    setShowAltInput,
-                    imageInputRef,
-                    imagePreview
-                });
+                resetFormState(setContent, setImagePreview, setUploadedImageUrl, setAltText, setShowAltInput, imagePreview, imageInputRef);
             }
 
             setIsOpen(open);
@@ -443,7 +414,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                 <DialogFooter className={`${isSticky ? 'sticky' : 'static'} bottom-0 flex-row bg-background py-6 dark:bg-[#101114]`}>
                     <Button className='mr-auto w-[34px] !min-w-0' variant='outline' onClick={() => imageInputRef.current?.click()}><LucideIcon.Image /></Button>
                     <div className='flex items-center space-x-3'>
-                        <div className={`text-sm ${content.length >= MAX_CONTENT_LENGTH ? 'text-red-500' : content.length >= MAX_CONTENT_LENGTH * 0.9 ? 'text-yellow-600' : 'text-gray-500'}`}>
+                        <div className={`text-sm ${getCharCountColor(content.length, MAX_CONTENT_LENGTH)}`}>
                             {content.length}/{MAX_CONTENT_LENGTH}
                         </div>
                         <Button className='min-w-16' data-testid="post-button" disabled={isDisabled || isImageUploading} onClick={handlePost}>

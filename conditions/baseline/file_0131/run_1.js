@@ -26,22 +26,13 @@ const handleAddComponentsToDynamicZone = (state, action) => {
   });
 };
 
-const handleTypeChange = (obj) => {
-  const hasDefaultValue = Boolean(obj.getIn(['default']));
-  const previousType = obj.getIn(['type']);
-
-  if (hasDefaultValue && ['date', 'datetime', 'time'].includes(previousType)) {
-    return obj.updateIn(['type'], () => obj.getIn(['type'])).remove('default');
-  }
-
-  return obj;
-};
-
 const handleNatureChange = (obj, value, oneThatIsCreatingARelationWithAnother) => {
   return obj
     .update('nature', () => value)
-    .update('dominant', () => value === 'manyToMany' ? true : null)
-    .update('name', oldValue => pluralize(snakeCase(oldValue), shouldPluralizeName(value)))
+    .update('dominant', () => (value === 'manyToMany' ? true : null))
+    .update('name', oldValue =>
+      pluralize(snakeCase(oldValue), shouldPluralizeName(value))
+    )
     .update('targetAttribute', oldValue => {
       if (['oneWay', 'manyWay'].includes(value)) {
         return '-';
@@ -51,11 +42,13 @@ const handleNatureChange = (obj, value, oneThatIsCreatingARelationWithAnother) =
         shouldPluralizeTargetAttribute(value)
       );
     })
-    .update('targetColumnName', oldValue => (['oneWay', 'manyWay'].includes(value) ? null : oldValue));
+    .update('targetColumnName', oldValue =>
+      (['oneWay', 'manyWay'].includes(value) ? null : oldValue)
+    );
 };
 
-const handleTargetChange = (obj, value, action) => {
-  const { targetContentTypeAllowedRelations, selectedContentTypeFriendlyName, oneThatIsCreatingARelationWithAnother } = action;
+const handleTargetChange = (obj, value, action, selectedContentTypeFriendlyName, oneThatIsCreatingARelationWithAnother) => {
+  const { targetContentTypeAllowedRelations } = action;
   let didChangeNatureBecauseOfRestrictedRelation = false;
 
   return obj
@@ -81,19 +74,34 @@ const handleTargetChange = (obj, value, action) => {
       if (['oneWay', 'manyWay'].includes(currentNature)) {
         return '-';
       }
-      if (didChangeNatureBecauseOfRestrictedRelation && ['oneWay', 'manyWay'].includes(targetContentTypeAllowedRelations[0])) {
+      if (
+        didChangeNatureBecauseOfRestrictedRelation &&
+        ['oneWay', 'manyWay'].includes(targetContentTypeAllowedRelations[0])
+      ) {
         return '-';
       }
-      return pluralize(snakeCase(oneThatIsCreatingARelationWithAnother), shouldPluralizeTargetAttribute(currentNature));
+      return pluralize(
+        snakeCase(oneThatIsCreatingARelationWithAnother),
+        shouldPluralizeTargetAttribute(currentNature)
+      );
     });
 };
 
 const handleOnChange = (state, action) => {
   return state.update('modifiedData', obj => {
-    const { keys, value, oneThatIsCreatingARelationWithAnother } = action;
+    const {
+      selectedContentTypeFriendlyName,
+      keys,
+      value,
+      oneThatIsCreatingARelationWithAnother,
+    } = action;
+    const hasDefaultValue = Boolean(obj.getIn(['default']));
 
-    if (keys.length === 1 && keys.includes('type')) {
-      return handleTypeChange(obj);
+    if (hasDefaultValue && keys.length === 1 && keys.includes('type')) {
+      const previousType = obj.getIn(['type']);
+      if (previousType && ['date', 'datetime', 'time'].includes(previousType)) {
+        return obj.updateIn(keys, () => value).remove('default');
+      }
     }
 
     if (keys.length === 1 && keys.includes('nature')) {
@@ -101,7 +109,7 @@ const handleOnChange = (state, action) => {
     }
 
     if (keys.length === 1 && keys.includes('target')) {
-      return handleTargetChange(obj, value, action);
+      return handleTargetChange(obj, value, action, selectedContentTypeFriendlyName, oneThatIsCreatingARelationWithAnother);
     }
 
     return obj.updateIn(keys, () => value);
@@ -127,8 +135,8 @@ const handleOnChangeAllowedType = (state, action) => {
   });
 };
 
-const getAttributeDataSchema = (action) => {
-  const { attributeType, step, options = {}, nameToSetForRelation, targetUid } = action;
+const getAttributeDataSchema = (attributeType, action, options) => {
+  const { step, nameToSetForRelation, targetUid } = action;
 
   if (attributeType === 'component') {
     return step === '1'
@@ -173,7 +181,7 @@ const getAttributeDataSchema = (action) => {
 };
 
 const handleSetAttributeDataSchema = (state, action) => {
-  const { isEditing, modifiedDataToSetForEditing } = action;
+  const { attributeType, isEditing, modifiedDataToSetForEditing, options = {} } = action;
 
   if (isEditing) {
     return state
@@ -181,7 +189,7 @@ const handleSetAttributeDataSchema = (state, action) => {
       .update('initialData', () => fromJS(modifiedDataToSetForEditing));
   }
 
-  const dataToSet = getAttributeDataSchema(action);
+  const dataToSet = getAttributeDataSchema(attributeType, action, options);
   return state.update('modifiedData', () => fromJS(dataToSet));
 };
 

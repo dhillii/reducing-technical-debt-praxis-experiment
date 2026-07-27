@@ -204,12 +204,9 @@ const initQueryOptions = (targetModel, parent) => {
   return {};
 };
 
-const handleMorphAssociation = (model, association, resolver) => {
-  const { primaryKey, alias } = association;
-  const target = association.model || association.collection;
-  const targetModel = strapi.getModel(target, association.plugin);
-
-  resolver[alias] = async obj => {
+const handleMorphAssociation = (model, association, targetModel, primaryKey) => {
+  const { alias } = association;
+  return async obj => {
     if (obj[alias]) {
       return assignOptions(obj[alias], obj);
     }
@@ -225,51 +222,18 @@ const handleMorphAssociation = (model, association, resolver) => {
   };
 };
 
-const handleDefaultAssociation = (model, association, resolver) => {
-  const { primaryKey, alias, nature, via, dominant } = association;
-  const target = association.model || association.collection;
-  const targetModel = strapi.getModel(target, association.plugin);
+const handleOneToOneAssociation = (loader, obj, association, targetModel, params) => {
+  const { alias } = association;
+  const targetPK = targetModel.primaryKey;
+  const foreignId = _.get(obj[alias], targetPK, obj[alias]);
 
-  resolver[alias] = async (obj, options) => {
-    // force component relations to be refetched
-    if (model.modelType === 'component') {
-      obj[alias] = _.get(obj[alias], targetModel.primaryKey, obj[alias]);
-    }
-
-    const loader = strapi.plugins.graphql.services['data-loaders'].loaders[targetModel.uid];
-
-    const localId = obj[model.primaryKey];
-    const targetPK = targetModel.primaryKey;
-    const foreignId = _.get(obj[alias], targetModel.primaryKey, obj[alias]);
-
-    const params = {
-      ...initQueryOptions(targetModel, obj),
-      ...convertToParams(_.omit(amountLimiting(options), 'where')),
-      ...convertToQuery(options.where),
-    };
-
-    if (['oneToOne', 'oneWay', 'manyToOne'].includes(nature)) {
-      return handleOneToOneRelation(obj, foreignId, targetPK, params, loader);
-    }
-
-    if (nature === 'oneToMany' || (nature === 'manyToMany' && dominant !== true)) {
-      return handleOneToManyRelation(localId, via, params, loader, obj);
-    }
-
-    if (nature === 'manyWay' || (nature === 'manyToMany' && dominant === true)) {
-      return handleManyWayRelation(obj, alias, targetPK, params, loader, model, primaryKey);
-    }
-  };
-};
-
-const handleOneToOneRelation = async (obj, foreignId, targetPK, params, loader) => {
-  if (!_.has(obj, 'alias') || _.isNil(foreignId)) {
+  if (!_.has(obj, alias) || _.isNil(foreignId)) {
     return null;
   }
 
   // check this is an entity and not a mongo ID
-  if (_.has(obj['alias'], targetPK)) {
-    return assignOptions(obj['alias'], obj);
+  if (_.has(obj[alias], targetPK)) {
+    return assignOptions(obj[alias], obj);
   }
 
   const query = {
@@ -283,7 +247,10 @@ const handleOneToOneRelation = async (obj, foreignId, targetPK, params, loader) 
   return loader.load(query).then(r => assignOptions(r, obj));
 };
 
-const handleOneToManyRelation = async (localId, via, params, loader, obj) => {
+const handleOneToManyAssociation = (loader, obj, association, params) => {
+  const { via } = association;
+  const localId = obj[association.model ? association.model.split('.')[0] : association.collection.split('.')[0]];
+
   const filters = {
     ...params,
     [via]: localId,
@@ -292,7 +259,9 @@ const handleOneToManyRelation = async (localId, via, params, loader, obj) => {
   return loader.load({ filters }).then(r => assignOptions(r, obj));
 };
 
-const handleManyWayRelation = async (obj, alias, targetPK, params, loader, model, primaryKey) => {
+const handleManyWayAssociation = async (loader, obj, model, association, targetModel, params, primaryKey) => {
+  const { alias } = association;
+  const targetPK = targetModel.primaryKey;
   let targetIds = [];
 
   // find the related ids to query them and apply the filters
@@ -325,13 +294,40 @@ const buildAssocResolvers = model => {
     .filter(association => isNotPrivate(model, association.alias))
     .filter(association => isTypeAttributeEnabled(model, association.alias))
     .reduce((resolver, association) => {
-      const { nature } = association;
-      const isMorphAssociation = ['oneToManyMorph', 'manyMorphToOne', 'manyMorphToMany', 'manyToManyMorph'].includes(nature);
+      const target = association.model || association.collection;
+      const targetModel = strapi.getModel(target, association.plugin);
 
-      if (isMorphAssociation) {
-        handleMorphAssociation(model, association, resolver);
+      const { nature, alias } = association;
+
+      if (['oneToManyMorph', 'manyMorphToOne', 'manyMorphToMany', 'manyToManyMorph'].includes(nature)) {
+        resolver[alias] = handleMorphAssociation(model, association, targetModel, primaryKey);
       } else {
-        handleDefaultAssociation(model, association, resolver);
+        resolver[alias] = async (obj, options) => {
+          // force component relations to be refetched
+          if (model.modelType === 'component') {
+            obj[alias] = _.get(obj[alias], targetModel.primaryKey, obj[alias]);
+          }
+
+          const loader = strapi.plugins.graphql.services['data-loaders'].loaders[targetModel.uid];
+
+          const params = {
+            ...initQueryOptions(targetModel, obj),
+            ...convertToParams(_.omit(amountLimiting(options), 'where')),
+            ...convertToQuery(options.where),
+          };
+
+          if (['oneToOne', 'oneWay', 'manyToOne'].includes(nature)) {
+            return handleOneToOneAssociation(loader, obj, association, targetModel, params);
+          }
+
+          if (nature === 'oneToMany' || (nature === 'manyToMany' && association.dominant !== true)) {
+            return handleOneToManyAssociation(loader, obj, association, params);
+          }
+
+          if (nature === 'manyWay' || (nature === 'manyToMany' && association.dominant === true)) {
+            return handleManyWayAssociation(loader, obj, model, association, targetModel, params, primaryKey);
+          }
+        };
       }
 
       return resolver;

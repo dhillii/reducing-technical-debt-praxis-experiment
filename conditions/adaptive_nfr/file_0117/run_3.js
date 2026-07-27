@@ -1,5 +1,3 @@
-'use strict';
-
 const fs            = require('fs');
 const path          = require('path');
 const eachLimit     = require('async/eachLimit');
@@ -12,11 +10,24 @@ const util          = require('util');
 const debug         = require('debug')('pm2:ActionMethod');
 const Utility       = require('../Utility');
 
+/**
+ * Description
+ * @method exports
+ * @param {} God
+ * @return
+ */
 module.exports = function(God) {
+  /**
+   * Description
+   * @method getMonitorData
+   * @param {} env
+   * @param {} cb
+   * @return
+   */
   God.getMonitorData = function getMonitorData(env, cb) {
     const processes = God.getFormatedProcesses();
     const pids = processes.filter(filterBadProcess)
-      .map(function(pro) {
+      .map(function(pro, i) {
         return getProcessId(pro);
       });
 
@@ -44,6 +55,61 @@ module.exports = function(God) {
     });
   };
 
+  /**
+   * Attach empty monitoring data to process
+   * @param {Array} processes
+   * @return {Array}
+   */
+  function attachEmptyMonitData(processes) {
+    return processes.map(function(pro) {
+      pro['monit'] = {
+        memory : 0,
+        cpu : 0
+      };
+      return pro;
+    });
+  }
+
+  /**
+   * Attach monitoring data to a single process
+   * @param {Object} pro
+   * @param {Object} statistics
+   * @return {Object}
+   */
+  function attachMonitData(pro, statistics) {
+    if (!filterBadProcess(pro)) {
+      pro['monit'] = {
+        memory : 0,
+        cpu : 0
+      };
+      return pro;
+    }
+
+    const pid = getProcessId(pro);
+    const stat = statistics[pid];
+
+    if (!stat) {
+      pro['monit'] = {
+        memory : 0,
+        cpu : 0
+      };
+      return pro;
+    }
+
+    pro['monit'] = {
+      memory: stat.memory,
+      cpu: Math.round(stat.cpu * 10) / 10
+    };
+
+    return pro;
+  }
+
+  /**
+   * Description
+   * @method dumpProcessList
+   * @param {} cb
+   * @return
+   */
   God.dumpProcessList = function(cb) {
     const process_list = [];
     const apps         = Utility.clone(God.getFormatedProcesses());
@@ -63,8 +129,42 @@ module.exports = function(God) {
       }
 
       backupDumpFile();
-      writeDumpFile(process_list);
-      return cb(null, {success:true, process_list: process_list});
+      writeDumpFile(process_list, cb);
+    }
+
+    function backupDumpFile() {
+      try {
+        if (fs.existsSync(cst.DUMP_FILE_PATH)) {
+          fs.writeFileSync(cst.DUMP_BACKUP_FILE_PATH, fs.readFileSync(cst.DUMP_FILE_PATH));
+        }
+      } catch (e) {
+        console.error(e.stack || e);
+      }
+    }
+
+    function writeDumpFile(list, callback) {
+      try {
+        fs.writeFileSync(cst.DUMP_FILE_PATH, JSON.stringify(list));
+      } catch (e) {
+        console.error(e.stack || e);
+        restoreFromBackup();
+      }
+      return callback(null, {success:true, process_list: list});
+    }
+
+    function restoreFromBackup() {
+      try {
+        if (fs.existsSync(cst.DUMP_BACKUP_FILE_PATH)) {
+          fs.writeFileSync(cst.DUMP_FILE_PATH, fs.readFileSync(cst.DUMP_BACKUP_FILE_PATH));
+        }
+      } catch (e) {
+        try {
+          fs.unlinkSync(cst.DUMP_FILE_PATH);
+        } catch (unlinkErr) {
+          console.error(unlinkErr.stack || unlinkErr);
+        }
+        console.error(e.stack || e);
+      }
     }
 
     function saveProc(apps) {
@@ -77,18 +177,35 @@ module.exports = function(God) {
       apps.shift();
       return saveProc(apps);
     }
-
     saveProc(apps);
   };
 
+  /**
+   * Description
+   * @method ping
+   * @param {} env
+   * @param {} cb
+   * @return CallExpression
+   */
   God.ping = function(env, cb) {
     return cb(null, {msg : 'pong'});
   };
 
+  /**
+   * Description
+   * @method notifyKillPM2
+   */
   God.notifyKillPM2 = function() {
     God.pm2_being_killed = true;
   };
 
+  /**
+   * Duplicate a process
+   * @method duplicateProcessId
+   * @param {} id
+   * @param {} cb
+   * @return CallExpression
+   */
   God.duplicateProcessId = function(id, cb) {
     if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' id unknown'), {});
@@ -113,12 +230,18 @@ module.exports = function(God) {
     });
   };
 
+  /**
+   * Start a stopped process by ID
+   * @method startProcessId
+   * @param {} id
+   * @param {} cb
+   * @return CallExpression
+   */
   God.startProcessId = function(id, cb) {
     if (!(id in God.clusters_db))
       return cb(God.logAndGenerateError(id + ' id unknown'), {});
 
     const proc = God.clusters_db[id];
-    
     if (proc.pm2_env.status == cst.ONLINE_STATUS)
       return cb(God.logAndGenerateError('process already online'), {});
     if (proc.pm2_env.status == cst.LAUNCHING_STATUS)
@@ -131,6 +254,13 @@ module.exports = function(God) {
     });
   };
 
+  /**
+   * Stop a process and set it on state 'stopped'
+   * @method stopProcessId
+   * @param {} id
+   * @param {} cb
+   * @return Literal
+   */
   God.stopProcessId = function(id, cb) {
     if (typeof id == 'object' && 'id' in id)
       id = id.id;
@@ -160,24 +290,65 @@ module.exports = function(God) {
     }
 
     God.killProcess(proc.process.pid, proc.pm2_env, function(err) {
-      proc.pm2_env.status = cst.STOPPED_STATUS;
-      God.notify('exit', proc);
-
-      if (isKillTimeout(err)) {
-        console.error('app=%s id=%d pid=%s could not be stopped',
-                      proc.pm2_env.name,
-                      proc.pm2_env.pm_id,
-                      proc.process.pid);
-        proc.pm2_env.status = cst.ERRORED_STATUS;
-        return cb(null, God.getFormatedProcess(id));
-      }
-
-      cleanupProcessFiles(proc);
-      clearProcessMetadata(proc);
-      proc.process.pid = 0;
-      return cb(null, God.getFormatedProcess(id));
+      handleKillProcessResult(err, proc, id, cb);
     });
   };
+
+  /**
+   * Handle result of kill process operation
+   * @param {Error} err
+   * @param {Object} proc
+   * @param {Number} id
+   * @param {Function} cb
+   */
+  function handleKillProcessResult(err, proc, id, cb) {
+    proc.pm2_env.status = cst.STOPPED_STATUS;
+    God.notify('exit', proc);
+
+    if (isKillTimeout(err)) {
+      console.error('app=%s id=%d pid=%s could not be stopped',
+                    proc.pm2_env.name,
+                    proc.pm2_env.pm_id,
+                    proc.process.pid);
+      proc.pm2_env.status = cst.ERRORED_STATUS;
+      return cb(null, God.getFormatedProcess(id));
+    }
+
+    cleanupProcessFiles(proc);
+    clearProcessMetadata(proc);
+    proc.process.pid = 0;
+    return cb(null, God.getFormatedProcess(id));
+  }
+
+  /**
+   * Check if kill operation timed out
+   * @param {Error} err
+   * @return {Boolean}
+   */
+  function isKillTimeout(err) {
+    return err && err.type && err.type === 'timeout';
+  }
+
+  /**
+   * Clean up process pid files
+   * @param {Object} proc
+   */
+  function cleanupProcessFiles(proc) {
+    if (proc.pm2_env.pm_id.toString().indexOf('_old_') !== 0) {
+      try {
+        fs.unlinkSync(proc.pm2_env.pm_pid_path);
+      } catch (e) {}
+    }
+  }
+
+  /**
+   * Clear process metadata
+   * @param {Object} proc
+   */
+  function clearProcessMetadata(proc) {
+    if (proc.pm2_env.axm_actions) proc.pm2_env.axm_actions = [];
+    if (proc.pm2_env.axm_monitor) proc.pm2_env.axm_monitor = {};
+  }
 
   God.resetMetaProcessId = function(id, cb) {
     if (!(id in God.clusters_db))
@@ -193,6 +364,14 @@ module.exports = function(God) {
     return cb(null, God.getFormatedProcesses());
   };
 
+  /**
+   * Delete a process by id
+   * It will stop it and remove it from the database
+   * @method deleteProcessId
+   * @param {} id
+   * @param {} cb
+   * @return Literal
+   */
   God.deleteProcessId = function(id, cb) {
     God.deleteCron(id);
 
@@ -207,6 +386,15 @@ module.exports = function(God) {
     return false;
   };
 
+  /**
+   * Restart a process ID
+   * If the process is online it will not put it on state stopped
+   * but directly kill it and let God restart it
+   * @method restartProcessId
+   * @param {} id
+   * @param {} cb
+   * @return Literal
+   */
   God.restartProcessId = function(opts, cb) {
     const id = opts.id;
     const env = opts.env || {};
@@ -242,6 +430,22 @@ module.exports = function(God) {
     return God.startProcessId(id, cb);
   };
 
+  /**
+   * Check if process is online or launching
+   * @param {Object} proc
+   * @return {Boolean}
+   */
+  function isProcessOnline(proc) {
+    return proc.pm2_env.status === cst.ONLINE_STATUS || proc.pm2_env.status === cst.LAUNCHING_STATUS;
+  }
+
+  /**
+   * Restart all process by name
+   * @method restartProcessName
+   * @param {} name
+   * @param {} cb
+   * @return Literal
+   */
   God.restartProcessName = function(name, cb) {
     const processes = God.findByName(name);
 
@@ -253,8 +457,7 @@ module.exports = function(God) {
         return next('[Watch] PM2 is being killed, stopping restart procedure...');
       if (proc.pm2_env.status === cst.ONLINE_STATUS)
         return God.restartProcessId({id:proc.pm2_env.pm_id}, next);
-      if (proc.pm2_env.status !== cst.STOPPING_STATUS
-               && proc.pm2_env.status !== cst.LAUNCHING_STATUS)
+      if (shouldStartProcess(proc))
         return God.startProcessId(proc.pm2_env.pm_id, next);
       return next(util.format('[Watch] Process name %s is being stopped so I won\'t restart it', name));
     }, function(err) {
@@ -265,6 +468,23 @@ module.exports = function(God) {
     return false;
   };
 
+  /**
+   * Check if process should be started
+   * @param {Object} proc
+   * @return {Boolean}
+   */
+  function shouldStartProcess(proc) {
+    return proc.pm2_env.status !== cst.STOPPING_STATUS
+           && proc.pm2_env.status !== cst.LAUNCHING_STATUS;
+  }
+
+  /**
+   * Send system signal to process id
+   * @method sendSignalToProcessId
+   * @param {} opts
+   * @param {} cb
+   * @return CallExpression
+   */
   God.sendSignalToProcessId = function(opts, cb) {
     const id = opts.process_id;
     const signal = opts.signal;
@@ -282,6 +502,13 @@ module.exports = function(God) {
     return cb(null, God.getFormatedProcesses());
   };
 
+  /**
+   * Send system signal to all processes by name
+   * @method sendSignalToProcessName
+   * @param {} opts
+   * @param {} cb
+   * @return
+   */
   God.sendSignalToProcessName = function(opts, cb) {
     const processes = God.findByName(opts.process_name);
     const signal    = opts.signal;
@@ -290,7 +517,7 @@ module.exports = function(God) {
       return cb(God.logAndGenerateError('Unknown process name'), {});
 
     eachLimit(processes, cst.CONCURRENT_ACTIONS, function(proc, next) {
-      if (isProcessOnlineForSignal(proc)) {
+      if (isProcessOnlineOrLaunching(proc)) {
         try {
           process.kill(proc.process.pid, signal);
         } catch(e) {
@@ -304,25 +531,81 @@ module.exports = function(God) {
     });
   };
 
+  /**
+   * Check if process is online or launching
+   * @param {Object} proc
+   * @return {Boolean}
+   */
+  function isProcessOnlineOrLaunching(proc) {
+    return proc.pm2_env.status == cst.ONLINE_STATUS || proc.pm2_env.status == cst.LAUNCHING_STATUS;
+  }
+
+  /**
+   * Stop watching daemon
+   * @method stopWatch
+   * @param {} method
+   * @param {} value
+   * @param {} fn
+   * @return
+   */
   God.stopWatch = function(method, value, fn) {
-    if (isStopAllMethod(method)) {
-      const processes = God.getFormatedProcesses();
-      processes.forEach(function(proc) {
-        God.clusters_db[proc.pm_id].pm2_env.watch = false;
-        God.watch.disable(proc.pm2_env);
-      });
+    if (isStopAllOrDeleteAll(method)) {
+      disableWatchForAllProcesses();
     } else {
-      const env = getEnvByMethod(method, value);
-      if (env) {
-        God.watch.disable(env.pm2_env);
-        env.pm2_env.watch = false;
-      }
+      disableWatchForSpecificProcess(method, value);
     }
     return fn(null, {success:true});
   };
 
+  /**
+   * Check if method is stopAll or deleteAll
+   * @param {String} method
+   * @return {Boolean}
+   */
+  function isStopAllOrDeleteAll(method) {
+    return method == 'stopAll' || method == 'deleteAll';
+  }
+
+  /**
+   * Disable watch for all processes
+   */
+  function disableWatchForAllProcesses() {
+    const processes = God.getFormatedProcesses();
+    processes.forEach(function(proc) {
+      God.clusters_db[proc.pm_id].pm2_env.watch = false;
+      God.watch.disable(proc.pm2_env);
+    });
+  }
+
+  /**
+   * Disable watch for specific process
+   * @param {String} method
+   * @param {*} value
+   */
+  function disableWatchForSpecificProcess(method, value) {
+    let env = null;
+
+    if (method.indexOf('ProcessId') !== -1) {
+      env = God.clusters_db[value];
+    } else if (method.indexOf('ProcessName') !== -1) {
+      env = God.clusters_db[God.findByName(value)];
+    }
+
+    if (env) {
+      God.watch.disable(env.pm2_env);
+      env.pm2_env.watch = false;
+    }
+  }
+
+  /**
+   * Toggle watching daemon
+   * @method toggleWatch
+   * @param {String} method
+   * @param {Object} application environment, should include id
+   * @param {Function} callback
+   */
   God.toggleWatch = function(method, value, fn) {
-    const env = getWatchEnv(method, value);
+    const env = getWatchEnvironment(method, value);
 
     if (env) {
       env.pm2_env.watch = !env.pm2_env.watch;
@@ -335,8 +618,30 @@ module.exports = function(God) {
     return fn(null, {success:true});
   };
 
+  /**
+   * Get watch environment for method and value
+   * @param {String} method
+   * @param {*} value
+   * @return {Object|null}
+   */
+  function getWatchEnvironment(method, value) {
+    if (method == 'restartProcessId') {
+      return God.clusters_db[value.id];
+    } else if(method == 'restartProcessName') {
+      return God.clusters_db[God.findByName(value)];
+    }
+    return null;
+  }
+
+  /**
+   * Start Watch
+   * @method startWatch
+   * @param {String} method
+   * @param {Object} application environment, should include id
+   * @param {Function} callback
+   */
   God.startWatch = function(method, value, fn) {
-    const env = getWatchEnv(method, value);
+    const env = getWatchEnvironment(method, value);
 
     if (env) {
       if (env.pm2_env.watch)
@@ -349,6 +654,13 @@ module.exports = function(God) {
     return fn(null, {success:true});
   };
 
+  /**
+   * Description
+   * @method reloadLogs
+   * @param {} opts
+   * @param {} cb
+   * @return CallExpression
+   */
   God.reloadLogs = function(opts, cb) {
     console.log('Reloading logs...');
     const processIds = Object.keys(God.clusters_db);
@@ -373,6 +685,36 @@ module.exports = function(God) {
     return cb(null, {});
   };
 
+  /**
+   * Check if cluster is in cluster mode
+   * @param {Object} cluster
+   * @return {Boolean}
+   */
+  function isClusterMode(cluster) {
+    return cluster.send && cluster.pm2_env.exec_mode == 'cluster_mode';
+  }
+
+  /**
+   * Reload logs for cluster mode
+   * @param {Object} cluster
+   */
+  function reloadLogsClusterMode(cluster) {
+    try {
+      cluster.send({
+        type:'log:reload'
+      });
+    } catch(e) {
+      console.error(e.message || e);
+    }
+  }
+
+  /**
+   * Send Line To Stdin
+   * @method sendLineToStdin
+   * @param Object packet
+   * @param String pm_id Process ID
+   * @param String line  Line to send to process stdin
+   */
   God.sendLineToStdin = function(packet, cb) {
     if (typeof(packet.pm_id) == 'undefined' || !packet.line)
       return cb(God.logAndGenerateError('pm_id or line field missing'), {});
@@ -387,7 +729,7 @@ module.exports = function(God) {
     if (proc.pm2_env.exec_mode == 'cluster_mode')
       return cb(God.logAndGenerateError('Cannot send line to processes in cluster mode'), {});
 
-    if (!isProcessOnlineForIO(proc))
+    if (!isProcessOnlineOrLaunching(proc))
       return cb(God.logAndGenerateError('Process with ID <' + pm_id + '> offline.'), {});
 
     try {
@@ -402,6 +744,10 @@ module.exports = function(God) {
     }
   };
 
+  /**
+   * @param {object} packet
+   * @param {function} cb
+   */
   God.sendDataToProcessId = function(packet, cb) {
     if (typeof(packet.id) == 'undefined' ||
         typeof(packet.data) == 'undefined' ||
@@ -415,7 +761,7 @@ module.exports = function(God) {
     if (!proc)
       return cb(God.logAndGenerateError('Process with ID <' + pm_id + '> unknown.'), {});
 
-    if (!isProcessOnlineForIO(proc))
+    if (!isProcessOnlineOrLaunching(proc))
       return cb(God.logAndGenerateError('Process with ID <' + pm_id + '> offline.'), {});
 
     try {
@@ -431,18 +777,158 @@ module.exports = function(God) {
     });
   };
 
+  /**
+   * Send Message to Process by id or name
+   * @method msgProcess
+   * @param {} cmd
+   * @param {} cb
+   * @return Literal
+   */
   God.msgProcess = function(cmd, cb) {
     if ('id' in cmd) {
-      return handleMsgProcessById(cmd, cb);
+      return msgProcessById(cmd, cb);
     }
 
     if ('name' in cmd) {
-      return handleMsgProcessByName(cmd, cb);
+      return msgProcessByName(cmd, cb);
     }
 
     return cb(God.logAndGenerateError('method requires name or id field'), {});
   };
 
+  /**
+   * Send message to process by ID
+   * @param {Object} cmd
+   * @param {Function} cb
+   * @return {*}
+   */
+  function msgProcessById(cmd, cb) {
+    const id = cmd.id;
+    if (!(id in God.clusters_db))
+      return cb(God.logAndGenerateError(id + ' id unknown'), {});
+
+    const proc = God.clusters_db[id];
+
+    if (!actionExists(proc.pm2_env.axm_actions, cmd.msg)) {
+      return cb(God.logAndGenerateError('Action doesn\'t exist ' + cmd.msg + ' for ' + proc.pm2_env.name), {});
+    }
+
+    if (!isProcessOnlineOrLaunching(proc))
+      return cb(God.logAndGenerateError(id + ' : id offline'), {});
+
+    resetActionOutput(proc.pm2_env.axm_actions, cmd.msg);
+    sendMessageToProcess(proc, cmd);
+    return cb(null, { process_count : 1, success : true });
+  }
+
+  /**
+   * Send message to process by name
+   * @param {Object} cmd
+   * @param {Function} cb
+   * @return {*}
+   */
+  function msgProcessByName(cmd, cb) {
+    const name = cmd.name;
+    const arr = Object.keys(God.clusters_db);
+    let sent = 0;
+
+    (function ex(arr) {
+      if (!arr[0]) {
+        return cb(null, {
+          process_count : sent,
+          success : true
+        });
+      }
+
+      const id = arr[0];
+
+      if (!God.clusters_db[id] || !God.clusters_db[id].pm2_env) {
+        arr.shift();
+        return ex(arr);
+      }
+
+      const proc_env = God.clusters_db[id].pm2_env;
+
+      if (!actionExists(proc_env.axm_actions, cmd.msg)) {
+        arr.shift();
+        return ex(arr);
+      }
+
+      if (!shouldSendMessage(proc_env, name)) {
+        arr.shift();
+        return ex(arr);
+      }
+
+      if (proc_env.axm_actions.length === 0) {
+        arr.shift();
+        return ex(arr);
+      }
+
+      sendMessageToProcess(God.clusters_db[id], cmd);
+      sent++;
+      arr.shift();
+      return ex(arr);
+    })(arr);
+  }
+
+  /**
+   * Check if action exists in actions array
+   * @param {Array} actions
+   * @param {String} actionName
+   * @return {Boolean}
+   */
+  function actionExists(actions, actionName) {
+    return actions.find(action => action.action_name === actionName) !== undefined;
+  }
+
+  /**
+   * Reset action output
+   * @param {Array} actions
+   * @param {String} actionName
+   */
+  function resetActionOutput(actions, actionName) {
+    actions.forEach(function(action) {
+      if (action.action_name === actionName) {
+        action.output = [];
+      }
+    });
+  }
+
+  /**
+   * Check if message should be sent to process
+   * @param {Object} proc_env
+   * @param {String} name
+   * @return {Boolean}
+   */
+  function shouldSendMessage(proc_env, name) {
+    const isNameMatch = p.basename(proc_env.pm_exec_path) == name ||
+                        proc_env.name == name ||
+                        proc_env.namespace == name ||
+                        name == 'all';
+    const isOnline = proc_env.status == cst.ONLINE_STATUS ||
+                     proc_env.status == cst.LAUNCHING_STATUS;
+    return isNameMatch && isOnline;
+  }
+
+  /**
+   * Send message to process
+   * @param {Object} proc
+   * @param {Object} cmd
+   */
+  function sendMessageToProcess(proc, cmd) {
+    if (cmd.opts == null && !cmd.uuid)
+      proc.send(cmd.msg);
+    else
+      proc.send(cmd);
+  }
+
+  /**
+   * Description
+   * @method getVersion
+   * @param {} env
+   * @param {} cb
+   * @return CallExpression
+   */
   God.getVersion = function(env, cb) {
     process.nextTick(function() {
       return cb(null, pkg.version);
@@ -488,261 +974,20 @@ module.exports = function(God) {
       return cb(null, report);
     });
   };
-
-  // Helper functions for guard clause extraction
-  function attachEmptyMonitData(processes) {
-    return processes.map(function(pro) {
-      pro['monit'] = {
-        memory : 0,
-        cpu : 0
-      };
-      return pro;
-    });
-  }
-
-  function attachMonitData(pro, statistics) {
-    if (!filterBadProcess(pro)) {
-      pro['monit'] = {
-        memory : 0,
-        cpu : 0
-      };
-      return pro;
-    }
-
-    const pid = getProcessId(pro);
-    const stat = statistics[pid];
-
-    if (!stat) {
-      pro['monit'] = {
-        memory : 0,
-        cpu : 0
-      };
-      return pro;
-    }
-
-    pro['monit'] = {
-      memory: stat.memory,
-      cpu: Math.round(stat.cpu * 10) / 10
-    };
-
-    return pro;
-  }
-
-  function backupDumpFile() {
-    try {
-      if (fs.existsSync(cst.DUMP_FILE_PATH)) {
-        fs.writeFileSync(cst.DUMP_BACKUP_FILE_PATH, fs.readFileSync(cst.DUMP_FILE_PATH));
-      }
-    } catch (e) {
-      console.error(e.stack || e);
-    }
-  }
-
-  function writeDumpFile(process_list) {
-    try {
-      fs.writeFileSync(cst.DUMP_FILE_PATH, JSON.stringify(process_list));
-    } catch (e) {
-      console.error(e.stack || e);
-      restoreDumpFileFromBackup();
-    }
-  }
-
-  function restoreDumpFileFromBackup() {
-    try {
-      if (fs.existsSync(cst.DUMP_BACKUP_FILE_PATH)) {
-        fs.writeFileSync(cst.DUMP_FILE_PATH, fs.readFileSync(cst.DUMP_BACKUP_FILE_PATH));
-      }
-    } catch (e) {
-      try {
-        fs.unlinkSync(cst.DUMP_FILE_PATH);
-      } catch (unlinkErr) {}
-      console.error(e.stack || e);
-    }
-  }
-
-  /** @returns {boolean} True if error indicates kill timeout */
-  function isKillTimeout(err) {
-    return err && err.type && err.type === 'timeout';
-  }
-
-  /** @returns {boolean} True if process is online or launching */
-  function isProcessOnline(proc) {
-    return proc.pm2_env.status === cst.ONLINE_STATUS || proc.pm2_env.status === cst.LAUNCHING_STATUS;
-  }
-
-  /** @returns {boolean} True if process is online or launching for IO operations */
-  function isProcessOnlineForIO(proc) {
-    return proc.pm2_env.status == cst.ONLINE_STATUS || proc.pm2_env.status == cst.LAUNCHING_STATUS;
-  }
-
-  /** @returns {boolean} True if process is online or launching for signal operations */
-  function isProcessOnlineForSignal(proc) {
-    return proc.pm2_env.status == cst.ONLINE_STATUS || proc.pm2_env.status == cst.LAUNCHING_STATUS;
-  }
-
-  function cleanupProcessFiles(proc) {
-    if (proc.pm2_env.pm_id.toString().indexOf('_old_') !== 0) {
-      try {
-        fs.unlinkSync(proc.pm2_env.pm_pid_path);
-      } catch (e) {}
-    }
-  }
-
-  function clearProcessMetadata(proc) {
-    if (proc.pm2_env.axm_actions) proc.pm2_env.axm_actions = [];
-    if (proc.pm2_env.axm_monitor) proc.pm2_env.axm_monitor = {};
-  }
-
-  /** @returns {boolean} True if method is stopAll or deleteAll */
-  function isStopAllMethod(method) {
-    return method == 'stopAll' || method == 'deleteAll';
-  }
-
-  /** @returns {object|null} Environment by method type */
-  function getEnvByMethod(method, value) {
-    if (method.indexOf('ProcessId') !== -1) {
-      return God.clusters_db[value];
-    }
-    if (method.indexOf('ProcessName') !== -1) {
-      return God.clusters_db[God.findByName(value)];
-    }
-    return null;
-  }
-
-  /** @returns {object|null} Watch environment by method */
-  function getWatchEnv(method, value) {
-    if (method == 'restartProcessId') {
-      return God.clusters_db[value.id];
-    }
-    if (method == 'restartProcessName') {
-      return God.clusters_db[God.findByName(value)];
-    }
-    return null;
-  }
-
-  /** @returns {boolean} True if cluster is in cluster mode */
-  function isClusterMode(cluster) {
-    return cluster.send && cluster.pm2_env.exec_mode == 'cluster_mode';
-  }
-
-  function reloadLogsClusterMode(cluster) {
-    try {
-      cluster.send({
-        type:'log:reload'
-      });
-    } catch(e) {
-      console.error(e.message || e);
-    }
-  }
-
-  /** @returns {boolean} True if action is available in process */
-  function isActionAvailable(proc_env, actionName) {
-    return proc_env.axm_actions.find(action => action.action_name === actionName) !== undefined;
-  }
-
-  /** @returns {boolean} True if process name matches criteria */
-  function isProcessNameMatch(proc_env, name) {
-    return (p.basename(proc_env.pm_exec_path) == name ||
-            proc_env.name == name ||
-            proc_env.namespace == name ||
-            name == 'all');
-  }
-
-  function handleMsgProcessById(cmd, cb) {
-    const id = cmd.id;
-    if (!(id in God.clusters_db))
-      return cb(God.logAndGenerateError(id + ' id unknown'), {});
-
-    const proc = God.clusters_db[id];
-    let action_exist = false;
-
-    proc.pm2_env.axm_actions.forEach(function(action) {
-      if (action.action_name == cmd.msg) {
-        action_exist = true;
-        action.output = [];
-      }
-    });
-
-    if (!action_exist) {
-      return cb(God.logAndGenerateError('Action doesn\'t exist ' + cmd.msg + ' for ' + proc.pm2_env.name), {});
-    }
-
-    if (!isProcessOnline(proc)) {
-      return cb(God.logAndGenerateError(id + ' : id offline'), {});
-    }
-
-    if (cmd.opts == null && !cmd.uuid)
-      proc.send(cmd.msg);
-    else
-      proc.send(cmd);
-
-    return cb(null, { process_count : 1, success : true });
-  }
-
-  function handleMsgProcessByName(cmd, cb) {
-    const name = cmd.name;
-    const arr = Object.keys(God.clusters_db);
-    let sent = 0;
-
-    (function ex(arr) {
-      if (!arr[0]) {
-        return cb(null, {
-          process_count : sent,
-          success : true
-        });
-      }
-
-      const id = arr[0];
-
-      if (!God.clusters_db[id] || !God.clusters_db[id].pm2_env) {
-        arr.shift();
-        return ex(arr);
-      }
-
-      const proc_env = God.clusters_db[id].pm2_env;
-
-      if (!isActionAvailable(proc_env, cmd.msg)) {
-        arr.shift();
-        return ex(arr);
-      }
-
-      if (!isProcessNameMatch(proc_env, name) || !isProcessOnline(God.clusters_db[id])) {
-        arr.shift();
-        return ex(arr);
-      }
-
-      let action_exist = false;
-      proc_env.axm_actions.forEach(function(action) {
-        if (action.action_name == cmd.msg) {
-          action_exist = true;
-        }
-      });
-
-      if (!action_exist || proc_env.axm_actions.length == 0) {
-        arr.shift();
-        return ex(arr);
-      }
-
-      if (cmd.opts == null)
-        God.clusters_db[id].send(cmd.msg);
-      else
-        God.clusters_db[id].send(cmd);
-
-      sent++;
-      arr.shift();
-      return ex(arr);
-    })(arr);
-  }
 };
 
-/** @returns {boolean} True if process has valid online status and valid pid */
+/**
+ * Filter processes that are online and have valid PIDs
+ * @param {Object} pro
+ * @return {Boolean}
+ */
 function filterBadProcess(pro) {
   if (pro.pm2_env.status !== cst.ONLINE_STATUS) {
     return false;
   }
 
   if (pro.pm2_env.axm_options && pro.pm2_env.axm_options.pid) {
-    if (isNaN(pro.pm2_env.axm_options.pid)) {
+    if (isNaN(pro.pm2_env.axm_options.pid))  {
       return false;
     }
   }
@@ -750,7 +995,11 @@ function filterBadProcess(pro) {
   return true;
 }
 
-/** @returns {number} Process ID from process object */
+/**
+ * Get process ID from process object
+ * @param {Object} pro
+ * @return {Number}
+ */
 function getProcessId(pro) {
   if (pro.pm2_env.axm_options && pro.pm2_env.axm_options.pid) {
     return pro.pm2_env.axm_options.pid;

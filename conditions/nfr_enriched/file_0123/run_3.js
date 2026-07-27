@@ -22,18 +22,41 @@ class QueryInterface {
     this.QueryGenerator = this.sequelize.dialect.QueryGenerator;
   }
 
+  /**
+   * Creates a schema
+   *
+   * @param {String} schema    Schema name to create
+   * @param {Object} [options] Query options
+   *
+   * @return {Promise}
+   */
   createSchema(schema, options) {
     options = options || {};
     const sql = this.QueryGenerator.createSchema(schema);
     return this.sequelize.query(sql, options);
   }
 
+  /**
+   * Drops a schema
+   *
+   * @param {String} schema    Schema name to create
+   * @param {Object} [options] Query options
+   *
+   * @return {Promise}
+   */
   dropSchema(schema, options) {
     options = options || {};
     const sql = this.QueryGenerator.dropSchema(schema);
     return this.sequelize.query(sql, options);
   }
 
+  /**
+   * Drop all schemas
+   *
+   * @param {Object} [options] Query options
+   *
+   * @return {Promise}
+   */
   dropAllSchemas(options) {
     options = options || {};
 
@@ -44,6 +67,13 @@ class QueryInterface {
     }
   }
 
+  /**
+   * Show all schemas
+   *
+   * @param {Object} [options] Query options
+   *
+   * @return {Promise<Array>}
+   */
   showAllSchemas(options) {
     options = _.assign({}, options, {
       raw: true,
@@ -57,6 +87,15 @@ class QueryInterface {
     ));
   }
 
+  /**
+   * Returns database version
+   *
+   * @param {Object}    [options]      Query options
+   * @param {QueryType} [options.type] Query type
+   *
+   * @returns {Promise}
+   * @private
+   */
   databaseVersion(options) {
     return this.sequelize.query(
       this.QueryGenerator.versionQuery(),
@@ -64,29 +103,27 @@ class QueryInterface {
     );
   }
 
-  createTable(tableName, attributes, options, model) {
-    options = _.clone(options) || {};
-
-    attributes = _.mapValues(attributes, attribute => {
-      if (!_.isPlainObject(attribute)) {
-        attribute = { type: attribute, allowNull: true };
-      }
-      return this.sequelize.normalizeAttribute(attribute);
-    });
-
-    if (this.sequelize.options.dialect === 'postgres') {
-      return this._createTablePostgres(tableName, attributes, options, model);
-    } else {
-      return this._createTableNonPostgres(tableName, attributes, options, model);
+  /**
+   * Normalize attribute definition
+   * @private
+   */
+  _normalizeAttribute(attribute) {
+    if (!_.isPlainObject(attribute)) {
+      attribute = { type: attribute, allowNull: true };
     }
+    return this.sequelize.normalizeAttribute(attribute);
   }
 
-  _createTablePostgres(tableName, attributes, options, model) {
-    const keys = Object.keys(attributes);
+  /**
+   * Process PostgreSQL enums for table creation
+   * @private
+   */
+  _processPostgresEnums(tableName, attributes, options, model, keys) {
     const promises = [];
+    const keyLen = keys.length;
+    let i = 0;
 
-    // Check for existing enums
-    for (let i = 0; i < keys.length; i++) {
+    for (i = 0; i < keyLen; i++) {
       const attribute = attributes[keys[i]];
       const type = attribute.type;
 
@@ -100,43 +137,61 @@ class QueryInterface {
     }
 
     return Promise.all(promises).then(results => {
-      return this._processPostgresEnums(tableName, attributes, options, model, results, keys);
+      return this._handleEnumResults(tableName, attributes, options, model, keys, results);
     });
   }
 
+  /**
+   * Check if type is an ENUM or ARRAY of ENUM
+   * @private
+   */
   _isEnumType(type) {
     return type instanceof DataTypes.ENUM ||
       (type instanceof DataTypes.ARRAY && type.type instanceof DataTypes.ENUM);
   }
 
-  _processPostgresEnums(tableName, attributes, options, model, results, keys) {
+  /**
+   * Handle enum query results and create/update enums as needed
+   * @private
+   */
+  _handleEnumResults(tableName, attributes, options, model, keys, results) {
     const promises = [];
     let enumIdx = 0;
+    let i = 0;
+    const keyLen = keys.length;
 
-    for (let i = 0; i < keys.length; i++) {
+    for (i = 0; i < keyLen; i++) {
       const attribute = attributes[keys[i]];
       const type = attribute.type;
       const enumType = type.type || type;
 
       if (this._isEnumType(type)) {
-        this._handlePostgresEnumCreation(tableName, attribute, keys[i], enumType, options, promises, results, enumIdx, model);
+        this._processEnumAttribute(tableName, attribute, keys[i], enumType, results[enumIdx], options, promises);
         enumIdx++;
       }
     }
 
-    return this._finalizePostgresTableCreation(tableName, attributes, options, promises);
+    return this._finalizeTableCreation(tableName, attributes, options, model, promises);
   }
 
-  _handlePostgresEnumCreation(tableName, attribute, key, enumType, options, promises, results, enumIdx, model) {
-    if (!results[enumIdx]) {
+  /**
+   * Process individual enum attribute
+   * @private
+   */
+  _processEnumAttribute(tableName, attribute, key, enumType, enumResult, options, promises) {
+    if (!enumResult) {
       const sql = this.QueryGenerator.pgEnum(tableName, attribute.field || key, enumType, options);
       promises.push(this.sequelize.query(sql, _.assign({}, options, { raw: true })));
-    } else if (results[enumIdx] && model) {
-      this._addMissingEnumValues(tableName, attribute, key, enumType, options, promises, results[enumIdx]);
+    } else if (!!enumResult && !!this._currentModel) {
+      this._addMissingEnumValues(tableName, attribute, key, enumType, enumResult, options, promises);
     }
   }
 
-  _addMissingEnumValues(tableName, attribute, key, enumType, options, promises, enumResult) {
+  /**
+   * Add missing enum values to existing enum type
+   * @private
+   */
+  _addMissingEnumValues(tableName, attribute, key, enumType, enumResult, options, promises) {
     const enumVals = this.QueryGenerator.fromArray(enumResult.enum_value);
     const vals = enumType.values;
 
@@ -152,50 +207,95 @@ class QueryInterface {
           valueOptions.after = vals[idx - 1];
         }
         valueOptions.supportsSearchPath = false;
-        const sql = this.QueryGenerator.pgEnumAdd(tableName, attribute.field || key, value, valueOptions);
-        promises.push(this.sequelize.query(sql, valueOptions));
+        promises.push(this.sequelize.query(
+          this.QueryGenerator.pgEnumAdd(tableName, attribute.field || key, value, valueOptions),
+          valueOptions
+        ));
       }
     });
   }
 
-  _finalizePostgresTableCreation(tableName, attributes, options, promises) {
-    tableName = this._applySchemaToTableName(tableName, options);
+  /**
+   * Finalize table creation after enum processing
+   * @private
+   */
+  _finalizeTableCreation(tableName, attributes, options, model, enumPromises) {
+    if (!tableName.schema && (options.schema || !!model && model._schema)) {
+      tableName = this.QueryGenerator.addSchema({
+        tableName,
+        _schema: !!model && model._schema || options.schema
+      });
+    }
 
-    const attributesSql = this.QueryGenerator.attributesToSQL(attributes, {
+    const processedAttributes = this.QueryGenerator.attributesToSQL(attributes, {
       context: 'createTable'
     });
-    const sql = this.QueryGenerator.createTableQuery(tableName, attributesSql, options);
+    const sql = this.QueryGenerator.createTableQuery(tableName, processedAttributes, options);
 
-    return Promise.all(promises)
+    return Promise.all(enumPromises)
       .tap(() => {
-        if (promises.length) {
+        if (enumPromises.length) {
           return this.sequelize.dialect.connectionManager._refreshDynamicOIDs();
         }
       })
       .then(() => this.sequelize.query(sql, options));
   }
 
-  _createTableNonPostgres(tableName, attributes, options, model) {
-    tableName = this._applySchemaToTableName(tableName, options, model);
+  /**
+   * Create a table with given set of attributes
+   *
+   * @param {String} tableName  Name of table to create
+   * @param {Object} attributes Object representing a list of table attributes to create
+   * @param {Object} [options]
+   * @param {Model}  [model]
+   *
+   * @return {Promise}
+   */
+  createTable(tableName, attributes, options, model) {
+    const keys = Object.keys(attributes);
+    options = _.clone(options) || {};
 
-    const attributesSql = this.QueryGenerator.attributesToSQL(attributes, {
+    attributes = _.mapValues(attributes, attribute => this._normalizeAttribute(attribute));
+
+    if (this.sequelize.options.dialect === 'postgres') {
+      this._currentModel = model;
+      return this._processPostgresEnums(tableName, attributes, options, model, keys)
+        .finally(() => {
+          this._currentModel = null;
+        });
+    } else {
+      return this._createTableNonPostgres(tableName, attributes, options, model);
+    }
+  }
+
+  /**
+   * Create table for non-PostgreSQL databases
+   * @private
+   */
+  _createTableNonPostgres(tableName, attributes, options, model) {
+    if (!tableName.schema && (options.schema || !!model && model._schema)) {
+      tableName = this.QueryGenerator.addSchema({
+        tableName,
+        _schema: !!model && model._schema || options.schema
+      });
+    }
+
+    const processedAttributes = this.QueryGenerator.attributesToSQL(attributes, {
       context: 'createTable'
     });
-    const sql = this.QueryGenerator.createTableQuery(tableName, attributesSql, options);
+    const sql = this.QueryGenerator.createTableQuery(tableName, processedAttributes, options);
 
     return this.sequelize.query(sql, options);
   }
 
-  _applySchemaToTableName(tableName, options, model) {
-    if (!tableName.schema && (options.schema || (model && model._schema))) {
-      return this.QueryGenerator.addSchema({
-        tableName,
-        _schema: (model && model._schema) || options.schema
-      });
-    }
-    return tableName;
-  }
-
+  /**
+   * Drops a table from database
+   *
+   * @param {String} tableName Table name to drop
+   * @param {Object} options   Query options
+   *
+   * @return {Promise}
+   */
   dropTable(tableName, options) {
     options = _.clone(options) || {};
     options.cascade = options.cascade || options.force || false;
@@ -203,26 +303,31 @@ class QueryInterface {
     const sql = this.QueryGenerator.dropTableQuery(tableName, options);
 
     return this.sequelize.query(sql, options).then(() => {
-      if (this.sequelize.options.dialect === 'postgres') {
-        return this._dropPostgresEnums(tableName, options);
-      }
-      return Promise.resolve();
+      return this._dropPostgresEnums(tableName, options);
     });
   }
 
+  /**
+   * Drop PostgreSQL enums associated with table
+   * @private
+   */
   _dropPostgresEnums(tableName, options) {
     const promises = [];
-    const instanceTable = this.sequelize.modelManager.getModel(tableName, { attribute: 'tableName' });
 
-    if (instanceTable) {
-      const getTableName = (!options || !options.schema || options.schema === 'public' ? '' : options.schema + '_') + tableName;
-      const keys = Object.keys(instanceTable.rawAttributes);
+    if (this.sequelize.options.dialect === 'postgres') {
+      const instanceTable = this.sequelize.modelManager.getModel(tableName, { attribute: 'tableName' });
 
-      for (let i = 0; i < keys.length; i++) {
-        if (instanceTable.rawAttributes[keys[i]].type instanceof DataTypes.ENUM) {
-          const sql = this.QueryGenerator.pgEnumDrop(getTableName, keys[i]);
-          options.supportsSearchPath = false;
-          promises.push(this.sequelize.query(sql, _.assign({}, options, { raw: true })));
+      if (instanceTable) {
+        const getTableName = (!options || !options.schema || options.schema === 'public' ? '' : options.schema + '_') + tableName;
+        const keys = Object.keys(instanceTable.rawAttributes);
+        const keyLen = keys.length;
+
+        for (let i = 0; i < keyLen; i++) {
+          if (instanceTable.rawAttributes[keys[i]].type instanceof DataTypes.ENUM) {
+            const sql = this.QueryGenerator.pgEnumDrop(getTableName, keys[i]);
+            options.supportsSearchPath = false;
+            promises.push(this.sequelize.query(sql, _.assign({}, options, { raw: true })));
+          }
         }
       }
     }
@@ -230,6 +335,14 @@ class QueryInterface {
     return Promise.all(promises).get(0);
   }
 
+  /**
+   * Drop all tables from database
+   *
+   * @param {Object} [options]
+   * @param {Array}  [options.skip] List of table to skip
+   *
+   * @return {Promise}
+   */
   dropAllTables(options) {
     options = options || {};
     const skip = options.skip || [];
@@ -249,6 +362,10 @@ class QueryInterface {
     });
   }
 
+  /**
+   * Drop all tables for SQLite with foreign key handling
+   * @private
+   */
   _dropAllTablesSqlite(tableNames, options, dropAllTables) {
     return this.sequelize.query('PRAGMA foreign_keys;', options).then(result => {
       const foreignKeysAreEnabled = result.foreign_keys === 1;
@@ -263,31 +380,46 @@ class QueryInterface {
     });
   }
 
+  /**
+   * Drop all tables for non-SQLite databases with foreign key handling
+   * @private
+   */
   _dropAllTablesNonSqlite(tableNames, options, dropAllTables) {
     return this.getForeignKeysForTables(tableNames, options).then(foreignKeys => {
       const promises = [];
 
       tableNames.forEach(tableName => {
-        const normalizedTableName = this._getNormalizedTableName(tableName);
-        const fkList = foreignKeys[normalizedTableName] || [];
-
-        fkList.forEach(foreignKey => {
-          const sql = this.QueryGenerator.dropForeignKeyQuery(tableName, foreignKey);
-          promises.push(this.sequelize.query(sql, options));
-        });
+        this._dropForeignKeysForTable(tableName, foreignKeys, options, promises);
       });
 
       return Promise.all(promises).then(() => dropAllTables(tableNames));
     });
   }
 
-  _getNormalizedTableName(tableName) {
+  /**
+   * Drop foreign keys for a specific table
+   * @private
+   */
+  _dropForeignKeysForTable(tableName, foreignKeys, options, promises) {
+    let normalizedTableName = tableName;
     if (_.isObject(tableName)) {
-      return tableName.schema + '.' + tableName.tableName;
+      normalizedTableName = tableName.schema + '.' + tableName.tableName;
     }
-    return tableName;
+
+    foreignKeys[normalizedTableName].forEach(foreignKey => {
+      const sql = this.QueryGenerator.dropForeignKeyQuery(tableName, foreignKey);
+      promises.push(this.sequelize.query(sql, options));
+    });
   }
 
+  /**
+   * Drop all enums from database, Postgres Only
+   *
+   * @param {Object} options Query options
+   *
+   * @return {Promise}
+   * @private
+   */
   dropAllEnums(options) {
     if (this.sequelize.getDialect() !== 'postgres') {
       return Promise.resolve();
@@ -301,18 +433,46 @@ class QueryInterface {
     ));
   }
 
+  /**
+   * List all enums, Postgres Only
+   *
+   * @param {String} [tableName]  Table whose enum to list
+   * @param {Object} [options]    Query options
+   *
+   * @return {Promise}
+   * @private
+   */
   pgListEnums(tableName, options) {
     options = options || {};
     const sql = this.QueryGenerator.pgListEnums(tableName);
     return this.sequelize.query(sql, _.assign({}, options, { plain: false, raw: true, type: QueryTypes.SELECT }));
   }
 
+  /**
+   * Renames a table
+   *
+   * @param {String} before    Current name of table
+   * @param {String} after     New name from table
+   * @param {Object} [options] Query options
+   *
+   * @return {Promise}
+   */
   renameTable(before, after, options) {
     options = options || {};
     const sql = this.QueryGenerator.renameTableQuery(before, after);
     return this.sequelize.query(sql, options);
   }
 
+  /**
+   * Get all tables in current database
+   *
+   * @param {Object}    [options] Query options
+   * @param {Boolean}   [options.raw=true] Run query in raw mode
+   * @param {QueryType} [options.type=QueryType.SHOWTABLE]
+   *
+   * @return {Promise<Array>}
+   * @private
+   */
   showAllTables(options) {
     options = _.assign({}, options, {
       raw: true,
@@ -323,21 +483,16 @@ class QueryInterface {
     return this.sequelize.query(showTablesSql, options).then(tableNames => _.flatten(tableNames));
   }
 
+  /**
+   * Describe a table structure
+   *
+   * @param {String} tableName
+   * @param {Object} [options] Query options
+   *
+   * @return {Promise<Object>}
+   */
   describeTable(tableName, options) {
-    let schema = null;
-    let schemaDelimiter = null;
-
-    if (typeof options === 'string') {
-      schema = options;
-    } else if (typeof options === 'object' && options !== null) {
-      schema = options.schema || null;
-      schemaDelimiter = options.schemaDelimiter || null;
-    }
-
-    if (typeof tableName === 'object' && tableName !== null) {
-      schema = tableName.schema;
-      tableName = tableName.tableName;
-    }
+    const { schema, schemaDelimiter } = this._parseDescribeTableOptions(tableName, options);
 
     const sql = this.QueryGenerator.describeTableQuery(tableName, schema, schemaDelimiter);
 
@@ -353,6 +508,39 @@ class QueryInterface {
     });
   }
 
+  /**
+   * Parse options for describeTable
+   * @private
+   */
+  _parseDescribeTableOptions(tableName, options) {
+    let schema = null;
+    let schemaDelimiter = null;
+
+    if (typeof options === 'string') {
+      schema = options;
+    } else if (typeof options === 'object' && options !== null) {
+      schema = options.schema || null;
+      schemaDelimiter = options.schemaDelimiter || null;
+    }
+
+    if (typeof tableName === 'object' && tableName !== null) {
+      schema = tableName.schema;
+      tableName = tableName.tableName;
+    }
+
+    return { schema, schemaDelimiter };
+  }
+
+  /**
+   * Add a new column into a table
+   *
+   * @param {String} table     Table to add column to
+   * @param {String} key       Column name
+   * @param {Object} attribute Attribute definition
+   * @param {Object} [options] Query options
+   *
+   * @return {Promise}
+   */
   addColumn(table, key, attribute, options) {
     if (!table || !key || !attribute) {
       throw new Error('addColumn takes atleast 3 arguments (table, attribute name, attribute definition)');
@@ -363,6 +551,15 @@ class QueryInterface {
     return this.sequelize.query(this.QueryGenerator.addColumnQuery(table, key, attribute), options);
   }
 
+  /**
+   * Remove a column from table
+   *
+   * @param {String} tableName      Table to remove column from
+   * @param {String} attributeName  Columns name to remove
+   * @param {Object} [options]      Query options
+   *
+   * @return {Promise}
+   */
   removeColumn(tableName, attributeName, options) {
     options = options || {};
     switch (this.sequelize.options.dialect) {
@@ -377,6 +574,16 @@ class QueryInterface {
     }
   }
 
+  /**
+   * Change a column definition
+   *
+   * @param {String} tableName          Table name to change from
+   * @param {String} attributeName      Column name
+   * @param {Object} dataTypeOrOptions  Attribute definition for new column
+   * @param {Object} [options]          Query options
+   *
+   * @return {Promise}
+   */
   changeColumn(tableName, attributeName, dataTypeOrOptions, options) {
     const attributes = {};
     options = options || {};
@@ -399,6 +606,16 @@ class QueryInterface {
     }
   }
 
+  /**
+   * Rename a column
+   *
+   * @param {String} tableName        Table name whose column to rename
+   * @param {String} attrNameBefore   Current column name
+   * @param {String} attrNameAfter    New column name
+   * @param {Object} [options]        Query option
+   *
+   * @return {Promise}
+   */
   renameColumn(tableName, attrNameBefore, attrNameAfter, options) {
     options = options || {};
     return this.describeTable(tableName, options).then(data => {
@@ -407,7 +624,7 @@ class QueryInterface {
       }
 
       const columnData = data[attrNameBefore] || {};
-      const _options = this._buildRenameColumnOptions(attrNameAfter, columnData);
+      const columnOptions = this._buildRenameColumnOptions(attrNameAfter, columnData);
 
       if (this.sequelize.options.dialect === 'sqlite') {
         return SQLiteQueryInterface.renameColumn.call(this, tableName, attrNameBefore, attrNameAfter, options);
@@ -415,17 +632,20 @@ class QueryInterface {
         const sql = this.QueryGenerator.renameColumnQuery(
           tableName,
           attrNameBefore,
-          this.QueryGenerator.attributesToSQL(_options)
+          this.QueryGenerator.attributesToSQL(columnOptions)
         );
         return this.sequelize.query(sql, options);
       }
     });
   }
 
+  /**
+   * Build options for renaming a column
+   * @private
+   */
   _buildRenameColumnOptions(attrNameAfter, columnData) {
-    const _options = {};
-
-    _options[attrNameAfter] = {
+    const options = {};
+    options[attrNameAfter] = {
       attribute: attrNameAfter,
       type: columnData.type,
       allowNull: columnData.allowNull,
@@ -433,12 +653,26 @@ class QueryInterface {
     };
 
     if (columnData.defaultValue === null && !columnData.allowNull) {
-      delete _options[attrNameAfter].defaultValue;
+      delete options[attrNameAfter].defaultValue;
     }
 
-    return _options;
+    return options;
   }
 
+  /**
+   * Add index to a column
+   *
+   * @param {String}  tableName        Table name to add index on
+   * @param {Object}  options
+   * @param {Array}   options.fields   List of attributes to add index on
+   * @param {Boolean} [options.unique] Create a unique index
+   * @param {String}  [options.using]  Useful for GIN indexes
+   * @param {String}  [options.type]   Type of index, available options are UNIQUE|FULLTEXT|SPATIAL
+   * @param {String}  [options.name]   Name of the index. Default is <table>_<attr1>_<attr2>
+   * @param {Object}  [options.where]  Where condition on index, for partial indexes
+   *
+   * @return {Promise}
+   */
   addIndex(tableName, attributes, options, rawTablename) {
     if (!Array.isArray(attributes)) {
       rawTablename = options;
@@ -456,6 +690,15 @@ class QueryInterface {
     return this.sequelize.query(sql, _.assign({}, options, { supportsSearchPath: false }));
   }
 
+  /**
+   * Show indexes on a table
+   *
+   * @param {String} tableName
+   * @param {Object} [options]   Query options
+   *
+   * @return {Promise<Array>}
+   * @private
+   */
   showIndex(tableName, options) {
     const sql = this.QueryGenerator.showIndexesQuery(tableName, options);
     return this.sequelize.query(sql, _.assign({}, options, { type: QueryTypes.SHOWINDEXES }));
@@ -475,21 +718,37 @@ class QueryInterface {
     return Promise.map(tableNames, tableName =>
       this.sequelize.query(this.QueryGenerator.getForeignKeysQuery(tableName, this.sequelize.config.database), options)
     ).then(results => {
-      const result = {};
-
-      tableNames.forEach((tableName, i) => {
-        const normalizedName = this._getNormalizedTableName(tableName);
-        const fkList = _.isArray(results[i])
-          ? results[i].map(r => r.constraint_name)
-          : [results[i] && results[i].constraint_name];
-
-        result[normalizedName] = fkList.filter(_.identity);
-      });
-
-      return result;
+      return this._processForeignKeyResults(tableNames, results);
     });
   }
 
+  /**
+   * Process foreign key query results
+   * @private
+   */
+  _processForeignKeyResults(tableNames, results) {
+    const result = {};
+
+    tableNames.forEach((tableName, i) => {
+      const normalizedName = _.isObject(tableName) ? tableName.schema + '.' + tableName.tableName : tableName;
+
+      result[normalizedName] = _.isArray(results[i])
+        ? results[i].map(r => r.constraint_name)
+        : [results[i] && results[i].constraint_name];
+
+      result[normalizedName] = result[normalizedName].filter(_.identity);
+    });
+
+    return result;
+  }
+
+  /**
+   * Get foreign key references details for the table.
+   *
+   * @param {String} tableName
+   * @param {Object} [options]  Query options
+   * @returns {Promise}
+   */
   getForeignKeyReferencesForTable(tableName, options) {
     const queryOptions = Object.assign({}, options, {
       type: QueryTypes.FOREIGNKEYS
@@ -507,23 +766,56 @@ class QueryInterface {
     }
   }
 
+  /**
+   * Get foreign key references for PostgreSQL
+   * @private
+   */
   _getForeignKeyReferencesPostgres(tableName, catalogName, queryOptions) {
     const query = this.QueryGenerator.getForeignKeyReferencesQuery(tableName, catalogName);
     return this.sequelize.query(query, queryOptions)
       .then(result => result.map(Utils.camelizeObjectKeys));
   }
 
+  /**
+   * Get foreign key references for default dialects
+   * @private
+   */
   _getForeignKeyReferencesDefault(tableName, catalogName, queryOptions) {
     const query = this.QueryGenerator.getForeignKeysQuery(tableName, catalogName);
     return this.sequelize.query(query, queryOptions);
   }
 
+  /**
+   * Remove an already existing index from a table
+   *
+   * @param {String} tableName             Table name to drop index from
+   * @param {String} indexNameOrAttributes Index name
+   * @param {Object} [options]             Query options
+   *
+   * @return {Promise}
+   */
   removeIndex(tableName, indexNameOrAttributes, options) {
     options = options || {};
     const sql = this.QueryGenerator.removeIndexQuery(tableName, indexNameOrAttributes);
     return this.sequelize.query(sql, options);
   }
 
+  /**
+   * Add constraints to table
+   *
+   * @param {String} tableName                  Table name where you want to add a constraint
+   * @param {Array}  attributes                 Array of column names to apply the constraint over
+   * @param {Object} options                    An object to define the constraint name, type etc
+   * @param {String} options.type               Type of constraint. One of the values in available constraints(case insensitive)
+   * @param {String} [options.name]             Name of the constraint. If not specified, sequelize automatically creates a named constraint based on constraint type, table & column names
+   * @param {String} [options.defaultValue]     The value for the default constraint
+   * @param {Object} [options.where]            Where clause/expression for the CHECK constraint
+   * @param {Object} [options.references]       Object specifying target table, column name to create foreign key constraint
+   * @param {String} [options.references.table] Target table name
+   * @param {String} [options.references.field] Target column name
+   *
+   * @return {Promise}
+   */
   addConstraint(tableName, attributes, options, rawTablename) {
     if (!Array.isArray(attributes)) {
       rawTablename = options;
@@ -555,6 +847,15 @@ class QueryInterface {
     return this.sequelize.query(sql, Object.assign({}, options, { type: QueryTypes.SHOWCONSTRAINTS }));
   }
 
+  /**
+   * Remove constraint from table
+   *
+   * @param {String} tableName       Table name to drop constraint from
+   * @param {String} constraintName  Constraint name
+   * @param {Object} options         Query options
+   *
+   * @return {Promise}
+   */
   removeConstraint(tableName, constraintName, options) {
     options = options || {};
 
@@ -583,10 +884,31 @@ class QueryInterface {
     });
   }
 
+  /**
+   * Upsert
+   *
+   * @param {String} tableName
+   * @param {Object} insertValues values to be inserted, mapped to field name
+   * @param {Object} updateValues values to be updated, mapped to field name
+   * @param {Object} where        various conditions
+   * @param {Model}  model
+   * @param {Object} options
+   *
+   * @returns {Promise<created, primaryKey>}
+   */
   upsert(tableName, insertValues, updateValues, where, model, options) {
+    const wheres = [];
+    const attributes = Object.keys(insertValues);
+    let indexes = [];
+
     options = _.clone(options);
 
-    const wheres = this._buildUpsertWheres(where, insertValues, model);
+    if (!Utils.isWhereEmpty(where)) {
+      wheres.push(where);
+    }
+
+    this._buildUpsertIndexes(model, attributes, indexes, wheres, insertValues);
+
     where = { [Op.or]: wheres };
 
     options.type = QueryTypes.UPSERT;
@@ -594,35 +916,16 @@ class QueryInterface {
 
     const sql = this.QueryGenerator.upsertQuery(tableName, insertValues, updateValues, where, model, options);
     return this.sequelize.query(sql, options).then(result => {
-      return this._parseUpsertResult(result, model);
+      return this._processUpsertResult(result, model);
     });
   }
 
-  _buildUpsertWheres(where, insertValues, model) {
-    const wheres = [];
-    const attributes = Object.keys(insertValues);
-
-    if (!Utils.isWhereEmpty(where)) {
-      wheres.push(where);
-    }
-
-    const indexes = this._collectUniqueIndexes(model);
-
-    for (const index of indexes) {
-      if (_.intersection(attributes, index).length === index.length) {
-        const indexWhere = {};
-        for (const field of index) {
-          indexWhere[field] = insertValues[field];
-        }
-        wheres.push(indexWhere);
-      }
-    }
-
-    return wheres;
-  }
-
-  _collectUniqueIndexes(model) {
-    const indexes = _.map(model.options.uniqueKeys, value => value.fields);
+  /**
+   * Build indexes for upsert operation
+   * @private
+   */
+  _buildUpsertIndexes(model, attributes, indexes, wheres, insertValues) {
+    indexes = _.map(model.options.uniqueKeys, value => value.fields);
 
     _.each(model.options.indexes, value => {
       if (value.unique) {
@@ -636,28 +939,44 @@ class QueryInterface {
       }
     });
 
-    return indexes;
+    for (const index of indexes) {
+      if (_.intersection(attributes, index).length === index.length) {
+        const where = {};
+        for (const field of index) {
+          where[field] = insertValues[field];
+        }
+        wheres.push(where);
+      }
+    }
   }
 
-  _parseUpsertResult(result, model) {
+  /**
+   * Process upsert result based on dialect
+   * @private
+   */
+  _processUpsertResult(result, model) {
     switch (this.sequelize.options.dialect) {
       case 'postgres':
         return [result.created, result.primary_key];
-
       case 'mssql':
-        return [
-          result.$action === 'INSERT',
-          result[model.primaryKeyField]
-        ];
-
+        return [result.$action === 'INSERT', result[model.primaryKeyField]];
       case 'mysql':
         return [result === 1, undefined];
-
       default:
         return [result, undefined];
     }
   }
 
+  /**
+   * Insert records into a table
+   *
+   * @param {String} tableName             Table name to insert record to
+   * @param {Array}  records               List of records to insert
+   * @param {Object} options               Various options, please see Model.bulkCreate options
+   * @param {Object} fieldMappedAttributes Various attributes mapped by field name
+   *
+   * @return {Promise}
+   */
   bulkInsert(tableName, records, options, attributes) {
     options = _.clone(options) || {};
     options.type = QueryTypes.INSERT;
@@ -692,7 +1011,7 @@ class QueryInterface {
   }
 
   delete(instance, tableName, identifier, options) {
-    const cascades = this._collectCascades(instance);
+    const cascades = this._buildCascadeList(instance);
     const sql = this.QueryGenerator.deleteQuery(tableName, identifier, null, instance.constructor);
 
     options = _.clone(options) || {};
@@ -705,7 +1024,7 @@ class QueryInterface {
 
         if (!Array.isArray(instances)) instances = [instances];
 
-        return Promise.each(instances, inst => inst.destroy(options));
+        return Promise.each(instances, instance => instance.destroy(options));
       });
     }).then(() => {
       options.instance = instance;
@@ -713,13 +1032,18 @@ class QueryInterface {
     });
   }
 
-  _collectCascades(instance) {
+  /**
+   * Build list of cascade accessors for delete operation
+   * @private
+   */
+  _buildCascadeList(instance) {
     const cascades = [];
 
-    if (instance.constructor && instance.constructor.associations) {
+    if (!!instance.constructor && !!instance.constructor.associations) {
       const keys = Object.keys(instance.constructor.associations);
+      const length = keys.length;
 
-      for (let i = 0; i < keys.length; i++) {
+      for (let i = 0; i < length; i++) {
         const association = instance.constructor.associations[keys[i]];
         if (association.options && association.options.onDelete &&
           association.options.onDelete.toLowerCase() === 'cascade' &&
@@ -732,6 +1056,14 @@ class QueryInterface {
     return cascades;
   }
 
+  /**
+   * Delete records from a table
+   *
+   * @param {String} tableName  Table name from where to delete records
+   * @param {Object} identifier Where conditions to find records to delete
+   *
+   * @return {Promise}
+   */
   bulkDelete(tableName, identifier, options, model) {
     options = Utils.cloneDeep(options);
     options = _.defaults(options, { limit: null });
@@ -800,28 +1132,38 @@ class QueryInterface {
         return data;
       }
 
-      let result = data ? data[attributeSelector] : null;
-      result = this._parseRawSelectResult(result, options);
-
-      return result;
+      return this._processRawSelectResult(data, attributeSelector, options);
     });
   }
 
-  _parseRawSelectResult(result, options) {
-    if (options && options.dataType) {
-      const dataType = options.dataType;
+  /**
+   * Process raw select result with data type conversion
+   * @private
+   */
+  _processRawSelectResult(data, attributeSelector, options) {
+    let result = data ? data[attributeSelector] : null;
 
-      if (dataType instanceof DataTypes.DECIMAL || dataType instanceof DataTypes.FLOAT) {
-        result = parseFloat(result);
-      } else if (dataType instanceof DataTypes.INTEGER || dataType instanceof DataTypes.BIGINT) {
-        result = parseInt(result, 10);
-      } else if (dataType instanceof DataTypes.DATE) {
-        if (!_.isNull(result) && !_.isDate(result)) {
-          result = new Date(result);
-        }
-      }
+    if (options && options.dataType) {
+      result = this._convertDataType(result, options.dataType);
     }
 
+    return result;
+  }
+
+  /**
+   * Convert result to specified data type
+   * @private
+   */
+  _convertDataType(result, dataType) {
+    if (dataType instanceof DataTypes.DECIMAL || dataType instanceof DataTypes.FLOAT) {
+      return parseFloat(result);
+    } else if (dataType instanceof DataTypes.INTEGER || dataType instanceof DataTypes.BIGINT) {
+      return parseInt(result, 10);
+    } else if (dataType instanceof DataTypes.DATE) {
+      if (!_.isNull(result) && !_.isDate(result)) {
+        return new Date(result);
+      }
+    }
     return result;
   }
 
@@ -857,6 +1199,19 @@ class QueryInterface {
     }
   }
 
+  /**
+   * Create SQL function
+   *
+   * @param {String} functionName Name of SQL function to create
+   * @param {Array}  params       List of parameters declared for SQL function
+   * @param {String} returnType   SQL type of function returned value
+   * @param {String} language     The name of the language that the function is implemented in
+   * @param {String} body         Source code of function
+   * @param {Array}  optionsArray Extra-options for creation
+   * @param {Object} [options]
+   *
+   * @return {Promise}
+   */
   createFunction(functionName, params, returnType, language, body, optionsArray, options) {
     const sql = this.QueryGenerator.createFunction(functionName, params, returnType, language, body, optionsArray);
     options = options || {};
@@ -868,6 +1223,15 @@ class QueryInterface {
     }
   }
 
+  /**
+   * Drop SQL function
+   *
+   * @param {String} functionName Name of SQL function to drop
+   * @param {Array}  params       List of parameters declared for SQL function
+   * @param {Object} [options]
+   *
+   * @return {Promise}
+   */
   dropFunction(functionName, params, options) {
     const sql = this.QueryGenerator.dropFunction(functionName, params);
     options = options || {};
@@ -879,6 +1243,16 @@ class QueryInterface {
     }
   }
 
+  /**
+   * Rename SQL function
+   *
+   * @param {String} oldFunctionName
+   * @param {Array}  params           List of parameters declared for SQL function
+   * @param {String} newFunctionName
+   * @param {Object} [options]
+   *
+   * @return {Promise}
+   */
   renameFunction(oldFunctionName, params, newFunctionName, options) {
     const sql = this.QueryGenerator.renameFunction(oldFunctionName, params, newFunctionName);
     options = options || {};
@@ -890,6 +1264,14 @@ class QueryInterface {
     }
   }
 
+  // Helper methods useful for querying
+
+  /**
+   * Escape an identifier (e.g. a table or attribute name). If force is true,
+   * the identifier will be quoted even if the `quoteIdentifiers` option is
+   * false.
+   * @private
+   */
   quoteIdentifier(identifier, force) {
     return this.QueryGenerator.quoteIdentifier(identifier, force);
   }
@@ -898,10 +1280,20 @@ class QueryInterface {
     return this.QueryGenerator.quoteTable(identifier);
   }
 
+  /**
+   * Split an identifier into .-separated tokens and quote each part.
+   * If force is true, the identifier will be quoted even if the
+   * `quoteIdentifiers` option is false.
+   * @private
+   */
   quoteIdentifiers(identifiers, force) {
     return this.QueryGenerator.quoteIdentifiers(identifiers, force);
   }
 
+  /**
+   * Escape a value (e.g. a string, number or date)
+   * @private
+   */
   escape(value) {
     return this.QueryGenerator.escape(value);
   }

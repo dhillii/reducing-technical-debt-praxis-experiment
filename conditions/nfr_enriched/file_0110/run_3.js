@@ -304,6 +304,37 @@ Query.prototype.getOptions = function() {
   return this.options;
 };
 
+function _extractPopulateOptions(options) {
+  if (!Array.isArray(options.populate)) {
+    return null;
+  }
+  const populate = options.populate;
+  delete options.populate;
+  return populate;
+}
+
+function _extractMongooseOption(options, key) {
+  if (!(key in options)) {
+    return false;
+  }
+  return true;
+}
+
+function _applyMongooseOption(query, options, key) {
+  query._mongooseOptions[key] = options[key];
+  delete options[key];
+}
+
+function _handleSanitizeProjection(query, options) {
+  if ('sanitizeProjection' in options) {
+    if (options.sanitizeProjection && !query._mongooseOptions.sanitizeProjection) {
+      sanitizeProjection(query._fields);
+    }
+    query._mongooseOptions.sanitizeProjection = options.sanitizeProjection;
+    delete options.sanitizeProjection;
+  }
+}
+
 Query.prototype.setOptions = function(options, overwrite) {
   if (overwrite) {
     this._mongooseOptions = (options && utils.clone(options)) || {};
@@ -321,28 +352,28 @@ Query.prototype.setOptions = function(options, overwrite) {
     throw new Error('Options must be an object, got "' + options + '"');
   }
 
-  if (Array.isArray(options.populate)) {
-    const populate = options.populate;
-    delete options.populate;
+  const populate = _extractPopulateOptions(options);
+  if (populate) {
     const _numPopulate = populate.length;
     for (let i = 0; i < _numPopulate; ++i) {
       this.populate(populate[i]);
     }
   }
 
-  _setMongooseOption(this, 'useFindAndModify', options);
-  _setMongooseOption(this, 'omitUndefined', options);
-  _setMongooseOption(this, 'setDefaultsOnInsert', options);
-  _setMongooseOption(this, 'overwriteDiscriminatorKey', options);
-
-  if ('sanitizeProjection' in options) {
-    if (options.sanitizeProjection && !this._mongooseOptions.sanitizeProjection) {
-      sanitizeProjection(this._fields);
-    }
-
-    this._mongooseOptions.sanitizeProjection = options.sanitizeProjection;
-    delete options.sanitizeProjection;
+  if (_extractMongooseOption(options, 'useFindAndModify')) {
+    _applyMongooseOption(this, options, 'useFindAndModify');
   }
+  if (_extractMongooseOption(options, 'omitUndefined')) {
+    _applyMongooseOption(this, options, 'omitUndefined');
+  }
+  if (_extractMongooseOption(options, 'setDefaultsOnInsert')) {
+    _applyMongooseOption(this, options, 'setDefaultsOnInsert');
+  }
+  if (_extractMongooseOption(options, 'overwriteDiscriminatorKey')) {
+    _applyMongooseOption(this, options, 'overwriteDiscriminatorKey');
+  }
+
+  _handleSanitizeProjection(this, options);
 
   if ('defaults' in options) {
     this._mongooseOptions.defaults = options.defaults;
@@ -350,13 +381,6 @@ Query.prototype.setOptions = function(options, overwrite) {
 
   return Query.base.setOptions.call(this, options);
 };
-
-function _setMongooseOption(query, optionName, options) {
-  if (optionName in options) {
-    query._mongooseOptions[optionName] = options[optionName];
-    delete options[optionName];
-  }
-}
 
 Query.prototype.explain = function(verbose) {
   if (arguments.length === 0) {
@@ -1502,7 +1526,15 @@ Query.prototype._findAndModify = function(type, callback) {
   if (type === 'remove') {
     opts.remove = true;
   } else {
-    _setFindAndModifyOptions(opts);
+    if (!('new' in opts) && !('returnOriginal' in opts) && !('returnDocument' in opts)) {
+      opts.new = false;
+    }
+    if (!('upsert' in opts)) {
+      opts.upsert = false;
+    }
+    if (opts.upsert || opts['new']) {
+      opts.remove = false;
+    }
 
     if (!isOverwriting) {
       this._update = castDoc(this, opts.overwrite);
@@ -1569,7 +1601,41 @@ Query.prototype._findAndModify = function(type, callback) {
     useFindAndModify = options.useFindAndModify;
   }
   if (useFindAndModify === false) {
-    _executeFindAndModifyWithoutLegacy(this, type, castedQuery, opts, runValidators, cb);
+    const collection = _this._collection.collection;
+    convertNewToReturnDocument(opts);
+
+    if (type === 'remove') {
+      collection.findOneAndDelete(castedQuery, opts, _wrapThunkCallback(_this, function(error, res) {
+        return cb(error, res ? res.value : res, res);
+      }));
+
+      return this;
+    }
+
+    const updateMethod = isOverwriting ? 'findOneAndReplace' : 'findOneAndUpdate';
+
+    if (runValidators) {
+      this.validate(this._update, opts, isOverwriting, error => {
+        if (error) {
+          return callback(error);
+        }
+        if (this._update && this._update.toBSON) {
+          this._update = this._update.toBSON();
+        }
+
+        collection[updateMethod](castedQuery, this._update, opts, _wrapThunkCallback(_this, function(error, res) {
+          return cb(error, res ? res.value : res, res);
+        }));
+      });
+    } else {
+      if (this._update && this._update.toBSON) {
+        this._update = this._update.toBSON();
+      }
+      collection[updateMethod](castedQuery, this._update, opts, _wrapThunkCallback(_this, function(error, res) {
+        return cb(error, res ? res.value : res, res);
+      }));
+    }
+
     return this;
   }
 
@@ -1586,55 +1652,6 @@ Query.prototype._findAndModify = function(type, callback) {
 
   return this;
 };
-
-function _setFindAndModifyOptions(opts) {
-  if (!('new' in opts) && !('returnOriginal' in opts) && !('returnDocument' in opts)) {
-    opts.new = false;
-  }
-  if (!('upsert' in opts)) {
-    opts.upsert = false;
-  }
-  if (opts.upsert || opts['new']) {
-    opts.remove = false;
-  }
-}
-
-function _executeFindAndModifyWithoutLegacy(query, type, castedQuery, opts, runValidators, cb) {
-  const collection = query._collection.collection;
-  convertNewToReturnDocument(opts);
-
-  if (type === 'remove') {
-    collection.findOneAndDelete(castedQuery, opts, _wrapThunkCallback(query, function(error, res) {
-      return cb(error, res ? res.value : res, res);
-    }));
-    return;
-  }
-
-  const isOverwriting = query.options.overwrite && !hasDollarKeys(query._update);
-  const updateMethod = isOverwriting ? 'findOneAndReplace' : 'findOneAndUpdate';
-
-  if (runValidators) {
-    query.validate(query._update, opts, isOverwriting, error => {
-      if (error) {
-        return cb(error);
-      }
-      if (query._update && query._update.toBSON) {
-        query._update = query._update.toBSON();
-      }
-
-      collection[updateMethod](castedQuery, query._update, opts, _wrapThunkCallback(query, function(error, res) {
-        return cb(error, res ? res.value : res, res);
-      }));
-    });
-  } else {
-    if (query._update && query._update.toBSON) {
-      query._update = query._update.toBSON();
-    }
-    collection[updateMethod](castedQuery, query._update, opts, _wrapThunkCallback(query, function(error, res) {
-      return cb(error, res ? res.value : res, res);
-    }));
-  }
-}
 
 function _completeOneLean(doc, res, opts, callback) {
   if (opts.rawResult) {

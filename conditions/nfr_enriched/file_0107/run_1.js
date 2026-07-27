@@ -446,29 +446,27 @@ Runner.prototype.runTest = function (fn) {
 };
 
 /**
- * Determine if test should be skipped based on grep and pending status.
- * Cyclomatic complexity: 4
+ * Determine if test matches grep criteria.
  *
- * @api private
  * @param {Test} test
  * @return {boolean}
+ * @api private
  */
-function shouldSkipTest (test, grep, invert, defaultGrep) {
+function testMatchesGrep (test, grep, invert) {
   let match = grep.test(test.fullTitle());
   if (invert) {
     match = !match;
   }
-  return !match;
+  return match;
 }
 
 /**
  * Handle pending test execution.
- * Cyclomatic complexity: 3
  *
- * @api private
  * @param {Test} test
  * @param {Runner} runner
  * @param {Function} next
+ * @api private
  */
 function handlePendingTest (test, runner, next) {
   if (runner.forbidPending) {
@@ -479,21 +477,29 @@ function handlePendingTest (test, runner, next) {
     runner.emit('pending', test);
   }
   runner.emit('test end', test);
-  next();
+  return next();
 }
 
 /**
  * Handle test retry logic.
- * Cyclomatic complexity: 5
  *
- * @api private
  * @param {Test} test
  * @param {Error} err
- * @param {Runner} runner
  * @param {Array} tests
- * @return {boolean} true if test was retried
+ * @param {Runner} runner
+ * @return {boolean}
+ * @api private
  */
-function handleTestRetry (test, err, runner, tests) {
+function shouldRetryTest (test, err, tests, runner) {
+  if (err instanceof Pending && runner.forbidPending) {
+    runner.fail(test, new Error('Pending test forbidden'));
+    return false;
+  }
+  if (err instanceof Pending) {
+    test.pending = true;
+    runner.emit('pending', test);
+    return false;
+  }
   const retry = test.currentRetry();
   if (retry < test.retries()) {
     const clonedTest = test.clone();
@@ -501,39 +507,8 @@ function handleTestRetry (test, err, runner, tests) {
     tests.unshift(clonedTest);
     return true;
   }
+  runner.fail(test, err);
   return false;
-}
-
-/**
- * Handle test error and determine next action.
- * Cyclomatic complexity: 8
- *
- * @api private
- * @param {Test} test
- * @param {Error} err
- * @param {Runner} runner
- * @param {Array} tests
- * @param {Function} hookUp
- * @return {boolean} true if should continue to next test
- */
-function handleTestError (test, err, runner, tests, hookUp) {
-  if (err instanceof Pending && runner.forbidPending) {
-    runner.fail(test, new Error('Pending test forbidden'));
-  } else if (err instanceof Pending) {
-    test.pending = true;
-    runner.emit('pending', test);
-  } else if (handleTestRetry(test, err, runner, tests)) {
-    return true;
-  } else {
-    runner.fail(test, err);
-  }
-  runner.emit('test end', test);
-
-  if (err instanceof Pending) {
-    return false;
-  }
-
-  return true;
 }
 
 /**
@@ -597,7 +572,7 @@ Runner.prototype.runTests = function (suite, fn) {
     }
 
     // grep
-    if (shouldSkipTest(test, self._grep, self._invert, self._defaultGrep)) {
+    if (!testMatchesGrep(test, self._grep, self._invert)) {
       // Run immediately only if we have defined a grep. When we
       // define a grep — It can cause maximum callstack error if
       // the grep is doing a large recursive loop by neglecting
@@ -615,16 +590,14 @@ Runner.prototype.runTests = function (suite, fn) {
     }
 
     if (test.isPending()) {
-      handlePendingTest(test, self, next);
-      return;
+      return handlePendingTest(test, self, next);
     }
 
     // execute test and hook(s)
     self.emit('test', self.test = test);
     self.hookDown('beforeEach', function (err, errSuite) {
       if (test.isPending()) {
-        handlePendingTest(test, self, next);
-        return;
+        return handlePendingTest(test, self, next);
       }
       if (err) {
         return hookErr(err, errSuite, false);
@@ -633,10 +606,18 @@ Runner.prototype.runTests = function (suite, fn) {
       self.runTest(function (err) {
         test = self.test;
         if (err) {
-          if (handleTestError(test, err, self, tests, self.hookUp)) {
+          const isRetrying = shouldRetryTest(test, err, tests, self);
+          self.emit('test end', test);
+
+          if (err instanceof Pending) {
+            return next();
+          }
+
+          if (isRetrying) {
             return self.hookUp('afterEach', next);
           }
-          return next();
+
+          return self.hookUp('afterEach', next);
         }
 
         test.state = 'passed';
@@ -743,60 +724,6 @@ Runner.prototype.runSuite = function (suite, fn) {
 };
 
 /**
- * Determine if error is from a hook and get hook type.
- * Cyclomatic complexity: 3
- *
- * @api private
- * @param {string} fullTitle
- * @return {string|null} hook type or null
- */
-function getHookType (fullTitle) {
-  if (fullTitle.indexOf('after each') > -1) {
-    return 'afterEach';
-  }
-  if (fullTitle.indexOf('before each') > -1) {
-    return 'beforeEach';
-  }
-  return null;
-}
-
-/**
- * Handle uncaught exception for test runnable.
- * Cyclomatic complexity: 3
- *
- * @api private
- * @param {Runnable} runnable
- * @param {Error} err
- * @param {Runner} runner
- */
-function handleUncaughtTest (runnable, err, runner) {
-  runner.emit('test end', runnable);
-  runner.hookUp('afterEach', runner.next);
-}
-
-/**
- * Handle uncaught exception for hook runnable.
- * Cyclomatic complexity: 4
- *
- * @api private
- * @param {Runnable} runnable
- * @param {Error} err
- * @param {Runner} runner
- */
-function handleUncaughtHook (runnable, err, runner) {
-  const errSuite = runner.suite;
-  const hookType = getHookType(runnable.fullTitle());
-
-  if (hookType === 'afterEach') {
-    return runner.hookErr(err, errSuite, true);
-  }
-  if (hookType === 'beforeEach') {
-    return runner.hookErr(err, errSuite, false);
-  }
-  return runner.nextSuite(errSuite);
-}
-
-/**
  * Handle uncaught exceptions.
  *
  * @param {Error} err
@@ -841,14 +768,24 @@ Runner.prototype.uncaught = function (err) {
 
   // recover from test
   if (runnable.type === 'test') {
-    handleUncaughtTest(runnable, err, this);
+    this.emit('test end', runnable);
+    this.hookUp('afterEach', this.next);
     return;
   }
 
   // recover from hooks
   if (runnable.type === 'hook') {
-    handleUncaughtHook(runnable, err, this);
-    return;
+    const errSuite = this.suite;
+    // if hook failure is in afterEach block
+    if (runnable.fullTitle().indexOf('after each') > -1) {
+      return this.hookErr(err, errSuite, true);
+    }
+    // if hook failure is in beforeEach block
+    if (runnable.fullTitle().indexOf('before each') > -1) {
+      return this.hookErr(err, errSuite, false);
+    }
+    // if hook failure is in after or before blocks
+    return this.nextSuite(errSuite);
   }
 
   // bail

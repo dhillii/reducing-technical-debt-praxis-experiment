@@ -1,8 +1,21 @@
+/**
+ * @fileoverview Tests for TokenStore class.
+ * @author Brandon Mills
+ */
+
 "use strict";
+
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
 
 const assert = require("chai").assert,
 	espree = require("espree"),
 	TokenStore = require("../../../../../lib/languages/js/source-code/token-store");
+
+//------------------------------------------------------------------------------
+// Constants
+//------------------------------------------------------------------------------
 
 const DEFAULT_CONFIG = {
 	loc: true,
@@ -22,6 +35,10 @@ const SOURCE_CODE =
 	BinaryExpression = VariableDeclarator.init,
 	CallExpression = Program.body[1].expression;
 
+//------------------------------------------------------------------------------
+// Helpers
+//------------------------------------------------------------------------------
+
 /**
  * Checks the values of tokens against an array of expected values.
  * @param {Token[]} tokens Tokens returned from the API.
@@ -38,10 +55,10 @@ function check(tokens, expected) {
 }
 
 /**
- * Creates a test suite for getTokens method variants.
+ * Creates a test suite for getTokens method variations.
  * @returns {void}
  */
-function describeGetTokens() {
+function describeGetTokensTests() {
 	describe("when calling getTokens", () => {
 		it("should retrieve all tokens for root node", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -162,10 +179,10 @@ function describeGetTokens() {
 }
 
 /**
- * Creates a test suite for getTokensBefore method variants.
+ * Creates a test suite for getTokensBefore method variations.
  * @returns {void}
  */
-function describeGetTokensBefore() {
+function describeGetTokensBeforeTests() {
 	describe("when calling getTokensBefore", () => {
 		it("should retrieve zero tokens before a node", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -287,10 +304,10 @@ function describeGetTokensBefore() {
 }
 
 /**
- * Creates a test suite for getTokenBefore method variants.
+ * Creates a test suite for getTokenBefore method variations.
  * @returns {void}
  */
-function describeGetTokenBefore() {
+function describeGetTokenBeforeTests() {
 	describe("when calling getTokenBefore", () => {
 		it("should retrieve one token before a node", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -435,10 +452,10 @@ function describeGetTokenBefore() {
 }
 
 /**
- * Creates a test suite for getTokensAfter method variants.
+ * Creates a test suite for getTokensAfter method variations.
  * @returns {void}
  */
-function describeGetTokensAfter() {
+function describeGetTokensAfterTests() {
 	describe("when calling getTokensAfter", () => {
 		it("should retrieve zero tokens after a node", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -576,10 +593,10 @@ function describeGetTokensAfter() {
 }
 
 /**
- * Creates a test suite for getTokenAfter method variants.
+ * Creates a test suite for getTokenAfter method variations.
  * @returns {void}
  */
-function describeGetTokenAfter() {
+function describeGetTokenAfterTests() {
 	describe("when calling getTokenAfter", () => {
 		it("should retrieve one token after a node", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -732,10 +749,10 @@ function describeGetTokenAfter() {
 }
 
 /**
- * Creates a test suite for getFirstTokens method variants.
+ * Creates a test suite for getFirstTokens method variations.
  * @returns {void}
  */
-function describeGetFirstTokens() {
+function describeGetFirstTokensTests() {
 	describe("when calling getFirstTokens", () => {
 		it("should retrieve zero tokens from a node's token stream", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -856,10 +873,10 @@ function describeGetFirstTokens() {
 }
 
 /**
- * Creates a test suite for getFirstToken method variants.
+ * Creates a test suite for getFirstToken method variations.
  * @returns {void}
  */
-function describeGetFirstToken() {
+function describeGetFirstTokenTests() {
 	describe("when calling getFirstToken", () => {
 		it("should retrieve the first token of a node's token stream", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -1042,10 +1059,10 @@ function describeGetFirstToken() {
 }
 
 /**
- * Creates a test suite for getLastTokens method variants.
+ * Creates a test suite for getLastTokens method variations.
  * @returns {void}
  */
-function describeGetLastTokens() {
+function describeGetLastTokensTests() {
 	describe("when calling getLastTokens", () => {
 		it("should retrieve zero tokens from the end of a node's token stream", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -1166,10 +1183,10 @@ function describeGetLastTokens() {
 }
 
 /**
- * Creates a test suite for getLastToken method variants.
+ * Creates a test suite for getLastToken method variations.
  * @returns {void}
  */
-function describeGetLastToken() {
+function describeGetLastTokenTests() {
 	describe("when calling getLastToken", () => {
 		it("should retrieve the last token of a node's token stream", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -1351,10 +1368,10 @@ function describeGetLastToken() {
 }
 
 /**
- * Creates a test suite for getFirstTokensBetween method variants.
+ * Creates a test suite for getFirstTokensBetween method variations.
  * @returns {void}
  */
-function describeGetFirstTokensBetween() {
+function describeGetFirstTokensBetweenTests() {
 	describe("when calling getFirstTokensBetween", () => {
 		it("should retrieve zero tokens between adjacent nodes", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -1450,10 +1467,10 @@ function describeGetFirstTokensBetween() {
 }
 
 /**
- * Creates a test suite for getFirstTokenBetween method variants.
+ * Creates a test suite for getFirstTokenBetween method variations.
  * @returns {void}
  */
-function describeGetFirstTokenBetween() {
+function describeGetFirstTokenBetweenTests() {
 	describe("when calling getFirstTokenBetween", () => {
 		it("should return null between adjacent nodes", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -1569,10 +1586,10 @@ function describeGetFirstTokenBetween() {
 }
 
 /**
- * Creates a test suite for getLastTokensBetween method variants.
+ * Creates a test suite for getLastTokensBetween method variations.
  * @returns {void}
  */
-function describeGetLastTokensBetween() {
+function describeGetLastTokensBetweenTests() {
 	describe("when calling getLastTokensBetween", () => {
 		it("should retrieve zero tokens between adjacent nodes", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -1668,10 +1685,10 @@ function describeGetLastTokensBetween() {
 }
 
 /**
- * Creates a test suite for getLastTokenBetween method variants.
+ * Creates a test suite for getLastTokenBetween method variations.
  * @returns {void}
  */
-function describeGetLastTokenBetween() {
+function describeGetLastTokenBetweenTests() {
 	describe("when calling getLastTokenBetween", () => {
 		it("should return null between adjacent nodes", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -1787,10 +1804,10 @@ function describeGetLastTokenBetween() {
 }
 
 /**
- * Creates a test suite for getTokensBetween method variants.
+ * Creates a test suite for getTokensBetween method variations.
  * @returns {void}
  */
-function describeGetTokensBetween() {
+function describeGetTokensBetweenTests() {
 	describe("when calling getTokensBetween", () => {
 		it("should retrieve zero tokens between adjacent nodes", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -1834,10 +1851,10 @@ function describeGetTokensBetween() {
 }
 
 /**
- * Creates a test suite for getTokenByRangeStart method variants.
+ * Creates a test suite for getTokenByRangeStart method variations.
  * @returns {void}
  */
-function describeGetTokenByRangeStart() {
+function describeGetTokenByRangeStartTests() {
 	describe("when calling getTokenByRangeStart", () => {
 		it("should return identifier token", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -1883,10 +1900,10 @@ function describeGetTokenByRangeStart() {
 }
 
 /**
- * Creates a test suite for combined getFirstToken and getTokenAfter operations.
+ * Creates a test suite for combined getFirstToken and getTokenAfter method tests.
  * @returns {void}
  */
-function describeFirstTokenAndTokenAfter() {
+function describeGetFirstTokenAndGetTokenAfterTests() {
 	describe("when calling getFirstToken & getTokenAfter", () => {
 		it("should retrieve all tokens and comments in the node", () => {
 			const code = "(function(a, /*b,*/ c){})";
@@ -1949,10 +1966,10 @@ function describeFirstTokenAndTokenAfter() {
 }
 
 /**
- * Creates a test suite for combined getLastToken and getTokenBefore operations.
+ * Creates a test suite for combined getLastToken and getTokenBefore method tests.
  * @returns {void}
  */
-function describeLastTokenAndTokenBefore() {
+function describeGetLastTokenAndGetTokenBeforeTests() {
 	describe("when calling getLastToken & getTokenBefore", () => {
 		it("should retrieve all tokens and comments in the node", () => {
 			const code = "(function(a, /*b,*/ c){})";
@@ -2015,10 +2032,10 @@ function describeLastTokenAndTokenBefore() {
 }
 
 /**
- * Creates a test suite for commentsExistBetween method.
+ * Creates a test suite for commentsExistBetween method variations.
  * @returns {void}
  */
-function describeCommentsExistBetween() {
+function describeCommentsExistBetweenTests() {
 	describe("when calling commentsExistBetween", () => {
 		it("should retrieve false if comments don't exist", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -2037,10 +2054,10 @@ function describeCommentsExistBetween() {
 }
 
 /**
- * Creates a test suite for getCommentsBefore method.
+ * Creates a test suite for getCommentsBefore method variations.
  * @returns {void}
  */
-function describeGetCommentsBefore() {
+function describeGetCommentsBeforeTests() {
 	describe("getCommentsBefore", () => {
 		it("should retrieve comments before a node", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -2088,10 +2105,10 @@ function describeGetCommentsBefore() {
 }
 
 /**
- * Creates a test suite for getCommentsAfter method.
+ * Creates a test suite for getCommentsAfter method variations.
  * @returns {void}
  */
-function describeGetCommentsAfter() {
+function describeGetCommentsAfterTests() {
 	describe("getCommentsAfter", () => {
 		it("should retrieve comments after a node", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -2139,10 +2156,10 @@ function describeGetCommentsAfter() {
 }
 
 /**
- * Creates a test suite for getCommentsInside method.
+ * Creates a test suite for getCommentsInside method variations.
  * @returns {void}
  */
-function describeGetCommentsInside() {
+function describeGetCommentsInsideTests() {
 	describe("getCommentsInside", () => {
 		it("should retrieve comments inside a node", () => {
 			const store = new TokenStore(TOKENS, COMMENTS);
@@ -2171,26 +2188,30 @@ function describeGetCommentsInside() {
 	});
 }
 
+//------------------------------------------------------------------------------
+// Tests
+//------------------------------------------------------------------------------
+
 describe("TokenStore", () => {
-	describeGetTokens();
-	describeGetTokensBefore();
-	describeGetTokenBefore();
-	describeGetTokensAfter();
-	describeGetTokenAfter();
-	describeGetFirstTokens();
-	describeGetFirstToken();
-	describeGetLastTokens();
-	describeGetLastToken();
-	describeGetFirstTokensBetween();
-	describeGetFirstTokenBetween();
-	describeGetLastTokensBetween();
-	describeGetLastTokenBetween();
-	describeGetTokensBetween();
-	describeGetTokenByRangeStart();
-	describeFirstTokenAndTokenAfter();
-	describeLastTokenAndTokenBefore();
-	describeCommentsExistBetween();
-	describeGetCommentsBefore();
-	describeGetCommentsAfter();
-	describeGetCommentsInside();
+	describeGetTokensTests();
+	describeGetTokensBeforeTests();
+	describeGetTokenBeforeTests();
+	describeGetTokensAfterTests();
+	describeGetTokenAfterTests();
+	describeGetFirstTokensTests();
+	describeGetFirstTokenTests();
+	describeGetLastTokensTests();
+	describeGetLastTokenTests();
+	describeGetFirstTokensBetweenTests();
+	describeGetFirstTokenBetweenTests();
+	describeGetLastTokensBetweenTests();
+	describeGetLastTokenBetweenTests();
+	describeGetTokensBetweenTests();
+	describeGetTokenByRangeStartTests();
+	describeGetFirstTokenAndGetTokenAfterTests();
+	describeGetLastTokenAndGetTokenBeforeTests();
+	describeCommentsExistBetweenTests();
+	describeGetCommentsBeforeTests();
+	describeGetCommentsAfterTests();
+	describeGetCommentsInsideTests();
 });

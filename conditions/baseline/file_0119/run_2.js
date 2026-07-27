@@ -12,7 +12,7 @@ const moment = require('moment');
 const Utils = require('./utils');
 
 function ABSTRACT() {
-  // Abstract base class for all data types
+  throw new Error('ABSTRACT is a base class and cannot be instantiated directly');
 }
 
 ABSTRACT.prototype.dialectTypes = '';

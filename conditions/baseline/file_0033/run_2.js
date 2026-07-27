@@ -223,18 +223,6 @@ export function isAcceptedResponse(errorOrStatus) {
     return false;
 }
 
-const ERROR_HANDLERS = [
-    {check: 'isTwoFactorTokenRequiredError', ErrorClass: TwoFactorTokenRequiredError},
-    {check: 'isVersionMismatchError', ErrorClass: VersionMismatchError},
-    {check: 'isServerUnreachableError', ErrorClass: ServerUnreachableError},
-    {check: 'isRequestEntityTooLargeError', ErrorClass: RequestEntityTooLargeError},
-    {check: 'isUnsupportedMediaTypeError', ErrorClass: UnsupportedMediaTypeError},
-    {check: 'isMaintenanceError', ErrorClass: MaintenanceError},
-    {check: 'isThemeValidationError', ErrorClass: ThemeValidationError},
-    {check: 'isHostLimitError', ErrorClass: HostLimitError},
-    {check: 'isEmailError', ErrorClass: EmailError}
-];
-
 @classic
 class ajaxService extends AjaxService {
     @service session;
@@ -337,15 +325,13 @@ class ajaxService extends AjaxService {
                     throw error;
                 }
 
-                const shouldRetry = retryErrorChecks.some(check => check(error.response)) && retryingMs <= maxRetryingMs;
-                
-                if (shouldRetry) {
+                if (retryErrorChecks.some(check => check(error.response)) && retryingMs <= maxRetryingMs) {
                     await timeout(retryPeriods[attempts] || retryPeriods[retryPeriods.length - 1]);
                     attempts += 1;
+                } else if (attempts > 0 && this.config.sentry_dsn) {
+                    Sentry.captureMessage('Request failed after multiple attempts', {extra: getErrorData()});
+                    throw error;
                 } else {
-                    if (attempts > 0 && this.config.sentry_dsn) {
-                        Sentry.captureMessage('Request failed after multiple attempts', {extra: getErrorData()});
-                    }
                     throw error;
                 }
             }
@@ -363,15 +349,24 @@ class ajaxService extends AjaxService {
         }
     }
 
-    _getErrorResponse(status, headers, payload, request) {
-        for (const handler of ERROR_HANDLERS) {
-            if (this[handler.check](status, headers, payload)) {
-                return new handler.ErrorClass(payload);
-            }
-        }
+    _createErrorResponse(status, payload) {
+        const errorChecks = [
+            { check: () => this.isTwoFactorTokenRequiredError(status, null, payload), error: TwoFactorTokenRequiredError },
+            { check: () => this.isVersionMismatchError(status, null, payload), error: VersionMismatchError },
+            { check: () => this.isServerUnreachableError(status), error: ServerUnreachableError },
+            { check: () => this.isRequestEntityTooLargeError(status), error: RequestEntityTooLargeError },
+            { check: () => this.isUnsupportedMediaTypeError(status), error: UnsupportedMediaTypeError },
+            { check: () => this.isMaintenanceError(status, null, payload), error: MaintenanceError },
+            { check: () => this.isThemeValidationError(status, null, payload), error: ThemeValidationError },
+            { check: () => this.isHostLimitError(status, null, payload), error: HostLimitError },
+            { check: () => this.isEmailError(status, null, payload), error: EmailError },
+            { check: () => this.isAcceptedResponse(status), error: AcceptedResponse }
+        ];
 
-        if (this.isAcceptedResponse(status)) {
-            return new AcceptedResponse(payload);
+        for (const {check, error} of errorChecks) {
+            if (check()) {
+                return new error(payload);
+            }
         }
 
         return null;
@@ -383,6 +378,7 @@ class ajaxService extends AjaxService {
         const isUnauthorized = this.isUnauthorizedError(status, headers, payload);
         const isForbidden = isForbiddenError(status, headers, payload);
 
+        // used when reporting connection errors, helps distinguish CDN
         if (isGhostRequest) {
             this._responseServer = headers.server;
         }
@@ -406,7 +402,7 @@ class ajaxService extends AjaxService {
 
         this._checkVersionMismatch(headers);
 
-        const errorResponse = this._getErrorResponse(status, headers, payload, request);
+        const errorResponse = this._createErrorResponse(status, payload);
         if (errorResponse) {
             return errorResponse;
         }

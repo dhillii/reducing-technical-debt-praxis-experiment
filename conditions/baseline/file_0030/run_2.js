@@ -287,7 +287,7 @@ export default class MembersController extends Controller {
 
         let searchQuery = searchParam ? {search: searchParam} : {};
 
-        return {filter: filters.join('+'), ...searchQuery};
+        return {...{filter: filters.join('+')}, ...searchQuery};
     }
 
     // Actions -----------------------------------------------------------------

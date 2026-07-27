@@ -162,10 +162,11 @@ module.exports = function(yargs, argv, convertOptions) {
 
 		if(argv["watch-poll"]) {
 			options.watchOptions = options.watchOptions || {};
-			if(typeof argv["watch-poll"] !== "boolean")
+			if(typeof argv["watch-poll"] !== "boolean") {
 				options.watchOptions.poll = +argv["watch-poll"];
-			else
+			} else {
 				options.watchOptions.poll = true;
+			}
 		}
 
 		if(argv["watch-stdin"]) {
@@ -220,10 +221,11 @@ module.exports = function(yargs, argv, convertOptions) {
 
 		function mapArgToBoolean(name, optionName) {
 			ifArg(name, function(bool) {
-				if(bool === true)
+				if(bool === true) {
 					options[optionName || name] = true;
-				else if(bool === false)
+				} else if(bool === false) {
 					options[optionName || name] = false;
+				}
 			});
 		}
 
@@ -487,7 +489,7 @@ module.exports = function(yargs, argv, convertOptions) {
 		}
 
 		if(argv._.length > 0) {
-			processPositionalArgs(options);
+			processPositionalArguments(options);
 		}
 
 		if(!options.entry) {
@@ -517,7 +519,7 @@ module.exports = function(yargs, argv, convertOptions) {
 		process.exit(-1); // eslint-disable-line
 	}
 
-	function processPositionalArgs(options) {
+	function processPositionalArguments(options) {
 		if(Array.isArray(options.entry) || typeof options.entry === "string") {
 			options.entry = {
 				main: options.entry

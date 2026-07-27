@@ -81,7 +81,12 @@ internals.marshal = function (request, next) {
 
             internals.applyJsonp(request, response);
             internals.applyContentLength(response);
-            internals.closeUnsupportedPayload(response);
+
+            if (!response._isPayloadSupported()) {
+                response._close();
+                response._payload = new internals.Empty();
+            }
+
             internals.content(response, true);
             return Auth.response(request, next);
         });
@@ -111,15 +116,6 @@ internals.applyContentLength = function (response) {
 };
 
 
-internals.closeUnsupportedPayload = function (response) {
-
-    if (!response._isPayloadSupported()) {
-        response._close();
-        response._payload = new internals.Empty();
-    }
-};
-
-
 internals.fail = function (request, boom, callback) {
 
     const error = boom.output;
@@ -132,23 +128,18 @@ internals.fail = function (request, boom, callback) {
     internals.marshal(request, (err) => {
 
         if (err) {
-            internals.createMinimalErrorPayload(response, error, boom);
+
+            const minimal = {
+                statusCode: error.statusCode,
+                error: Http.STATUS_CODES[error.statusCode],
+                message: boom.message
+            };
+
+            response._payload = new Response.Payload(JSON.stringify(minimal), {});
         }
 
         return internals.transmit(response, callback);
     });
-};
-
-
-internals.createMinimalErrorPayload = function (response, error, boom) {
-
-    const minimal = {
-        statusCode: error.statusCode,
-        error: Http.STATUS_CODES[error.statusCode],
-        message: boom.message
-    };
-
-    response._payload = new Response.Payload(JSON.stringify(minimal), {});
 };
 
 
@@ -158,12 +149,12 @@ internals.transmit = function (response, callback) {
     const source = response._payload;
     const length = parseInt(response.headers['content-length'], 10);
 
-    internals.adjustEmptyResponse(response, length);
+    internals.handleEmptyResponse(response, length);
 
-    const ranger = internals.setupRangeHandling(request, response, length);
+    const ranger = internals.setupRanging(request, response, length);
     const compressor = internals.setupCompression(request, response, length);
 
-    internals.adjustEtagForEncoding(response);
+    internals.updateEtagForEncoding(response);
     internals.setupConnectionClose(request, response);
 
     const error = internals.writeHead(response);
@@ -176,7 +167,7 @@ internals.transmit = function (response, callback) {
 };
 
 
-internals.adjustEmptyResponse = function (response, length) {
+internals.handleEmptyResponse = function (response, length) {
 
     if (length === 0 &&
         response.statusCode === 200 &&
@@ -188,7 +179,7 @@ internals.adjustEmptyResponse = function (response, length) {
 };
 
 
-internals.setupRangeHandling = function (request, response, length) {
+internals.setupRanging = function (request, response, length) {
 
     if (!request.route.settings.response.ranges ||
         request.method !== 'get' ||
@@ -228,18 +219,19 @@ internals.processRangeRequest = function (request, response, length) {
         return internals.fail(request, error, () => {});
     }
 
+    response._header('accept-ranges', 'bytes');
+
     if (ranges.length !== 1) {
-        response._header('accept-ranges', 'bytes');
         return null;
     }
 
     const range = ranges[0];
+    const ranger = new Ammo.Stream(range);
     response.code(206);
     response.bytes(range.to - range.from + 1);
     response._header('content-range', 'bytes ' + range.from + '-' + range.to + '/' + length);
-    response._header('accept-ranges', 'bytes');
 
-    return new Ammo.Stream(range);
+    return ranger;
 };
 
 
@@ -262,26 +254,36 @@ internals.setupCompression = function (request, response, length) {
 };
 
 
-internals.adjustEtagForEncoding = function (response) {
+internals.updateEtagForEncoding = function (response) {
 
     const encoding = response.headers['content-encoding'];
-    if ((encoding || response.headers['content-encoding']) &&
-        response.headers.etag &&
-        response.settings.varyEtag) {
+    if (!encoding &&
+        !response.request.connection._compression.encoding(response)) {
 
-        response.headers.etag = response.headers.etag.slice(0, -1) + '-' + encoding + '"';
+        return;
     }
+
+    if (!response.headers.etag ||
+        !response.settings.varyEtag) {
+
+        return;
+    }
+
+    const appliedEncoding = encoding || response.request.connection._compression.encoding(response);
+    response.headers.etag = response.headers.etag.slice(0, -1) + '-' + appliedEncoding + '"';
 };
 
 
 internals.setupConnectionClose = function (request, response) {
 
     const isInjection = Shot.isInjection(request.raw.req);
-    if (!(isInjection || request.connection._started) ||
-        (request._isPayloadPending && !request.raw.req._readableState.ended)) {
+    if ((isInjection || request.connection._started) &&
+        (!request._isPayloadPending || request.raw.req._readableState.ended)) {
 
-        response._header('connection', 'close');
+        return;
     }
+
+    response._header('connection', 'close');
 };
 
 
@@ -338,11 +340,7 @@ internals.createPayloadEndHandler = function (request, response, source, callbac
         request.raw.res.removeListener('finish', arguments.callee);
 
         internals.handlePayloadError(request, response, source, err);
-        internals.finalizeResponse(request, response, err, event);
-
-        const tags = (err ? ['response', 'error'] : (event ? ['response', 'error', event] : ['response']));
-        request._log(tags, err);
-        return callback();
+        internals.finalizeResponse(request, response, err, event, callback);
     });
 };
 
@@ -365,7 +363,7 @@ internals.handlePayloadError = function (request, response, source, err) {
 };
 
 
-internals.finalizeResponse = function (request, response, err, event) {
+internals.finalizeResponse = function (request, response, err, event, callback) {
 
     if (!request.raw.res.finished &&
         event !== 'aborted') {
@@ -376,6 +374,10 @@ internals.finalizeResponse = function (request, response, err, event) {
     if (event || err) {
         request.emit('disconnect');
     }
+
+    const tags = (err ? ['response', 'error'] : (event ? ['response', 'error', event] : ['response']));
+    request._log(tags, err);
+    return callback();
 };
 
 

@@ -300,7 +300,7 @@ export class ActivityPubAPI {
                 // Leave the default message
             }
 
-            throw new Error(JSON.stringify(error));
+            throw error;
         }
 
         return await response.json();
@@ -735,7 +735,7 @@ export class ActivityPubAPI {
                 message: 'Upload failed',
                 statusCode: response.status
             };
-            throw new Error(JSON.stringify(error));
+            throw error;
         }
 
         const json = await response.json();

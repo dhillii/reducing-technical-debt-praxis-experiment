@@ -128,16 +128,10 @@ export default class GhPostSettingsMenu extends Component {
         const urlParts = [];
 
         if (this.post.canonicalUrl) {
-            try {
+            if (this.isValidUrl(this.post.canonicalUrl)) {
                 const canonicalUrl = new URL(this.post.canonicalUrl);
                 urlParts.push(canonicalUrl.host);
                 urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
-            } catch (e) {
-                // Invalid URL - use blog URL instead
-                const blogUrl = new URL(this.config.blogUrl);
-                urlParts.push(blogUrl.host);
-                urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
-                urlParts.push(this.post.slug);
             }
         } else {
             const blogUrl = new URL(this.config.blogUrl);
@@ -295,7 +289,7 @@ export default class GhPostSettingsMenu extends Component {
                 return;
             }
 
-            this.showError(e);
+            throw e;
         }
     }
 
@@ -649,6 +643,15 @@ export default class GhPostSettingsMenu extends Component {
     setSidebarWidthFromElement(element) {
         const width = element.getBoundingClientRect().width;
         this.setSidebarWidthVariable(width);
+    }
+
+    isValidUrl(urlString) {
+        try {
+            new URL(urlString);
+            return true;
+        } catch (e) {
+            return false;
+        }
     }
 
     showError(error) {

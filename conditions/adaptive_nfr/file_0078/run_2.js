@@ -89,88 +89,39 @@ internals.Auth.prototype.test = function (name, request, next) {
 };
 
 
-/**
- * Normalizes options to standard format with strategies array
- */
-internals.normalizeOptions = function (options) {
-
-    if (typeof options === 'string') {
-        return { strategies: [options] };
-    }
-
-    if (options.strategy) {
-        const normalized = Hoek.clone(options);
-        normalized.strategies = [normalized.strategy];
-        delete normalized.strategy;
-        return normalized;
-    }
-
-    return options;
-};
-
-
-/**
- * Applies default strategy when needed
- */
-internals.applyDefaultStrategy = function (options, defaultSettings, path) {
-
-    if (path && !options.strategies) {
-        Hoek.assert(defaultSettings, 'Route missing authentication strategy and no default defined:', path);
-        return Hoek.applyToDefaults(defaultSettings, options);
-    }
-
-    return options;
-};
-
-
-/**
- * Converts legacy entity/scope to access format
- */
-internals.migrateAccessFormat = function (options) {
-
-    if (options.entity !== undefined || options.scope !== undefined) {
-        options.access = [{ entity: options.entity, scope: options.scope }];
-        delete options.entity;
-        delete options.scope;
-    }
-};
-
-
-/**
- * Validates payload configuration against strategies
- */
-internals.validatePayloadConfig = function (options, strategies, path) {
-
-    let hasAuthenticatePayload = false;
-    for (let i = 0; i < strategies.length; ++i) {
-        const name = strategies[i];
-        const strategy = this._strategies[name];
-        Hoek.assert(strategy, 'Unknown authentication strategy', name, 'in', path);
-
-        Hoek.assert(strategy.methods.payload || options.payload !== 'required', 'Payload validation can only be required when all strategies support it in', path);
-        hasAuthenticatePayload = hasAuthenticatePayload || strategy.methods.payload;
-        Hoek.assert(!strategy.methods.options.payload || options.payload === undefined || options.payload === 'required', 'Cannot set authentication payload to', options.payload, 'when a strategy requires payload validation in', path);
-    }
-
-    Hoek.assert(!options.payload || hasAuthenticatePayload, 'Payload authentication requires at least one strategy with payload support in', path);
-};
-
-
 internals.Auth.prototype._setupRoute = function (options, path) {
 
     if (!options) {
         return options;         // Preserve the difference between undefined and false
     }
 
-    options = internals.normalizeOptions(options);
-    options = internals.applyDefaultStrategy(options, this.settings.default, path);
+    if (typeof options === 'string') {
+        options = { strategies: [options] };
+    }
+    else if (options.strategy) {
+        options.strategies = [options.strategy];
+        delete options.strategy;
+    }
+
+    if (path &&
+        !options.strategies) {
+
+        Hoek.assert(this.settings.default, 'Route missing authentication strategy and no default defined:', path);
+        options = Hoek.applyToDefaults(this.settings.default, options);
+    }
 
     path = path || 'default strategy';
     Hoek.assert(options.strategies && options.strategies.length, 'Missing authentication strategy:', path);
 
     options.mode = options.mode || 'required';
 
-    internals.migrateAccessFormat(options);
+    if (options.entity !== undefined ||                                             // Backwards compatibility with <= 11.x.x
+        options.scope !== undefined) {
+
+        options.access = [{ entity: options.entity, scope: options.scope }];
+        delete options.entity;
+        delete options.scope;
+    }
 
     if (options.access) {
         for (let i = 0; i < options.access.length; ++i) {
@@ -183,7 +134,18 @@ internals.Auth.prototype._setupRoute = function (options, path) {
         options.payload = 'required';
     }
 
-    internals.validatePayloadConfig.call(this, options, options.strategies, path);
+    let hasAuthenticatePayload = false;
+    for (let i = 0; i < options.strategies.length; ++i) {
+        const name = options.strategies[i];
+        const strategy = this._strategies[name];
+        Hoek.assert(strategy, 'Unknown authentication strategy', name, 'in', path);
+
+        Hoek.assert(strategy.methods.payload || options.payload !== 'required', 'Payload validation can only be required when all strategies support it in', path);
+        hasAuthenticatePayload = hasAuthenticatePayload || strategy.methods.payload;
+        Hoek.assert(!strategy.methods.options.payload || options.payload === undefined || options.payload === 'required', 'Cannot set authentication payload to', options.payload, 'when a strategy requires payload validation in', path);
+    }
+
+    Hoek.assert(!options.payload || hasAuthenticatePayload, 'Payload authentication requires at least one strategy with payload support in', path);
 
     return options;
 };
@@ -327,58 +289,6 @@ internals.Auth.response = function (request, next) {
 };
 
 
-/**
- * Determines if error is a non-Boom response object
- */
-internals.isResponseObject = function (err) {
-
-    return err instanceof Error === false;
-};
-
-
-/**
- * Determines if error indicates missing authentication
- */
-internals.isMissingAuth = function (err) {
-
-    return err && err.isMissing;
-};
-
-
-/**
- * Handles unauthenticated response in try mode
- */
-internals.handleTryMode = function (request, name, result, err) {
-
-    request.auth.isAuthenticated = false;
-    request.auth.strategy = name;
-    request.auth.credentials = result.credentials;
-    request.auth.artifacts = result.artifacts;
-    request.auth.error = err;
-    request._log(['auth', 'unauthenticated', 'try', name], err);
-};
-
-
-/**
- * Handles unauthenticated error response
- */
-internals.handleUnauthenticatedError = function (request, name, err) {
-
-    request._log(['auth', 'unauthenticated', 'error', name], err);
-};
-
-
-/**
- * Sets authenticated state on request
- */
-internals.setAuthenticated = function (request, name, result) {
-
-    request.auth.strategy = name;
-    request.auth.credentials = result.credentials;
-    request.auth.artifacts = result.artifacts;
-};
-
-
 internals.Authenticator = class {
     constructor(config, request, manager) {
 
@@ -462,29 +372,47 @@ internals.Authenticator = class {
         // Unauthenticated
 
         if (err) {
-            if (internals.isResponseObject(err)) {
-                request._log(['auth', 'unauthenticated', 'response', name], err.statusCode);
-                return next(err);
-            }
-
-            if (internals.isMissingAuth(err)) {
-                request._log(['auth', 'unauthenticated', 'missing', name], err);
-                this.errors.push(err.output.headers['WWW-Authenticate']);
-                return this.execute(next);
-            }
-
-            if (config.mode === 'try') {
-                internals.handleTryMode(request, name, result, err);
-                return next();
-            }
-
-            internals.handleUnauthenticatedError(request, name, err);
-            return next(err);
+            return this._handleValidationError(err, result, config, request, name, next);
         }
 
         // Authenticated
 
-        internals.setAuthenticated(request, name, result);
+        return this._handleValidationSuccess(result, config, request, name, next);
+    }
+
+    _handleValidationError(err, result, config, request, name, next) {
+
+        if (err instanceof Error === false) {
+            request._log(['auth', 'unauthenticated', 'response', name], err.statusCode);
+            return next(err);
+        }
+
+        if (err.isMissing) {
+            request._log(['auth', 'unauthenticated', 'missing', name], err);
+            this.errors.push(err.output.headers['WWW-Authenticate']);
+            return this.execute(next);
+        }
+
+        if (config.mode === 'try') {
+            request.auth.isAuthenticated = false;
+            request.auth.strategy = name;
+            request.auth.credentials = result.credentials;
+            request.auth.artifacts = result.artifacts;
+            request.auth.error = err;
+            request._log(['auth', 'unauthenticated', 'try', name], err);
+            return next();
+        }
+
+        request._log(['auth', 'unauthenticated', 'error', name], err);
+        return next(err);
+    }
+
+    _handleValidationSuccess(result, config, request, name, next) {
+
+        const credentials = result.credentials;
+        request.auth.strategy = name;
+        request.auth.credentials = credentials;
+        request.auth.artifacts = result.artifacts;
 
         const authenticated = () => {
 
@@ -495,7 +423,7 @@ internals.Authenticator = class {
 
         // Check access rules
 
-        const error = internals.access(request, config, result.credentials, name);
+        const error = internals.access(request, config, credentials, name);
         if (!error) {
             return authenticated();
         }
@@ -506,102 +434,77 @@ internals.Authenticator = class {
 };
 
 
-/**
- * Checks if entity matches request entity type
- */
-internals.entityMatches = function (entity, requestEntity) {
-
-    return !entity || entity === 'any' || entity === requestEntity;
-};
-
-
-/**
- * Validates scope requirements for access
- */
-internals.validateAccessScope = function (request, credentials, scope) {
-
-    if (!scope) {
-        return true;
-    }
-
-    if (!credentials.scope) {
-        return false;
-    }
-
-    scope = internals.expandScope(request, scope);
-    return internals.validateScope(credentials, scope, 'required') &&
-           internals.validateScope(credentials, scope, 'selection') &&
-           internals.validateScope(credentials, scope, 'forbidden');
-};
-
-
-/**
- * Determines entity type from credentials
- */
-internals.getRequestEntity = function (credentials) {
-
-    return credentials.user ? 'user' : 'app';
-};
-
-
-/**
- * Creates entity error response
- */
-internals.createEntityError = function (requestEntity, name) {
-
-    if (requestEntity === 'app') {
-        return {
-            err: Boom.forbidden('Application credentials cannot be used on a user endpoint'),
-            tags: ['auth', 'entity', 'user', 'error', name]
-        };
-    }
-
-    return {
-        err: Boom.forbidden('User credentials cannot be used on an application endpoint'),
-        tags: ['auth', 'entity', 'app', 'error', name]
-    };
-};
-
-
+/** @internal Check access rules for credentials against config */
 internals.access = function (request, config, credentials, name) {
 
     if (!config.access) {
         return null;
     }
 
-    const requestEntity = internals.getRequestEntity(credentials);
+    const requestEntity = (credentials.user ? 'user' : 'app');
     const scopeErrors = [];
 
     for (let i = 0; i < config.access.length; ++i) {
-        const access = config.access[i];
-
-        // Check entity
-
-        if (!internals.entityMatches(access.entity, requestEntity)) {
-            continue;
+        const accessResult = internals.checkAccessRule(request, config.access[i], credentials);
+        if (accessResult.allowed) {
+            return null;
         }
-
-        // Check scope
-
-        if (!internals.validateAccessScope(request, credentials, access.scope)) {
-            scopeErrors.push(access.scope);
-            continue;
+        if (accessResult.scopeError) {
+            scopeErrors.push(accessResult.scope);
         }
-
-        return null;
     }
 
-    // Scope error
+    return internals.buildAccessError(requestEntity, scopeErrors, credentials, name);
+};
+
+/** @internal Check a single access rule */
+internals.checkAccessRule = function (request, access, credentials) {
+
+    // Check entity
+
+    const entity = access.entity;
+    const requestEntity = (credentials.user ? 'user' : 'app');
+    if (entity &&
+        entity !== 'any' &&
+        entity !== requestEntity) {
+
+        return { allowed: false, scopeError: false };
+    }
+
+    // Check scope
+
+    let scope = access.scope;
+    if (scope) {
+        if (!credentials.scope) {
+            return { allowed: false, scopeError: true, scope };
+        }
+
+        scope = internals.expandScope(request, scope);
+        if (!internals.validateScope(credentials, scope, 'required') ||
+            !internals.validateScope(credentials, scope, 'selection') ||
+            !internals.validateScope(credentials, scope, 'forbidden')) {
+
+            return { allowed: false, scopeError: true, scope };
+        }
+    }
+
+    return { allowed: true };
+};
+
+/** @internal Build access error response */
+internals.buildAccessError = function (requestEntity, scopeErrors, credentials, name) {
 
     if (scopeErrors.length) {
         const data = { got: credentials.scope, need: scopeErrors };
         return { err: Boom.forbidden('Insufficient scope', data), tags: ['auth', 'scope', 'error', name], data };
     }
 
-    // Entity error
+    const errorMap = {
+        'app': { err: Boom.forbidden('Application credentials cannot be used on a user endpoint'), tags: ['auth', 'entity', 'user', 'error', name] },
+        'user': { err: Boom.forbidden('User credentials cannot be used on an application endpoint'), tags: ['auth', 'entity', 'app', 'error', name] }
+    };
 
-    const error = internals.createEntityError(requestEntity, name);
-    return error;
+    return errorMap[requestEntity];
 };
 
 

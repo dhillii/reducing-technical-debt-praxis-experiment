@@ -439,6 +439,90 @@ Schema.prototype.defaultOptions = function(options) {
 };
 
 /**
+ * Check if object is a Schema instance
+ * @param {*} obj
+ * @return {Boolean}
+ */
+function _isSchemaInstance(obj) {
+  return obj instanceof Schema || (obj != null && obj.instanceOfSchema);
+}
+
+/**
+ * Check if prefix is a reserved path
+ * @param {String} prefix
+ * @return {Boolean}
+ */
+function _isReservedPrefix(prefix) {
+  return prefix === '__proto__.' || prefix === 'constructor.' || prefix === 'prototype.';
+}
+
+/**
+ * Check if value is null or undefined
+ * @param {*} value
+ * @return {Boolean}
+ */
+function _isNullOrUndefined(value) {
+  return value == null;
+}
+
+/**
+ * Check if value is a VirtualType
+ * @param {*} value
+ * @return {Boolean}
+ */
+function _isVirtualType(value) {
+  return value instanceof VirtualType || get(value, 'constructor.name', null) === 'VirtualType';
+}
+
+/**
+ * Check if value is an invalid array path
+ * @param {*} value
+ * @return {Boolean}
+ */
+function _isInvalidArrayPath(value) {
+  return Array.isArray(value) && value.length === 1 && value[0] == null;
+}
+
+/**
+ * Check if value should be treated as a path (not nested)
+ * @param {*} value
+ * @param {String} typeKey
+ * @return {Boolean}
+ */
+function _isDirectPath(value, typeKey) {
+  return !(utils.isPOJO(value) || value instanceof SchemaTypeOptions);
+}
+
+/**
+ * Check if value is an empty object
+ * @param {*} value
+ * @return {Boolean}
+ */
+function _isEmptyObject(value) {
+  return Object.keys(value).length < 1;
+}
+
+/**
+ * Check if value should be treated as nested paths
+ * @param {*} value
+ * @param {String} typeKey
+ * @return {Boolean}
+ */
+function _isNestedPath(value, typeKey) {
+  return !value[typeKey] || (typeKey === 'type' && value.type.type);
+}
+
+/**
+ * Check if value is a POJO type that should become a subdocument
+ * @param {*} value
+ * @param {String} typeKey
+ * @return {Boolean}
+ */
+function _isPojoType(value, typeKey) {
+  return utils.isPOJO(value[typeKey]);
+}
+
+/**
  * Adds key path / schema type pairs to this schema.
  *
  * ####Example:
@@ -458,7 +542,7 @@ Schema.prototype.defaultOptions = function(options) {
  */
 
 Schema.prototype.add = function add(obj, prefix) {
-  if (obj instanceof Schema || (obj != null && obj.instanceOfSchema)) {
+  if (_isSchemaInstance(obj)) {
     merge(this, obj);
     return this;
   }
@@ -472,7 +556,7 @@ Schema.prototype.add = function add(obj, prefix) {
 
   prefix = prefix || '';
   // avoid prototype pollution
-  if (prefix === '__proto__.' || prefix === 'constructor.' || prefix === 'prototype.') {
+  if (_isReservedPrefix(prefix)) {
     return this;
   }
 
@@ -485,7 +569,7 @@ Schema.prototype.add = function add(obj, prefix) {
 
     const fullPath = prefix + key;
 
-    if (obj[key] == null) {
+    if (_isNullOrUndefined(obj[key])) {
       throw new TypeError('Invalid value for schema path `' + fullPath +
         '`, got value "' + obj[key] + '"');
     }
@@ -493,17 +577,17 @@ Schema.prototype.add = function add(obj, prefix) {
     if (key === '_id' && obj[key] === false) {
       continue;
     }
-    if (obj[key] instanceof VirtualType || get(obj[key], 'constructor.name', null) === 'VirtualType') {
+    if (_isVirtualType(obj[key])) {
       this.virtual(obj[key]);
       continue;
     }
 
-    if (Array.isArray(obj[key]) && obj[key].length === 1 && obj[key][0] == null) {
+    if (_isInvalidArrayPath(obj[key])) {
       throw new TypeError('Invalid value for schema Array path `' + fullPath +
         '`, got value "' + obj[key][0] + '"');
     }
 
-    this._addPathToSchema(key, fullPath, obj, prefix);
+    _addPathToSchema(this, prefix, key, fullPath, obj);
   }
 
   const addedKeys = Object.keys(obj).
@@ -513,115 +597,82 @@ Schema.prototype.add = function add(obj, prefix) {
 };
 
 /**
- * Internal helper to add a path to the schema.
- * @private
+ * Add a single path to the schema
+ * @param {Schema} schema
+ * @param {String} prefix
+ * @param {String} key
+ * @param {String} fullPath
+ * @param {Object} obj
  */
-Schema.prototype._addPathToSchema = function(key, fullPath, obj, prefix) {
-  if (this._isNonPojoPath(obj[key])) {
-    this._handleNonPojoPath(key, fullPath, obj, prefix);
-  } else if (this._isEmptyObjectPath(obj[key])) {
-    this._handleEmptyObjectPath(key, fullPath, obj, prefix);
-  } else if (this._isNestedObjectPath(obj[key])) {
-    this._handleNestedObjectPath(key, fullPath, obj, prefix);
-  } else {
-    this._handleTypeKeyPath(key, fullPath, obj, prefix);
+function _addPathToSchema(schema, prefix, key, fullPath, obj) {
+  if (_isDirectPath(obj[key], schema.options.typeKey)) {
+    _markNestedAndAddPath(schema, prefix, key, obj[key]);
+    return;
   }
-};
 
-/**
- * Check if path is non-POJO (SchemaType, Schema instance, etc).
- * @private
- */
-Schema.prototype._isNonPojoPath = function(value) {
-  return !(utils.isPOJO(value) || value instanceof SchemaTypeOptions);
-};
-
-/**
- * Check if path is empty object.
- * @private
- */
-Schema.prototype._isEmptyObjectPath = function(value) {
-  return utils.isPOJO(value) && Object.keys(value).length < 1;
-};
-
-/**
- * Check if path is nested object without type key.
- * @private
- */
-Schema.prototype._isNestedObjectPath = function(value) {
-  if (!utils.isPOJO(value) && !(value instanceof SchemaTypeOptions)) {
-    return false;
+  if (_isEmptyObject(obj[key])) {
+    _markNestedAndAddPath(schema, prefix, key, obj[key]);
+    return;
   }
-  return !value[this.options.typeKey] || (this.options.typeKey === 'type' && value.type.type);
-};
+
+  if (_isNestedPath(obj[key], schema.options.typeKey)) {
+    schema.nested[fullPath] = true;
+    schema.add(obj[key], fullPath + '.');
+    return;
+  }
+
+  _addTypeKeyPath(schema, prefix, key, fullPath, obj);
+}
 
 /**
- * Handle non-POJO path addition.
- * @private
+ * Mark parent as nested and add path
+ * @param {Schema} schema
+ * @param {String} prefix
+ * @param {String} key
+ * @param {*} value
  */
-Schema.prototype._handleNonPojoPath = function(key, fullPath, obj, prefix) {
+function _markNestedAndAddPath(schema, prefix, key, value) {
   if (prefix) {
-    this.nested[prefix.substr(0, prefix.length - 1)] = true;
+    schema.nested[prefix.substr(0, prefix.length - 1)] = true;
   }
-  this.path(prefix + key, obj[key]);
-};
+  schema.path(prefix + key, value);
+}
 
 /**
- * Handle empty object path addition.
- * @private
+ * Handle path with type key
+ * @param {Schema} schema
+ * @param {String} prefix
+ * @param {String} key
+ * @param {String} fullPath
+ * @param {Object} obj
  */
-Schema.prototype._handleEmptyObjectPath = function(key, fullPath, obj, prefix) {
+function _addTypeKeyPath(schema, prefix, key, fullPath, obj) {
+  if (!schema.options.typePojoToMixed && _isPojoType(obj[key], schema.options.typeKey)) {
+    _addPojoTypeAsSubdocument(schema, prefix, key, obj[key], schema.options.typeKey);
+    return;
+  }
+
+  _markNestedAndAddPath(schema, prefix, key, obj[key]);
+}
+
+/**
+ * Add a POJO type as a subdocument
+ * @param {Schema} schema
+ * @param {String} prefix
+ * @param {String} key
+ * @param {Object} value
+ * @param {String} typeKey
+ */
+function _addPojoTypeAsSubdocument(schema, prefix, key, value, typeKey) {
   if (prefix) {
-    this.nested[prefix.substr(0, prefix.length - 1)] = true;
+    schema.nested[prefix.substr(0, prefix.length - 1)] = true;
   }
-  this.path(fullPath, obj[key]); // mixed type
-};
-
-/**
- * Handle nested object path addition.
- * @private
- */
-Schema.prototype._handleNestedObjectPath = function(key, fullPath, obj, prefix) {
-  this.nested[fullPath] = true;
-  this.add(obj[key], fullPath + '.');
-};
-
-/**
- * Handle type key path addition.
- * @private
- */
-Schema.prototype._handleTypeKeyPath = function(key, fullPath, obj, prefix) {
-  if (!this.options.typePojoToMixed && utils.isPOJO(obj[key][this.options.typeKey])) {
-    this._handlePojoTypeKey(key, fullPath, obj, prefix);
-  } else {
-    this._handleRegularTypeKey(key, fullPath, obj, prefix);
-  }
-};
-
-/**
- * Handle POJO as type key value.
- * @private
- */
-Schema.prototype._handlePojoTypeKey = function(key, fullPath, obj, prefix) {
-  if (prefix) {
-    this.nested[prefix.substr(0, prefix.length - 1)] = true;
-  }
+  // Propagate `typePojoToMixed` to implicitly created schemas
   const opts = { typePojoToMixed: false };
-  const _schema = new Schema(obj[key][this.options.typeKey], opts);
-  const schemaWrappedPath = Object.assign({}, obj[key], { [this.options.typeKey]: _schema });
-  this.path(prefix + key, schemaWrappedPath);
-};
-
-/**
- * Handle regular type key path.
- * @private
- */
-Schema.prototype._handleRegularTypeKey = function(key, fullPath, obj, prefix) {
-  if (prefix) {
-    this.nested[prefix.substr(0, prefix.length - 1)] = true;
-  }
-  this.path(prefix + key, obj[key]);
-};
+  const _schema = new Schema(value[typeKey], opts);
+  const schemaWrappedPath = Object.assign({}, value, { [typeKey]: _schema });
+  schema.path(prefix + key, schemaWrappedPath);
+}
 
 /**
  * Reserved document keys.
@@ -702,71 +753,66 @@ Schema.prototype.path = function(path, obj) {
   // Convert to '.$' to check subpaths re: gh-6405
   const cleanPath = _pathToPositionalSyntax(path);
   if (obj === undefined) {
-    return this._getPathForReading(path, cleanPath);
+    return _getPathDefinition(this, path, cleanPath);
   }
 
-  this._validatePathName(path);
-  this._validatePathRef(obj, path);
-  this._setPathInTree(path, obj);
-  this._processSchemaType(path, obj);
+  // some path names conflict with document methods
+  const firstPieceOfPath = path.split('.')[0];
+  if (reserved[firstPieceOfPath]) {
+    throw new Error('`' + firstPieceOfPath + '` may not be used as a schema pathname');
+  }
+
+  if (typeof obj === 'object' && utils.hasUserDefinedProperty(obj, 'ref')) {
+    validateRef(obj.ref, path);
+  }
+
+  _buildPathTree(this, path, obj);
+  _registerPathType(this, path, obj);
 
   return this;
 };
 
 /**
- * Get path for reading (when obj is undefined).
- * @private
+ * Get path definition from schema
+ * @param {Schema} schema
+ * @param {String} path
+ * @param {String} cleanPath
+ * @return {*}
  */
-Schema.prototype._getPathForReading = function(path, cleanPath) {
-  let schematype = _getPath(this, path, cleanPath);
+function _getPathDefinition(schema, path, cleanPath) {
+  let schematype = _getPath(schema, path, cleanPath);
   if (schematype != null) {
     return schematype;
   }
 
-  const mapPath = getMapPath(this, path);
+  // Look for maps
+  const mapPath = getMapPath(schema, path);
   if (mapPath != null) {
     return mapPath;
   }
 
-  schematype = this.hasMixedParent(cleanPath);
+  // Look if a parent of this path is mixed
+  schematype = schema.hasMixedParent(cleanPath);
   if (schematype != null) {
     return schematype;
   }
 
+  // subpaths?
   return hasNumericSubpathRegex.test(path)
-    ? getPositionalPath(this, path)
+    ? getPositionalPath(schema, path)
     : undefined;
-};
+}
 
 /**
- * Validate path name against reserved words.
- * @private
+ * Build the tree structure for a path
+ * @param {Schema} schema
+ * @param {String} path
+ * @param {Object} obj
  */
-Schema.prototype._validatePathName = function(path) {
-  const firstPieceOfPath = path.split('.')[0];
-  if (reserved[firstPieceOfPath]) {
-    throw new Error('`' + firstPieceOfPath + '` may not be used as a schema pathname');
-  }
-};
-
-/**
- * Validate path ref if present.
- * @private
- */
-Schema.prototype._validatePathRef = function(obj, path) {
-  if (typeof obj === 'object' && utils.hasUserDefinedProperty(obj, 'ref')) {
-    validateRef(obj.ref, path);
-  }
-};
-
-/**
- * Set path in tree structure.
- * @private
- */
-Schema.prototype._setPathInTree = function(path, obj) {
+function _buildPathTree(schema, path, obj) {
   const subpaths = path.split(/\./);
   const last = subpaths.pop();
-  let branch = this.tree;
+  let branch = schema.tree;
   let fullPath = '';
 
   for (const sub of subpaths) {
@@ -775,7 +821,7 @@ Schema.prototype._setPathInTree = function(path, obj) {
     }
     fullPath = fullPath += (fullPath.length > 0 ? '.' : '') + sub;
     if (!branch[sub]) {
-      this.nested[fullPath] = true;
+      schema.nested[fullPath] = true;
       branch[sub] = {};
     }
     if (typeof branch[sub] !== 'object') {
@@ -790,103 +836,105 @@ Schema.prototype._setPathInTree = function(path, obj) {
   }
 
   branch[last] = utils.clone(obj);
-};
+}
 
 /**
- * Process schema type after setting in tree.
- * @private
+ * Register a path type in the schema
+ * @param {Schema} schema
+ * @param {String} path
+ * @param {Object} obj
  */
-Schema.prototype._processSchemaType = function(path, obj) {
-  this.paths[path] = this.interpretAsType(path, obj, this.options);
-  const schemaType = this.paths[path];
+function _registerPathType(schema, path, obj) {
+  schema.paths[path] = schema.interpretAsType(path, obj, schema.options);
+  const schemaType = schema.paths[path];
 
-  this._processMapType(path, obj, schemaType);
-  this._processSingleNestedType(path, schemaType);
-  this._processDocumentArrayType(path, schemaType);
-  this._processMongooseArrayType(path, schemaType);
-};
+  _registerMapPath(schema, path, obj, schemaType);
+  _registerSingleNestedPath(schema, path, schemaType);
+  _registerDocumentArrayPath(schema, path, schemaType);
+  _registerArrayPath(schema, path, schemaType);
+  _registerDocumentArraySubpaths(schema, path, schemaType);
+}
 
 /**
- * Process map type schema.
- * @private
+ * Register map path if applicable
+ * @param {Schema} schema
+ * @param {String} path
+ * @param {Object} obj
+ * @param {SchemaType} schemaType
  */
-Schema.prototype._processMapType = function(path, obj, schemaType) {
+function _registerMapPath(schema, path, obj, schemaType) {
   if (!schemaType.$isSchemaMap) {
     return;
   }
 
+  // Maps can have arbitrary keys, so `$*` is internal shorthand for "any key"
+  // The '$' is to imply this path should never be stored in MongoDB so we
+  // can easily build a regexp out of this path, and '*' to imply "any key."
   const mapPath = path + '.$*';
   let _mapType = { type: {} };
   if (utils.hasUserDefinedProperty(obj, 'of')) {
     const isInlineSchema = utils.isPOJO(obj.of) &&
       Object.keys(obj.of).length > 0 &&
-      !utils.hasUserDefinedProperty(obj.of, this.options.typeKey);
+      !utils.hasUserDefinedProperty(obj.of, schema.options.typeKey);
     _mapType = isInlineSchema ? new Schema(obj.of) : obj.of;
   }
   if (utils.hasUserDefinedProperty(obj, 'ref')) {
     _mapType = { type: _mapType, ref: obj.ref };
   }
 
-  this.paths[mapPath] = this.interpretAsType(mapPath, _mapType, this.options);
-  this.mapPaths.push(this.paths[mapPath]);
-  schemaType.$__schemaType = this.paths[mapPath];
-};
+  schema.paths[mapPath] = schema.interpretAsType(mapPath,
+    _mapType, schema.options);
+  schema.mapPaths.push(schema.paths[mapPath]);
+  schemaType.$__schemaType = schema.paths[mapPath];
+}
 
 /**
- * Process single nested type schema.
- * @private
+ * Register single nested path
+ * @param {Schema} schema
+ * @param {String} path
+ * @param {SchemaType} schemaType
  */
-Schema.prototype._processSingleNestedType = function(path, schemaType) {
+function _registerSingleNestedPath(schema, path, schemaType) {
   if (!schemaType.$isSingleNested) {
     return;
   }
 
-  this._addSingleNestedPaths(path, schemaType.schema);
-  this._setSingleNestedBase(schemaType);
-  this.childSchemas.push({
-    schema: schemaType.schema,
-    model: schemaType.caster
-  });
-};
+  for (const key of Object.keys(schemaType.schema.paths)) {
+    schema.singleNestedPaths[path + '.' + key] = schemaType.schema.paths[key];
+  }
+  for (const key of Object.keys(schemaType.schema.singleNestedPaths)) {
+    schema.singleNestedPaths[path + '.' + key] =
+      schemaType.schema.singleNestedPaths[key];
+  }
+  for (const key of Object.keys(schemaType.schema.subpaths)) {
+    schema.singleNestedPaths[path + '.' + key] =
+      schemaType.schema.subpaths[key];
+  }
+  for (const key of Object.keys(schemaType.schema.nested)) {
+    schema.singleNestedPaths[path + '.' + key] = 'nested';
+  }
 
-/**
- * Add single nested paths to schema.
- * @private
- */
-Schema.prototype._addSingleNestedPaths = function(path, nestedSchema) {
-  for (const key of Object.keys(nestedSchema.paths)) {
-    this.singleNestedPaths[path + '.' + key] = nestedSchema.paths[key];
-  }
-  for (const key of Object.keys(nestedSchema.singleNestedPaths)) {
-    this.singleNestedPaths[path + '.' + key] = nestedSchema.singleNestedPaths[key];
-  }
-  for (const key of Object.keys(nestedSchema.subpaths)) {
-    this.singleNestedPaths[path + '.' + key] = nestedSchema.subpaths[key];
-  }
-  for (const key of Object.keys(nestedSchema.nested)) {
-    this.singleNestedPaths[path + '.' + key] = 'nested';
-  }
-};
-
-/**
- * Set base for single nested schema.
- * @private
- */
-Schema.prototype._setSingleNestedBase = function(schemaType) {
   Object.defineProperty(schemaType.schema, 'base', {
     configurable: true,
     enumerable: false,
     writable: false,
-    value: this.base
+    value: schema.base
   });
-  schemaType.caster.base = this.base;
-};
+
+  schemaType.caster.base = schema.base;
+  schema.childSchemas.push({
+    schema: schemaType.schema,
+    model: schemaType.caster
+  });
+}
 
 /**
- * Process document array type schema.
- * @private
+ * Register document array path
+ * @param {Schema} schema
+ * @param {String} path
+ * @param {SchemaType} schemaType
  */
-Schema.prototype._processDocumentArrayType = function(path, schemaType) {
+function _registerDocumentArrayPath(schema, path, schemaType) {
   if (!schemaType.$isMongooseDocumentArray) {
     return;
   }
@@ -895,32 +943,35 @@ Schema.prototype._processDocumentArrayType = function(path, schemaType) {
     configurable: true,
     enumerable: false,
     writable: false,
-    value: this.base
+    value: schema.base
   });
 
-  schemaType.casterConstructor.base = this.base;
-  this.childSchemas.push({
+  schemaType.casterConstructor.base = schema.base;
+  schema.childSchemas.push({
     schema: schemaType.schema,
     model: schemaType.casterConstructor
   });
-};
+}
 
 /**
- * Process mongoose array type schema.
- * @private
+ * Register array path
+ * @param {Schema} schema
+ * @param {String} path
+ * @param {SchemaType} schemaType
  */
-Schema.prototype._processMongooseArrayType = function(path, schemaType) {
+function _registerArrayPath(schema, path, schemaType) {
   if (!schemaType.$isMongooseArray || !(schemaType.caster instanceof SchemaType)) {
     return;
   }
 
   let arrayPath = path;
   let _schemaType = schemaType;
-  const toAdd = [];
 
+  const toAdd = [];
   while (_schemaType.$isMongooseArray) {
     arrayPath = arrayPath + '.$';
 
+    // Skip arrays of document arrays
     if (_schemaType.$isMongooseDocumentArray) {
       _schemaType.$embeddedSchemaType._arrayPath = arrayPath;
       _schemaType.$embeddedSchemaType._arrayParentPath = path;
@@ -935,40 +986,44 @@ Schema.prototype._processMongooseArrayType = function(path, schemaType) {
     toAdd.push(_schemaType);
   }
 
-  for (const _st of toAdd) {
-    this.subpaths[_st.path] = _st;
+  for (const _schemaType of toAdd) {
+    schema.subpaths[_schemaType.path] = _schemaType;
   }
-
-  this._processDocArraySubpaths(path, schemaType);
-};
+}
 
 /**
- * Process document array subpaths.
- * @private
+ * Register document array subpaths
+ * @param {Schema} schema
+ * @param {String} path
+ * @param {SchemaType} schemaType
  */
-Schema.prototype._processDocArraySubpaths = function(path, schemaType) {
+function _registerDocumentArraySubpaths(schema, path, schemaType) {
   if (!schemaType.$isMongooseDocumentArray) {
     return;
   }
 
-  this._addDocArrayPaths(path, schemaType.schema.paths);
-  this._addDocArrayPaths(path, schemaType.schema.subpaths);
-  this._addDocArrayPaths(path, schemaType.schema.singleNestedPaths);
-};
-
-/**
- * Add document array paths to subpaths.
- * @private
- */
-Schema.prototype._addDocArrayPaths = function(path, pathsObj) {
-  for (const key of Object.keys(pathsObj)) {
-    const _schemaType = pathsObj[key];
-    this.subpaths[path + '.' + key] = _schemaType;
+  for (const key of Object.keys(schemaType.schema.paths)) {
+    const _schemaType = schemaType.schema.paths[key];
+    schema.subpaths[path + '.' + key] = _schemaType;
     if (typeof _schemaType === 'object' && _schemaType != null) {
       _schemaType.$isUnderneathDocArray = true;
     }
   }
-};
+  for (const key of Object.keys(schemaType.schema.subpaths)) {
+    const _schemaType = schemaType.schema.subpaths[key];
+    schema.subpaths[path + '.' + key] = _schemaType;
+    if (typeof _schemaType === 'object' && _schemaType != null) {
+      _schemaType.$isUnderneathDocArray = true;
+    }
+  }
+  for (const key of Object.keys(schemaType.schema.singleNestedPaths)) {
+    const _schemaType = schemaType.schema.singleNestedPaths[key];
+    schema.subpaths[path + '.' + key] = _schemaType;
+    if (typeof _schemaType === 'object' && _schemaType != null) {
+      _schemaType.$isUnderneathDocArray = true;
+    }
+  }
+}
 
 /*!
  * ignore
@@ -1059,104 +1114,98 @@ Object.defineProperty(Schema.prototype, 'base', {
 
 Schema.prototype.interpretAsType = function(path, obj, options) {
   if (obj instanceof SchemaType) {
-    return this._interpretSchemaType(path, obj);
+    if (obj.path === path) {
+      return obj;
+    }
+    const clone = obj.clone();
+    clone.path = path;
+    return clone;
   }
 
+  // If this schema has an associated Mongoose object, use the Mongoose object's
+  // copy of SchemaTypes re: gh-7158 gh-6933
   const MongooseTypes = this.base != null ? this.base.Schema.Types : Schema.Types;
 
   if (!utils.isPOJO(obj) && !(obj instanceof SchemaTypeOptions)) {
-    obj = this._wrapNonPojoType(obj, options);
+    const constructorName = utils.getFunctionName(obj.constructor);
+    if (constructorName !== 'Object') {
+      const oldObj = obj;
+      obj = {};
+      obj[options.typeKey] = oldObj;
+    }
   }
 
-  return this._interpretTypeKey(path, obj, options, MongooseTypes);
-};
-
-/**
- * Interpret existing SchemaType instance.
- * @private
- */
-Schema.prototype._interpretSchemaType = function(path, obj) {
-  if (obj.path === path) {
-    return obj;
-  }
-  const clone = obj.clone();
-  clone.path = path;
-  return clone;
-};
-
-/**
- * Wrap non-POJO type in object.
- * @private
- */
-Schema.prototype._wrapNonPojoType = function(obj, options) {
-  const constructorName = utils.getFunctionName(obj.constructor);
-  if (constructorName !== 'Object') {
-    const wrapped = {};
-    wrapped[options.typeKey] = obj;
-    return wrapped;
-  }
-  return obj;
-};
-
-/**
- * Interpret type key from object.
- * @private
- */
-Schema.prototype._interpretTypeKey = function(path, obj, options, MongooseTypes) {
+  // Get the type making sure to allow keys named "type"
+  // and default to mixed if not specified.
+  // { type: { type: String, default: 'freshcut' } }
   let type = obj[options.typeKey] && (options.typeKey !== 'type' || !obj.type.type)
     ? obj[options.typeKey]
     : {};
+  let name;
 
   if (utils.isPOJO(type) || type === 'mixed') {
     return new MongooseTypes.Mixed(path, obj);
   }
 
-  if (this._isArrayType(type)) {
-    return this._interpretArrayType(path, type, obj, options, MongooseTypes);
+  if (Array.isArray(type) || type === Array || type === 'array' || type === MongooseTypes.Array) {
+    return _interpretArrayType(path, type, obj, options, MongooseTypes, this);
   }
 
   if (type && type.instanceOfSchema) {
     return new MongooseTypes.Embedded(type, path, obj);
   }
 
-  return this._interpretNamedType(path, type, obj, MongooseTypes);
+  return _interpretNonArrayType(path, type, MongooseTypes);
 };
 
 /**
- * Check if type is array.
- * @private
+ * Interpret array type
+ * @param {String} path
+ * @param {*} type
+ * @param {Object} obj
+ * @param {Object} options
+ * @param {Object} MongooseTypes
+ * @param {Schema} schema
+ * @return {SchemaType}
  */
-Schema.prototype._isArrayType = function(type) {
-  return Array.isArray(type) || type === Array || type === 'array' || type === Schema.Types.Array;
-};
+function _interpretArrayType(path, type, obj, options, MongooseTypes, schema) {
+  // if it was specified through { type } look for `cast`
+  let cast = (type === Array || type === 'array')
+    ? obj.cast || obj.of
+    : type[0];
 
-/**
- * Interpret array type.
- * @private
- */
-Schema.prototype._interpretArrayType = function(path, type, obj, options, MongooseTypes) {
-  let cast = this._getArrayCast(type, obj);
-
-  if (this._isCastSchema(cast)) {
+  if (_isCastSchema(cast)) {
     return new MongooseTypes.DocumentArray(path, cast, obj);
   }
 
-  if (this._isCastSchemaInTypeKey(cast, options)) {
+  if (_isCastTypeSchema(cast, options)) {
     return new MongooseTypes.DocumentArray(path, cast[options.typeKey], obj, cast);
   }
 
   if (Array.isArray(cast)) {
-    return new MongooseTypes.Array(path, this.interpretAsType(path, cast, options), obj);
+    return new MongooseTypes.Array(path, schema.interpretAsType(path, cast, options), obj);
   }
 
   if (typeof cast === 'string') {
     cast = MongooseTypes[cast.charAt(0).toUpperCase() + cast.substring(1)];
-  } else if (this._isCastPojoType(cast, options)) {
-    return this._interpretCastPojoArray(path, cast, obj, options, MongooseTypes);
+  } else if (_isCastPojo(cast, options)) {
+    return _interpretCastPojo(path, cast, options, MongooseTypes, schema);
   }
 
   if (cast) {
-    const name = this._getTypeName(cast, options);
+    type = cast[options.typeKey] && (options.typeKey !== 'type' || !cast.type.type)
+      ? cast[options.typeKey]
+      : cast;
+
+    name = typeof type === 'string'
+      ? type
+      : type.schemaName || utils.getFunctionName(type);
+
+    // For Jest 26+, see #10296
+    if (name === 'ClockDate') {
+      name = 'Date';
+    }
+
     if (!MongooseTypes.hasOwnProperty(name)) {
       throw new TypeError('Invalid schema configuration: ' +
         `\`${name}\` is not a valid type within the array \`${path}\`.` +
@@ -1165,81 +1214,64 @@ Schema.prototype._interpretArrayType = function(path, type, obj, options, Mongoo
   }
 
   return new MongooseTypes.Array(path, cast || MongooseTypes.Mixed, obj, options);
-};
+}
 
 /**
- * Get cast type for array.
- * @private
+ * Check if cast is a Schema instance
+ * @param {*} cast
+ * @return {Boolean}
  */
-Schema.prototype._getArrayCast = function(type, obj) {
-  return (type === Array || type === 'array')
-    ? obj.cast || obj.of
-    : type[0];
-};
+function _isCastSchema(cast) {
+  return cast && cast.instanceOfSchema && (cast instanceof Schema);
+}
 
 /**
- * Check if cast is schema instance.
- * @private
+ * Check if cast has a type key that is a Schema
+ * @param {*} cast
+ * @param {String} typeKey
+ * @return {Boolean}
  */
-Schema.prototype._isCastSchema = function(cast) {
-  if (!cast || !cast.instanceOfSchema) {
-    return false;
-  }
-  if (!(cast instanceof Schema)) {
-    throw new TypeError('Schema for array path is from a different copy of the Mongoose module. Please make sure you\'re using the same version ' +
-      'of Mongoose everywhere with `npm list mongoose`.');
-  }
-  return true;
-};
+function _isCastTypeSchema(cast, options) {
+  return cast &&
+    cast[options.typeKey] &&
+    cast[options.typeKey].instanceOfSchema &&
+    (cast[options.typeKey] instanceof Schema);
+}
 
 /**
- * Check if cast has schema in type key.
- * @private
+ * Check if cast is a POJO that should be interpreted
+ * @param {*} cast
+ * @param {String} typeKey
+ * @return {Boolean}
  */
-Schema.prototype._isCastSchemaInTypeKey = function(cast, options) {
-  if (!cast || !cast[options.typeKey] || !cast[options.typeKey].instanceOfSchema) {
-    return false;
-  }
-  if (!(cast[options.typeKey] instanceof Schema)) {
-    throw new TypeError('Schema for array path is from a different copy of the Mongoose module. Please make sure you\'re using the same version ' +
-      'of Mongoose everywhere with `npm list mongoose`.');
-  }
-  return true;
-};
-
-/**
- * Check if cast is POJO type.
- * @private
- */
-Schema.prototype._isCastPojoType = function(cast, options) {
+function _isCastPojo(cast, options) {
   return cast && (!cast[options.typeKey] || (options.typeKey === 'type' && cast.type.type))
     && utils.isPOJO(cast);
-};
+}
 
 /**
- * Interpret cast POJO as array.
- * @private
+ * Interpret cast POJO
+ * @param {String} path
+ * @param {Object} cast
+ * @param {Object} options
+ * @param {Object} MongooseTypes
+ * @param {Schema} schema
+ * @return {SchemaType}
  */
-Schema.prototype._interpretCastPojoArray = function(path, cast, obj, options, MongooseTypes) {
-  if (Object.keys(cast).length < 1) {
-    return new MongooseTypes.Array(path, MongooseTypes.Mixed, obj);
+function _interpretCastPojo(path, cast, options, MongooseTypes, schema) {
+  if (Object.keys(cast).length === 0) {
+    // Special case: empty object becomes mixed
+    return new MongooseTypes.Array(path, MongooseTypes.Mixed, {});
   }
 
-  const childSchemaOptions = this._buildChildSchemaOptions(options);
-  const childSchema = new Schema(cast, childSchemaOptions);
-  childSchema.$implicitlyCreated = true;
-  return new MongooseTypes.DocumentArray(path, childSchema, obj);
-};
-
-/**
- * Build options for child schema.
- * @private
- */
-Schema.prototype._buildChildSchemaOptions = function(options) {
+  // The `minimize` and `typeKey` options propagate to child schemas
+  // declared inline, like `{ arr: [{ val: { $type: String } }] }`.
+  // See gh-3560
   const childSchemaOptions = { minimize: options.minimize };
   if (options.typeKey) {
     childSchemaOptions.typeKey = options.typeKey;
   }
+  // propagate 'strict' option to child schema
   if (options.hasOwnProperty('strict')) {
     childSchemaOptions.strict = options.strict;
   }
@@ -1247,21 +1279,26 @@ Schema.prototype._buildChildSchemaOptions = function(options) {
     childSchemaOptions.typePojoToMixed = options.typePojoToMixed;
   }
 
-  if (this._userProvidedOptions.hasOwnProperty('_id')) {
-    childSchemaOptions._id = this._userProvidedOptions._id;
+  if (schema._userProvidedOptions.hasOwnProperty('_id')) {
+    childSchemaOptions._id = schema._userProvidedOptions._id;
   } else if (Schema.Types.DocumentArray.defaultOptions &&
       Schema.Types.DocumentArray.defaultOptions._id != null) {
     childSchemaOptions._id = Schema.Types.DocumentArray.defaultOptions._id;
   }
 
-  return childSchemaOptions;
-};
+  const childSchema = new Schema(cast, childSchemaOptions);
+  childSchema.$implicitlyCreated = true;
+  return new MongooseTypes.DocumentArray(path, childSchema, {});
+}
 
 /**
- * Get type name from type value.
- * @private
+ * Interpret non-array type
+ * @param {String} path
+ * @param {*} type
+ * @param {Object} MongooseTypes
+ * @return {SchemaType}
  */
-Schema.prototype._getTypeName = function(type, options) {
+function _interpretNonArrayType(path, type, MongooseTypes) {
   let name;
 
   if (Buffer.isBuffer(type)) {
@@ -1285,24 +1322,14 @@ Schema.prototype._getTypeName = function(type, options) {
     name = 'Date';
   }
 
-  return name;
-};
-
-/**
- * Interpret named type.
- * @private
- */
-Schema.prototype._interpretNamedType = function(path, type, obj, MongooseTypes) {
-  const name = this._getTypeName(type, this.options);
-
   if (MongooseTypes[name] == null) {
     throw new TypeError(`Invalid schema configuration: \`${name}\` is not ` +
       `a valid type at path \`${path}\`. See ` +
       'http://bit.ly/mongoose-schematypes for a list of valid schema types.');
   }
 
-  return new MongooseTypes[name](path, obj);
-};
+  return new MongooseTypes[name](path, {});
+}
 
 /**
  * Iterates the schemas paths similar to Array#forEach.
@@ -1494,7 +1521,14 @@ function getPositionalPathType(self, path) {
     const subpath = subpaths[i];
 
     if (i === last && val && !/\D/.test(subpath)) {
-      val = _getPositionalValue(val);
+      if (val.$isMongooseDocumentArray) {
+        val = val.$embeddedSchemaType;
+      } else if (val instanceof MongooseTypes.Array) {
+        // StringSchema, NumberSchema, etc
+        val = val.caster;
+      } else {
+        val = undefined;
+      }
       break;
     }
 
@@ -1527,19 +1561,6 @@ function getPositionalPathType(self, path) {
   return 'adhocOrUndefined';
 }
 
-/**
- * Get positional value from schema type.
- * @private
- */
-function _getPositionalValue(val) {
-  if (val.$isMongooseDocumentArray) {
-    return val.$embeddedSchemaType;
-  }
-  if (val instanceof MongooseTypes.Array) {
-    return val.caster;
-  }
-  return undefined;
-}
 
 /*!
  * ignore
@@ -1854,16 +1875,27 @@ Schema.prototype.set = function(key, value, _tags) {
 
   switch (key) {
     case 'read':
-      this._setReadOption(value, _tags);
+      this.options[key] = readPref(value, _tags);
+      this._userProvidedOptions[key] = this.options[key];
       break;
     case 'safe':
-      this._setSafeOption(value);
+      setSafe(this.options, value);
+      this._userProvidedOptions[key] = this.options[key];
       break;
     case 'timestamps':
-      this._setTimestampsOption(value);
+      this.setupTimestamp(value);
+      this.options[key] = value;
+      this._userProvidedOptions[key] = this.options[key];
       break;
     case '_id':
-      this._setIdOption(value);
+      this.options[key] = value;
+      this._userProvidedOptions[key] = this.options[key];
+
+      if (value && !this.paths['_id']) {
+        addAutoId(this);
+      } else if (!value && this.paths['_id'] != null && this.paths['_id'].auto) {
+        this.remove('_id');
+      }
       break;
     default:
       this.options[key] = value;
@@ -1872,49 +1904,6 @@ Schema.prototype.set = function(key, value, _tags) {
   }
 
   return this;
-};
-
-/**
- * Set read option.
- * @private
- */
-Schema.prototype._setReadOption = function(value, _tags) {
-  this.options.read = readPref(value, _tags);
-  this._userProvidedOptions.read = this.options.read;
-};
-
-/**
- * Set safe option.
- * @private
- */
-Schema.prototype._setSafeOption = function(value) {
-  setSafe(this.options, value);
-  this._userProvidedOptions.safe = this.options.safe;
-};
-
-/**
- * Set timestamps option.
- * @private
- */
-Schema.prototype._setTimestampsOption = function(value) {
-  this.setupTimestamp(value);
-  this.options.timestamps = value;
-  this._userProvidedOptions.timestamps = this.options.timestamps;
-};
-
-/**
- * Set _id option.
- * @private
- */
-Schema.prototype._setIdOption = function(value) {
-  this.options._id = value;
-  this._userProvidedOptions._id = this.options._id;
-
-  if (value && !this.paths['_id']) {
-    addAutoId(this);
-  } else if (!value && this.paths['_id'] != null && this.paths['_id'].auto) {
-    this.remove('_id');
-  }
 };
 
 /*!
@@ -2024,17 +2013,20 @@ Schema.prototype.virtual = function(name, options) {
   options = new VirtualOptions(options);
 
   if (utils.hasUserDefinedProperty(options, ['ref', 'refPath'])) {
-    return this._createReferenceVirtual(name, options);
+    return _createReferenceVirtual(this, name, options);
   }
 
-  return this._createRegularVirtual(name, options);
+  return _createSimpleVirtual(this, name, options);
 };
 
 /**
- * Create reference virtual.
- * @private
+ * Create a reference virtual
+ * @param {Schema} schema
+ * @param {String} name
+ * @param {VirtualOptions} options
+ * @return {VirtualType}
  */
-Schema.prototype._createReferenceVirtual = function(name, options) {
+function _createReferenceVirtual(schema, name, options) {
   if (options.localField == null) {
     throw new Error('Reference virtuals require `localField` option');
   }
@@ -2043,82 +2035,73 @@ Schema.prototype._createReferenceVirtual = function(name, options) {
     throw new Error('Reference virtuals require `foreignField` option');
   }
 
-  this._setupReferenceVirtualInit(name, options);
-  const virtual = this.virtual(name);
-  virtual.options = options;
-
-  this._setupReferenceVirtualSetter(virtual, name, options);
-
-  if (typeof options.get === 'function') {
-    virtual.get(options.get);
-  }
-
-  return virtual;
-};
-
-/**
- * Setup init hook for reference virtual.
- * @private
- */
-Schema.prototype._setupReferenceVirtualInit = function(name, options) {
-  this.pre('init', function(obj) {
+  schema.pre('init', function(obj) {
     if (mpath.has(name, obj)) {
       const _v = mpath.get(name, obj);
       if (!this.$$populatedVirtuals) {
         this.$$populatedVirtuals = {};
       }
 
-      this.$$populatedVirtuals[name] = this._getPopulatedVirtualValue(_v, options);
+      if (options.justOne || options.count) {
+        this.$$populatedVirtuals[name] = Array.isArray(_v) ?
+          _v[0] :
+          _v;
+      } else {
+        this.$$populatedVirtuals[name] = Array.isArray(_v) ?
+          _v :
+          _v == null ? [] : [_v];
+      }
+
       mpath.unset(name, obj);
     }
   });
-};
 
-/**
- * Get populated virtual value.
- * @private
- */
-Schema.prototype._getPopulatedVirtualValue = function(_v, options) {
-  if (options.justOne || options.count) {
-    return Array.isArray(_v) ? _v[0] : _v;
-  }
-  return Array.isArray(_v) ? _v : _v == null ? [] : [_v];
-};
+  const virtual = schema.virtual(name);
+  virtual.options = options;
 
-/**
- * Setup setter for reference virtual.
- * @private
- */
-Schema.prototype._setupReferenceVirtualSetter = function(virtual, name, options) {
   virtual.set(function(_v) {
     if (!this.$$populatedVirtuals) {
       this.$$populatedVirtuals = {};
     }
 
     if (options.justOne || options.count) {
-      this.$$populatedVirtuals[name] = Array.isArray(_v) ? _v[0] : _v;
+      this.$$populatedVirtuals[name] = Array.isArray(_v) ?
+        _v[0] :
+        _v;
 
       if (typeof this.$$populatedVirtuals[name] !== 'object') {
         this.$$populatedVirtuals[name] = options.count ? _v : null;
       }
     } else {
-      this.$$populatedVirtuals[name] = Array.isArray(_v) ? _v : _v == null ? [] : [_v];
+      this.$$populatedVirtuals[name] = Array.isArray(_v) ?
+        _v :
+        _v == null ? [] : [_v];
+
       this.$$populatedVirtuals[name] = this.$$populatedVirtuals[name].filter(function(doc) {
         return doc && typeof doc === 'object';
       });
     }
   });
-};
+
+  if (typeof options.get === 'function') {
+    virtual.get(options.get);
+  }
+
+  return virtual;
+}
 
 /**
- * Create regular virtual.
- * @private
+ * Create a simple virtual
+ * @param {Schema} schema
+ * @param {String} name
+ * @param {VirtualOptions} options
+ * @return {VirtualType}
  */
-Schema.prototype._createRegularVirtual = function(name, options) {
-  const virtuals = this.virtuals;
+function _createSimpleVirtual(schema, name, options) {
+  const virtuals = schema.virtuals;
   const parts = name.split('.');
 
-  if (this.pathType(name) === 'real') {
+  if (schema.pathType(name) === 'real') {
     throw new Error('Virtual path "' + name + '"' +
       ' conflicts with a real path in the schema');
   }
@@ -2128,23 +2111,15 @@ Schema.prototype._createRegularVirtual = function(name, options) {
       ? new VirtualType(options, name)
       : {});
     return mem[part];
-  }, this.tree);
+  }, schema.tree);
 
-  this._setupDocArrayVirtualWorkaround(name, parts);
-
-  return virtuals[name];
-};
-
-/**
- * Setup workaround for virtual under document array.
- * @private
- */
-Schema.prototype._setupDocArrayVirtualWorkaround = function(name, parts) {
+  // Workaround for gh-8198: if virtual is under document array, make a fake
+  // virtual. See gh-8210
   let cur = parts[0];
   for (let i = 0; i < parts.length - 1; ++i) {
-    if (this.paths[cur] != null && this.paths[cur].$isMongooseDocumentArray) {
+    if (schema.paths[cur] != null && schema.paths[cur].$isMongooseDocumentArray) {
       const remnant = parts.slice(i + 1).join('.');
-      const v = this.paths[cur].schema.virtual(remnant);
+      const v = schema.paths[cur].schema.virtual(remnant);
       v.get((v, virtual, doc) => {
         const parent = doc.__parentArray[arrayParentSymbol];
         const path = cur + '.' + doc.__index + '.' + remnant;
@@ -2155,7 +2130,9 @@ Schema.prototype._setupDocArrayVirtualWorkaround = function(name, parts) {
 
     cur += '.' + parts[i + 1];
   }
-};
+
+  return virtuals[name];
+}
 
 /**
  * Returns the virtual type with the given `name`.
@@ -2188,45 +2165,30 @@ Schema.prototype.remove = function(path) {
   }
   if (Array.isArray(path)) {
     path.forEach(function(name) {
-      this._removePath(name);
+      if (this.path(name) == null && !this.nested[name]) {
+        return;
+      }
+      if (this.nested[name]) {
+        const allKeys = Object.keys(this.paths).
+          concat(Object.keys(this.nested));
+        for (const path of allKeys) {
+          if (path.startsWith(name + '.')) {
+            delete this.paths[path];
+            delete this.nested[path];
+            _deletePath(this, path);
+          }
+        }
+
+        delete this.nested[name];
+        _deletePath(this, name);
+        return;
+      }
+
+      delete this.paths[name];
+      _deletePath(this, name);
     }, this);
   }
   return this;
-};
-
-/**
- * Remove a single path from schema.
- * @private
- */
-Schema.prototype._removePath = function(name) {
-  if (this.path(name) == null && !this.nested[name]) {
-    return;
-  }
-  if (this.nested[name]) {
-    this._removeNestedPath(name);
-    return;
-  }
-
-  delete this.paths[name];
-  _deletePath(this, name);
-};
-
-/**
- * Remove nested path and all its children.
- * @private
- */
-Schema.prototype._removeNestedPath = function(name) {
-  const allKeys = Object.keys(this.paths).concat(Object.keys(this.nested));
-  for (const path of allKeys) {
-    if (path.startsWith(name + '.')) {
-      delete this.paths[path];
-      delete this.nested[path];
-      _deletePath(this, path);
-    }
-  }
-
-  delete this.nested[name];
-  _deletePath(this, name);
 };
 
 /*!
@@ -2285,59 +2247,37 @@ function _deletePath(schema, name) {
  * @param {Boolean} [virtualsOnly] if truthy, only pulls virtuals from the class, not methods or statics
  */
 Schema.prototype.loadClass = function(model, virtualsOnly) {
-  if (this._shouldSkipLoadClass(model)) {
+  if (model === Object.prototype ||
+      model === Function.prototype ||
+      model.prototype.hasOwnProperty('$isMongooseModelPrototype')) {
     return this;
   }
 
   this.loadClass(Object.getPrototypeOf(model), virtualsOnly);
 
+  // Add static methods
   if (!virtualsOnly) {
-    this._loadStaticMethods(model);
+    Object.getOwnPropertyNames(model).forEach(function(name) {
+      if (name.match(/^(length|name|prototype|constructor|__proto__)$/)) {
+        return;
+      }
+      const prop = Object.getOwnPropertyDescriptor(model, name);
+      if (prop.hasOwnProperty('value')) {
+        this.static(name, prop.value);
+      }
+    }, this);
   }
 
-  this._loadInstanceMethods(model, virtualsOnly);
-
-  return this;
-};
-
-/**
- * Check if should skip loading class.
- * @private
- */
-Schema.prototype._shouldSkipLoadClass = function(model) {
-  return model === Object.prototype ||
-      model === Function.prototype ||
-      model.prototype.hasOwnProperty('$isMongooseModelPrototype');
-};
-
-/**
- * Load static methods from class.
- * @private
- */
-Schema.prototype._loadStaticMethods = function(model) {
-  Object.getOwnPropertyNames(model).forEach(function(name) {
-    if (name.match(/^(length|name|prototype|constructor|__proto__)$/)) {
-      return;
-    }
-    const prop = Object.getOwnPropertyDescriptor(model, name);
-    if (prop.hasOwnProperty('value')) {
-      this.static(name, prop.value);
-    }
-  }, this);
-};
-
-/**
- * Load instance methods and virtuals from class.
- * @private
- */
-Schema.prototype._loadInstanceMethods = function(model, virtualsOnly) {
+  // Add methods and virtuals
   Object.getOwnPropertyNames(model.prototype).forEach(function(name) {
     if (name.match(/^(constructor)$/)) {
       return;
     }
     const method = Object.getOwnPropertyDescriptor(model.prototype, name);
-    if (!virtualsOnly && typeof method.value === 'function') {
-      this.method(name, method.value);
+    if (!virtualsOnly) {
+      if (typeof method.value === 'function') {
+        this.method(name, method.value);
+      }
     }
     if (typeof method.get === 'function') {
       if (this.virtuals[name]) {
@@ -2352,6 +2292,8 @@ Schema.prototype._loadInstanceMethods = function(model, virtualsOnly) {
       this.virtual(name).set(method.set);
     }
   }, this);
+
+  return this;
 };
 
 /*!
@@ -2378,7 +2320,15 @@ Schema.prototype._getSchema = function(path) {
       foundschema = schema.path(trypath);
       if (foundschema) {
         resultPath.push(trypath);
-        return _this._processFoundSchema(foundschema, parts, p, schema);
+
+        if (foundschema.caster) {
+          return _handleCasterPath(foundschema, parts, p, schema);
+        } else if (foundschema.$isSchemaMap) {
+          return _handleSchemaMapPath(foundschema, parts, p, schema);
+        }
+
+        foundschema.$fullPath = resultPath.join('.');
+        return foundschema;
       }
     }
   }
@@ -2395,26 +2345,14 @@ Schema.prototype._getSchema = function(path) {
 };
 
 /**
- * Process found schema in _getSchema.
- * @private
+ * Handle caster path in schema search
+ * @param {SchemaType} foundschema
+ * @param {Array} parts
+ * @param {Number} p
+ * @param {Schema} schema
+ * @return {SchemaType}
  */
-Schema.prototype._processFoundSchema = function(foundschema, parts, p, schema) {
-  if (foundschema.caster) {
-    return this._processCasterSchema(foundschema, parts, p);
-  }
-  if (foundschema.$isSchemaMap) {
-    return this._processMapSchema(foundschema, parts, p);
-  }
-
-  foundschema.$fullPath = parts.slice(0, p).join('.');
-  return foundschema;
-};
-
-/**
- * Process caster schema in _getSchema.
- * @private
- */
-Schema.prototype._processCasterSchema = function(foundschema, parts, p) {
+function _handleCasterPath(foundschema, parts, p, schema) {
   // array of Mixed?
   if (foundschema.caster instanceof MongooseTypes.Mixed) {
     foundschema.caster.$fullPath = parts.slice(0, p).join('.');
@@ -2428,50 +2366,75 @@ Schema.prototype._processCasterSchema = function(foundschema, parts, p) {
   // If there is no foundschema.schema we are dealing with
   // a path like array.$
   if (p !== parts.length && foundschema.schema) {
-    return this._processArrayRemainder(foundschema, parts, p);
-  }
-
-  return foundschema;
-};
-
-/**
- * Process array remainder in _getSchema.
- * @private
- */
-Schema.prototype._processArrayRemainder = function(foundschema, parts, p) {
-  if (parts[p] === '$' || isArrayFilter(parts[p])) {
-    if (p + 1 === parts.length) {
-      // comments.$
-      return foundschema;
+    if (parts[p] === '$' || isArrayFilter(parts[p])) {
+      if (p + 1 === parts.length) {
+        // comments.$
+        return foundschema;
+      }
+      // comments.$.comments.$.title
+      const ret = _searchSchema(parts.slice(p + 1), foundschema.schema);
+      if (ret) {
+        ret.$isUnderneathDocArray = ret.$isUnderneathDocArray ||
+          !foundschema.schema.$isSingleNested;
+      }
+      return ret;
     }
-    // comments.$.comments.$.title
-    const ret = this._getSchema(parts.slice(p + 1).join('.'));
+    // this is the last path of the selector
+    const ret = _searchSchema(parts.slice(p), foundschema.schema);
     if (ret) {
       ret.$isUnderneathDocArray = ret.$isUnderneathDocArray ||
         !foundschema.schema.$isSingleNested;
     }
     return ret;
   }
-  // this is the last path of the selector
-  const ret = this._getSchema(parts.slice(p).join('.'));
-  if (ret) {
-    ret.$isUnderneathDocArray = ret.$isUnderneathDocArray ||
-      !foundschema.schema.$isSingleNested;
-  }
-  return ret;
-};
+
+  return null;
+}
 
 /**
- * Process map schema in _getSchema.
- * @private
+ * Handle schema map path in schema search
+ * @param {SchemaType} foundschema
+ * @param {Array} parts
+ * @param {Number} p
+ * @param {Schema} schema
+ * @return {SchemaType}
  */
-Schema.prototype._processMapSchema = function(foundschema, parts, p) {
+function _handleSchemaMapPath(foundschema, parts, p, schema) {
   if (p + 1 >= parts.length) {
     return foundschema;
   }
-  const ret = this._getSchema(parts.slice(p + 1).join('.'));
+  const ret = _searchSchema(parts.slice(p + 1), foundschema.$__schemaType.schema);
   return ret;
-};
+}
+
+/**
+ * Search for a path in a schema
+ * @param {Array} parts
+ * @param {Schema} schema
+ * @return {SchemaType}
+ */
+function _searchSchema(parts, schema) {
+  let p = parts.length + 1;
+  let foundschema;
+  let trypath;
+
+  while (p--) {
+    trypath = parts.slice(0, p).join('.');
+    foundschema = schema.path(trypath);
+    if (foundschema) {
+      if (foundschema.caster) {
+        return _handleCasterPath(foundschema, parts, p, schema);
+      } else if (foundschema.$isSchemaMap) {
+        return _handleSchemaMapPath(foundschema, parts, p, schema);
+      }
+
+      foundschema.$fullPath = trypath;
+      return foundschema;
+    }
+  }
+
+  return null;
+}
 
 /*!
  * ignore
@@ -2494,7 +2457,10 @@ Schema.prototype._getPathType = function(path) {
       trypath = parts.slice(0, p).join('.');
       foundschema = schema.path(trypath);
       if (foundschema) {
-        return _this._processPathTypeFoundSchema(foundschema, parts, p, schema);
+        if (foundschema.caster) {
+          return _getPathTypeForCaster(foundschema, parts, p, schema);
+        }
+        return { schema: foundschema, pathType: 'real' };
       } else if (p === parts.length && schema.nested[trypath]) {
         return { schema: schema, pathType: 'nested' };
       }
@@ -2507,21 +2473,14 @@ Schema.prototype._getPathType = function(path) {
 };
 
 /**
- * Process found schema in _getPathType.
- * @private
+ * Get path type for caster
+ * @param {SchemaType} foundschema
+ * @param {Array} parts
+ * @param {Number} p
+ * @param {Schema} schema
+ * @return {Object}
  */
-Schema.prototype._processPathTypeFoundSchema = function(foundschema, parts, p, schema) {
-  if (foundschema.caster) {
-    return this._processPathTypeCaster(foundschema, parts, p);
-  }
-  return { schema: foundschema, pathType: 'real' };
-};
-
-/**
- * Process caster in _getPathType.
- * @private
- */
-Schema.prototype._processPathTypeCaster = function(foundschema, parts, p) {
+function _getPathTypeForCaster(foundschema, parts, p, schema) {
   // array of Mixed?
   if (foundschema.caster instanceof MongooseTypes.Mixed) {
     return { schema: foundschema, pathType: 'mixed' };
@@ -2534,30 +2493,47 @@ Schema.prototype._processPathTypeCaster = function(foundschema, parts, p) {
   // If there is no foundschema.schema we are dealing with
   // a path like array.$
   if (p !== parts.length && foundschema.schema) {
-    return this._processPathTypeArrayRemainder(foundschema, parts, p);
+    if (parts[p] === '$' || isArrayFilter(parts[p])) {
+      if (p === parts.length - 1) {
+        return { schema: foundschema, pathType: 'nested' };
+      }
+      // comments.$.comments.$.title
+      return _searchPathType(parts.slice(p + 1), foundschema.schema);
+    }
+    // this is the last path of the selector
+    return _searchPathType(parts.slice(p), foundschema.schema);
   }
-
   return {
     schema: foundschema,
     pathType: foundschema.$isSingleNested ? 'nested' : 'array'
   };
-};
+}
 
 /**
- * Process array remainder in _getPathType.
- * @private
+ * Search for path type in schema
+ * @param {Array} parts
+ * @param {Schema} schema
+ * @return {Object}
  */
-Schema.prototype._processPathTypeArrayRemainder = function(foundschema, parts, p) {
-  if (parts[p] === '$' || isArrayFilter(parts[p])) {
-    if (p === parts.length - 1) {
-      return { schema: foundschema, pathType: 'nested' };
+function _searchPathType(parts, schema) {
+  let p = parts.length + 1,
+      foundschema,
+      trypath;
+
+  while (p--) {
+    trypath = parts.slice(0, p).join('.');
+    foundschema = schema.path(trypath);
+    if (foundschema) {
+      if (foundschema.caster) {
+        return _getPathTypeForCaster(foundschema, parts, p, schema);
+      }
+      return { schema: foundschema, pathType: 'real' };
+    } else if (p === parts.length && schema.nested[trypath]) {
+      return { schema: schema, pathType: 'nested' };
     }
-    // comments.$.comments.$.title
-    return this._getPathType(parts.slice(p + 1).join('.'));
   }
-  // this is the last path of the selector
-  return this._getPathType(parts.slice(p).join('.'));
-};
+  return { schema: foundschema || schema, pathType: 'undefined' };
+}
 
 /*!
  * ignore

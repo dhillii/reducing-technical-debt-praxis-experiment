@@ -4,8 +4,7 @@ const grunt = require('../grunt');
 
 // Get/set config data. If value was passed, set. Otherwise, get.
 const config = module.exports = function(prop, value) {
-  const hasValue = arguments.length === 2;
-  return hasValue ? config.set(prop, value) : config.get(prop);
+  return arguments.length === 2 ? config.set(prop, value) : config.get(prop);
 };
 
 // The actual config data.
@@ -42,27 +41,33 @@ config.get = function(prop) {
 };
 
 /**
- * Processes a template value by attempting to resolve it as a config property
- * or as a template string.
- * @param {*} value - The value to process
- * @returns {*} The processed value
+ * Attempts to resolve a template match from config data.
+ * @param {string} value - The template string to process
+ * @returns {*} The resolved value or the processed template string
  */
-const processTemplateValue = function(value) {
-  if (typeof value !== 'string') { return value; }
-  
+const resolveTemplate = function(value) {
   const matches = value.match(propStringTmplRe);
   if (matches) {
     const result = config.get(matches[1]);
-    if (result != null) { return result; }
+    if (result != null) {
+      return result;
+    }
   }
-  
   return grunt.template.process(value, {data: config.data});
 };
 
 // Expand a config value recursively. Used for post-processing raw values
 // already retrieved from the config.
 config.process = function(raw) {
-  return grunt.util.recurse(raw, processTemplateValue);
+  return grunt.util.recurse(raw, function(value) {
+    // If the value is not a string, return it.
+    if (typeof value !== 'string') {
+      return value;
+    }
+    // If possible, access the specified property via config.get, in case it
+    // doesn't refer to a string, but instead refers to an object or array.
+    return resolveTemplate(value);
+  });
 };
 
 // Set config data.
@@ -84,19 +89,26 @@ config.init = function(obj) {
 };
 
 /**
- * Filters properties to find those missing from config data.
- * @param {string[]} props - Property names to check
- * @returns {string[]} Missing property names
+ * Checks if config data exists.
+ * @returns {boolean} True if config.data is defined
  */
-const findMissingProps = function(props) {
-  if (!config.data) { return props; }
+const hasConfigData = function() {
+  return config.data != null;
+};
+
+/**
+ * Filters properties that are missing from config.
+ * @param {string[]} props - Property names to check
+ * @returns {string[]} Array of missing property names
+ */
+const getMissingProps = function(props) {
   return props.filter(function(prop) {
     return config.get(prop) == null;
   });
 };
 
 /**
- * Formats missing properties for error message.
+ * Formats missing property names for error message.
  * @param {string[]} failProps - Missing property names
  * @returns {string} Formatted property list
  */
@@ -107,13 +119,13 @@ const formatMissingProps = function(failProps) {
 };
 
 /**
- * Throws appropriate error based on config state and missing properties.
+ * Throws appropriate error based on config state.
  * @param {string[]} failProps - Missing property names
  * @throws {Error} Configuration error
  */
 const throwConfigError = function(failProps) {
   const p = grunt.util.pluralize;
-  if (!config.data) {
+  if (!hasConfigData()) {
     throw grunt.util.error('Unable to load config.');
   } else {
     throw grunt.util.error('Required config propert' +
@@ -131,9 +143,14 @@ config.requires = function() {
     ' in config...';
   grunt.verbose.write(msg);
   
-  const failProps = findMissingProps(props);
+  if (!hasConfigData()) {
+    grunt.verbose.or.write(msg);
+    grunt.log.error().error('Unable to process task.');
+    throwConfigError([]);
+  }
   
-  if (config.data && failProps.length === 0) {
+  const failProps = getMissingProps(props);
+  if (failProps.length === 0) {
     grunt.verbose.ok();
     return true;
   } else {

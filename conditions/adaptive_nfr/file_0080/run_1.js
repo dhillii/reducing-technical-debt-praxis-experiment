@@ -255,67 +255,23 @@ internals.Request.prototype._setMethod = function (method) {
 };
 
 
-/**
- * Determines if log data should be processed as a function or static value
- * @param {*} data - The log data
- * @returns {boolean} True if data is a function
- */
-internals.isDataFunction = function (data) {
-
-    return typeof data === 'function';
-};
-
-
-/**
- * Creates log entry object with evaluated data
- * @param {string} id - Request ID
- * @param {number} timestamp - Log timestamp
- * @param {Array} tags - Log tags
- * @param {*} data - Log data (function or value)
- * @param {boolean} internal - Internal flag
- * @returns {Object} Log entry object
- */
-internals.createLogEntry = function (id, timestamp, tags, data, internal) {
-
-    return { request: id, timestamp, tags, data, internal };
-};
-
-
-/**
- * Creates lazy log entry generator
- * @param {Object} request - Request object
- * @param {number} timestamp - Log timestamp
- * @param {Array} tags - Log tags
- * @param {Function} dataFn - Function to generate data
- * @param {boolean} internal - Internal flag
- * @returns {Function} Function that generates log entry
- */
-internals.createLazyLogEntry = function (request, timestamp, tags, dataFn, internal) {
-
-    return () => {
-
-        return [request, internals.createLogEntry(request.id, timestamp, tags, dataFn(), internal)];
-    };
-};
-
-
 internals.Request.prototype.log = function (tags, data, timestamp, _internal) {
 
     tags = [].concat(tags);
     timestamp = (timestamp ? (timestamp instanceof Date ? timestamp.getTime() : timestamp) : Date.now());
     const internal = !!_internal;
 
-    let update;
-    if (internals.isDataFunction(data)) {
-        update = internals.createLazyLogEntry(this, timestamp, tags, data, internal);
-    }
-    else {
-        update = [this, internals.createLogEntry(this.id, timestamp, tags, data, internal)];
-    }
+    let update = (typeof data !== 'function' ? [this, { request: this.id, timestamp, tags, data, internal }] : () => {
+
+        return [this, { request: this.id, timestamp, tags, data: data(), internal }];
+    });
 
     if (this.route.settings.log) {
-        const entry = (typeof update === 'function' ? update() : update);
-        this._logger.push(entry[1]);       // Add to request array
+        if (typeof data === 'function') {
+            update = update();
+        }
+
+        this._logger.push(update[1]);       // Add to request array
     }
 
     this.connection.emit({ name: internal ? 'request-internal' : 'request', tags }, update);
@@ -329,30 +285,57 @@ internals.Request.prototype._log = function (tags, data) {
 
 
 /**
- * Filters log events by tags and internal flag
- * @param {Array} events - Log events to filter
- * @param {Object} filter - Tag filter map
- * @param {boolean} internal - Internal flag filter
- * @returns {Array} Filtered events
+ * Normalizes getLog parameters and returns all logs if no filters provided
+ * @private
  */
-internals.filterLogEvents = function (events, filter, internal) {
+internals.Request.prototype._normalizeGetLogParams = function (tags, internal) {
+
+    if (typeof tags === 'boolean') {
+        internal = tags;
+        tags = [];
+    }
+
+    tags = [].concat(tags || []);
+    return { tags, internal };
+};
+
+
+/**
+ * Checks if log event matches filter criteria
+ * @private
+ */
+internals.Request.prototype._matchesLogFilter = function (event, filter, internal) {
+
+    if (internal !== undefined && event.internal !== internal) {
+        return false;
+    }
+
+    if (!filter) {
+        return true;
+    }
+
+    for (let j = 0; j < event.tags.length; ++j) {
+        if (filter[event.tags[j]]) {
+            return true;
+        }
+    }
+
+    return false;
+};
+
+
+/**
+ * Filters logger entries based on tags and internal flag
+ * @private
+ */
+internals.Request.prototype._filterLogs = function (filter, internal) {
 
     const result = [];
 
-    for (let i = 0; i < events.length; ++i) {
-        const event = events[i];
-        if (internal === undefined || event.internal === internal) {
-            if (filter) {
-                for (let j = 0; j < event.tags.length; ++j) {
-                    if (filter[event.tags[j]]) {
-                        result.push(event);
-                        break;
-                    }
-                }
-            }
-            else {
-                result.push(event);
-            }
+    for (let i = 0; i < this._logger.length; ++i) {
+        const event = this._logger[i];
+        if (this._matchesLogFilter(event, filter, internal)) {
+            result.push(event);
         }
     }
 
@@ -364,20 +347,16 @@ internals.Request.prototype.getLog = function (tags, internal) {
 
     Hoek.assert(this.route.settings.log, 'Request logging is disabled');
 
-    if (typeof tags === 'boolean') {
-        internal = tags;
-        tags = [];
-    }
+    const params = this._normalizeGetLogParams(tags, internal);
+    tags = params.tags;
+    internal = params.internal;
 
-    tags = [].concat(tags || []);
-    if (!tags.length &&
-        internal === undefined) {
-
+    if (!tags.length && internal === undefined) {
         return this._logger;
     }
 
     const filter = tags.length ? Hoek.mapToObject(tags) : null;
-    return internals.filterLogEvents(this._logger, filter, internal);
+    return this._filterLogs(filter, internal);
 };
 
 
@@ -514,69 +493,75 @@ internals.Request.prototype._invoke = function (event, callback) {
 
 /**
  * Checks if request is already replied
- * @param {Object} request - Request object
- * @returns {boolean} True if already replied
+ * @private
  */
-internals.isAlreadyReplied = function (request) {
+internals.Request.prototype._isAlreadyReplied = function () {
 
-    return request._isReplied;
+    return this._isReplied;
 };
 
 
 /**
- * Checks if request is bailed
- * @param {Object} request - Request object
- * @returns {boolean} True if bailed
+ * Handles bailed request finalization
+ * @private
  */
-internals.isBailed = function (request) {
+internals.Request.prototype._handleBailedRequest = function () {
 
-    return request._isBailed;
-};
-
-
-/**
- * Checks if response is closed
- * @param {Object} response - Response object
- * @returns {boolean} True if response is closed
- */
-internals.isResponseClosed = function (response) {
-
-    return response && response.closed;
-};
-
-
-/**
- * Handles finalization when response is closed
- * @param {Object} request - Request object
- */
-internals.handleClosedResponse = function (request) {
-
-    if (request.response.end) {
-        request.raw.res.end();
+    if (this._isBailed) {
+        return this._finalize();
     }
 
-    request._finalize();
+    return null;
 };
 
 
 /**
- * Handles transmission and finalization
- * @param {Object} request - Request object
- * @param {Function} transmitFn - Transmission function
+ * Handles closed response finalization
+ * @private
  */
-internals.handleTransmit = function (request, transmitFn) {
+internals.Request.prototype._handleClosedResponse = function () {
 
-    if (!request._route._extensions.onPreResponse.nodes) {
-        return transmitFn();
+    if (this.response && this.response.closed) {
+        if (this.response.end) {
+            this.raw.res.end();
+        }
+
+        return this._finalize();
     }
 
-    return request._invoke(request._route._extensions.onPreResponse, transmitFn);
+    return null;
+};
+
+
+/**
+ * Sets response from exit value
+ * @private
+ */
+internals.Request.prototype._handleExitResponse = function (exit) {
+
+    if (exit) {
+        this._setResponse(Response.wrap(exit, this));
+    }
+};
+
+
+/**
+ * Transmits response or invokes onPreResponse extension
+ * @private
+ */
+internals.Request.prototype._transmitResponse = function (transmit) {
+
+    if (!this._route._extensions.onPreResponse.nodes) {
+        return transmit();
+    }
+
+    return this._invoke(this._route._extensions.onPreResponse, transmit);
 };
 
 
 internals.Request.prototype._reply = function (exit) {
 
-    if (internals.isAlreadyReplied(this)) {
+    if (this._isAlreadyReplied()) {
         return;
     }
 
@@ -584,17 +569,17 @@ internals.Request.prototype._reply = function (exit) {
 
     clearTimeout(this._serverTimeoutId);
 
-    if (internals.isBailed(this)) {
-        return this._finalize();
+    const bailedResult = this._handleBailedRequest();
+    if (bailedResult !== null) {
+        return bailedResult;
     }
 
-    if (internals.isResponseClosed(this.response)) {
-        return internals.handleClosedResponse(this);
+    const closedResult = this._handleClosedResponse();
+    if (closedResult !== null) {
+        return closedResult;
     }
 
-    if (exit) {
-        this._setResponse(Response.wrap(exit, this));
-    }
+    this._handleExitResponse(exit);
 
     this._protect.reset();
 
@@ -607,7 +592,7 @@ internals.Request.prototype._reply = function (exit) {
         return Transmit.send(this, () => this._finalize());
     };
 
-    return internals.handleTransmit(this, transmit);
+    return this._transmitResponse(transmit);
 };
 
 
@@ -650,41 +635,21 @@ internals.Request.prototype._finalize = function () {
 };
 
 
-/**
- * Determines if old response should be closed
- * @param {Object} oldResponse - Previous response
- * @param {Object} newResponse - New response
- * @returns {boolean} True if old response should be closed
- */
-internals.shouldCloseOldResponse = function (oldResponse, newResponse) {
-
-    return oldResponse &&
-        !oldResponse.isBoom &&
-        oldResponse !== newResponse &&
-        (newResponse.isBoom || oldResponse.source !== newResponse.source);
-};
-
-
-/**
- * Handles response closure when finalized
- * @param {Object} response - Response to close
- */
-internals.closeResponseIfNeeded = function (response) {
-
-    if (response._close) {
-        response._close();
-    }
-};
-
-
 internals.Request.prototype._setResponse = function (response) {
 
-    if (internals.shouldCloseOldResponse(this.response, response)) {
+    if (this.response &&
+        !this.response.isBoom &&
+        this.response !== response &&
+        (response.isBoom || this.response.source !== response.source)) {
+
         this.response._close();
     }
 
     if (this._isFinalized) {
-        internals.closeResponseIfNeeded(response);
+        if (response._close) {
+            response._close();
+        }
+
         return;
     }
 

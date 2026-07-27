@@ -33,72 +33,40 @@ export const getOfferDuration = (duration: string): string => {
     return (duration === 'once' ? 'First payment' : duration === 'repeating' ? 'Repeating' : 'Forever');
 };
 
-/** @internal Formats number to two decimal places */
-const formatToTwoDecimals = (num: number): number => parseFloat(num.toFixed(2));
-
-/** @internal Gets the original price based on cadence */
-const getOriginalPrice = (cadence: string, tier: Tier | undefined): number => {
-    return cadence === 'month' ? tier?.monthly_price ?? 0 : tier?.yearly_price ?? 0;
-};
-
-/** @internal Calculates discount for percent type */
-const calculatePercentDiscount = (originalPrice: number, amount: number): {discountColor: string, discountOffer: string, updatedPrice: number} => {
-    return {
-        discountColor: 'text-green',
-        discountOffer: amount + '% off',
-        updatedPrice: originalPrice - ((originalPrice * amount) / 100)
-    };
-};
-
-/** @internal Calculates discount for fixed type */
-const calculateFixedDiscount = (originalPrice: number, amount: number, currency: string): {discountColor: string, discountOffer: string, updatedPrice: number} => {
-    return {
-        discountColor: 'text-blue',
-        discountOffer: numberWithCommas(formatToTwoDecimals(currencyToDecimal(amount))) + ' ' + currency + ' off',
-        updatedPrice: originalPrice - amount
-    };
-};
-
-/** @internal Calculates discount for trial type */
-const calculateTrialDiscount = (amount: number): {discountColor: string, discountOffer: string, updatedPrice: number} => {
-    return {
-        discountColor: 'text-pink',
-        discountOffer: amount + ' days free',
-        updatedPrice: 0
-    };
-};
-
-/** @internal Ensures price is not negative */
-const ensureNonNegativePrice = (price: number): number => {
-    return price < 0 ? 0 : price;
-};
-
 export const getOfferDiscount = (type: string, amount: number, cadence: string, currency: string, tier: Tier | undefined): {discountColor: string, discountOffer: string, originalPriceWithCurrency: string, updatedPriceWithCurrency: string} => {
-    const originalPrice = getOriginalPrice(cadence, tier);
     let discountColor = '';
     let discountOffer = '';
+    const originalPrice = cadence === 'month' ? tier?.monthly_price ?? 0 : tier?.yearly_price ?? 0;
     let updatedPrice = originalPrice;
+
+    const formatToTwoDecimals = (num: number): number => parseFloat(num.toFixed(2));
+
     let originalPriceWithCurrency = getSymbol(currency) + numberWithCommas(formatToTwoDecimals(currencyToDecimal(originalPrice)));
 
-    if (type === 'percent') {
-        const result = calculatePercentDiscount(originalPrice, amount);
-        discountColor = result.discountColor;
-        discountOffer = result.discountOffer;
-        updatedPrice = result.updatedPrice;
-    } else if (type === 'fixed') {
-        const result = calculateFixedDiscount(originalPrice, amount, currency);
-        discountColor = result.discountColor;
-        discountOffer = result.discountOffer;
-        updatedPrice = result.updatedPrice;
-    } else if (type === 'trial') {
-        const result = calculateTrialDiscount(amount);
-        discountColor = result.discountColor;
-        discountOffer = result.discountOffer;
-        updatedPrice = result.updatedPrice;
+    switch (type) {
+    case 'percent':
+        discountColor = 'text-green';
+        discountOffer = amount + '% off';
+        updatedPrice = originalPrice - ((originalPrice * amount) / 100);
+        break;
+    case 'fixed':
+        discountColor = 'text-blue';
+        discountOffer = numberWithCommas(formatToTwoDecimals(currencyToDecimal(amount))) + ' ' + currency + ' off';
+        updatedPrice = originalPrice - amount;
+        break;
+    case 'trial':
+        discountColor = 'text-pink';
+        discountOffer = amount + ' days free';
         originalPriceWithCurrency = '';
+        break;
+    default:
+        break;
+    };
+
+    if (updatedPrice < 0) {
+        updatedPrice = 0;
     }
 
-    updatedPrice = ensureNonNegativePrice(updatedPrice);
     const updatedPriceWithCurrency = getSymbol(currency) + numberWithCommas(formatToTwoDecimals(currencyToDecimal(updatedPrice)));
 
     return {
@@ -202,102 +170,121 @@ const OffersFilterPopover: React.FC<{
     );
 };
 
-/** @internal Checks if offer tier is active */
-const isOfferTierActive = (offer: any, allTiers: Tier[] | undefined): boolean => {
-    const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
+/** Determines if an offer is active based on status and tier state. */
+const isOfferActive = (offer: any, offerTier: Tier | undefined): boolean => {
     return offer.status === 'active' && offerTier && offerTier.active === true;
 };
 
-/** @internal Checks if offer is archived */
-const isOfferArchived = (offer: any, allTiers: Tier[] | undefined): boolean => {
-    const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
+/** Determines if an offer is archived based on status or tier state. */
+const isOfferArchived = (offer: any, offerTier: Tier | undefined): boolean => {
     return offer.status === 'archived' || (offerTier && offerTier.active === false);
 };
 
-/** @internal Filters offers based on status */
-const filterOffersByStatus = (offers: any[], allTiers: Tier[] | undefined, statusFilter: 'active' | 'archived'): any[] => {
-    return offers.filter((offer) => {
-        if (statusFilter === 'active') {
-            return isOfferTierActive(offer, allTiers);
-        }
-        return isOfferArchived(offer, allTiers);
-    });
+/** Filters offers based on status filter and tier state. */
+const matchesStatusFilter = (offer: any, offerTier: Tier | undefined, statusFilter: 'active' | 'archived'): boolean => {
+    if (statusFilter === 'active') {
+        return isOfferActive(offer, offerTier);
+    }
+    return isOfferArchived(offer, offerTier);
 };
 
-/** @internal Sorts offers by selected option */
-const sortOffersByOption = (offers: any[], sortOption: string, sortDirection: string): any[] => {
-    const multiplier = sortDirection === 'desc' ? -1 : 1;
+/** Finds the tier associated with an offer. */
+const findOfferTier = (offer: any, allTiers: Tier[] | undefined): Tier | undefined => {
+    return allTiers?.find(tier => tier.id === offer?.tier?.id);
+};
+
+/** Determines the sort multiplier based on direction. */
+const getSortMultiplier = (sortDirection: string): number => {
+    return sortDirection === 'desc' ? -1 : 1;
+};
+
+/** Compares offers by name. */
+const compareOffersByName = (offer1: any, offer2: any, multiplier: number): number => {
+    return multiplier * offer1.name.localeCompare(offer2.name);
+};
+
+/** Compares offers by redemption count. */
+const compareOffersByRedemptions = (offer1: any, offer2: any, multiplier: number): number => {
+    return multiplier * (offer1.redemption_count - offer2.redemption_count);
+};
+
+/** Compares offers by creation date. */
+const compareOffersByDate = (offer1: any, offer2: any, multiplier: number): number => {
+    const date1 = offer1.created_at ? new Date(offer1.created_at).getTime() : 0;
+    const date2 = offer2.created_at ? new Date(offer2.created_at).getTime() : 0;
+    return multiplier * (date1 - date2);
+};
+
+/** Sorts offers based on the selected option and direction. */
+const sortOffers = (offers: any[], sortOption: string, sortDirection: string): any[] => {
+    const multiplier = getSortMultiplier(sortDirection);
 
     return offers.sort((offer1, offer2) => {
-        if (sortOption === 'name') {
-            return multiplier * offer1.name.localeCompare(offer2.name);
+        switch (sortOption) {
+        case 'name':
+            return compareOffersByName(offer1, offer2, multiplier);
+        case 'redemptions':
+            return compareOffersByRedemptions(offer1, offer2, multiplier);
+        default:
+            return compareOffersByDate(offer1, offer2, multiplier);
         }
-        if (sortOption === 'redemptions') {
-            return multiplier * (offer1.redemption_count - offer2.redemption_count);
-        }
-        const date1 = offer1.created_at ? new Date(offer1.created_at).getTime() : 0;
-        const date2 = offer2.created_at ? new Date(offer2.created_at).getTime() : 0;
-        return multiplier * (date1 - date2);
     });
 };
 
-/** @internal Renders offer table row */
+/** Renders the offer table row with all offer details. */
 const OfferTableRow: React.FC<{
     offer: any;
     offerTier: Tier;
     isTierArchived: boolean;
+    discountOffer: string;
+    originalPriceWithCurrency: string;
+    updatedPriceWithCurrency: string;
     onEdit: (id: string) => void;
-}> = ({offer, offerTier, isTierArchived, onEdit}) => {
-    const {discountOffer, originalPriceWithCurrency, updatedPriceWithCurrency} = getOfferDiscount(offer.type, offer.amount, offer.cadence, offer.currency || 'USD', offerTier);
-
-    const handleRowClick = () => {
+}> = ({offer, offerTier, isTierArchived, discountOffer, originalPriceWithCurrency, updatedPriceWithCurrency, onEdit}) => {
+    const handleClick = () => {
         if (!isTierArchived) {
             onEdit(offer?.id ? offer.id : '');
         }
     };
 
-    const handleRedemptionClick = () => {
-        if (offer.redemption_count === 0 && !isTierArchived) {
-            onEdit(offer?.id ? offer.id : '');
-        }
-    };
-
-    const opacityClass = isTierArchived ? 'opacity-50' : '';
-    const cursorClass = isTierArchived ? 'cursor-default select-none' : 'cursor-pointer';
+    const cellClassName = `${isTierArchived ? 'opacity-50' : ''} p-0`;
+    const linkClassName = `block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5`;
 
     return (
-        <tr className={`group relative scale-100 border-b border-b-grey-200 dark:border-grey-800`} data-testid="offer-item">
-            <td className={`${opacityClass} p-0`}>
-                <a className={`block ${cursorClass} p-5 pl-0`} onClick={handleRowClick}>
+        <tr className='group relative scale-100 border-b border-b-grey-200 dark:border-grey-800' data-testid="offer-item">
+            <td className={cellClassName}>
+                <a className={linkClassName + ' pl-0'} onClick={handleClick}>
                     <span className='font-semibold'>{offer?.name}</span>
                     <br />
                     <span className='text-sm text-grey-700'>{offerTier.name} {getOfferCadence(offer.cadence)}</span>
                 </a>
             </td>
-            <td className={`${opacityClass} whitespace-nowrap p-0 text-sm`}>
-                <a className={`block ${cursorClass} p-5`} onClick={handleRowClick}>
+            <td className={`${cellClassName} whitespace-nowrap text-sm`}>
+                <a className={linkClassName} onClick={handleClick}>
                     <span className='text-[1.3rem] font-medium uppercase'>{discountOffer}</span>
                     <br />
                     <span className='text-grey-700'>{offer.type !== 'trial' ? getOfferDuration(offer.duration) : 'Trial period'}</span>
                 </a>
             </td>
-            <td className={`${opacityClass} whitespace-nowrap p-0 text-sm`}>
-                <a className={`block ${cursorClass} p-5`} onClick={handleRowClick}>
+            <td className={`${cellClassName} whitespace-nowrap text-sm`}>
+                <a className={linkClassName} onClick={handleClick}>
                     <span className='font-medium'>{updatedPriceWithCurrency}</span>
-                    {offer.type !== 'trial' ? <span className='relative text-xs text-grey-700 before:absolute before:-inset-x-0.5 before:top-1/2 before:rotate-[-20deg] before:border-t before:content-[""]'>{originalPriceWithCurrency}</span> : null}
+                    {offer.type !== 'trial' && (
+                        <span className='relative text-xs text-grey-700 before:absolute before:-inset-x-0.5 before:top-1/2 before:rotate-[-20deg] before:border-t before:content-[""]'>{originalPriceWithCurrency}</span>
+                    )}
                 </a>
             </td>
-            <td className={`${opacityClass} w-[120px] whitespace-nowrap p-0 text-sm`}>
+            <td className={`${cellClassName} w-[120px] whitespace-nowrap text-sm`}>
                 <a
-                    className={`block ${cursorClass} p-5 ${offer.redemption_count === 0 ? '' : 'hover:underline'}`}
+                    className={`block ${isTierArchived ? 'cursor-default select-none' : 'cursor-pointer'} p-5 ${offer.redemption_count === 0 ? '' : 'hover:underline'}`}
                     href={offer.redemption_count > 0 ? createRedemptionFilterUrl(offer.id ? offer.id : '') : undefined}
-                    onClick={handleRedemptionClick}
+                    onClick={offer.redemption_count === 0 ? handleClick : () => {}}
                 >
                     {offer.redemption_count}
                 </a>
             </td>
-            <td className={`${opacityClass} w-[120px] whitespace-nowrap p-5 pr-8 text-right text-sm leading-none`}>
-                {!isTierArchived ? <CopyLinkButton offerCode={offer.code} /> : null}
+            <td className={`${cellClassName} w-[120px] whitespace-nowrap pr-8 text-right text-sm leading-none`}>
+                {!isTierArchived && <CopyLinkButton offerCode={offer.code} />}
             </td>
             {isTierArchived && (
                 <div className='absolute right-0 top-[11px] whitespace-nowrap rounded-sm bg-black px-2 py-0.5 text-xs leading-normal text-white opacity-0 transition-all group-hover:opacity-100 dark:bg-grey-950'>
@@ -308,8 +295,8 @@ const OfferTableRow: React.FC<{
     );
 };
 
-/** @internal Renders the offers table */
-const OffersTable: React.FC<{
+/** Renders the offers table layout. */
+const OffersTableLayout: React.FC<{
     filteredOffers: any[];
     allTiers: Tier[] | undefined;
     onEdit: (id: string) => void;
@@ -325,20 +312,30 @@ const OffersTable: React.FC<{
                     <col className='w-[80px]' />
                 </colgroup>
                 {filteredOffers.map((offer) => {
-                    const offerTier = allTiers?.find(tier => tier.id === offer?.tier?.id);
+                    const offerTier = findOfferTier(offer, allTiers);
 
                     if (!offerTier) {
                         return null;
                     }
 
                     const isTierArchived = offerTier?.active === false;
+                    const {discountOffer, originalPriceWithCurrency, updatedPriceWithCurrency} = getOfferDiscount(
+                        offer.type,
+                        offer.amount,
+                        offer.cadence,
+                        offer.currency || 'USD',
+                        offerTier
+                    );
 
                     return (
                         <OfferTableRow
                             key={offer.id}
+                            discountOffer={discountOffer}
+                            isTierArchived={isTierArchived}
                             offer={offer}
                             offerTier={offerTier}
-                            isTierArchived={isTierArchived}
+                            originalPriceWithCurrency={originalPriceWithCurrency}
+                            updatedPriceWithCurrency={updatedPriceWithCurrency}
                             onEdit={onEdit}
                         />
                     );
@@ -348,46 +345,38 @@ const OffersTable: React.FC<{
     );
 };
 
-/** @internal Renders top right content for TabView */
+/** Renders the top right content for the TabView based on selected tab and filters. */
 const TabViewTopRightContent: React.FC<{
     selectedTab: string;
     filteredOffers: any[];
     statusFilter: 'active' | 'archived';
+    setStatusFilter: (status: 'active' | 'archived') => void;
     sortOption: string;
     sortDirection: string;
-    onStatusFilterChange: (status: 'active' | 'archived') => void;
     onSortChange: (option: string) => void;
     onDirectionChange: () => void;
-}> = ({selectedTab, filteredOffers, statusFilter, sortOption, sortDirection, onStatusFilterChange, onSortChange, onDirectionChange}) => {
-    const isSignupTabWithOffers = selectedTab === 'signup' && filteredOffers.length > 0;
-    const isSignupTabEmpty = selectedTab === 'signup' && filteredOffers.length === 0;
-    const isRetentionTab = selectedTab === 'retention';
+}> = ({selectedTab, filteredOffers, statusFilter, setStatusFilter, sortOption, sortDirection, onSortChange, onDirectionChange}) => {
+    const hasOffers = filteredOffers.length > 0;
 
-    if (isSignupTabWithOffers) {
-        return (
-            <div className='flex items-center'>
-                <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Terms</span>
-                <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Price</span>
-                <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Redemptions</span>
-                <span className='flex w-[80px] items-center justify-end'>
-                    <OffersFilterPopover
-                        setStatusFilter={onStatusFilterChange}
-                        sortDirection={sortDirection}
-                        sortOption={sortOption}
-                        statusFilter={statusFilter}
-                        onDirectionChange={onDirectionChange}
-                        onSortChange={onSortChange}
-                    />
-                </span>
-            </div>
-        );
+    if (selectedTab !== 'signup') {
+        if (selectedTab === 'retention') {
+            return (
+                <div className='flex items-center pt-[3px]'>
+                    <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Terms</span>
+                    <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Redemptions</span>
+                    <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Status</span>
+                    <span className='w-[80px]'></span>
+                </div>
+            );
+        }
+        return null;
     }
 
-    if (isSignupTabEmpty) {
+    if (!hasOffers) {
         return (
             <div className='flex items-center'>
                 <OffersFilterPopover
-                    setStatusFilter={onStatusFilterChange}
+                    setStatusFilter={setStatusFilter}
                     sortDirection={sortDirection}
                     sortOption={sortOption}
                     statusFilter={statusFilter}
@@ -398,46 +387,23 @@ const TabViewTopRightContent: React.FC<{
         );
     }
 
-    if (isRetentionTab) {
-        return (
-            <div className='flex items-center pt-[3px]'>
-                <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Terms</span>
-                <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Redemptions</span>
-                <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Status</span>
-                <span className='w-[80px]'></span>
-            </div>
-        );
-    }
-
-    return null;
-};
-
-/** @internal Renders empty state for active offers */
-const ActiveOffersEmptyState: React.FC<{onCreateOffer: () => void}> = ({onCreateOffer}) => (
-    <EmptyState
-        buttonAction={onCreateOffer}
-        buttonLabel='Create an offer'
-        description='Grow your audience with discounts or free trials.'
-    />
-);
-
-/** @internal Renders empty state for archived offers */
-const ArchivedOffersEmptyState: React.FC<{onBackToActive: () => void}> = ({onBackToActive}) => (
-    <EmptyState
-        buttonAction={onBackToActive}
-        buttonLabel='Back to active'
-        description='All archived offers will be shown here.'
-    />
-);
-
-/** @internal Checks if should show active offers empty state */
-const shouldShowActiveOffersEmpty = (selectedTab: string, statusFilter: string, activeOffersCount: number, isFetching: boolean): boolean => {
-    return selectedTab === 'signup' && statusFilter === 'active' && activeOffersCount === 0 && !isFetching;
-};
-
-/** @internal Checks if should show archived offers empty state */
-const shouldShowArchivedOffersEmpty = (selectedTab: string, statusFilter: string, archivedOffersCount: number, isFetching: boolean): boolean => {
-    return selectedTab === 'signup' && statusFilter === 'archived' && archivedOffersCount === 0 && !isFetching;
+    return (
+        <div className='flex items-center'>
+            <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Terms</span>
+            <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Price</span>
+            <span className='w-[220px] px-5 text-xs uppercase text-grey-700'>Redemptions</span>
+            <span className='flex w-[80px] items-center justify-end'>
+                <OffersFilterPopover
+                    setStatusFilter={setStatusFilter}
+                    sortDirection={sortDirection}
+                    sortOption={sortOption}
+                    statusFilter={statusFilter}
+                    onDirectionChange={onDirectionChange}
+                    onSortChange={onSortChange}
+                />
+            </span>
+        </div>
+    );
 };
 
 export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) => {
@@ -446,13 +412,6 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
     const {data: {offers: allOffers = []} = {}, isFetching: isFetchingOffers} = useBrowseOffers();
     const {data: {tiers: allTiers} = {}} = useBrowseTiers();
     const signupOffers = allOffers.filter(offer => offer.redemption_type === 'signup');
-    const activeOffers = filterOffersByStatus(signupOffers, allTiers, 'active');
-    const archivedOffers = filterOffersByStatus(signupOffers, allTiers, 'archived');
-
-    let offersTabs: Tab[] = [
-        {id: 'signup', title: 'Signup'},
-        {id: 'retention', title: 'Retention'}
-    ];
 
     const {sortingState, setSortingState} = useSortingState();
     const offersSorting = sortingState?.find(sorting => sorting.type === 'offers');
@@ -468,9 +427,29 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
         updateRoute(`offers/edit/${id}`);
     };
 
-    const sortedOffers = sortOffersByOption(signupOffers, sortOption, sortDirection);
-    const filteredOffers = filterOffersByStatus(sortedOffers, allTiers, statusFilter);
+    const sortedOffers = sortOffers(signupOffers, sortOption, sortDirection);
+
     const paidActiveTiers = getPaidActiveTiers(allTiers || []);
+
+    const filteredOffers = sortedOffers.filter((offer) => {
+        const offerTier = findOfferTier(offer, allTiers);
+        return matchesStatusFilter(offer, offerTier, statusFilter);
+    });
+
+    const activeOffers = signupOffers.filter((offer) => {
+        const offerTier = findOfferTier(offer, allTiers);
+        return isOfferActive(offer, offerTier);
+    });
+
+    const archivedOffers = signupOffers.filter((offer) => {
+        const offerTier = findOfferTier(offer, allTiers);
+        return isOfferArchived(offer, offerTier);
+    });
+
+    const offersTabs: Tab[] = [
+        {id: 'signup', title: 'Signup'},
+        {id: 'retention', title: 'Retention'}
+    ];
 
     const handleSortChange = (selectedOption: string) => {
         setSortingState?.([{
@@ -489,17 +468,6 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
         }]);
     };
 
-    const handleCreateNewOffer = () => {
-        if (paidActiveTiers.length === 0) {
-            showToast({
-                type: 'info',
-                title: 'You must have an active tier to create an offer.'
-            });
-            return;
-        }
-        updateRoute('offers/new');
-    };
-
     const buttons: ButtonProps[] = [
         {
             key: 'cancel-modal',
@@ -514,9 +482,23 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
             icon: 'add',
             label: 'New offer',
             color: 'green' as const,
-            onClick: handleCreateNewOffer
+            onClick: () => {
+                if (paidActiveTiers.length === 0) {
+                    showToast({
+                        type: 'info',
+                        title: 'You must have an active tier to create an offer.'
+                    });
+                } else {
+                    updateRoute('offers/new');
+                }
+            }
         }] : [])
     ];
+
+    const shouldShowActiveEmptyState = selectedTab === 'signup' && statusFilter === 'active' && activeOffers.length === 0 && !isFetchingOffers;
+    const shouldShowArchivedEmptyState = selectedTab === 'signup' && statusFilter === 'archived' && archivedOffers.length === 0 && !isFetchingOffers;
+    const shouldShowRetention = selectedTab === 'retention';
+    const shouldShowSignupTable = selectedTab === 'signup';
 
     return <Modal
         afterClose={() => {
@@ -540,14 +522,14 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
                     tabs={offersTabs}
                     topRightContent={
                         <TabViewTopRightContent
-                            selectedTab={selectedTab}
                             filteredOffers={filteredOffers}
-                            statusFilter={statusFilter}
-                            sortOption={sortOption}
+                            selectedTab={selectedTab}
+                            setStatusFilter={setStatusFilter}
                             sortDirection={sortDirection}
-                            onStatusFilterChange={setStatusFilter}
-                            onSortChange={handleSortChange}
+                            sortOption={sortOption}
+                            statusFilter={statusFilter}
                             onDirectionChange={handleDirectionChange}
+                            onSortChange={handleSortChange}
                         />
                     }
                     onTabChange={(tab) => {
@@ -556,14 +538,22 @@ export const OffersIndexModal: React.FC<{defaultTab?: string}> = ({defaultTab}) 
                     }}
                 />
             </header>
-            {shouldShowActiveOffersEmpty(selectedTab, statusFilter, activeOffers.length, isFetchingOffers) && (
-                <ActiveOffersEmptyState onCreateOffer={() => updateRoute('offers/new')} />
+            {shouldShowActiveEmptyState && (
+                <EmptyState
+                    buttonAction={() => updateRoute('offers/new')}
+                    buttonLabel='Create an offer'
+                    description='Grow your audience with discounts or free trials.'
+                />
             )}
-            {shouldShowArchivedOffersEmpty(selectedTab, statusFilter, archivedOffers.length, isFetchingOffers) && (
-                <ArchivedOffersEmptyState onBackToActive={() => setStatusFilter('active')} />
+            {shouldShowArchivedEmptyState && (
+                <EmptyState
+                    buttonAction={() => setStatusFilter('active')}
+                    buttonLabel='Back to active'
+                    description='All archived offers will be shown here.'
+                />
             )}
-            {selectedTab === 'retention' && <OffersRetention />}
-            {selectedTab === 'signup' && <OffersTable filteredOffers={filteredOffers} allTiers={allTiers} onEdit={handleOfferEdit} />}
+            {shouldShowRetention && <OffersRetention />}
+            {shouldShowSignupTable && <OffersTableLayout allTiers={allTiers} filteredOffers={filteredOffers} onEdit={handleOfferEdit} />}
         </div>
     </Modal>;
 };

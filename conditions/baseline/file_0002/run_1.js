@@ -46,6 +46,20 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const getModalIsOpen = useCallback(() => props.open !== undefined ? props.open : isOpen, [props.open, isOpen]);
 
+    const resetModalState = useCallback(() => {
+        setContent('');
+        setImagePreview(null);
+        setUploadedImageUrl(null);
+        setAltText('');
+        setShowAltInput(false);
+        if (imagePreview) {
+            URL.revokeObjectURL(imagePreview);
+        }
+        if (imageInputRef.current) {
+            imageInputRef.current.value = '';
+        }
+    }, [imagePreview]);
+
     // Sync external open prop with internal state
     useEffect(() => {
         if (props.open !== undefined) {
@@ -67,31 +81,6 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const isDisabled = !content.trim() || !user || isPosting || content.length > MAX_CONTENT_LENGTH;
 
-    const resetModalState = useCallback(() => {
-        setContent('');
-        setImagePreview(null);
-        setUploadedImageUrl(null);
-        setAltText('');
-        setShowAltInput(false);
-        if (imageInputRef.current) {
-            imageInputRef.current.value = '';
-        }
-    }, []);
-
-    const handlePostSuccess = useCallback(() => {
-        setIsOpen(false);
-        if (onOpenChange) {
-            onOpenChange(false);
-        }
-        toast.success(replyTo ? 'Reply posted' : 'Note posted');
-    }, [replyTo, onOpenChange]);
-
-    const handlePostError = useCallback(() => {
-        if (replyTo) {
-            onReplyError?.();
-        }
-    }, [replyTo, onReplyError]);
-
     const handlePost = useCallback(async () => {
         const trimmedContent = content.trim();
 
@@ -102,30 +91,32 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         try {
             setIsPosting(true);
 
-            const postData = {
-                content: trimmedContent,
-                imageUrl: uploadedImageUrl || undefined,
-                altText: altText || undefined
-            };
-
             if (replyTo) {
                 await replyMutation.mutateAsync({
                     inReplyTo: replyTo.object.id,
-                    ...postData
+                    content: trimmedContent,
+                    imageUrl: uploadedImageUrl || undefined,
+                    altText: altText || undefined
                 });
                 onReply?.();
             } else {
-                await noteMutation.mutateAsync(postData);
+                await noteMutation.mutateAsync({content: trimmedContent, imageUrl: uploadedImageUrl || undefined, altText: altText || undefined});
                 navigate('/notes');
             }
 
-            handlePostSuccess();
+            setIsOpen(false);
+            if (onOpenChange) {
+                onOpenChange(false);
+            }
+            toast.success(replyTo ? 'Reply posted' : 'Note posted');
         } catch {
-            handlePostError();
+            if (replyTo) {
+                onReplyError?.();
+            }
         } finally {
             setIsPosting(false);
         }
-    }, [content, user, replyTo, replyMutation, noteMutation, uploadedImageUrl, altText, onReply, navigate, handlePostSuccess, handlePostError]);
+    }, [content, user, replyTo, replyMutation, noteMutation, uploadedImageUrl, altText, onReply, onReplyError, navigate, onOpenChange]);
 
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setContent(e.target.value);
@@ -226,13 +217,11 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const getImageErrorMessage = (error: unknown): string => {
         if (error && typeof error === 'object' && 'statusCode' in error) {
-            switch ((error as {statusCode: number}).statusCode) {
+            switch (error.statusCode) {
                 case 413:
                     return 'Image size exceeds limit.';
                 case 415:
                     return 'The file type is not supported.';
-                default:
-                    return 'Failed to upload image. Try again.';
             }
         }
         return 'Failed to upload image. Try again.';
@@ -282,7 +271,6 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     };
 
     useEffect(() => {
-        // Cleanup function to revoke object URLs when component unmounts
         return () => {
             if (imagePreview) {
                 URL.revokeObjectURL(imagePreview);
@@ -301,20 +289,18 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         return 'What\'s new?';
     };
 
-    const handleDialogOpenChange = (open: boolean) => {
-        if (open) {
-            resetModalState();
-        }
-
-        setIsOpen(open);
-
-        if (onOpenChange) {
-            onOpenChange(open);
-        }
-    };
-
     return (
-        <Dialog open={props.open !== undefined ? props.open : isOpen} onOpenChange={handleDialogOpenChange} {...(props.open !== undefined ? {} : props)}>
+        <Dialog open={getModalIsOpen()} onOpenChange={(open) => {
+            if (open) {
+                resetModalState();
+            }
+
+            setIsOpen(open);
+
+            if (onOpenChange) {
+                onOpenChange(open);
+            }
+        }} {...(props.open !== undefined ? {} : props)}>
             <DialogTrigger asChild>
                 {children}
             </DialogTrigger>

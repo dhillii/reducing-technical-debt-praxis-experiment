@@ -74,7 +74,7 @@ internals.Request = function (connection, req, res, options) {
     this.query = null;
     this.path = null;
     this.method = null;
-    this.mime = null;
+    this.mime = null;                       // Set if payload is parsed
     this.headers = req.headers;
 
     // Request info
@@ -90,40 +90,40 @@ internals.Request = function (connection, req, res, options) {
 
     this.info.hostname = this.info.host.split(':')[0];
 
-    this.setUrl = this._setUrl;
+    this.setUrl = this._setUrl;             // Decoration removed after 'onRequest'
     this.setMethod = this._setMethod;
 
-    this._setUrl(req.url, this.connection.settings.router.stripTrailingSlash);
-    this._setMethod(req.method);
+    this._setUrl(req.url, this.connection.settings.router.stripTrailingSlash);      // Sets: this.url, this.path, this.query
+    this._setMethod(req.method);                                                    // Sets: this.method
 
     this.id = now + ':' + connection.info.id + ':' + connection._requestCounter.value++;
     if (connection._requestCounter.value > connection._requestCounter.max) {
         connection._requestCounter.value = connection._requestCounter.min;
     }
 
-    this.app = (options.app ? Hoek.shallow(options.app) : {});
-    this.plugins = (options.plugins ? Hoek.shallow(options.plugins) : {});
+    this.app = (options.app ? Hoek.shallow(options.app) : {});              // Place for application-specific state without conflicts with hapi, should not be used by plugins
+    this.plugins = (options.plugins ? Hoek.shallow(options.plugins) : {});  // Place for plugins to store state without conflicts with hapi, should be namespaced using plugin name
 
-    this._route = this.connection._router.specials.notFound.route;
+    this._route = this.connection._router.specials.notFound.route;    // Used prior to routing (only settings are used, not the handler)
     this.route = this._route.public;
 
     this.auth = {
         isAuthenticated: false,
-        credentials: options.credentials || null,
-        artifacts: options.artifacts || null,
+        credentials: options.credentials || null,       // Special keys: 'app', 'user', 'scope'
+        artifacts: options.artifacts || null,           // Scheme-specific artifacts
         strategy: null,
         mode: null,
         error: null
     };
 
-    this.pre = {};
-    this.preResponses = {};
+    this.pre = {};                          // Pre raw values
+    this.preResponses = {};                 // Pre response values
 
     // Assigned elsewhere:
 
     this.orig = {};
     this.params = {};
-    this.paramsArray = [];
+    this.paramsArray = [];              // Array of path parameters in path order
     this.payload = null;
     this.state = null;
     this.jsonp = null;
@@ -133,27 +133,27 @@ internals.Request = function (connection, req, res, options) {
 
     this.raw = { req, res };
 
-    this.tail = this.addTail = this._addTail;
+    this.tail = this.addTail = this._addTail;       // Removed once wagging
 
     // Private members
 
     this._states = {};
-    this._entity = {};
+    this._entity = {};                  // Entity information set via reply.entity()
     this._logger = [];
     this._allowInternals = !!options.allowInternals;
     this._expectContinue = !!options.expectContinue;
-    this._isPayloadPending = !!(req.headers['content-length'] || req.headers['transfer-encoding']);
-    this._isBailed = false;
-    this._isReplied = false;
-    this._isFinalized = false;
-    this._tails = {};
-    this._tailIds = 0;
+    this._isPayloadPending = !!(req.headers['content-length'] || req.headers['transfer-encoding']);      // false when incoming payload fully processed
+    this._isBailed = false;             // true when lifecycle should end
+    this._isReplied = false;            // true when response processing started
+    this._isFinalized = false;          // true when request completed (may be waiting on tails to complete)
+    this._tails = {};                   // tail id -> name (tracks pending tails)
+    this._tailIds = 0;                  // Used to generate a unique tail id
     this._protect = new Protect(this);
     this.domain = this._protect.domain;
 
     // Encoding
 
-    this.info.acceptEncoding = this.connection._compression.accept(this);
+    this.info.acceptEncoding = this.connection._compression.accept(this);       // Delay until request object fully initialized
 
     // Listen to request state
 
@@ -167,7 +167,7 @@ internals.Request = function (connection, req, res, options) {
         agent: this.raw.req.headers['user-agent']
     };
 
-    this._log(['received'], about, now);
+    this._log(['received'], about, now);     // Must be last for object to be fully constructed
 };
 
 Hoek.inherits(internals.Request, Podium);
@@ -218,7 +218,7 @@ internals.Request.prototype._setUrl = function (url, stripTrailingSlash) {
 
     // Apply path modifications
 
-    let path = this.connection._router.normalize(url.pathname || '');
+    let path = this.connection._router.normalize(url.pathname || '');        // pathname excludes query
 
     if (stripTrailingSlash &&
         path.length > 1 &&
@@ -271,7 +271,7 @@ internals.Request.prototype.log = function (tags, data, timestamp, _internal) {
             update = update();
         }
 
-        this._logger.push(update[1]);
+        this._logger.push(update[1]);       // Add to request array
     }
 
     this.connection.emit({ name: internal ? 'request-internal' : 'request', tags }, update);
@@ -284,48 +284,70 @@ internals.Request.prototype._log = function (tags, data) {
 };
 
 
-internals.Request.prototype.getLog = function (tags, internal) {
-
-    Hoek.assert(this.route.settings.log, 'Request logging is disabled');
+internals.Request.prototype._normalizeGetLogTags = function (tags, internal) {
 
     if (typeof tags === 'boolean') {
-        internal = tags;
-        tags = [];
+        return { tags: [], internal: tags };
     }
 
-    tags = [].concat(tags || []);
-    if (!tags.length &&
-        internal === undefined) {
+    return { tags: [].concat(tags || []), internal };
+};
 
-        return this._logger;
+
+internals.Request.prototype._matchEventTags = function (event, filter) {
+
+    for (let j = 0; j < event.tags.length; ++j) {
+        if (filter[event.tags[j]]) {
+            return true;
+        }
     }
 
-    const filter = tags.length ? Hoek.mapToObject(tags) : null;
+    return false;
+};
+
+
+internals.Request.prototype._filterLogEvents = function (filter, internal) {
+
     const result = [];
 
     for (let i = 0; i < this._logger.length; ++i) {
         const event = this._logger[i];
-        if (internal === undefined || event.internal === internal) {
-            if (filter) {
-                for (let j = 0; j < event.tags.length; ++j) {
-                    const tag = event.tags[j];
-                    if (filter[tag]) {
-                        result.push(event);
-                        break;
-                    }
-                }
-            }
-            else {
-                result.push(event);
-            }
+
+        if (internal !== undefined && event.internal !== internal) {
+            continue;
         }
+
+        if (filter && !this._matchEventTags(event, filter)) {
+            continue;
+        }
+
+        result.push(event);
     }
 
     return result;
 };
 
 
+internals.Request.prototype.getLog = function (tags, internal) {
+
+    Hoek.assert(this.route.settings.log, 'Request logging is disabled');
+
+    const normalized = this._normalizeGetLogTags(tags, internal);
+    tags = normalized.tags;
+    internal = normalized.internal;
+
+    if (!tags.length && internal === undefined) {
+        return this._logger;
+    }
+
+    const filter = tags.length ? Hoek.mapToObject(tags) : null;
+    return this._filterLogEvents(filter, internal);
+};
+
+
 internals.Request.prototype._execute = function () {
+
+    // Execute onRequest extensions (can change request method and url)
 
     if (!this.connection._extensions.onRequest.nodes) {
         return this._match();
@@ -340,6 +362,8 @@ internals.Request.prototype._execute = function () {
 
 internals.Request.prototype._match = function (err) {
 
+    // Undecorate request
+
     this.setUrl = undefined;
     this.setMethod = undefined;
 
@@ -347,22 +371,13 @@ internals.Request.prototype._match = function (err) {
         return this._reply(err);
     }
 
-    if (!this._isValidPath()) {
+    if (!this.path ||
+        this.path[0] !== '/') {
+
         return this._reply(Boom.badRequest('Invalid path'));
     }
 
-    this._matchRoute();
-    return this._lifecycle();
-};
-
-
-internals.Request.prototype._isValidPath = function () {
-
-    return this.path && this.path[0] === '/';
-};
-
-
-internals.Request.prototype._matchRoute = function () {
+    // Lookup route
 
     const match = this.connection._router.route(this.method, this.path, this.info.hostname);
     if (!match.route.settings.isInternal ||
@@ -380,6 +395,8 @@ internals.Request.prototype._matchRoute = function () {
             isOriginMatch: Cors.matchOrigin(this.headers.origin, this.route.settings.cors)
         };
     }
+
+    return this._lifecycle();
 };
 
 
@@ -392,11 +409,11 @@ internals.Request.prototype._lifecycle = function () {
         if (this._isReplied ||
             this._isBailed) {
 
-            return next(Boom.internal('Already closed'));
+            return next(Boom.internal('Already closed'));                       // Error is not used
         }
 
-        if (typeof func !== 'function') {
-            return this._invoke(func, next);
+        if (typeof func !== 'function') {                                       // Extension point
+            return this._invoke(func, next);                                    // next() called with response object which ends processing (treated like error)
         }
 
         return func(this, next);
@@ -411,26 +428,24 @@ internals.Request.prototype._setTimeouts = function () {
     if (this.raw.req.socket &&
         this.route.settings.timeout.socket !== undefined) {
 
-        this.raw.req.socket.setTimeout(this.route.settings.timeout.socket || 0);
+        this.raw.req.socket.setTimeout(this.route.settings.timeout.socket || 0);    // Value can be false or positive
     }
 
-    const serverTimeout = this.route.settings.timeout.server;
-    if (!serverTimeout) {
-        return;
+    let serverTimeout = this.route.settings.timeout.server;
+    if (serverTimeout) {
+        serverTimeout = Math.floor(serverTimeout - this._bench.elapsed());          // Calculate the timeout from when the request was constructed
+        const timeoutReply = () => {
+
+            this._log(['request', 'server', 'timeout', 'error'], { timeout: serverTimeout, elapsed: this._bench.elapsed() });
+            this._reply(Boom.serverUnavailable());
+        };
+
+        if (serverTimeout <= 0) {
+            return timeoutReply();
+        }
+
+        this._serverTimeoutId = setTimeout(timeoutReply, serverTimeout);
     }
-
-    const adjustedTimeout = Math.floor(serverTimeout - this._bench.elapsed());
-    const timeoutReply = () => {
-
-        this._log(['request', 'server', 'timeout', 'error'], { timeout: adjustedTimeout, elapsed: this._bench.elapsed() });
-        this._reply(Boom.serverUnavailable());
-    };
-
-    if (adjustedTimeout <= 0) {
-        return timeoutReply();
-    }
-
-    this._serverTimeoutId = setTimeout(timeoutReply, adjustedTimeout);
 };
 
 
@@ -446,7 +461,7 @@ internals.Request.prototype._invoke = function (event, callback) {
                     this._setResponse(override);
                 }
 
-                return next(result);
+                return next(result);            // next() called with response object which ends processing (treated like error)
             };
 
             const options = { postHandler: (event.type === 'onPostHandler' || event.type === 'onPreResponse') };
@@ -463,7 +478,7 @@ internals.Request.prototype._invoke = function (event, callback) {
 
 internals.Request.prototype._reply = function (exit) {
 
-    if (this._isReplied) {
+    if (this._isReplied) {                                  // Prevent any future responses to this request
         return;
     }
 
@@ -475,11 +490,17 @@ internals.Request.prototype._reply = function (exit) {
         return this._finalize();
     }
 
-    if (this._isResponseClosed()) {
+    if (this.response &&                                    // Can be null if response coming from exit
+        this.response.closed) {
+
+        if (this.response.end) {
+            this.raw.res.end();                             // End the response in case it wasn't already closed
+        }
+
         return this._finalize();
     }
 
-    if (exit) {
+    if (exit) {                                             // Can be a valid response or error (if returned from an ext, already handled because this.response is also set)
         this._setResponse(Response.wrap(exit, this));
     }
 
@@ -487,7 +508,7 @@ internals.Request.prototype._reply = function (exit) {
 
     const transmit = (err) => {
 
-        if (err) {
+        if (err) {                                          // Can be valid response or error
             this._setResponse(Response.wrap(err, this));
         }
 
@@ -502,25 +523,18 @@ internals.Request.prototype._reply = function (exit) {
 };
 
 
-internals.Request.prototype._isResponseClosed = function () {
-
-    if (!this.response || !this.response.closed) {
-        return false;
-    }
-
-    if (this.response.end) {
-        this.raw.res.end();
-    }
-
-    return true;
-};
-
-
 internals.Request.prototype._finalize = function () {
 
     this.info.responded = Date.now();
 
-    this._handleResponseError();
+    if (this.response &&
+        this.response.statusCode === 500 &&
+        this.response._error) {
+
+        this.connection.emit('request-error', [this, this.response._error]);
+        this._log(this.response._error.isDeveloperError ? ['internal', 'implementation', 'error'] : ['internal', 'error'], this.response._error);
+    }
+
     this.connection.emit('response', this);
 
     this._isFinalized = true;
@@ -531,33 +545,16 @@ internals.Request.prototype._finalize = function () {
         this.connection.emit('tail', this);
     }
 
-    this._cleanup();
-};
-
-
-internals.Request.prototype._handleResponseError = function () {
-
-    if (!this.response ||
-        this.response.statusCode !== 500 ||
-        !this.response._error) {
-
-        return;
-    }
-
-    this.connection.emit('request-error', [this, this.response._error]);
-    const tags = this.response._error.isDeveloperError ? ['internal', 'implementation', 'error'] : ['internal', 'error'];
-    this._log(tags, this.response._error);
-};
-
-
-internals.Request.prototype._cleanup = function () {
+    // Cleanup
 
     this.raw.req.removeListener('end', this._onEnd);
     this.raw.req.removeListener('close', this._onClose);
     this.raw.req.removeListener('error', this._onError);
     this.raw.req.removeListener('error', this._onAbort);
 
-    if (this.response && this.response._close) {
+    if (this.response &&
+        this.response._close) {
+
         this.response._close();
     }
 
@@ -567,7 +564,11 @@ internals.Request.prototype._cleanup = function () {
 
 internals.Request.prototype._setResponse = function (response) {
 
-    if (this._shouldCloseOldResponse(response)) {
+    if (this.response &&
+        !this.response.isBoom &&
+        this.response !== response &&
+        (response.isBoom || this.response.source !== response.source)) {
+
         this.response._close();
     }
 
@@ -583,15 +584,6 @@ internals.Request.prototype._setResponse = function (response) {
 };
 
 
-internals.Request.prototype._shouldCloseOldResponse = function (response) {
-
-    return this.response &&
-        !this.response.isBoom &&
-        this.response !== response &&
-        (response.isBoom || this.response.source !== response.source);
-};
-
-
 internals.Request.prototype._addTail = function (name) {
 
     name = name || 'unknown';
@@ -602,7 +594,7 @@ internals.Request.prototype._addTail = function (name) {
     const drop = () => {
 
         if (!this._tails[tailId]) {
-            this._log(['tail', 'remove', 'error'], { name, id: tailId });
+            this._log(['tail', 'remove', 'error'], { name, id: tailId });             // Already removed
             return;
         }
 
@@ -623,7 +615,7 @@ internals.Request.prototype._addTail = function (name) {
 };
 
 
-internals.Request.prototype._setState = function (name, value, options) {
+internals.Request.prototype._setState = function (name, value, options) {          // options: see Defaults.state
 
     const state = { name, value };
     if (options) {

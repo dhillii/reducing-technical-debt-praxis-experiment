@@ -171,12 +171,11 @@ Connection.prototype.get = function(key) {
 Connection.prototype.set = function(key, val) {
   if (this.config.hasOwnProperty(key)) {
     this.config[key] = val;
-    return this;
+  } else {
+    this.options = this.options || {};
+    this.options[key] = val;
   }
-
-  this.options = this.options || {};
-  this.options[key] = val;
-  return this;
+  return val;
 };
 
 /**
@@ -617,7 +616,6 @@ Connection.prototype.error = function(err, callback) {
   }
   if (this.listeners('error').length > 0) {
     this.emit('error', err);
-    return Promise.reject(err);
   }
   return Promise.reject(err);
 };
@@ -1418,7 +1416,7 @@ Connection.prototype.authMechanismDoesNotRequirePassword = function() {
   if (this.options && this.options.auth) {
     return noPasswordAuthMechanisms.indexOf(this.options.auth.authMechanism) >= 0;
   }
-  return false;
+  return true;
 };
 
 /**

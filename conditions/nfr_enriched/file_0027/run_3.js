@@ -128,18 +128,38 @@ export default class GhPostSettingsMenu extends Component {
         const urlParts = [];
 
         if (this.post.canonicalUrl) {
-            const canonicalUrlParts = this.extractUrlParts(this.post.canonicalUrl);
+            const canonicalUrlParts = this.extractCanonicalUrlParts(this.post.canonicalUrl);
             if (canonicalUrlParts) {
                 urlParts.push(...canonicalUrlParts);
             }
         } else {
-            const blogUrl = new URL(this.config.blogUrl);
-            urlParts.push(blogUrl.host);
-            urlParts.push(...blogUrl.pathname.split('/').reject(p => !p));
+            const blogUrlParts = this.extractBlogUrlParts();
+            urlParts.push(...blogUrlParts);
             urlParts.push(this.post.slug);
         }
 
         return urlParts.join(' › ');
+    }
+
+    // Extract URL parts from canonical URL, returning null if URL is invalid
+    extractCanonicalUrlParts(canonicalUrl) {
+        try {
+            const url = new URL(canonicalUrl);
+            const parts = [url.host];
+            parts.push(...url.pathname.split('/').reject(p => !p));
+            return parts;
+        } catch (e) {
+            // Invalid URL - return null to indicate extraction failed
+            return null;
+        }
+    }
+
+    // Extract URL parts from blog URL
+    extractBlogUrlParts() {
+        const blogUrl = new URL(this.config.blogUrl);
+        const parts = [blogUrl.host];
+        parts.push(...blogUrl.pathname.split('/').reject(p => !p));
+        return parts;
     }
 
     get canViewPostHistory() {
@@ -212,7 +232,10 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithErrorHandling();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -225,7 +248,10 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithErrorHandling();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -270,9 +296,19 @@ export default class GhPostSettingsMenu extends Component {
     @action
     async setVisibility(segment) {
         this.post.set('tiers', segment);
-        await this.validateVisibilityAndTiers();
-        if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
-            await this.savePostTask.perform();
+        try {
+            await this.post.validate({property: 'visibility'});
+            await this.post.validate({property: 'tiers'});
+            if (this.post.get('isDraft') && this.post.changedAttributes().tiers) {
+                await this.savePostTask.perform();
+            }
+        } catch (e) {
+            if (!e) {
+                // validation error
+                return;
+            }
+
+            throw e;
         }
     }
 
@@ -508,7 +544,10 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithErrorHandling();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -519,7 +558,10 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithErrorHandling();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -530,7 +572,10 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithErrorHandling();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -541,7 +586,10 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithErrorHandling();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -552,7 +600,10 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithErrorHandling();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -563,7 +614,10 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithErrorHandling();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -583,12 +637,18 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this.performSaveWithErrorHandling();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            post.rollbackAttributes();
+        });
     }
 
     @action
     savePost() {
-        this.performSaveWithErrorHandling();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -602,40 +662,6 @@ export default class GhPostSettingsMenu extends Component {
     setSidebarWidthFromElement(element) {
         const width = element.getBoundingClientRect().width;
         this.setSidebarWidthVariable(width);
-    }
-
-    // Helper method to extract URL parts from a canonical URL string
-    extractUrlParts(canonicalUrlString) {
-        try {
-            const canonicalUrl = new URL(canonicalUrlString);
-            const parts = [canonicalUrl.host];
-            parts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
-            return parts;
-        } catch (e) {
-            // Invalid URL - return null to signal caller to handle gracefully
-            return null;
-        }
-    }
-
-    // Helper method to validate visibility and tiers properties
-    async validateVisibilityAndTiers() {
-        try {
-            await this.post.validate({property: 'visibility'});
-            await this.post.validate({property: 'tiers'});
-        } catch (e) {
-            // Validation error occurred - rethrow only if it's not a validation error
-            if (e) {
-                throw e;
-            }
-        }
-    }
-
-    // Helper method to perform save with error handling
-    performSaveWithErrorHandling() {
-        this.savePostTask.perform().catch((error) => {
-            this.showError(error);
-            this.post.rollbackAttributes();
-        });
     }
 
     showError(error) {

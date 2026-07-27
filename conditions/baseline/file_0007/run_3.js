@@ -17,9 +17,9 @@ import {getImageUrl, useUploadImage} from '@tryghost/admin-x-framework/api/image
 import {useGlobalData} from '../../providers/global-data-provider';
 import {validateBlueskyUrl, validateFacebookUrl, validateInstagramUrl, validateLinkedInUrl, validateMastodonUrl, validateThreadsUrl, validateTikTokUrl, validateTwitterUrl, validateYouTubeUrl} from '../../../utils/social-urls/index';
 
-const createSocialValidator = (validateFn: (url: string) => void) => (user: Partial<User>, key: string) => {
+const validateSocialUrl = (validator: (url: string) => void, url: string): string => {
     try {
-        validateFn(user[key as keyof User] as string || '');
+        validator(url || '');
         return '';
     } catch (e) {
         return e instanceof Error ? e.message : '';
@@ -28,8 +28,12 @@ const createSocialValidator = (validateFn: (url: string) => void) => (user: Part
 
 const validators: Record<string, (u: Partial<User>) => string> = {
     name: ({name}) => {
-        if (!name) return 'Name is required';
-        if (name.length > 191) return 'Name is too long';
+        if (!name) {
+            return 'Name is required';
+        }
+        if (name.length > 191) {
+            return 'Name is too long';
+        }
         return '';
     },
     email: ({email}) => {
@@ -52,15 +56,15 @@ const validators: Record<string, (u: Partial<User>) => string> = {
         const valid = !website || (validator.isURL(website) && website.length <= 2000);
         return valid ? '' : 'Enter a valid URL';
     },
-    facebook: (user) => createSocialValidator(validateFacebookUrl)(user, 'facebook'),
-    twitter: (user) => createSocialValidator(validateTwitterUrl)(user, 'twitter'),
-    threads: (user) => createSocialValidator(validateThreadsUrl)(user, 'threads'),
-    bluesky: (user) => createSocialValidator(validateBlueskyUrl)(user, 'bluesky'),
-    linkedin: (user) => createSocialValidator(validateLinkedInUrl)(user, 'linkedin'),
-    instagram: (user) => createSocialValidator(validateInstagramUrl)(user, 'instagram'),
-    youtube: (user) => createSocialValidator(validateYouTubeUrl)(user, 'youtube'),
-    tiktok: (user) => createSocialValidator(validateTikTokUrl)(user, 'tiktok'),
-    mastodon: (user) => createSocialValidator(validateMastodonUrl)(user, 'mastodon')
+    facebook: ({facebook}) => validateSocialUrl(validateFacebookUrl, facebook || ''),
+    twitter: ({twitter}) => validateSocialUrl(validateTwitterUrl, twitter || ''),
+    threads: ({threads}) => validateSocialUrl(validateThreadsUrl, threads || ''),
+    bluesky: ({bluesky}) => validateSocialUrl(validateBlueskyUrl, bluesky || ''),
+    linkedin: ({linkedin}) => validateSocialUrl(validateLinkedInUrl, linkedin || ''),
+    instagram: ({instagram}) => validateSocialUrl(validateInstagramUrl, instagram || ''),
+    youtube: ({youtube}) => validateSocialUrl(validateYouTubeUrl, youtube || ''),
+    tiktok: ({tiktok}) => validateSocialUrl(validateTikTokUrl, tiktok || ''),
+    mastodon: ({mastodon}) => validateSocialUrl(validateMastodonUrl, mastodon || '')
 };
 
 export interface UserDetailProps {
@@ -71,19 +75,67 @@ export interface UserDetailProps {
     clearError: (key: keyof User) => void;
 }
 
+const getTabFromPath = (path: string): string => {
+    const lastSegment = path.split('/').pop() || '';
+    return (lastSegment === 'social-links' || lastSegment === 'email-notifications') ? lastSegment : 'profile';
+};
+
+const buildMenuItems = (
+    currentUser: User,
+    formState: User,
+    user: User,
+    ownerUser: User,
+    confirmMakeOwner: () => void,
+    confirmDelete: (user: User, owner: {owner: User}) => void,
+    confirmSuspend: (user: User) => void,
+    mainModal: any,
+    updateRoute: (route: string) => void
+): MenuItem[] => {
+    const menuItems: MenuItem[] = [];
+
+    if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
+        menuItems.push({
+            id: 'make-owner',
+            label: 'Make owner',
+            onClick: confirmMakeOwner
+        });
+    }
+
+    const canManageUser = formState.id !== currentUser.id && (
+        (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
+        (isEditorUser(currentUser) && isAuthorOrContributor(user))
+    );
+
+    if (canManageUser) {
+        const suspendUserLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
+        menuItems.push({
+            id: 'delete-user',
+            label: 'Delete user',
+            onClick: () => confirmDelete(user, {owner: ownerUser})
+        }, {
+            id: 'suspend-user',
+            label: suspendUserLabel,
+            onClick: () => confirmSuspend(formState)
+        });
+    }
+
+    menuItems.push({
+        id: 'view-user-activity',
+        label: 'View user activity',
+        onClick: () => {
+            mainModal.remove();
+            updateRoute(`history/view/${formState.id}`);
+        }
+    });
+
+    return menuItems;
+};
+
 const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {updateRoute, route} = useRouting();
     const {ownerUser} = useStaffUsers();
     const {currentUser} = useGlobalData();
     const handleError = useHandleError();
-    const mainModal = useModal();
-    const {mutateAsync: uploadImage} = useUploadImage();
-    const {mutateAsync: updateUser} = useEditUser();
-    const {mutateAsync: deleteUser} = useDeleteUser();
-    const {mutateAsync: makeOwner} = useMakeOwner();
-    const limiter = useLimiter();
-    const editor = usePinturaEditor();
-
     const {formState, setFormState, saveState, handleSave, updateForm, errors, setErrors, clearError, okProps} = useForm({
         initialState: user,
         savingDelay: 500,
@@ -102,7 +154,6 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         },
         onSaveError: handleError
     });
-
     const setUserData = (newData: User) => updateForm(() => newData);
     const validateField = <K extends keyof User>(key: K, value: User[K]) => {
         const error = validators[key]?.({[key]: value});
@@ -115,10 +166,13 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     };
 
-    const getTabFromPath = (path: string): string => {
-        const lastSegment = path.split('/').pop() || '';
-        return (lastSegment === 'social-links' || lastSegment === 'email-notifications') ? lastSegment : 'profile';
-    };
+    const mainModal = useModal();
+    const {mutateAsync: uploadImage} = useUploadImage();
+    const {mutateAsync: updateUser} = useEditUser();
+    const {mutateAsync: deleteUser} = useDeleteUser();
+    const {mutateAsync: makeOwner} = useMakeOwner();
+    const limiter = useLimiter();
+    const editor = usePinturaEditor();
 
     const navigateOnClose = useCallback(() => {
         if (canAccessSettings(currentUser)) {
@@ -128,30 +182,25 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     }, [currentUser, updateRoute]);
 
-    const handleLimitError = async (error: unknown) => {
-        if (error instanceof HostLimitError) {
-            NiceModal.show(LimitModal, {
-                formSheet: true,
-                prompt: error.message || `Your current plan doesn't support more users.`,
-                onOk: () => updateRoute({route: '/pro', isExternal: true})
-            });
-            return true;
-        }
-        return false;
-    };
-
     const confirmSuspend = async (_user: User) => {
         if (_user.status === 'inactive' && _user.roles[0].name !== 'Contributor') {
             try {
                 await limiter?.errorIfWouldGoOverLimit('staff');
             } catch (error) {
-                if (await handleLimitError(error)) return;
-                throw error;
+                if (error instanceof HostLimitError) {
+                    NiceModal.show(LimitModal, {
+                        formSheet: true,
+                        prompt: error.message || `Your current plan doesn't support more users.`,
+                        onOk: () => updateRoute({route: '/pro', isExternal: true})
+                    });
+                    return;
+                } else {
+                    throw error;
+                }
             }
         }
 
-        const isInactive = _user.status === 'inactive';
-        const warningText = isInactive
+        const warningText = _user.status === 'inactive'
             ? 'This user will be able to log in again and will have the same permissions they had previously.'
             : 'This user will no longer be able to log in but their posts will be kept.';
 
@@ -162,20 +211,20 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                     <strong>WARNING:</strong> {warningText}
                 </>
             ),
-            okLabel: isInactive ? 'Un-suspend' : 'Suspend',
-            okRunningLabel: isInactive ? 'Un-suspending...' : 'Suspending...',
+            okLabel: _user.status === 'inactive' ? 'Un-suspend' : 'Suspend',
+            okRunningLabel: _user.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
             okColor: 'red',
             onOk: async (modal) => {
                 const updatedUserData = {
                     ..._user,
-                    status: isInactive ? 'active' : 'inactive'
+                    status: _user.status === 'inactive' ? 'active' : 'inactive'
                 };
                 try {
                     await updateUser(updatedUserData);
                     setFormState(() => updatedUserData);
                     modal?.remove();
                     showToast({
-                        title: isInactive ? 'User un-suspended' : 'User suspended',
+                        title: _user.status === 'inactive' ? 'User un-suspended' : 'User suspended',
                         type: 'success'
                     });
                 } catch (e) {
@@ -237,11 +286,10 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const handleImageUpload = async (image: string, file: File) => {
         try {
             const imageUrl = getImageUrl(await uploadImage({file}));
-            const updates = {
-                cover_image: image === 'cover_image' ? imageUrl : undefined,
-                profile_image: image === 'profile_image' ? imageUrl : undefined
-            };
-            updateForm((_user) => ({..._user, ...Object.fromEntries(Object.entries(updates).filter(([, v]) => v !== undefined))}));
+            const updateData = image === 'cover_image'
+                ? {cover_image: imageUrl}
+                : {profile_image: imageUrl};
+            updateForm((_user) => ({..._user, ...updateData}));
         } catch (e) {
             const error = e as APIError;
             if (error.response!.status === 415) {
@@ -252,55 +300,25 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     };
 
     const handleImageDelete = (image: string) => {
-        const updates = {
-            cover_image: image === 'cover_image' ? '' : undefined,
-            profile_image: image === 'profile_image' ? '' : undefined
-        };
-        updateForm((_user) => ({..._user, ...Object.fromEntries(Object.entries(updates).filter(([, v]) => v !== undefined))}));
-    };
-
-    const buildMenuItems = (): MenuItem[] => {
-        const items: MenuItem[] = [];
-
-        if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
-            items.push({
-                id: 'make-owner',
-                label: 'Make owner',
-                onClick: confirmMakeOwner
-            });
-        }
-
-        const canModifyUser = formState.id !== currentUser.id && (
-            (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
-            (isEditorUser(currentUser) && isAuthorOrContributor(user))
-        );
-
-        if (canModifyUser) {
-            items.push({
-                id: 'delete-user',
-                label: 'Delete user',
-                onClick: () => confirmDelete(user, {owner: ownerUser})
-            }, {
-                id: 'suspend-user',
-                label: formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user',
-                onClick: () => confirmSuspend(formState)
-            });
-        }
-
-        items.push({
-            id: 'view-user-activity',
-            label: 'View user activity',
-            onClick: () => {
-                mainModal.remove();
-                updateRoute(`history/view/${formState.id}`);
-            }
-        });
-
-        return items;
+        const updateData = image === 'cover_image'
+            ? {cover_image: ''}
+            : {profile_image: ''};
+        updateForm((_user) => ({..._user, ...updateData}));
     };
 
     const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
-    const menuItems = buildMenuItems();
+    const menuItems = buildMenuItems(
+        currentUser,
+        formState,
+        user,
+        ownerUser,
+        confirmMakeOwner,
+        confirmDelete,
+        confirmSuspend,
+        mainModal,
+        updateRoute
+    );
+
     const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
     const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
     const suspendedText = formState.status === 'inactive' ? ' (Suspended)' : '';
@@ -313,29 +331,27 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         setSelectedTab(newTabId);
     };
 
-    const canAccess = canAccessSettings(currentUser);
-
     return (
         <Modal
             afterClose={navigateOnClose}
-            animate={canAccess}
-            backDrop={canAccess}
+            animate={canAccessSettings(currentUser)}
+            backDrop={canAccessSettings(currentUser)}
             buttonsDisabled={okProps.disabled}
             cancelLabel='Close'
             dirty={saveState === 'unsaved'}
             okColor={okProps.color}
             okLabel={okProps.label || 'Save'}
-            size={canAccess ? 'md' : 'bleed'}
+            size={canAccessSettings(currentUser) ? 'md' : 'bleed'}
             stickyFooter={true}
             testId='user-detail-modal'
-            width={canAccess ? 600 : 'full'}
+            width={canAccessSettings(currentUser) ? 600 : 'full'}
             onOk={async () => {
-                await handleSave({fakeWhenUnchanged: true});
+                await (handleSave({fakeWhenUnchanged: true}));
             }}
         >
             <div>
-                <div className={`relative ${canAccess ? '-mx-8 -mt-8 rounded-t' : '-mx-10 -mt-10'}`}>
-                    <div className={`flex flex-wrap items-end justify-between gap-8 p-8 ${formState.cover_image ? 'bg-cover bg-center' : ''} ${!canAccess && 'min-h-[30vmin]'}`}
+                <div className={`relative ${canAccessSettings(currentUser) ? '-mx-8 -mt-8 rounded-t' : '-mx-10 -mt-10'}`}>
+                    <div className={`flex flex-wrap items-end justify-between gap-8 p-8 ${formState.cover_image ? 'bg-cover bg-center' : ''} ${!canAccessSettings(currentUser) && 'min-h-[30vmin]'}`}
                         style={{
                             backgroundImage: formState.cover_image ? `url(${formState.cover_image})` : 'none'
                         }}>
@@ -437,7 +453,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                         </div>
                     </div>
                 </div>
-                <div className={`${!canAccess && 'mx-auto max-w-[536px]'} mt-6 flex flex-col`}>
+                <div className={`${!canAccessSettings(currentUser) && 'mx-auto max-w-[536px]'} mt-6 flex flex-col`}>
                     <TabView
                         selectedTab={selectedTab}
                         tabs={[

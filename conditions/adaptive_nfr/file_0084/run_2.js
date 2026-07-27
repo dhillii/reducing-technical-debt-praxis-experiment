@@ -14,6 +14,7 @@ import type {
 } from '../../../../types'
 import { entriesTyped } from '../../../../lib/core/utils'
 
+// TODO: extract
 const TYPE_OPERATOR_MAP = {
   equals: '=',
   not: '≠',
@@ -32,37 +33,42 @@ type Validation = {
   max: number
 }
 
-/** Check if value should skip validation due to auto-increment default on create */
-function shouldSkipAutoIncrementValidation(
-  value: Value,
-  hasAutoIncrementDefault: boolean
+/** Validates that a value is not null when required. */
+function isRequiredViolation(input: number | null, isRequired: boolean): boolean {
+  return isRequired && input === null
+}
+
+/** Validates that a value is an integer. */
+function isNotIntegerViolation(input: number | null): boolean {
+  return typeof input === 'number' && !Number.isInteger(input)
+}
+
+/** Validates that a value meets minimum constraint. */
+function isMinViolation(input: number, validation: Validation): boolean {
+  return validation.min !== undefined && input < validation.min
+}
+
+/** Validates that a value meets maximum constraint. */
+function isMaxViolation(input: number, validation: Validation): boolean {
+  return validation.max !== undefined && input > validation.max
+}
+
+/** Checks if value should be skipped for autoincrement create. */
+function shouldSkipAutoIncrementCreate(
+  kind: string,
+  hasAutoIncrementDefault: boolean,
+  input: number | null
 ): boolean {
-  return value.kind === 'create' && hasAutoIncrementDefault && value.value === null
+  return kind === 'create' && hasAutoIncrementDefault && input === null
 }
 
-/** Check if value should skip validation due to unchanged null on update */
-function shouldSkipUnchangedNullValidation(value: Value): boolean {
-  return value.kind === 'update' && value.initial === null && value.value === null
-}
-
-/** Check if required field is missing value */
-function isRequiredFieldMissing(value: number | null, isRequired: boolean): boolean {
-  return isRequired && value === null
-}
-
-/** Check if value is not a valid integer */
-function isInvalidInteger(value: number): boolean {
-  return !Number.isInteger(value)
-}
-
-/** Check if value violates minimum constraint */
-function violatesMinConstraint(value: number, min: number | undefined): boolean {
-  return min !== undefined && value < min
-}
-
-/** Check if value violates maximum constraint */
-function violatesMaxConstraint(value: number, max: number | undefined): boolean {
-  return max !== undefined && value > max
+/** Checks if value should be skipped for update with null initial. */
+function shouldSkipUpdateWithNullInitial(
+  kind: string,
+  initial: number | null | undefined,
+  input: number | null
+): boolean {
+  return kind === 'update' && initial === null && input === null
 }
 
 function validate_(
@@ -72,37 +78,36 @@ function validate_(
   label: string,
   hasAutoIncrementDefault: boolean
 ): string | undefined {
-  const { value: input } = value
+  const { value: input, kind } = value
+  const initial = kind === 'update' ? value.initial : undefined
 
-  if (shouldSkipAutoIncrementValidation(value, hasAutoIncrementDefault)) {
-    return undefined
+  if (shouldSkipAutoIncrementCreate(kind, hasAutoIncrementDefault, input)) {
+    return
   }
 
-  if (shouldSkipUnchangedNullValidation(value)) {
-    return undefined
+  if (shouldSkipUpdateWithNullInitial(kind, initial, input)) {
+    return
   }
 
-  if (isRequiredFieldMissing(input, isRequired)) {
+  if (isRequiredViolation(input, isRequired)) {
     return `${label} is required`
   }
 
   if (typeof input !== 'number') {
-    return undefined
+    return
   }
 
-  if (isInvalidInteger(input)) {
+  if (isNotIntegerViolation(input)) {
     return `${label} is not a valid integer`
   }
 
-  if (violatesMinConstraint(input, validation.min)) {
+  if (isMinViolation(input, validation)) {
     return `${label} must be greater than or equal to ${validation.min}`
   }
 
-  if (violatesMaxConstraint(input, validation.max)) {
+  if (isMaxViolation(input, validation)) {
     return `${label} must be less than or equal to ${validation.max}`
   }
-
-  return undefined
 }
 
 export function controller(
@@ -124,8 +129,6 @@ export function controller(
     )
   }
 
-  const hasAutoIncrementDefault = config.fieldMeta.defaultValue === 'autoincrement'
-
   return {
     fieldKey: config.fieldKey,
     label: config.label,
@@ -134,7 +137,8 @@ export function controller(
     validation: config.fieldMeta.validation,
     defaultValue: {
       kind: 'create',
-      value: hasAutoIncrementDefault ? null : config.fieldMeta.defaultValue,
+      value:
+        config.fieldMeta.defaultValue === 'autoincrement' ? null : config.fieldMeta.defaultValue,
     },
     deserialize: data => ({
       kind: 'update',
@@ -142,19 +146,10 @@ export function controller(
       initial: data[config.fieldKey],
     }),
     serialize: value => ({ [config.fieldKey]: value.value }),
-    hasAutoIncrementDefault,
+    hasAutoIncrementDefault: config.fieldMeta.defaultValue === 'autoincrement',
     validate: (value, opts) => validate(value, opts) === undefined,
     filter: {
-      Filter(props: Readonly<{
-        autoFocus?: boolean
-        context?: string
-        forceValidation?: boolean
-        typeLabel?: string
-        onChange?: (value: number | null) => void
-        type: string
-        value: number | null
-        [key: string]: unknown
-      }>) {
+      Filter(props) {
         const {
           autoFocus,
           context,
@@ -166,24 +161,22 @@ export function controller(
           ...otherProps
         } = props
         const [isDirty, setDirty] = useState(false)
-
-        if (type === 'empty' || type === 'not_empty') {
-          return null
-        }
+        if (type === 'empty' || type === 'not_empty') return null
 
         const labelProps =
           context === 'add' ? { label: config.label, description: typeLabel } : { label: typeLabel }
-
-        const isInvalid =
-          (forceValidation || isDirty) &&
-          !validate({ kind: 'update', initial: null, value }, { isRequired: true })
 
         return (
           <NumberField
             {...otherProps}
             {...labelProps}
             autoFocus={autoFocus}
-            errorMessage={isInvalid ? 'Required' : null}
+            errorMessage={
+              (forceValidation || isDirty) &&
+              !validate({ kind: 'update', initial: null, value }, { isRequired: true })
+                ? 'Required'
+                : null
+            }
             step={1}
             width="auto"
             onBlur={() => setDirty(true)}
@@ -194,36 +187,21 @@ export function controller(
       },
 
       graphql: ({ type, value }) => {
-        if (type === 'empty') {
-          return { [config.fieldKey]: { equals: null } }
-        }
-        if (type === 'not_empty') {
-          return { [config.fieldKey]: { not: { equals: null } } }
-        }
-        if (type === 'not') {
-          return { [config.fieldKey]: { not: { equals: value } } }
-        }
+        if (type === 'empty') return { [config.fieldKey]: { equals: null } }
+        if (type === 'not_empty') return { [config.fieldKey]: { not: { equals: null } } }
+        if (type === 'not') return { [config.fieldKey]: { not: { equals: value } } }
         return { [config.fieldKey]: { [type]: value } }
       },
-
       parseGraphQL: value => {
         return entriesTyped(value).flatMap(([type, value]) => {
           if (type === 'equals' && value === null) {
             return [{ type: 'empty', value: null }]
           }
-          if (!value) {
-            return []
-          }
-          if (type === 'equals') {
-            return { type: 'equals', value }
-          }
+          if (!value) return []
+          if (type === 'equals') return { type: 'equals', value }
           if (type === 'not') {
-            if (value?.equals === null) {
-              return { type: 'not_empty', value: null }
-            }
-            if (value?.equals === undefined) {
-              return []
-            }
+            if (value?.equals === null) return { type: 'not_empty', value: null }
+            if (value?.equals === undefined) return []
             return { type: 'not', value: value.equals }
           }
           if (type === 'gt' || type === 'gte' || type === 'lt' || type === 'lte') {
@@ -232,19 +210,11 @@ export function controller(
           return []
         })
       },
-
-      Label({ label, type, value }: Readonly<{
-        label: string
-        type: string
-        value: number | null
-      }>) {
-        if (type === 'empty' || type === 'not_empty') {
-          return label.toLocaleLowerCase()
-        }
+      Label({ label, type, value }) {
+        if (type === 'empty' || type === 'not_empty') return label.toLocaleLowerCase()
         const operator = TYPE_OPERATOR_MAP[type as keyof typeof TYPE_OPERATOR_MAP]
         return `${operator} ${value}`
       },
-
       types: {
         equals: {
           label: 'Is exactly',
@@ -283,6 +253,14 @@ export function controller(
   }
 }
 
+/** Checks if field is in autoincrement create mode. */
+function isAutoIncrementCreate(
+  readonly hasAutoIncrementDefault: boolean,
+  readonly valueKind: string
+): boolean {
+  return hasAutoIncrementDefault && valueKind === 'create'
+}
+
 export function Field({
   field,
   value,
@@ -294,7 +272,7 @@ export function Field({
   const [isDirty, setDirty] = useState(false)
   const isReadOnly = !onChange || field.hasAutoIncrementDefault
 
-  if (field.hasAutoIncrementDefault && value.kind === 'create') {
+  if (isAutoIncrementCreate(field.hasAutoIncrementDefault, value.kind)) {
     return (
       <NumberField
         autoFocus={autoFocus}
@@ -315,9 +293,9 @@ export function Field({
     )
   }
 
-  const validate = (val: Value) => {
+  const validate = (value: Value) => {
     return validate_(
-      val,
+      value,
       field.validation,
       isRequired,
       field.label,
@@ -325,14 +303,12 @@ export function Field({
     )
   }
 
-  const errorMessage = (forceValidation || isDirty) && validate(value)
-
   return (
     <NumberField
       autoFocus={autoFocus}
       description={field.description}
       label={field.label}
-      errorMessage={errorMessage}
+      errorMessage={(forceValidation || isDirty) && validate(value)}
       isReadOnly={isReadOnly}
       isRequired={isRequired}
       width="alias.singleLineWidth"

@@ -28,10 +28,19 @@ module.exports = function(CLI) {
    * @returns {boolean}
    */
   function shouldSkipSysMonit() {
-    return (this.pm2_configuration && this.pm2_configuration.sysmonit != 'true') ||
-           process.env.TRAVIS ||
-           global.it === 'function' ||
-           cst.IS_WINDOWS === true;
+    if (this.pm2_configuration && this.pm2_configuration.sysmonit != 'true') {
+      return true;
+    }
+    if (process.env.TRAVIS) {
+      return true;
+    }
+    if (global.it === 'function') {
+      return true;
+    }
+    if (cst.IS_WINDOWS === true) {
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -113,8 +122,12 @@ module.exports = function(CLI) {
         printDaemonReport(report);
       }
 
+      fmt.sep();
       printCliReport();
-      printSystemInfo();
+
+      const os = require('os');
+      fmt.sep();
+      printSystemInfo(os);
 
       that.Client.executeRemote('getMonitorData', {}, function(err, list) {
         fmt.sep();
@@ -144,7 +157,6 @@ module.exports = function(CLI) {
 
   /**
    * Print daemon report information
-   * @param {Object} report
    */
   function printDaemonReport(report) {
     fmt.title(chalk.bold.blue('Daemon'));
@@ -163,7 +175,6 @@ module.exports = function(CLI) {
    * Print CLI report information
    */
   function printCliReport() {
-    fmt.sep();
     fmt.title(chalk.bold.blue('CLI'));
     fmt.field('local pm2', pkg.version);
     fmt.field('node version', process.versions.node);
@@ -182,10 +193,7 @@ module.exports = function(CLI) {
   /**
    * Print system information
    */
-  function printSystemInfo() {
-    const os = require('os');
-
-    fmt.sep();
+  function printSystemInfo(os) {
     fmt.title(chalk.bold.blue('System info'));
     fmt.field('arch', os.arch());
     fmt.field('platform', os.platform());
@@ -229,8 +237,6 @@ module.exports = function(CLI) {
 
   /**
    * Get profile command configuration
-   * @param {string} type - 'cpu' or 'mem'
-   * @returns {Object|null}
    */
   function getProfileCommand(type) {
     if (type == 'cpu') {
@@ -250,7 +256,7 @@ module.exports = function(CLI) {
 
   /**
    * Create PM2 memory snapshot
-   * @method profile
+   * @method getVersion
    * @callback cb
    */
   CLI.prototype.profile = function(type, time, cb) {
@@ -280,7 +286,6 @@ module.exports = function(CLI) {
 
   /**
    * Highlight markdown content
-   * @param {string} lines
    */
   function basicMDHighlight(lines) {
     console.log('\n\n+-------------------------------------+');
@@ -384,6 +389,13 @@ module.exports = function(CLI) {
   };
 
   /**
+   * Check if pm_id is valid
+   */
+  function isValidPmId(pm_id) {
+    return !isNaN(pm_id);
+  }
+
+  /**
    * Description
    * @method attachToProcess
    */
@@ -391,7 +403,7 @@ module.exports = function(CLI) {
     const that = this;
     const readline = require('readline');
 
-    if (isNaN(pm_id)) {
+    if (!isValidPmId(pm_id)) {
       Common.printError('pm_id must be a process number (not a process name)');
       return cb ? cb(Common.retErr('pm_id must be number')) : that.exitCli(cst.ERROR_EXIT);
     }
@@ -430,12 +442,9 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Check if proc_id is object and packet is function
-   * @param {*} proc_id
-   * @param {*} packet
-   * @returns {boolean}
+   * Check if packet is the first argument
    */
-  function isPacketAsFirstArg(proc_id, packet) {
+  function isPacketFirstArg(proc_id, packet) {
     return typeof proc_id === 'object' && typeof packet === 'function';
   }
 
@@ -446,7 +455,7 @@ module.exports = function(CLI) {
   CLI.prototype.sendDataToProcessId = function(proc_id, packet, cb) {
     const that = this;
 
-    if (isPacketAsFirstArg(proc_id, packet)) {
+    if (isPacketFirstArg(proc_id, packet)) {
       cb = packet;
       packet = proc_id;
     } else {
@@ -483,12 +492,21 @@ module.exports = function(CLI) {
 
   /**
    * Check if process matches target
-   * @param {Object} process
-   * @param {*} pm_id
-   * @returns {boolean}
    */
-  function processMatches(process, pm_id) {
-    return process.name == pm_id || process.pm_id == pm_id || process.namespace == pm_id || pm_id == 'all';
+  function processMatchesTarget(process, pm_id) {
+    if (process.name == pm_id) {
+      return true;
+    }
+    if (process.pm_id == pm_id) {
+      return true;
+    }
+    if (process.namespace == pm_id) {
+      return true;
+    }
+    if (pm_id == 'all') {
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -506,7 +524,6 @@ module.exports = function(CLI) {
       cb = params;
       params = null;
     }
-
     const cmd = {
       msg : action_name
     };
@@ -526,7 +543,7 @@ module.exports = function(CLI) {
 
     this.launchBus(function(err, bus) {
       bus.on('axm:reply', function(ret) {
-        if (!processMatches(ret.process, pm_id)) {
+        if (!processMatchesTarget(ret.process, pm_id)) {
           return;
         }
         results.push(ret);
@@ -616,28 +633,21 @@ module.exports = function(CLI) {
   };
 
   /**
-   * Check if basic auth is configured
-   * @param {Object} opts
-   * @returns {boolean}
-   */
-  function hasBasicAuth(opts) {
-    return opts.basicAuthUsername && opts.basicAuthPassword;
-  }
-
-  /**
    * Configure serve options
-   * @param {Object} opts
-   * @param {number} servePort
-   * @param {string} servePath
    */
-  function configureServeEnv(opts, servePort, servePath) {
+  function configureServeOptions(opts, commander, servePort, servePath) {
+    if (typeof commander.name === 'string') {
+      opts.name = commander.name;
+    } else {
+      opts.name = 'static-page-server-' + servePort;
+    }
     if (!opts.env) {
       opts.env = {};
     }
     opts.env.PM2_SERVE_PORT = servePort;
     opts.env.PM2_SERVE_PATH = servePath;
     opts.env.PM2_SERVE_SPA = opts.spa;
-    if (hasBasicAuth(opts)) {
+    if (opts.basicAuthUsername && opts.basicAuthPassword) {
       opts.env.PM2_SERVE_BASIC_AUTH = 'true';
       opts.env.PM2_SERVE_BASIC_AUTH_USERNAME = opts.basicAuthUsername;
       opts.env.PM2_SERVE_BASIC_AUTH_PASSWORD = opts.basicAuthPassword;
@@ -645,6 +655,7 @@ module.exports = function(CLI) {
     if (opts.monitor) {
       opts.env.PM2_SERVE_MONITOR = opts.monitor;
     }
+    opts.cwd = servePath;
   }
 
   /**
@@ -665,14 +676,7 @@ module.exports = function(CLI) {
     const servePath = path.resolve(process.env.PM2_SERVE_PATH || target_path || '.');
     const filepath = path.resolve(path.dirname(module.filename), './Serve.js');
 
-    if (typeof commander.name === 'string') {
-      opts.name = commander.name;
-    } else {
-      opts.name = 'static-page-server-' + servePort;
-    }
-
-    configureServeEnv(opts, servePort, servePath);
-    opts.cwd = servePath;
+    configureServeOptions(opts, commander, servePort, servePath);
 
     this.start(filepath, opts,  function (err, res) {
       if (err) {
@@ -733,6 +737,16 @@ module.exports = function(CLI) {
   };
 
   /**
+   * Get template path based on mode
+   */
+  function getTemplatePath(mode) {
+    if (mode == 'simple') {
+      return path.join(cst.TEMPLATE_FOLDER, cst.APP_CONF_TPL_SIMPLE);
+    }
+    return path.join(cst.TEMPLATE_FOLDER, cst.APP_CONF_TPL);
+  }
+
+  /**
    * Description
    * @method generateSample
    * @param {} name
@@ -740,14 +754,7 @@ module.exports = function(CLI) {
    */
   CLI.prototype.generateSample = function(mode) {
     const that = this;
-    let templatePath;
-
-    if (mode == 'simple') {
-      templatePath = path.join(cst.TEMPLATE_FOLDER, cst.APP_CONF_TPL_SIMPLE);
-    } else {
-      templatePath = path.join(cst.TEMPLATE_FOLDER, cst.APP_CONF_TPL);
-    }
-
+    const templatePath = getTemplatePath(mode);
     const sample = fs.readFileSync(templatePath);
     const dt     = sample.toString();
     const f_name = 'ecosystem.config.js';
@@ -762,27 +769,6 @@ module.exports = function(CLI) {
     Common.printOut('File %s generated', path.join(pwd, f_name));
     that.exitCli(cst.SUCCESS_EXIT);
   };
-
-  /**
-   * Refresh dashboard data
-   * @param {Object} that - context
-   */
-  function refreshDashboard(that) {
-    that.Client.executeRemote('getMonitorData', {}, function(err, list) {
-      if (err) {
-        console.error('Error retrieving process list: ' + err);
-        that.exitCli(cst.ERROR_EXIT);
-        return;
-      }
-
-      const Dashboard = require('./Dashboard');
-      Dashboard.refresh(list);
-
-      setTimeout(function() {
-        refreshDashboard(that);
-      }, 800);
-    });
-  }
 
   /**
    * Description
@@ -816,29 +802,24 @@ module.exports = function(CLI) {
       });
     });
 
-    refreshDashboard(that);
+    function refreshDashboard() {
+      that.Client.executeRemote('getMonitorData', {}, function(err, list) {
+        if (err) {
+          console.error('Error retrieving process list: ' + err);
+          that.exitCli(cst.ERROR_EXIT);
+          return;
+        }
+
+        Dashboard.refresh(list);
+
+        setTimeout(function() {
+          refreshDashboard();
+        }, 800);
+      });
+    }
+
+    refreshDashboard();
   };
-
-  /**
-   * Refresh monitor data
-   * @param {Object} that - context
-   */
-  function launchMonitor(that) {
-    that.Client.executeRemote('getMonitorData', {}, function(err, list) {
-      if (err) {
-        console.error('Error retrieving process list: ' + err);
-        that.exitCli(cst.ERROR_EXIT);
-        return;
-      }
-
-      const Monit = require('./Monit.js');
-      Monit.refresh(list);
-
-      setTimeout(function() {
-        launchMonitor(that);
-      }, 400);
-    });
-  }
 
   CLI.prototype.monit = function(cb) {
     const that = this;
@@ -849,49 +830,55 @@ module.exports = function(CLI) {
     }
 
     Monit.init();
-    launchMonitor(that);
+
+    function launchMonitor() {
+      that.Client.executeRemote('getMonitorData', {}, function(err, list) {
+        if (err) {
+          console.error('Error retrieving process list: ' + err);
+          that.exitCli(conf.ERROR_EXIT);
+          return;
+        }
+
+        Monit.refresh(list);
+
+        setTimeout(function() {
+          launchMonitor();
+        }, 400);
+      });
+    }
+
+    launchMonitor();
   };
 
   /**
-   * Check if inspect result is available
-   * @param {*} res
-   * @returns {boolean}
+   * Check if inspect result is valid
    */
-  function hasInspectResult(res) {
+  function isValidInspectResult(res) {
     return res && res[0];
   }
 
   /**
    * Check if inspect is disabled
-   * @param {Object} result
-   * @returns {boolean}
    */
-  function isInspectDisabled(result) {
-    return result.data.return === '';
-  }
-
-  /**
-   * Print inspect status message
-   * @param {string} app_name
-   * @param {*} res
-   */
-  function printInspectStatus(app_name, res) {
-    if (!hasInspectResult(res)) {
-      Common.printOut(`Unable to activate inspect mode on ${app_name} !!!`);
-      return;
-    }
-
-    if (isInspectDisabled(res[0])) {
-      Common.printOut(`Inspect disabled on ${app_name}`);
-    } else {
-      Common.printOut(`Inspect enabled on ${app_name} => go to chrome : chrome://inspect !!!`);
-    }
+  function isInspectDisabled(res) {
+    return res[0].data.return === '';
   }
 
   CLI.prototype.inspect = function(app_name, cb) {
     const that = this;
     this.trigger(app_name, 'internal:inspect', function (err, res) {
-      printInspectStatus(app_name, res);
+      if (!isValidInspectResult(res)) {
+        Common.printOut(`Unable to activate inspect mode on ${app_name} !!!`);
+        that.exitCli(cst.SUCCESS_EXIT);
+        return;
+      }
+
+      if (isInspectDisabled(res)) {
+        Common.printOut(`Inspect disabled on ${app_name}`);
+      } else {
+        Common.printOut(`Inspect enabled on ${app_name} => go to chrome : chrome://inspect !!!`);
+      }
+
       that.exitCli(cst.SUCCESS_EXIT);
     });
   };

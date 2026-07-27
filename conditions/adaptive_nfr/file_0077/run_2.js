@@ -1,9 +1,24 @@
+/**
+ * @fileoverview Tests for ast utils.
+ * @author Gyandeep Singh
+ */
+
+"use strict";
+
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
+
 const assert = require("chai").assert,
 	util = require("node:util"),
 	espree = require("espree"),
 	astUtils = require("../../../../lib/rules/utils/ast-utils"),
 	{ Linter } = require("../../../../lib/linter"),
 	{ SourceCode } = require("../../../../lib/languages/js/source-code");
+
+//------------------------------------------------------------------------------
+// Tests
+//------------------------------------------------------------------------------
 
 const ESPREE_CONFIG = {
 	ecmaVersion: 6,
@@ -526,15 +541,13 @@ describe("ast-utils", () => {
 
 	describe("isInLoop", () => {
 		/**
-		 * Verifies loop detection for a specific node type
+		 * Verifies code and collects results from node visitor
 		 * @param {string} code the code to check
 		 * @param {string} nodeType the type of the node to consider
-		 * @param {boolean} expectedInLoop the expected result
+		 * @param {Function} callback function to call with results
 		 * @returns {void}
 		 */
-		function verifyLoopDetection(code, nodeType, expectedInLoop) {
-			const results = [];
-
+		function verifyAndCollectResults(code, nodeType, callback) {
 			linter.verify(code, {
 				plugins: {
 					test: {
@@ -542,7 +555,7 @@ describe("ast-utils", () => {
 							checker: {
 								create: mustCall(() => ({
 									[nodeType]: mustCall(node => {
-										results.push(astUtils.isInLoop(node));
+										callback(astUtils.isInLoop(node));
 									}),
 								})),
 							},
@@ -551,9 +564,6 @@ describe("ast-utils", () => {
 				},
 				rules: { "test/checker": "error" },
 			});
-
-			assert.lengthOf(results, 1);
-			assert.strictEqual(results[0], expectedInLoop);
 		}
 
 		/**
@@ -567,7 +577,14 @@ describe("ast-utils", () => {
 		 * @returns {void}
 		 */
 		function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
-			verifyLoopDetection(code, nodeType, expectedInLoop);
+			const results = [];
+
+			verifyAndCollectResults(code, nodeType, result => {
+				results.push(result);
+			});
+
+			assert.lengthOf(results, 1);
+			assert.strictEqual(results[0], expectedInLoop);
 		}
 
 		it("should return true for a loop itself", () => {
@@ -2148,12 +2165,12 @@ describe("ast-utils", () => {
 				{
 					nodeA: {
 						type: "Literal",
-						value: /(?:)/u,
+						value: /(?:)/u, // eslint-disable-line regexp/no-empty-group -- Test data for regex comparison
 						regex: { pattern: "(?:)", flags: "u" },
 					},
 					nodeB: {
 						type: "Literal",
-						value: /(?:)/u,
+						value: /(?:)/u, // eslint-disable-line regexp/no-empty-group -- Test data for regex comparison
 						regex: { pattern: "(?:)", flags: "u" },
 					},
 					expected: true,
@@ -2179,7 +2196,7 @@ describe("ast-utils", () => {
 					},
 					nodeB: {
 						type: "Literal",
-						value: /(?:)/,
+						value: /(?:)/, // eslint-disable-line require-unicode-regexp, regexp/no-empty-group -- Checking non-Unicode regex
 						regex: { pattern: "(?:)", flags: "" },
 					},
 					expected: false,
@@ -2552,6 +2569,7 @@ describe("ast-utils", () => {
 													assertForNode(node);
 
 													if (!expectedRetVal) {
+														// The flow parser sets `directive` to null on non-directive ExpressionStatement nodes.
 														node.directive = null;
 														assertForNode(node);
 													}

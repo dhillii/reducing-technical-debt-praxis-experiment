@@ -53,23 +53,23 @@ exports.usage = function() {
 };
 
 /**
- * Build option column string with long and short flags.
- * @param {string} long - The long option name
- * @param {Object} o - The option object from grunt.cli.optlist
- * @returns {string} Formatted option column string
+ * Build option column entry with short and long flags.
+ * @param {string} long - Long option name
+ * @param {Object} o - Option object from optlist
+ * @returns {string} Formatted column 1 text
  */
-function buildOptionColumn(long, o) {
+function buildOptionCol1(long, o) {
   return '--' + (o.negate ? 'no-' : '') + long + (o.short ? ', -' + o.short : '');
 }
 
 /**
- * Map option list to table format.
- * @returns {Array} Array of [column1, info] pairs for options
+ * Map option list to table rows.
+ * @returns {Array} Array of [col1, info] pairs
  */
-function mapOptionsToTable() {
+function mapOptionsToRows() {
   return Object.keys(grunt.cli.optlist).map(function(long) {
     const o = grunt.cli.optlist[long];
-    const col1 = buildOptionColumn(long, o);
+    const col1 = buildOptionCol1(long, o);
     exports.initCol1(col1);
     return [col1, o.info];
   });
@@ -78,7 +78,7 @@ function mapOptionsToTable() {
 // Options.
 exports.initOptions = function() {
   // Build 2-column array for table view.
-  exports._options = mapOptionsToTable();
+  exports._options = mapOptionsToRows();
 };
 
 exports.options = function() {
@@ -94,14 +94,14 @@ exports.optionsFooter = function() {
 };
 
 /**
- * Initialize the task system for help display.
+ * Initialize task system for help display.
  */
 function initializeTaskSystem() {
   grunt.task.init([], {help: true});
 }
 
 /**
- * Collect all tasks from grunt task registry.
+ * Collect all tasks and update column width.
  * @returns {Array} Array of task objects
  */
 function collectTasks() {
@@ -124,9 +124,9 @@ exports.initTasks = function() {
 };
 
 /**
- * Format task information with multi-task indicator.
- * @param {Object} task - The task object
- * @returns {string} Formatted task info
+ * Format task info with multi-task indicator.
+ * @param {Object} task - Task object
+ * @returns {string} Formatted info string
  */
 function formatTaskInfo(task) {
   let info = task.info;
@@ -135,11 +135,12 @@ function formatTaskInfo(task) {
 }
 
 /**
- * Convert tasks to table format.
- * @returns {Array} Array of [name, info] pairs for tasks
+ * Convert tasks to table rows.
+ * @param {Array} tasks - Array of task objects
+ * @returns {Array} Array of [name, info] pairs
  */
-function mapTasksToTable() {
-  return exports._tasks.map(function(task) {
+function mapTasksToRows(tasks) {
+  return tasks.map(function(task) {
     return [task.name, formatTaskInfo(task)];
   });
 }
@@ -147,15 +148,16 @@ function mapTasksToTable() {
 /**
  * Display empty tasks message.
  */
-function displayNoTasks() {
+function displayNoTasksMessage() {
   grunt.log.writeln('(no tasks found)');
 }
 
 /**
- * Display available tasks table and documentation.
+ * Display available tasks table and multi-task explanation.
+ * @param {Array} tasks - Array of task objects
  */
-function displayTasksTable() {
-  exports.table(mapTasksToTable());
+function displayTasksTable(tasks) {
+  exports.table(mapTasksToRows(tasks));
 
   grunt.log.writeln().writelns(
     'Tasks run in the order specified. Arguments may be passed to tasks that ' +
@@ -168,7 +170,7 @@ function displayTasksTable() {
 /**
  * Display tasks availability notice.
  */
-function displayTasksNotice() {
+function displayTasksAvailabilityNotice() {
   grunt.log.writeln().writelns(
     'The list of available tasks may change based on tasks directories or ' +
     'grunt plugins specified in the Gruntfile or via command-line options.'
@@ -178,12 +180,12 @@ function displayTasksNotice() {
 exports.tasks = function() {
   grunt.log.header('Available tasks');
   if (exports._tasks.length === 0) {
-    displayNoTasks();
+    displayNoTasksMessage();
   } else {
-    displayTasksTable();
+    displayTasksTable(exports._tasks);
   }
 
-  displayTasksNotice();
+  displayTasksAvailabilityNotice();
 };
 
 // Footer.

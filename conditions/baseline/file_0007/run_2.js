@@ -31,7 +31,10 @@ const validators: Record<string, (u: Partial<User>) => string> = {
         if (!name) {
             return 'Name is required';
         }
-        return name.length > 191 ? 'Name is too long' : '';
+        if (name.length > 191) {
+            return 'Name is too long';
+        }
+        return '';
     },
     email: ({email}) => {
         const valid = validator.isEmail(email || '');
@@ -72,6 +75,67 @@ export interface UserDetailProps {
     clearError: (key: keyof User) => void;
 }
 
+const getTabFromPath = (path: string): string => {
+    const lastSegment = path.split('/').pop() || '';
+    return (lastSegment === 'social-links' || lastSegment === 'email-notifications') ? lastSegment : 'profile';
+};
+
+const buildMenuItems = (
+    currentUser: User,
+    formState: User,
+    user: User,
+    ownerUser: User,
+    confirmMakeOwner: () => void,
+    confirmDelete: (user: User, owner: {owner: User}) => void,
+    confirmSuspend: (user: User) => void,
+    mainModal: any,
+    updateRoute: (route: string) => void
+): MenuItem[] => {
+    const menuItems: MenuItem[] = [];
+    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
+
+    if (!showMenu) {
+        return menuItems;
+    }
+
+    if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
+        menuItems.push({
+            id: 'make-owner',
+            label: 'Make owner',
+            onClick: confirmMakeOwner
+        });
+    }
+
+    const canManageUser = formState.id !== currentUser.id && (
+        (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
+        (isEditorUser(currentUser) && isAuthorOrContributor(user))
+    );
+
+    if (canManageUser) {
+        const suspendUserLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
+        menuItems.push({
+            id: 'delete-user',
+            label: 'Delete user',
+            onClick: () => confirmDelete(user, {owner: ownerUser})
+        }, {
+            id: 'suspend-user',
+            label: suspendUserLabel,
+            onClick: () => confirmSuspend(formState)
+        });
+    }
+
+    menuItems.push({
+        id: 'view-user-activity',
+        label: 'View user activity',
+        onClick: () => {
+            mainModal.remove();
+            updateRoute(`history/view/${formState.id}`);
+        }
+    });
+
+    return menuItems;
+};
+
 const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     const {updateRoute, route} = useRouting();
     const {ownerUser} = useStaffUsers();
@@ -95,15 +159,6 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         },
         onSaveError: handleError
     });
-
-    const mainModal = useModal();
-    const {mutateAsync: uploadImage} = useUploadImage();
-    const {mutateAsync: updateUser} = useEditUser();
-    const {mutateAsync: deleteUser} = useDeleteUser();
-    const {mutateAsync: makeOwner} = useMakeOwner();
-    const limiter = useLimiter();
-    const editor = usePinturaEditor();
-
     const setUserData = (newData: User) => updateForm(() => newData);
     const validateField = <K extends keyof User>(key: K, value: User[K]) => {
         const error = validators[key]?.({[key]: value});
@@ -116,10 +171,13 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     };
 
-    const getTabFromPath = (path: string): string => {
-        const lastSegment = path.split('/').pop() || '';
-        return (lastSegment === 'social-links' || lastSegment === 'email-notifications') ? lastSegment : 'profile';
-    };
+    const mainModal = useModal();
+    const {mutateAsync: uploadImage} = useUploadImage();
+    const {mutateAsync: updateUser} = useEditUser();
+    const {mutateAsync: deleteUser} = useDeleteUser();
+    const {mutateAsync: makeOwner} = useMakeOwner();
+    const limiter = useLimiter();
+    const editor = usePinturaEditor();
 
     const navigateOnClose = useCallback(() => {
         if (canAccessSettings(currentUser)) {
@@ -129,38 +187,27 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         }
     }, [currentUser, updateRoute]);
 
-    const handleLimitError = async (error: unknown) => {
-        if (error instanceof HostLimitError) {
-            NiceModal.show(LimitModal, {
-                formSheet: true,
-                prompt: error.message || `Your current plan doesn't support more users.`,
-                onOk: () => updateRoute({route: '/pro', isExternal: true})
-            });
-            return true;
-        }
-        return false;
-    };
-
-    const getSuspendWarningText = (status: string): string => {
-        return status === 'inactive' 
-            ? 'This user will be able to log in again and will have the same permissions they had previously.'
-            : 'This user will no longer be able to log in but their posts will be kept.';
-    };
-
     const confirmSuspend = async (_user: User) => {
         if (_user.status === 'inactive' && _user.roles[0].name !== 'Contributor') {
             try {
                 await limiter?.errorIfWouldGoOverLimit('staff');
             } catch (error) {
-                if (await handleLimitError(error)) {
+                if (error instanceof HostLimitError) {
+                    NiceModal.show(LimitModal, {
+                        formSheet: true,
+                        prompt: error.message || `Your current plan doesn't support more users.`,
+                        onOk: () => updateRoute({route: '/pro', isExternal: true})
+                    });
                     return;
+                } else {
+                    throw error;
                 }
-                throw error;
             }
         }
 
-        const warningText = getSuspendWarningText(_user.status);
-        const isSuspended = _user.status === 'inactive';
+        const warningText = _user.status === 'inactive'
+            ? 'This user will be able to log in again and will have the same permissions they had previously.'
+            : 'This user will no longer be able to log in but their posts will be kept.';
 
         NiceModal.show(ConfirmationModal, {
             title: 'Are you sure you want to suspend this user?',
@@ -169,20 +216,20 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                     <strong>WARNING:</strong> {warningText}
                 </>
             ),
-            okLabel: isSuspended ? 'Un-suspend' : 'Suspend',
-            okRunningLabel: isSuspended ? 'Un-suspending...' : 'Suspending...',
+            okLabel: _user.status === 'inactive' ? 'Un-suspend' : 'Suspend',
+            okRunningLabel: _user.status === 'inactive' ? 'Un-suspending...' : 'Suspending...',
             okColor: 'red',
             onOk: async (modal) => {
                 const updatedUserData = {
                     ..._user,
-                    status: isSuspended ? 'active' : 'inactive'
+                    status: _user.status === 'inactive' ? 'active' : 'inactive'
                 };
                 try {
                     await updateUser(updatedUserData);
                     setFormState(() => updatedUserData);
                     modal?.remove();
                     showToast({
-                        title: isSuspended ? 'User un-suspended' : 'User suspended',
+                        title: _user.status === 'inactive' ? 'User un-suspended' : 'User suspended',
                         type: 'success'
                     });
                 } catch (e) {
@@ -241,21 +288,17 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         });
     };
 
-    const updateImageField = (imageType: string, imageUrl: string) => {
-        updateForm((_user) => {
-            if (imageType === 'cover_image') {
-                return {..._user, cover_image: imageUrl};
-            } else if (imageType === 'profile_image') {
-                return {..._user, profile_image: imageUrl};
-            }
-            return _user;
-        });
-    };
-
     const handleImageUpload = async (image: string, file: File) => {
         try {
             const imageUrl = getImageUrl(await uploadImage({file}));
-            updateImageField(image, imageUrl);
+            const updates: Record<string, string> = {
+                'cover_image': 'cover_image',
+                'profile_image': 'profile_image'
+            };
+
+            if (updates[image]) {
+                updateForm((_user) => ({..._user, [image]: imageUrl}));
+            }
         } catch (e) {
             const error = e as APIError;
             if (error.response!.status === 415) {
@@ -266,59 +309,18 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
     };
 
     const handleImageDelete = (image: string) => {
-        updateImageField(image, '');
-    };
+        const deletableImages: Record<string, string> = {
+            'cover_image': 'cover_image',
+            'profile_image': 'profile_image'
+        };
 
-    const buildMenuItems = (): MenuItem[] => {
-        const items: MenuItem[] = [];
-
-        if (isOwnerUser(currentUser) && isAdminUser(formState) && formState.status !== 'inactive') {
-            items.push({
-                id: 'make-owner',
-                label: 'Make owner',
-                onClick: confirmMakeOwner
-            });
+        if (deletableImages[image]) {
+            updateForm((_user) => ({..._user, [image]: ''}));
         }
-
-        if (formState.id !== currentUser.id && (
-            (hasAdminAccess(currentUser) && !isOwnerUser(user)) ||
-            (isEditorUser(currentUser) && isAuthorOrContributor(user))
-        )) {
-            const suspendUserLabel = formState.status === 'inactive' ? 'Un-suspend user' : 'Suspend user';
-
-            items.push({
-                id: 'delete-user',
-                label: 'Delete user',
-                onClick: () => {
-                    confirmDelete(user, {owner: ownerUser});
-                }
-            }, {
-                id: 'suspend-user',
-                label: suspendUserLabel,
-                onClick: () => {
-                    confirmSuspend(formState);
-                }
-            });
-        }
-
-        items.push({
-            id: 'view-user-activity',
-            label: 'View user activity',
-            onClick: () => {
-                mainModal.remove();
-                updateRoute(`history/view/${formState.id}`);
-            }
-        });
-
-        return items;
     };
-
-    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
-    const menuItems = buildMenuItems();
 
     const noCoverButtonClasses = 'rounded text-sm flex flex-nowrap items-center justify-center px-3 h-8 transition-all cursor-pointer font-medium border border-grey-300 bg-transparent text-black dark:border-grey-800 dark:text-white';
     const coverButtonClasses = 'flex flex-nowrap items-center justify-center px-3 h-8 opacity-80 hover:opacity-100 bg-[rgba(0,0,0,0.75)] rounded text-sm text-white transition-all cursor-pointer font-medium nowrap';
-
     const suspendedText = formState.status === 'inactive' ? ' (Suspended)' : '';
     const initialTab = getTabFromPath(route);
     const [selectedTab, setSelectedTab] = useState<string>(initialTab);
@@ -329,29 +331,41 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
         setSelectedTab(newTabId);
     };
 
-    const canAccess = canAccessSettings(currentUser);
+    const menuItems = buildMenuItems(
+        currentUser,
+        formState,
+        user,
+        ownerUser,
+        confirmMakeOwner,
+        confirmDelete,
+        confirmSuspend,
+        mainModal,
+        updateRoute
+    );
+
+    const showMenu = hasAdminAccess(currentUser) || (isEditorUser(currentUser) && isAuthorOrContributor(user));
 
     return (
         <Modal
             afterClose={navigateOnClose}
-            animate={canAccess}
-            backDrop={canAccess}
+            animate={canAccessSettings(currentUser)}
+            backDrop={canAccessSettings(currentUser)}
             buttonsDisabled={okProps.disabled}
             cancelLabel='Close'
             dirty={saveState === 'unsaved'}
             okColor={okProps.color}
             okLabel={okProps.label || 'Save'}
-            size={canAccess ? 'md' : 'bleed'}
+            size={canAccessSettings(currentUser) ? 'md' : 'bleed'}
             stickyFooter={true}
             testId='user-detail-modal'
-            width={canAccess ? 600 : 'full'}
+            width={canAccessSettings(currentUser) ? 600 : 'full'}
             onOk={async () => {
                 await (handleSave({fakeWhenUnchanged: true}));
             }}
         >
             <div>
-                <div className={`relative ${canAccess ? '-mx-8 -mt-8 rounded-t' : '-mx-10 -mt-10'}`}>
-                    <div className={`flex flex-wrap items-end justify-between gap-8 p-8 ${formState.cover_image ? 'bg-cover bg-center' : ''} ${!canAccess && 'min-h-[30vmin]'}`}
+                <div className={`relative ${canAccessSettings(currentUser) ? '-mx-8 -mt-8 rounded-t' : '-mx-10 -mt-10'}`}>
+                    <div className={`flex flex-wrap items-end justify-between gap-8 p-8 ${formState.cover_image ? 'bg-cover bg-center' : ''} ${!canAccessSettings(currentUser) && 'min-h-[30vmin]'}`}
                         style={{
                             backgroundImage: formState.cover_image ? `url(${formState.cover_image})` : 'none'
                         }}>
@@ -453,7 +467,7 @@ const UserDetailModalContent: React.FC<{user: User}> = ({user}) => {
                         </div>
                     </div>
                 </div>
-                <div className={`${!canAccess && 'mx-auto max-w-[536px]'} mt-6 flex flex-col`}>
+                <div className={`${!canAccessSettings(currentUser) && 'mx-auto max-w-[536px]'} mt-6 flex flex-col`}>
                     <TabView
                         selectedTab={selectedTab}
                         tabs={[

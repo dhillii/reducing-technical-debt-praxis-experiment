@@ -25,6 +25,8 @@ const ReplyToEmailField: React.FC<{
     const {settings, config} = useGlobalData();
     const [defaultEmailAddress, supportEmailAddress] = getSettingValues<string>(settings, ['default_email_address', 'support_email_address']);
 
+    // When editing the senderReplyTo, we use a state, so we don't cause jumps when the 'rendering' method decides to change the value
+    // Because 'newsletter' 'support' or an empty value can be mapped to a default value, we don't want those changes to happen when entering text
     const [senderReplyTo, setSenderReplyTo] = useState(renderReplyToEmail(newsletter, config, supportEmailAddress, defaultEmailAddress) || '');
 
     let newsletterAddress = renderSenderEmail(newsletter, config, defaultEmailAddress);
@@ -35,10 +37,12 @@ const ReplyToEmailField: React.FC<{
     }, [updateNewsletter, setSenderReplyTo]);
 
     const onBlur = () => {
+        // Update the senderReplyTo to the rendered value again
         const rendered = renderReplyToEmail(newsletter, config, supportEmailAddress, defaultEmailAddress) || '';
         setSenderReplyTo(rendered);
     };
 
+    // Pro users without custom sending domains
     return (
         <TextField
             error={Boolean(errors.sender_reply_to)}
@@ -173,6 +177,7 @@ const Sidebar: React.FC<{
     };
 
     const renderSenderEmailField = () => {
+        // Self-hosters
         if (!isManagedEmail(config)) {
             return (
                 <TextField
@@ -187,6 +192,7 @@ const Sidebar: React.FC<{
             );
         }
 
+        // Pro users with custom sending domains
         if (hasSendingDomain(config)) {
             return (
                 <TextField
@@ -203,10 +209,14 @@ const Sidebar: React.FC<{
                 />
             );
         }
+
+        // Pro users without custom sending domains
+        // We're not showing the field since it's not editable
     };
 
     const headingFontWeightOptions = fontWeightOptions[newsletter.title_font_category || 'sans_serif'].options;
 
+    // not all weights will be available for all fonts, if it doesn't exist find the closest match
     const getSelectedFontWeightOption = () => {
         const category = newsletter.title_font_category || 'sans_serif';
         const fontWeight = newsletter.title_font_weight;
@@ -215,10 +225,11 @@ const Sidebar: React.FC<{
         const option = headingFontWeightOptions.find(o => o.value === mappedWeight);
         return option || headingFontWeightOptions[0];
     };
-
+    // changing font category changes available weights so we may need to map to the closest match
     const changeSelectedTitleFont = (option: SelectOption | null) => {
         const categoryValue = option?.value || 'sans_serif';
 
+        // ensure the weight is valid for the new font by switching to closest match
         const currentWeight = newsletter.title_font_weight;
         let newWeight = currentWeight;
         if (!fontWeightOptions[categoryValue].options.find(o => o.value === currentWeight)) {
@@ -768,12 +779,11 @@ const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: b
         initialState: newsletter,
         savingDelay: 500,
         onSave: async () => {
-            const {meta: {sent_email_verification: [emailToVerify] = []} = {}} = await editNewsletter(formState);
-            const toastMessage = emailToVerify && ['sender_email', 'sender_reply_to'].includes(emailToVerify)
-                ? <div>We&lsquo;ve sent a confirmation email to the new address.</div>
-                : null;
-
-            if (toastMessage) {
+            // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+            const {meta: {sent_email_verification: [emailToVerify] = []} = {}} = await editNewsletter(formState); ``;
+            
+            if (emailToVerify && ['sender_email', 'sender_reply_to'].includes(emailToVerify)) {
+                const toastMessage = <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
                 showToast({
                     icon: 'email',
                     message: toastMessage,

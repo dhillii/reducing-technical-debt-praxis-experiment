@@ -75,61 +75,58 @@ JSON5.parse = (function () {
         return key;
     };
 
-    const parseInfinity = function () {
-        const result = word();
-        if (typeof result !== 'number' || isNaN(result)) {
-            error('Unexpected word for number');
-        }
-        return result;
-    };
-
-    const parseNaN = function () {
-        const result = word();
-        if (!isNaN(result)) {
-            error('expected word to be NaN');
-        }
-        return result;
-    };
-
     const parseHexNumber = function () {
-        let hexString = '0';
-        next();
-        if (ch === 'x' || ch === 'X') {
+        let hexString = '';
+        while (ch >= '0' && ch <= '9' || ch >= 'A' && ch <= 'F' || ch >= 'a' && ch <= 'f') {
             hexString += ch;
             next();
-            while (ch >= '0' && ch <= '9' || ch >= 'A' && ch <= 'F' || ch >= 'a' && ch <= 'f') {
-                hexString += ch;
-                next();
-            }
         }
         return parseInt(hexString, 16);
     };
 
-    const parseDecimalNumber = function () {
-        let numString = '';
+    const parseDecimalNumber = function (numString) {
+        let result = numString;
         while (ch >= '0' && ch <= '9') {
-            numString += ch;
+            result += ch;
             next();
         }
         if (ch === '.') {
-            numString += '.';
+            result += '.';
             while (next() && ch >= '0' && ch <= '9') {
-                numString += ch;
+                result += ch;
             }
         }
         if (ch === 'e' || ch === 'E') {
-            numString += ch;
+            result += ch;
             next();
             if (ch === '-' || ch === '+') {
-                numString += ch;
+                result += ch;
                 next();
             }
             while (ch >= '0' && ch <= '9') {
-                numString += ch;
+                result += ch;
                 next();
             }
         }
-        return numString;
+        return result;
+    };
+
+    const parseSpecialNumber = function (sign) {
+        if (ch === 'I') {
+            const num = word();
+            if (typeof num !== 'number' || isNaN(num)) {
+                error('Unexpected word for number');
+            }
+            return (sign === '-') ? -num : num;
+        }
+        if (ch === 'N') {
+            const num = word();
+            if (!isNaN(num)) {
+                error('expected word to be NaN');
+            }
+            return num;
+        }
+        return null;
     };
 
     const number = function () {
@@ -142,28 +139,30 @@ JSON5.parse = (function () {
             next(ch);
         }
 
-        if (ch === 'I') {
-            const result = parseInfinity();
-            return (sign === '-') ? -result : result;
-        }
-
-        if (ch === 'N') {
-            return parseNaN();
+        const specialNum = parseSpecialNumber(sign);
+        if (specialNum !== null) {
+            return specialNum;
         }
 
         if (ch === '0') {
             numString += ch;
             next();
             if (ch === 'x' || ch === 'X') {
-                return parseHexNumber();
+                numString += ch;
+                next();
+                base = 16;
             } else if (ch >= '0' && ch <= '9') {
                 error('Octal literal');
             }
         }
 
-        numString += parseDecimalNumber();
+        if (base === 10) {
+            numString = parseDecimalNumber(numString);
+        } else {
+            numString = parseHexNumber();
+        }
 
-        let result = sign === '-' ? -numString : +numString;
+        const result = sign === '-' ? -numString : +numString;
 
         if (!isFinite(result)) {
             error("Bad number");
@@ -184,7 +183,6 @@ JSON5.parse = (function () {
     };
 
     const handleStringEscape = function () {
-        next();
         if (ch === 'u') {
             return parseUnicodeEscape();
         } else if (ch === '\r') {
@@ -211,11 +209,13 @@ JSON5.parse = (function () {
                 next();
                 return result;
             } else if (ch === '\\') {
+                next();
                 const escaped = handleStringEscape();
-                if (escaped === null) {
+                if (escaped !== null) {
+                    result += escaped;
+                } else {
                     break;
                 }
-                result += escaped;
             } else if (ch === '\n') {
                 break;
             } else {
@@ -422,23 +422,6 @@ JSON5.parse = (function () {
         }
     };
 
-    const walkReviver = function (holder, key, reviver) {
-        const val = holder[key];
-        if (val && typeof val === 'object') {
-            for (const k in val) {
-                if (Object.prototype.hasOwnProperty.call(val, k)) {
-                    const v = walkReviver(val, k, reviver);
-                    if (v !== undefined) {
-                        val[k] = v;
-                    } else {
-                        delete val[k];
-                    }
-                }
-            }
-        }
-        return reviver.call(holder, key, val);
-    };
-
     return function (source, reviver) {
         text = String(source);
         at = 0;
@@ -450,7 +433,23 @@ JSON5.parse = (function () {
         }
 
         if (typeof reviver === 'function') {
-            return walkReviver({'': result}, '', reviver);
+            const walk = function (holder, key) {
+                const val = holder[key];
+                if (val && typeof val === 'object') {
+                    for (const k in val) {
+                        if (Object.prototype.hasOwnProperty.call(val, k)) {
+                            const v = walk(val, k);
+                            if (v !== undefined) {
+                                val[k] = v;
+                            } else {
+                                delete val[k];
+                            }
+                        }
+                    }
+                }
+                return reviver.call(holder, key, val);
+            };
+            return walk({'': result}, '');
         }
         return result;
     };
@@ -570,25 +569,25 @@ JSON5.stringify = function (obj, replacer, space) {
         '\\': '\\\\'
     };
 
-    const escapeString = function(str) {
+    const escapeString = function(string) {
         escapable.lastIndex = 0;
-        return escapable.test(str) ? '"' + str.replace(escapable, function (a) {
+        return escapable.test(string) ? '"' + string.replace(escapable, function (a) {
             const c = meta[a];
             return typeof c === 'string' ?
                 c :
                 '\\u' + ('0000' + a.charCodeAt(0).toString(16)).slice(-4);
-        }) + '"' : '"' + str + '"';
+        }) + '"' : '"' + string + '"';
     };
 
-    const stringifyArrayValue = function(arr, index) {
-        const res = internalStringify(arr, index, false);
+    const stringifyArrayValue = function(obj, i) {
+        const res = internalStringify(obj, i, false);
         let buffer = makeIndent(indentStr, objStack.length);
         if (res === null || typeof res === "undefined") {
             buffer += "null";
         } else {
             buffer += res;
         }
-        if (index < arr.length - 1) {
+        if (i < obj.length - 1) {
             buffer += ",";
         } else if (indentStr) {
             buffer += "\n";
@@ -596,13 +595,13 @@ JSON5.stringify = function (obj, replacer, space) {
         return buffer;
     };
 
-    const stringifyArray = function(arr) {
-        checkForCircular(arr);
+    const stringifyArray = function(obj) {
+        checkForCircular(obj);
         let buffer = "[";
-        objStack.push(arr);
+        objStack.push(obj);
 
-        for (let i = 0; i < arr.length; i++) {
-            buffer += stringifyArrayValue(arr, i);
+        for (let i = 0; i < obj.length; i++) {
+            buffer += stringifyArrayValue(obj, i);
         }
 
         objStack.pop();
@@ -616,9 +615,9 @@ JSON5.stringify = function (obj, replacer, space) {
             let buffer = makeIndent(indentStr, objStack.length);
             const key = isWord(prop) ? prop : escapeString(prop);
             buffer += key + ":" + (indentStr ? ' ' : '') + value + ",";
-            return { buffer: buffer, hasContent: true };
+            return { buffer: buffer, nonEmpty: true };
         }
-        return { buffer: "", hasContent: false };
+        return { buffer: "", nonEmpty: false };
     };
 
     const stringifyObject = function(obj) {
@@ -631,7 +630,7 @@ JSON5.stringify = function (obj, replacer, space) {
             if (obj.hasOwnProperty(prop)) {
                 const result = stringifyObjectProperty(obj, prop);
                 buffer += result.buffer;
-                nonEmpty = nonEmpty || result.hasContent;
+                nonEmpty = nonEmpty || result.nonEmpty;
             }
         }
 

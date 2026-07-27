@@ -294,13 +294,17 @@ export default class PublishOptions {
             this.totalMemberCount = 1;
         }
 
-        // limits
-        promises.push(this._checkSendingLimit(), this._checkPublishingLimit());
+        // limits and newsletters
+        const limitPromises = [
+            this._checkSendingLimit(),
+            this._checkPublishingLimit()
+        ];
 
-        // newsletters
         if (!this.user.isContributor) {
-            promises.push(this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'}));
+            limitPromises.push(this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'}));
         }
+
+        promises.push(...limitPromises);
 
         yield Promise.all(promises);
     }

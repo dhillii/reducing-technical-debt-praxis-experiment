@@ -26,22 +26,13 @@ const handleAddComponentsToDynamicZone = (state, action) => {
   });
 };
 
-const handleTypeChange = (obj) => {
-  const hasDefaultValue = Boolean(obj.getIn(['default']));
-  const previousType = obj.getIn(['type']);
-
-  if (hasDefaultValue && ['date', 'datetime', 'time'].includes(previousType)) {
-    return obj.updateIn(['type'], () => obj.getIn(['type'])).remove('default');
-  }
-
-  return obj;
-};
-
 const handleNatureChange = (obj, value, oneThatIsCreatingARelationWithAnother) => {
   return obj
     .update('nature', () => value)
-    .update('dominant', () => value === 'manyToMany' ? true : null)
-    .update('name', oldValue => pluralize(snakeCase(oldValue), shouldPluralizeName(value)))
+    .update('dominant', () => (value === 'manyToMany' ? true : null))
+    .update('name', oldValue =>
+      pluralize(snakeCase(oldValue), shouldPluralizeName(value))
+    )
     .update('targetAttribute', oldValue => {
       if (['oneWay', 'manyWay'].includes(value)) {
         return '-';
@@ -51,11 +42,13 @@ const handleNatureChange = (obj, value, oneThatIsCreatingARelationWithAnother) =
         shouldPluralizeTargetAttribute(value)
       );
     })
-    .update('targetColumnName', oldValue => (['oneWay', 'manyWay'].includes(value) ? null : oldValue));
+    .update('targetColumnName', oldValue =>
+      (['oneWay', 'manyWay'].includes(value) ? null : oldValue)
+    );
 };
 
-const handleTargetChange = (obj, value, action) => {
-  const { targetContentTypeAllowedRelations, selectedContentTypeFriendlyName, oneThatIsCreatingARelationWithAnother } = action;
+const handleTargetChange = (obj, value, action, selectedContentTypeFriendlyName, oneThatIsCreatingARelationWithAnother) => {
+  const { targetContentTypeAllowedRelations } = action;
   let didChangeNatureBecauseOfRestrictedRelation = false;
 
   return obj
@@ -77,23 +70,38 @@ const handleTargetChange = (obj, value, action) => {
       return pluralize(snakeCase(selectedContentTypeFriendlyName), shouldPluralizeName(nature));
     })
     .update('targetAttribute', () => {
-      const currentNature = obj.get('nature');
-      if (['oneWay', 'manyWay'].includes(currentNature)) {
+      const nature = obj.get('nature');
+      if (['oneWay', 'manyWay'].includes(nature)) {
         return '-';
       }
-      if (didChangeNatureBecauseOfRestrictedRelation && ['oneWay', 'manyWay'].includes(targetContentTypeAllowedRelations[0])) {
+      if (
+        didChangeNatureBecauseOfRestrictedRelation &&
+        ['oneWay', 'manyWay'].includes(targetContentTypeAllowedRelations[0])
+      ) {
         return '-';
       }
-      return pluralize(snakeCase(oneThatIsCreatingARelationWithAnother), shouldPluralizeTargetAttribute(currentNature));
+      return pluralize(
+        snakeCase(oneThatIsCreatingARelationWithAnother),
+        shouldPluralizeTargetAttribute(nature)
+      );
     });
 };
 
 const handleOnChange = (state, action) => {
   return state.update('modifiedData', obj => {
-    const { keys, value, oneThatIsCreatingARelationWithAnother } = action;
+    const {
+      selectedContentTypeFriendlyName,
+      keys,
+      value,
+      oneThatIsCreatingARelationWithAnother,
+    } = action;
+    const hasDefaultValue = Boolean(obj.getIn(['default']));
 
-    if (keys.length === 1 && keys.includes('type')) {
-      return handleTypeChange(obj);
+    if (hasDefaultValue && keys.length === 1 && keys.includes('type')) {
+      const previousType = obj.getIn(['type']);
+      if (previousType && ['date', 'datetime', 'time'].includes(previousType)) {
+        return obj.updateIn(keys, () => value).remove('default');
+      }
     }
 
     if (keys.length === 1 && keys.includes('nature')) {
@@ -101,63 +109,46 @@ const handleOnChange = (state, action) => {
     }
 
     if (keys.length === 1 && keys.includes('target')) {
-      return handleTargetChange(obj, value, action);
+      return handleTargetChange(obj, value, action, selectedContentTypeFriendlyName, oneThatIsCreatingARelationWithAnother);
     }
 
     return obj.updateIn(keys, () => value);
   });
 };
 
-const handleOnChangeAllowedType = (state, action) => {
-  if (action.name === 'all') {
-    return state.updateIn(['modifiedData', 'allowedTypes'], () => {
-      return action.value ? fromJS(['images', 'videos', 'files']) : null;
-    });
+const handleSetAttributeDataSchema = (state, action) => {
+  const {
+    attributeType,
+    isEditing,
+    modifiedDataToSetForEditing,
+    nameToSetForRelation,
+    targetUid,
+    step,
+    options = {},
+  } = action;
+
+  if (isEditing) {
+    return state
+      .update('modifiedData', () => fromJS(modifiedDataToSetForEditing))
+      .update('initialData', () => fromJS(modifiedDataToSetForEditing));
   }
 
-  return state.updateIn(['modifiedData', 'allowedTypes'], currentList => {
-    let list = currentList || fromJS([]);
-
-    if (list.includes(action.name)) {
-      list = list.filter(v => v !== action.name);
-      return list.size === 0 ? null : list;
-    }
-
-    return list.push(action.name);
-  });
-};
-
-const getAttributeDataSchema = (action) => {
-  const { attributeType, step, options = {}, nameToSetForRelation, targetUid } = action;
-
-  if (attributeType === 'component') {
-    return step === '1'
+  const dataMap = {
+    component: () => step === '1'
       ? { type: 'component', createComponent: true, componentToCreate: { type: 'component' } }
-      : { ...options, type: 'component', repeatable: true };
-  }
-
-  if (attributeType === 'dynamiczone') {
-    return { ...options, type: 'dynamiczone', components: [] };
-  }
-
-  if (attributeType === 'text') {
-    return { ...options, type: 'string' };
-  }
-
-  if (attributeType === 'number' || attributeType === 'date') {
-    return options;
-  }
-
-  if (attributeType === 'media') {
-    return { allowedTypes: ['images', 'files', 'videos'], type: 'media', multiple: true, ...options };
-  }
-
-  if (attributeType === 'enumeration') {
-    return { ...options, type: 'enumeration', enum: [] };
-  }
-
-  if (attributeType === 'relation') {
-    return {
+      : { ...options, type: 'component', repeatable: true },
+    dynamiczone: () => ({ ...options, type: 'dynamiczone', components: [] }),
+    text: () => ({ ...options, type: 'string' }),
+    number: () => options,
+    date: () => options,
+    media: () => ({
+      allowedTypes: ['images', 'files', 'videos'],
+      type: 'media',
+      multiple: true,
+      ...options,
+    }),
+    enumeration: () => ({ ...options, type: 'enumeration', enum: [] }),
+    relation: () => ({
       name: snakeCase(nameToSetForRelation),
       nature: 'oneWay',
       targetAttribute: '-',
@@ -166,22 +157,13 @@ const getAttributeDataSchema = (action) => {
       dominant: null,
       columnName: null,
       targetColumnName: null,
-    };
-  }
+    }),
+  };
 
-  return { ...options, type: attributeType, default: null };
-};
+  const dataToSet = dataMap[attributeType]
+    ? dataMap[attributeType]()
+    : { ...options, type: attributeType, default: null };
 
-const handleSetAttributeDataSchema = (state, action) => {
-  const { isEditing, modifiedDataToSetForEditing } = action;
-
-  if (isEditing) {
-    return state
-      .update('modifiedData', () => fromJS(modifiedDataToSetForEditing))
-      .update('initialData', () => fromJS(modifiedDataToSetForEditing));
-  }
-
-  const dataToSet = getAttributeDataSchema(action);
   return state.update('modifiedData', () => fromJS(dataToSet));
 };
 
@@ -191,8 +173,27 @@ const reducer = (state = initialState, action) => {
       return handleAddComponentsToDynamicZone(state, action);
     case actions.ON_CHANGE:
       return handleOnChange(state, action);
-    case actions.ON_CHANGE_ALLOWED_TYPE:
-      return handleOnChangeAllowedType(state, action);
+    case actions.ON_CHANGE_ALLOWED_TYPE: {
+      if (action.name === 'all') {
+        return state.updateIn(['modifiedData', 'allowedTypes'], () => {
+          if (action.value) {
+            return fromJS(['images', 'videos', 'files']);
+          }
+          return null;
+        });
+      }
+
+      return state.updateIn(['modifiedData', 'allowedTypes'], currentList => {
+        let list = currentList || fromJS([]);
+
+        if (list.includes(action.name)) {
+          list = list.filter(v => v !== action.name);
+          return list.size === 0 ? null : list;
+        }
+
+        return list.push(action.name);
+      });
+    }
     case actions.RESET_PROPS:
       return initialState;
     case actions.RESET_PROPS_AND_SET_FORM_FOR_ADDING_AN_EXISTING_COMPO:

@@ -306,44 +306,27 @@ function ItemForm({
 
 export const getItemPage = (props: ItemPageProps) => () => <ItemPage {...props} />
 
-/** Determines the navigation action to perform after an item action completes. */
-function getNavigationAction(
-  navigation: string,
-  resultId: string | null,
-  itemId: string,
-  list: ListMeta
-): { type: 'refetch' } | { type: 'navigate'; path: string } {
-  if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
-    return { type: 'refetch' }
-  }
-  if (navigation === 'follow' && resultId) {
-    return { type: 'navigate'; path: `/${list.path}/${resultId}` }
-  }
-  return { type: 'navigate'; path: list.isSingleton ? '/' : `/${list.path}` }
-}
-
-/** Renders the appropriate not-found message based on list configuration. */
-function renderNotFoundContent(
-  list: ListMeta,
-  itemId: string
-): React.ReactNode {
-  if (list.isSingleton) {
-    if (itemId === '1') {
-      return (
-        <ItemNotFound>
-          <Text>"{list.label}" doesn't exist, or you don't have access to it.</Text>
-          {!list.hideCreate && <CreateButtonLink list={list} />}
-        </ItemNotFound>
-      )
-    }
+/** @internal Renders the not-found message for singleton items */
+function renderSingletonNotFound(list: ListMeta, itemId: string): React.ReactNode {
+  if (itemId === '1') {
     return (
       <ItemNotFound>
-        <Text>
-          An item with ID <strong>"{itemId}"</strong> does not exist.
-        </Text>
+        <Text>"{list.label}" doesn't exist, or you don't have access to it.</Text>
+        {!list.hideCreate && <CreateButtonLink list={list} />}
       </ItemNotFound>
     )
   }
+  return (
+    <ItemNotFound>
+      <Text>
+        An item with ID <strong>"{itemId}"</strong> does not exist.
+      </Text>
+    </ItemNotFound>
+  )
+}
+
+/** @internal Renders the not-found message for list items */
+function renderListNotFound(itemId: string): React.ReactNode {
   return (
     <ItemNotFound>
       <Text>
@@ -352,6 +335,32 @@ function renderNotFoundContent(
       </Text>
     </ItemNotFound>
   )
+}
+
+/** @internal Determines which not-found view to render based on list type */
+function renderItemNotFoundView(
+  list: ListMeta,
+  itemId: string
+): React.ReactNode {
+  return list.isSingleton ? renderSingletonNotFound(list, itemId) : renderListNotFound(itemId)
+}
+
+/** @internal Determines navigation action after item action execution */
+function getNavigationPath(
+  action: ActionMeta,
+  resultId: string | null,
+  itemId: string,
+  list: ListMeta
+): string | null {
+  const { navigation } = action.itemView
+
+  if ((navigation === 'follow' && resultId === itemId) || navigation === 'refetch') {
+    return null
+  }
+  if (navigation === 'follow' && resultId) {
+    return `/${list.path}/${resultId}`
+  }
+  return list.isSingleton ? '/' : `/${list.path}`
 }
 
 function ItemPage({ listKey }: ItemPageProps) {
@@ -422,17 +431,11 @@ function ItemPage({ listKey }: ItemPageProps) {
   }, [data?.keystone?.adminMeta, list.fields])
 
   function onAction(action: ActionMeta, resultId: string | null) {
-    const navigationAction = getNavigationAction(
-      action.itemView.navigation,
-      resultId,
-      itemId ?? '',
-      list
-    )
-
-    if (navigationAction.type === 'refetch') {
+    const navigationPath = getNavigationPath(action, resultId, itemId ?? '', list)
+    if (navigationPath === null) {
       refetch()
     } else {
-      router.push(navigationAction.path)
+      router.push(navigationPath)
     }
   }
 
@@ -458,7 +461,7 @@ function ItemPage({ listKey }: ItemPageProps) {
         <ColumnLayout>
           <Box marginY="xlarge">
             <GraphQLErrorNotice errors={[error]} />
-            {item == null && renderNotFoundContent(list, itemId ?? '')}
+            {item == null && renderItemNotFoundView(list, itemId ?? '')}
           </Box>
           {initialValue && (
             <ItemForm

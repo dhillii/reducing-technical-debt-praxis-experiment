@@ -153,43 +153,31 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         }
     };
 
-    const getLeftButtonProps = (): ButtonProps => {
-        if (!tier) {
-            return {};
-        }
-
+    let leftButtonProps: ButtonProps = {};
+    if (tier) {
         if (tier.active && tier.type !== 'free') {
-            return {
+            leftButtonProps = {
                 label: 'Archive tier',
                 color: 'red',
                 link: true,
                 onClick: confirmTierStatusChange
             };
-        }
-
-        if (!tier.active) {
-            return {
+        } else if (!tier.active) {
+            leftButtonProps = {
                 label: 'Reactivate tier',
                 color: 'green',
                 link: true,
                 onClick: confirmTierStatusChange
             };
         }
-
-        return {};
-    };
-
-    const leftButtonProps = getLeftButtonProps();
+    }
 
     const getModalTitle = (): string => {
         if (!tier) {
             return 'New tier';
         }
-
         return tier.active ? 'Edit tier' : 'Edit archived tier';
     };
-
-    const modalTitle = getModalTitle();
 
     return <Modal
         afterClose={() => {
@@ -203,7 +191,7 @@ const TierDetailModalContent: React.FC<{tier?: Tier}> = ({tier}) => {
         okLabel={okProps.label || 'Save'}
         size='lg'
         testId='tier-detail-modal'
-        title={modalTitle}
+        title={getModalTitle()}
         stickyFooter
         onOk={async () => {
             await handleSave({fakeWhenUnchanged: true});

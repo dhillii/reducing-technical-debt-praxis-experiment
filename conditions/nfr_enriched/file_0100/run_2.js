@@ -10,7 +10,12 @@ const config = require('../app-config').config,
     PgpMailer = require('pgpmailer'),
     ImapClient = require('imap-client');
 
+//
+//
 // Constants
+//
+//
+
 const FOLDER_DB_TYPE = 'folders';
 
 const SYNC_TYPE_NEW = 'new';
@@ -33,6 +38,12 @@ const MSG_PART_TYPE_SIGNED = 'signed';
 const MSG_PART_TYPE_TEXT = 'text';
 const MSG_PART_TYPE_HTML = 'html';
 
+//
+//
+// Email Service
+//
+//
+
 /**
  * High-level data access object that orchestrates everything around the handling of encrypted mails:
  * PGP de-/encryption, receiving via IMAP, sending via SMTP, MIME parsing, local db persistence
@@ -54,7 +65,13 @@ function Email(keychain, pgp, accountStore, pgpbuilder, mailreader, dialog, appC
     this._auth = auth;
 }
 
+
+//
+//
 // Public API
+//
+//
+
 
 /**
  * Initializes the email dao:
@@ -796,7 +813,14 @@ Email.prototype.refreshOutbox = function() {
     });
 };
 
+
+
+//
+//
 // Event Handlers
+//
+//
+
 
 /**
  * This handler should be invoked when navigator.onLine === true. It will try to connect a
@@ -854,6 +878,7 @@ Email.prototype.onConnect = function(imap) {
                 return a - b;
             });
             const lastUid = uids[uids.length - 1];
+
 
             mailboxCache[folder.path] = {
                 exists: lastUid,
@@ -951,15 +976,16 @@ Email.prototype._onSyncUpdate = function(options) {
     }
 
     if (options.type === SYNC_TYPE_NEW) {
-        handleNewMessages(folder, uids);
+        handleNewMessages();
     } else if (options.type === SYNC_TYPE_DELETED) {
-        handleDeletedMessages(folder, uids);
+        handleDeletedMessages();
     } else if (options.type === SYNC_TYPE_MSGS) {
-        handleMessageUpdates(folder, uids);
+        handleMessageUpdates();
     }
 
-    function handleNewMessages(folder, uids) {
+    function handleNewMessages() {
         // new messages available on imap, add the new uids to the folder
+
         uids = _.difference(uids, folder.uids); // eliminate duplicates
         const maxUid = folder.uids.length ? Math.max.apply(null, folder.uids) : 0; // find highest uid prior to update
 
@@ -990,8 +1016,9 @@ Email.prototype._onSyncUpdate = function(options) {
         }
     }
 
-    function handleDeletedMessages(folder, uids) {
+    function handleDeletedMessages() {
         // messages have been deleted
+
         folder.uids = _.difference(folder.uids, uids); // remove the uids from the uid list
         uids.forEach(function(uid) {
             const message = _.findWhere(folder.messages, {
@@ -1010,7 +1037,7 @@ Email.prototype._onSyncUpdate = function(options) {
         });
     }
 
-    function handleMessageUpdates(folder, uids) {
+    function handleMessageUpdates() {
         // NB! several possible reasons why this could be called.
         // if a message in the array has uid value and flag array, it had a possible flag update
         uids.forEach(function(changedMsg) {
@@ -1047,7 +1074,13 @@ Email.prototype._onSyncUpdate = function(options) {
     }
 };
 
+
+//
+//
 // Internal API
+//
+//
+
 
 /**
  * Updates the folder information from imap (if we're online). Adds/removes folders in account.folders,
@@ -1104,7 +1137,9 @@ Email.prototype._updateFolders = function() {
             }));
         });
 
+        //
         // by now, all the folders are up to date. now we need to find all the well known folders
+        //
 
         // check for the well known folders to be displayed in the uppermost ui part
         // in that order
@@ -1219,7 +1254,13 @@ Email.prototype.done = function() {
     }
 };
 
+
+
+//
+//
 // IMAP API
+//
+//
 
 /**
  * Mark messages as un-/read or un-/answered on IMAP
@@ -1427,7 +1468,12 @@ Email.prototype._getBodyParts = function(options) {
     });
 };
 
+
+//
+//
 // Local Storage API
+//
+//
 
 /**
  * persist encrypted list in device storage
@@ -1505,7 +1551,13 @@ Email.prototype._localDeleteMessage = function(options) {
     return this._devicestorage.removeList(dbType);
 };
 
+
+//
+//
 // Internal Helper Methods
+//
+//
+
 
 /**
  * Helper method that extracts a message body from the body parts
@@ -1651,7 +1703,13 @@ Email.prototype.checkOnline = function() {
     }
 };
 
-// External Helper Methods
+
+//
+//
+// External Heler Methods
+//
+//
+
 
 /**
  * Checks whether we need to upload to the sent folder after sending an email.
@@ -1669,6 +1727,7 @@ Email.prototype.checkIgnoreUploadOnSent = function(hostname) {
     return false;
 };
 
+
 /**
  * Check if the user agent is online.
  */
@@ -1676,7 +1735,12 @@ Email.prototype.isOnline = function() {
     return navigator.onLine;
 };
 
+//
+//
 // Helper Functions
+//
+//
+
 
 /**
  * Updates a folder's unread count:

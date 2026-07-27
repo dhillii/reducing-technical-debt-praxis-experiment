@@ -225,7 +225,7 @@ export function isAcceptedResponse(errorOrStatus) {
 
 /**
  * Error response handler strategy mapping
- * Maps error detection functions to their corresponding error classes
+ * Maps error detection functions to their corresponding error constructors
  */
 const errorHandlers = [
     {
@@ -275,7 +275,7 @@ const errorHandlers = [
  * @param {Object} service - The ajax service instance
  * @param {number} status - HTTP status code
  * @param {Object} headers - Response headers
- * @param {Object} payload - Response payload
+ * @param {*} payload - Response payload
  * @returns {Object|null} Error instance or null if no handler matches
  */
 function createErrorResponse(service, status, headers, payload) {
@@ -288,23 +288,22 @@ function createErrorResponse(service, status, headers, payload) {
 }
 
 /**
- * Determines if request should be retried based on error type
- * @param {Object} error - The error object
- * @param {Array} retryChecks - Array of error check functions
- * @returns {boolean} True if error is retryable
+ * Determines if request is a Ghost API request
+ * @param {string} url - Request URL
+ * @returns {boolean}
  */
-function isRetryableError(error, retryChecks) {
-    return retryChecks.some(check => check(error.response));
+function isGhostApiRequest(url) {
+    return GHOST_REQUEST.test(url);
 }
 
 /**
- * Determines if session should be invalidated based on error conditions
- * @param {boolean} isAuthenticated - Whether user is authenticated
+ * Determines if session invalidation is required
+ * @param {boolean} isAuthenticated - Session authentication status
  * @param {boolean} isGhostRequest - Whether request is to Ghost API
- * @param {boolean} isUnauthorized - Whether response is 401
- * @param {boolean} isForbidden - Whether response is 403
+ * @param {boolean} isUnauthorized - Whether response is unauthorized
+ * @param {boolean} isForbidden - Whether response is forbidden
  * @param {Object} payload - Response payload
- * @returns {boolean} True if session should be invalidated
+ * @returns {boolean}
  */
 function shouldInvalidateSession(isAuthenticated, isGhostRequest, isUnauthorized, isForbidden, payload) {
     if (!isAuthenticated || !isGhostRequest) {
@@ -418,7 +417,7 @@ class ajaxService extends AjaxService {
                     throw error;
                 }
 
-                if (isRetryableError(error, retryErrorChecks) && retryingMs <= maxRetryingMs) {
+                if (retryErrorChecks.some(check => check(error.response)) && retryingMs <= maxRetryingMs) {
                     await timeout(retryPeriods[attempts] || retryPeriods[retryPeriods.length - 1]);
                     attempts += 1;
                 } else if (attempts > 0 && this.config.sentry_dsn) {
@@ -456,10 +455,10 @@ class ajaxService extends AjaxService {
             return errorResponse;
         }
 
-        let isGhostRequest = GHOST_REQUEST.test(request.url);
-        let isAuthenticated = this.get('session.isAuthenticated');
-        let isUnauthorized = this.isUnauthorizedError(status, headers, payload);
-        let isForbidden = isForbiddenError(status, headers, payload);
+        const isGhostRequest = isGhostApiRequest(request.url);
+        const isAuthenticated = this.get('session.isAuthenticated');
+        const isUnauthorized = this.isUnauthorizedError(status, headers, payload);
+        const isForbidden = isForbiddenError(status, headers, payload);
 
         // used when reporting connection errors, helps distinguish CDN
         if (isGhostRequest) {

@@ -31,6 +31,7 @@ define([
     const Encrypt = Marionette.Object.extend({
 
         initialize: function() {
+
             // Get configs
             this.configs = Radio.request('configs', 'get:object');
             this.keys    = {};
@@ -73,21 +74,21 @@ define([
          * @return string
          */
         randomize: function(number, paranoia, noHex) {
-            const randomWords = sjcl.random.randomWords(number, paranoia);
-            
             if (noHex) {
-                return randomWords;
+                return sjcl.random.randomWords(number, paranoia);
             }
 
-            return sjcl.codec.hex.fromBits(randomWords);
+            return sjcl.codec.hex.fromBits(
+                sjcl.random.randomWords(number, paranoia)
+            );
         },
 
         /**
          * Change encryption configs. It is useful when re-encrypting data.
          */
         changeConfigs: function(configs) {
-            const newConfigs = configs || Radio.request('configs', 'get:object');
-            this.configs = _.extend(this.configs, newConfigs);
+            configs      = configs || Radio.request('configs', 'get:object');
+            this.configs = _.extend(this.configs, configs);
         },
 
         /**
@@ -96,37 +97,21 @@ define([
          * @return bool
          */
         checkAuth: function() {
-            if (this._isEncryptionChanged()) {
+            /**
+             * If encryption backup is not empty, it means a user changed
+             * encryption settings.
+             */
+            if (!_.isEmpty(this.configs.encryptBackup)) {
+                Radio.trigger('encrypt', 'changed');
                 return {isChanged: true};
             }
 
-            if (this._isEncryptionDisabled()) {
+            // Encryption is disabled
+            if (!Number(this.configs.encrypt) || this.configs.encryptPass === '') {
                 return true;
             }
 
             return !_.isEmpty(this.keys) || this._getSession() !== null;
-        },
-
-        /**
-         * Check if encryption settings have been changed.
-         *
-         * @return bool
-         */
-        _isEncryptionChanged: function() {
-            if (!_.isEmpty(this.configs.encryptBackup)) {
-                Radio.trigger('encrypt', 'changed');
-                return true;
-            }
-            return false;
-        },
-
-        /**
-         * Check if encryption is disabled.
-         *
-         * @return bool
-         */
-        _isEncryptionDisabled: function() {
-            return !Number(this.configs.encrypt) || this.configs.encryptPass === '';
         },
 
         /**
@@ -151,7 +136,7 @@ define([
          * @return promise
          */
         saveSecureKey: function(password) {
-            const self = this;
+            const self  = this;
 
             return new Q(this.sjcl.deriveKey({
                 configs : this.configs,
@@ -185,6 +170,8 @@ define([
                 configs : this.configs,
                 string  : str,
                 keys    : this.keys,
+
+                // Random initialization vector every time
                 iv      : sjcl.random.randomWords(4, 0),
             }));
         },
@@ -236,19 +223,17 @@ define([
          * @return promise
          */
         encryptModels: function(collection) {
+            // The collection is empty or PBKDF2 wasn't generated
             if (!this._canEncryptCollection(collection)) {
                 return new Q();
             }
 
             const promises = [];
-            const self = this;
 
             Radio.trigger('encrypt', 'encrypting:models', collection);
 
             collection.each(function(model) {
-                promises.push(function() {
-                    return new Q(self.encryptModel(model));
-                });
+                promises.push(this._createEncryptModelPromise(model));
             }, this);
 
             return _.reduce(promises, Q.when, new Q())
@@ -267,24 +252,40 @@ define([
         },
 
         /**
+         * Create a promise for encrypting a single model.
+         *
+         * @return function
+         */
+        _createEncryptModelPromise: function(model) {
+            const self = this;
+            return function() {
+                return new Q(self.encryptModel(model));
+            };
+        },
+
+        /**
          * Decrypt a collection.
          *
          * @return promise
          */
         decryptModels: function(collection) {
-            if (!this._canDecryptCollection(collection)) {
+            // The collection is empty or encryption is disabled
+            if (!collection.length || !Number(this.configs.encrypt)) {
+                return new Q();
+            }
+
+            // PBKDF2 wasn't generated
+            if (!this.keys.key) {
+                Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
                 return new Q();
             }
 
             const promises = [];
-            const self = this;
 
             Radio.trigger('encrypt', 'decrypting:models', collection);
 
             collection.each(function(model) {
-                promises.push(function() {
-                    return new Q(self.decryptModel(model));
-                });
+                promises.push(this._createDecryptModelPromise(model));
             }, this);
 
             return _.reduce(promises, Q.when, new Q())
@@ -294,21 +295,15 @@ define([
         },
 
         /**
-         * Check if collection can be decrypted.
+         * Create a promise for decrypting a single model.
          *
-         * @return bool
+         * @return function
          */
-        _canDecryptCollection: function(collection) {
-            if (!collection.length || !Number(this.configs.encrypt)) {
-                return false;
-            }
-
-            if (!this.keys.key) {
-                Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
-                return false;
-            }
-
-            return true;
+        _createDecryptModelPromise: function(model) {
+            const self = this;
+            return function() {
+                return new Q(self.decryptModel(model));
+            };
         },
 
         /**
@@ -339,12 +334,11 @@ define([
          */
         _decryptModelKeys: function(model) {
             const promises = [];
-            const self = this;
 
             _.each(model.encryptKeys, function(key) {
                 promises.push(
-                    new Q(self.sjcl.decryptLegacy({
-                        configs : self.configs,
+                    new Q(this.sjcl.decryptLegacy({
+                        configs : this.configs,
                         string  : model.get(key),
                         keys    : this.keys
                     }))
@@ -386,7 +380,7 @@ define([
                 return null;
             }
 
-            let keys = window.sessionStorage.getItem(this._getSessionKey());
+            let keys  = window.sessionStorage.getItem(this._getSessionKey());
             try {
                 keys = JSON.parse(keys);
                 this.keys = keys || this.keys;

@@ -64,25 +64,36 @@ const isProtocolRelative = (url: string): boolean => /^(\/\/)/.test(url);
 /** @internal Check if URL looks like a valid URL pattern */
 const looksLikeUrl = (url: string): boolean => /^[a-zA-Z0-9-]+:/.test(url) || /^(\/|\?)/.test(url);
 
-/** @internal Check if URL needs protocol prefix */
-const needsProtocol = (url: string): boolean => !url.startsWith('http');
+/** @internal Check if URL needs https prefix */
+const needsHttpsPrefix = (url: string, baseUrl?: string): boolean => !baseUrl && !url.startsWith('http');
 
-/** @internal Check if path is relative to base path */
-const isPathRelativeToBase = (pathname: string, basePath: string): boolean => {
-    return pathname && pathname.indexOf(basePath) === 0;
+/** @internal Check if parsed URL is relative to base path */
+const isRelativeToBasePath = (parsedUrl: URL, parsedBaseUrl: URL): boolean => {
+    if (!parsedUrl.pathname) {
+        return false;
+    }
+    return parsedUrl.pathname.indexOf(parsedBaseUrl.pathname) === 0 || 
+           `${parsedUrl.pathname}/` === parsedBaseUrl.pathname;
 };
 
-/** @internal Check if path matches base with trailing slash difference */
-const isPathMatchWithTrailingSlash = (pathname: string, basePath: string): boolean => {
-    return `${pathname}/` === basePath;
-};
-
-/** @internal Check if URL is on same host as base */
-const isSameHost = (urlHost: string, baseHost: string): boolean => urlHost === baseHost;
+/** @internal Check if URLs are on same host */
+const isOnSameHost = (parsedUrl: URL, parsedBaseUrl: URL): boolean => parsedUrl.host === parsedBaseUrl.host;
 
 /** @internal Check if URL needs trailing slash */
-const needsTrailingSlash = (url: string): boolean => {
-    return !url.match(/\/$/) && !url.match(/[.#?]/);
+const needsTrailingSlash = (url: string): boolean => !url.match(/\/$/) && !url.match(/[.#?]/);
+
+/** @internal Extract relative URL from parsed URL and base URL */
+const extractRelativeUrl = (url: string, parsedUrl: URL, parsedBaseUrl: URL): string => {
+    let result = url.replace(/^[a-zA-Z0-9-]+:/, '');
+    result = result.replace(/^\/\//, '');
+    result = result.replace(parsedBaseUrl.host, '');
+    result = result.replace(parsedBaseUrl.pathname, '');
+    
+    if (!result.match(/^\//)) {
+        result = `/${result}`;
+    }
+    
+    return result;
 };
 
 // Helper to format a URL
@@ -94,10 +105,7 @@ export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) =
     let url = value.trim();
 
     if (!url) {
-        if (baseUrl) {
-            return {save: '/', display: baseUrl};
-        }
-        return {save: '', display: ''};
+        return baseUrl ? {save: '/', display: baseUrl} : {save: '', display: ''};
     }
 
     if (isEmailUrl(url)) {
@@ -112,7 +120,7 @@ export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) =
         return {save: url, display: url};
     }
 
-    if (!baseUrl && needsProtocol(url)) {
+    if (needsHttpsPrefix(url, baseUrl)) {
         url = `https://${url}`;
     }
 
@@ -121,7 +129,6 @@ export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) =
     }
 
     let parsedUrl: URL;
-
     try {
         parsedUrl = new URL(url, baseUrl);
     } catch {
@@ -133,54 +140,33 @@ export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) =
     }
 
     const parsedBaseUrl = new URL(baseUrl);
-    url = processRelativeUrl(url, parsedUrl, parsedBaseUrl);
+    const sameHost = isOnSameHost(parsedUrl, parsedBaseUrl);
+    const relativeToBase = isRelativeToBasePath(parsedUrl, parsedBaseUrl);
 
-    return {save: url, display: displayFromBase(url, baseUrl)};
-};
-
-/** @internal Process URL to make it relative to base if applicable */
-const processRelativeUrl = (url: string, parsedUrl: URL, parsedBaseUrl: URL): string => {
-    let isRelativeToBasePath = isPathRelativeToBase(parsedUrl.pathname, parsedBaseUrl.pathname);
-
-    if (isPathMatchWithTrailingSlash(parsedUrl.pathname, parsedBaseUrl.pathname)) {
-        isRelativeToBasePath = true;
-    }
-
-    const isOnSameHost = isSameHost(parsedUrl.host, parsedBaseUrl.host);
-
-    if (!isOnSameHost || !isRelativeToBasePath) {
-        return url;
-    }
-
-    url = url.replace(/^[a-zA-Z0-9-]+:/, '');
-    url = url.replace(/^\/\//, '');
-    url = url.replace(parsedBaseUrl.host, '');
-    url = url.replace(parsedBaseUrl.pathname, '');
-
-    if (!url.match(/^\//)) {
-        url = `/${url}`;
+    if (sameHost && relativeToBase) {
+        url = extractRelativeUrl(url, parsedUrl, parsedBaseUrl);
     }
 
     if (needsTrailingSlash(url)) {
         url = `${url}/`;
     }
 
-    return url;
+    return {save: url, display: displayFromBase(url, baseUrl)};
 };
 
 // Helper to display a URL from a base URL
 const displayFromBase = (url: string, baseUrl: string) => {
-    // Ensure base url has a trailing slash
-    if (!baseUrl.endsWith('/')) {
-        baseUrl += '/';
+    let processedBaseUrl = baseUrl;
+    if (!processedBaseUrl.endsWith('/')) {
+        processedBaseUrl += '/';
     }
 
-    // Remove leading slash from url
-    if (url.startsWith('/')) {
-        url = url.substring(1);
+    let processedUrl = url;
+    if (processedUrl.startsWith('/')) {
+        processedUrl = processedUrl.substring(1);
     }
 
-    return new URL(url, baseUrl).toString();
+    return new URL(processedUrl, processedBaseUrl).toString();
 };
 
 // Format date for stats query
@@ -198,7 +184,7 @@ const isISOFormatDate = (dateString: string): boolean => dateString.includes('T'
 const extractDateComponentsWithTimezone = (dateString: string, timezone: string) => {
     const dateMoment = moment.tz(dateString, timezone);
     const todayMoment = moment.tz(timezone);
-
+    
     return {
         day: dateMoment.date(),
         month: dateMoment.month(),
@@ -212,7 +198,7 @@ const extractDateComponentsWithTimezone = (dateString: string, timezone: string)
 const extractDateComponentsLocalized = (dateString: string) => {
     const date = new Date(dateString);
     const today = new Date();
-
+    
     return {
         day: date.getDate(),
         month: date.getMonth(),
@@ -226,7 +212,7 @@ const extractDateComponentsLocalized = (dateString: string) => {
 const extractDateComponentsUTC = (dateString: string) => {
     const date = new Date(dateString);
     const today = new Date();
-
+    
     return {
         day: date.getUTCDate(),
         month: date.getUTCMonth(),
@@ -286,14 +272,22 @@ export const formatDisplayTime = (dateString: string, timezone: string): string 
     moment(dateString).tz(timezone).format('h:mma')
 );
 
-/** @internal Check if date is invalid */
-const isInvalidDate = (date: Date): boolean => isNaN(date.getTime());
+/** @internal Check if date is valid */
+const isValidDate = (date: Date): boolean => !isNaN(date.getTime());
 
 /** @internal Get time difference in milliseconds */
-const getTimeDiffMs = (now: Date, date: Date): number => now.getTime() - date.getTime();
+const getTimeDifferenceMs = (now: Date, date: Date): number => now.getTime() - date.getTime();
 
-/** @internal Format timestamp for very recent times */
-const formatRecentTime = (diffMins: number, diffHours: number): string | null => {
+/** @internal Format timestamp based on time difference */
+const formatTimestampByDifference = (diffMs: number, date: Date): string => {
+    if (diffMs < 0) {
+        return 'Just now';
+    }
+
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
     if (diffMins < 1) {
         return 'Just now';
     }
@@ -303,17 +297,13 @@ const formatRecentTime = (diffMins: number, diffHours: number): string | null =>
     if (diffHours < 24) {
         return `${diffHours} hr ago`;
     }
-    return null;
-};
-
-/** @internal Format timestamp for days ago */
-const formatDaysAgo = (diffDays: number, date: Date): string => {
     if (diffDays === 1) {
         return 'Yesterday';
     }
     if (diffDays < 7) {
         return `${diffDays} days ago`;
     }
+
     return date.toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
@@ -326,26 +316,12 @@ export const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
     const now = new Date();
 
-    if (isInvalidDate(date)) {
+    if (!isValidDate(date)) {
         return 'Unknown';
     }
 
-    const diffMs = getTimeDiffMs(now, date);
-
-    if (diffMs < 0) {
-        return 'Just now';
-    }
-
-    const diffMins = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    const recentFormat = formatRecentTime(diffMins, diffHours);
-    if (recentFormat) {
-        return recentFormat;
-    }
-
-    return formatDaysAgo(diffDays, date);
+    const diffMs = getTimeDifferenceMs(now, date);
+    return formatTimestampByDifference(diffMs, date);
 };
 
 // Add thousands indicator to numbers
@@ -354,29 +330,6 @@ export const formatNumber = (value: number): string => {
         return '0';
     }
     return new Intl.NumberFormat('en-US').format(Math.round(value));
-};
-
-/** @internal Calculate abbreviation for thousands */
-const abbreviateThousands = (num: number): string => {
-    const roundTo = num < 100000 ? 100 : 1000;
-    const rounded = Math.round(num / roundTo) * roundTo;
-    const abbreviated = rounded / 1000;
-
-    if (abbreviated === 1000) {
-        return '1M';
-    }
-
-    const formatted = abbreviated % 1 === 0 ? abbreviated.toString() : abbreviated.toFixed(1);
-    return `${formatted}k`;
-};
-
-/** @internal Calculate abbreviation for millions */
-const abbreviateMillions = (num: number): string => {
-    const roundTo = 100000;
-    const rounded = Math.round(num / roundTo) * roundTo;
-    const abbreviated = rounded / 1000000;
-    const formatted = abbreviated % 1 === 0 ? abbreviated.toString() : abbreviated.toFixed(1);
-    return `${formatted}M`;
 };
 
 // Abbreviate numbers
@@ -388,10 +341,23 @@ export function abbreviateNumber(number: number) {
     }
 
     if (num < 1000000) {
-        return abbreviateThousands(num);
+        const roundTo = num < 100000 ? 100 : 1000;
+        const rounded = Math.round(num / roundTo) * roundTo;
+        const abbreviated = rounded / 1000;
+
+        if (abbreviated === 1000) {
+            return '1M';
+        }
+
+        const formatted = abbreviated % 1 === 0 ? abbreviated.toString() : abbreviated.toFixed(1);
+        return `${formatted}k`;
     }
 
-    return abbreviateMillions(num);
+    const roundTo = 100000;
+    const rounded = Math.round(num / roundTo) * roundTo;
+    const abbreviated = rounded / 1000000;
+    const formatted = abbreviated % 1 === 0 ? abbreviated.toString() : abbreviated.toFixed(1);
+    return `${formatted}M`;
 }
 
 // Format time duration
@@ -415,11 +381,9 @@ export const formatPercentage = (value: number) => {
     const percentage = value * 100;
     if (percentage === 0) {
         return '0%';
-    }
-    if (percentage < 0.1) {
+    } else if (percentage < 0.1) {
         return `${percentage.toFixed(2)}%`;
-    }
-    if (percentage < 1) {
+    } else if (percentage < 1) {
         return `${percentage.toFixed(1)}%`;
     }
     const rounded = Math.round(percentage);
@@ -434,18 +398,6 @@ export const centsToDollars = (value: number) => {
 /* Chart formatters
 /* -------------------------------------------------------------------------- */
 
-/** @internal Round number to nearest multiple of 10^n */
-const roundToNearestMultiple = (num: number): number => {
-    if (num === 0) {
-        return 0;
-    }
-
-    const magnitude = Math.floor(Math.log10(num));
-    const multiple = Math.pow(10, magnitude);
-
-    return Math.round(num / multiple) * multiple;
-};
-
 // Calculates the Y-axis range with padding
 export const getYRangeWithLargePadding = (data: { value: number }[]): {min: number; max: number} => {
     if (!data.length) {
@@ -455,6 +407,18 @@ export const getYRangeWithLargePadding = (data: { value: number }[]): {min: numb
     const values = data.map(d => Number(d.value));
     let min = Math.min(...values);
     let max = Math.max(...values);
+
+    // Helper function to round to nearest multiple of 10^n
+    const roundToNearestMultiple = (num: number): number => {
+        if (num === 0) {
+            return 0;
+        }
+
+        const magnitude = Math.floor(Math.log10(num));
+        const multiple = Math.pow(10, magnitude);
+
+        return Math.round(num / multiple) * multiple;
+    };
 
     const magnitude = Math.floor(Math.log10(Math.max(max, 1)));
     const padding = Math.pow(10, magnitude);
@@ -468,39 +432,6 @@ export const getYRangeWithLargePadding = (data: { value: number }[]): {min: numb
     return {min, max};
 };
 
-/** @internal Check if min and max are equal */
-const hasEqualMinMax = (min: number, max: number): boolean => min === max;
-
-/** @internal Adjust range when min equals max */
-const adjustEqualRange = (value: number): {min: number; max: number} => {
-    return {min: Math.max(0, value - 1), max: value + 1};
-};
-
-/** @internal Calculate rounded bounds for Y-axis */
-const calculateRoundedBounds = (min: number, max: number, roundTo: number): {min: number; max: number} => {
-    const roundedMax = Math.round(max / roundTo) * roundTo;
-    const adjustedMax = roundedMax < max ? Math.ceil(max / roundTo) * roundTo : roundedMax;
-
-    const roundedMin = Math.round(min / roundTo) * roundTo;
-    const adjustedMin = roundedMin > min ? Math.floor(min / roundTo) * roundTo : roundedMin;
-
-    return {min: Math.max(0, adjustedMin), max: adjustedMax};
-};
-
-/** @internal Ensure visible range after rounding */
-const ensureVisibleRange = (min: number, max: number, padding: number, roundTo: number): {min: number; max: number} => {
-    if (min !== max) {
-        return {min, max};
-    }
-
-    const midPoint = (min + max) / 2;
-    const smallRange = Math.max(Math.abs(midPoint) * padding, roundTo);
-    return {
-        min: Math.max(0, Math.floor(midPoint - smallRange)),
-        max: Math.ceil(midPoint + smallRange)
-    };
-};
-
 export const getYRange = (data: { value: number }[]): {min: number; max: number} => {
     if (!data.length) {
         return {min: 0, max: 1};
@@ -510,8 +441,9 @@ export const getYRange = (data: { value: number }[]): {min: number; max: number}
     let min = Math.min(...values);
     let max = Math.max(...values);
 
-    if (hasEqualMinMax(min, max)) {
-        return adjustEqualRange(min);
+    if (min === max) {
+        const value = min;
+        return {min: Math.max(0, value - 1), max: value + 1};
     }
 
     const padding = 0.02;
@@ -522,11 +454,23 @@ export const getYRange = (data: { value: number }[]): {min: number; max: number}
     const rangeMagnitude = Math.floor(Math.log10(range));
     const roundTo = Math.pow(10, rangeMagnitude);
 
-    let bounds = calculateRoundedBounds(min, max, roundTo);
-    bounds = ensureVisibleRange(bounds.min, bounds.max, padding, roundTo);
-    bounds.min = Math.max(0, bounds.min);
+    const roundedMax = Math.round(max / roundTo) * roundTo;
+    max = roundedMax < max ? Math.ceil(max / roundTo) * roundTo : roundedMax;
 
-    return bounds;
+    const roundedMin = Math.round(min / roundTo) * roundTo;
+    min = roundedMin > min ? Math.floor(min / roundTo) * roundTo : roundedMin;
+    min = Math.max(0, min);
+
+    if (min === max) {
+        const midPoint = (min + max) / 2;
+        const smallRange = Math.max(Math.abs(midPoint) * padding, roundTo);
+        min = Math.max(0, Math.floor(midPoint - smallRange));
+        max = Math.ceil(midPoint + smallRange);
+    }
+
+    min = Math.max(0, min);
+
+    return {min, max};
 };
 
 // Unfortunately in order to force Recharts area charts to start at a certain value
@@ -587,10 +531,10 @@ export function getCountryFlag(countryCode:string) {
     );
 }
 
-/** @internal Check if range requires weekly aggregation */
+/** @internal Check if should aggregate weekly */
 const shouldAggregateWeekly = (range: number): boolean => range >= 91 && range <= 356;
 
-/** @internal Check if range requires monthly aggregation */
+/** @internal Check if should aggregate monthly */
 const shouldAggregateMonthly = (range: number): boolean => range > 356;
 
 /** @internal Calculate aggregated value based on type */
@@ -619,11 +563,10 @@ const aggregateByWeek = <T extends {date: string}>(data: T[], fieldName: keyof T
             weekCount += 1;
             lastValue = Number(item[fieldName]);
         } else {
-            const aggregatedValue = calculateAggregatedValue(weekTotal, weekCount, lastValue, aggregationType);
             weeklyData.push({
                 ...data[index - 1],
                 date: currentWeek.format('YYYY-MM-DD'),
-                [fieldName]: aggregatedValue
+                [fieldName]: calculateAggregatedValue(weekTotal, weekCount, lastValue, aggregationType)
             } as T);
 
             currentWeek = itemDate.startOf('week');
@@ -633,11 +576,10 @@ const aggregateByWeek = <T extends {date: string}>(data: T[], fieldName: keyof T
         }
 
         if (index === data.length - 1) {
-            const aggregatedValue = calculateAggregatedValue(weekTotal, weekCount, lastValue, aggregationType);
             weeklyData.push({
                 ...item,
                 date: currentWeek.format('YYYY-MM-DD'),
-                [fieldName]: aggregatedValue
+                [fieldName]: calculateAggregatedValue(weekTotal, weekCount, lastValue, aggregationType)
             } as T);
         }
     });
@@ -660,11 +602,10 @@ const aggregateByMonth = <T extends {date: string}>(data: T[], fieldName: keyof 
             monthCount += 1;
             lastValue = Number(item[fieldName]);
         } else {
-            const aggregatedValue = calculateAggregatedValue(monthTotal, monthCount, lastValue, aggregationType);
             monthlyData.push({
                 ...data[index - 1],
                 date: currentMonth.format('YYYY-MM-DD'),
-                [fieldName]: aggregatedValue
+                [fieldName]: calculateAggregatedValue(monthTotal, monthCount, lastValue, aggregationType)
             } as T);
 
             currentMonth = itemDate.startOf('month');
@@ -674,11 +615,10 @@ const aggregateByMonth = <T extends {date: string}>(data: T[], fieldName: keyof 
         }
 
         if (index === data.length - 1) {
-            const aggregatedValue = calculateAggregatedValue(monthTotal, monthCount, lastValue, aggregationType);
             monthlyData.push({
                 ...item,
                 date: currentMonth.format('YYYY-MM-DD'),
-                [fieldName]: aggregatedValue
+                [fieldName]: calculateAggregatedValue(monthTotal, monthCount, lastValue, aggregationType)
             } as T);
         }
     });
@@ -712,18 +652,6 @@ export const sanitizeChartData = <T extends {date: string}>(data: T[], range: nu
     return data;
 };
 
-/** @internal Check if should show hours only */
-const shouldShowHoursOnly = (range: number, hoursOnly: boolean): boolean => range === 1 && hoursOnly;
-
-/** @internal Check if should show hours with date */
-const shouldShowHoursWithDate = (range: number, showHours: boolean): boolean => range === 1 && showHours;
-
-/** @internal Check if should show month and year only */
-const shouldShowMonthYear = (range: number): boolean => range > 365;
-
-/** @internal Check if should show week format */
-const shouldShowWeekFormat = (range: number): boolean => range >= 91;
-
 /**
  * Formats a date based on the range
  * - For ranges above 365 days: shows month and year (e.g. "Apr 2025")
@@ -731,22 +659,18 @@ const shouldShowWeekFormat = (range: number): boolean => range >= 91;
  * - For other ranges: uses the default formatDisplayDate
  */
 export const formatDisplayDateWithRange = (date: string, range: number, showHours: boolean = false, hoursOnly: boolean = false): string => {
-    if (shouldShowHoursOnly(range, hoursOnly)) {
+    if (range === 1 && hoursOnly) {
         return moment(date).format('h:mma');
     }
-
-    if (shouldShowHoursWithDate(range, showHours)) {
+    if (range === 1 && showHours) {
         return moment(date).format('MMM D, h:mma');
     }
-
-    if (shouldShowMonthYear(range)) {
+    if (range > 365) {
         return moment(date).format('MMM YYYY');
     }
-
-    if (shouldShowWeekFormat(range)) {
+    if (range >= 91) {
         return `Week of ${formatDisplayDate(date)}`;
     }
-
     return formatDisplayDate(date);
 };
 

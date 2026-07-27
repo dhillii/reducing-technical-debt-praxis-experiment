@@ -65,7 +65,9 @@ class PostsExporter {
             return this.#mapPostToExportRow(post, newsletters, labels, tiers, membersEnabled, membersTrackSources, paidMembersEnabled, trackOpens, trackClicks, hasNewslettersWithFeedback);
         });
 
-        this.#removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled);
+        if (mapped.length) {
+            this.#removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled);
+        }
 
         return mapped;
     }
@@ -86,7 +88,7 @@ class PostsExporter {
         }
 
         const feedbackEnabled = this.#isFeedbackEnabled(email, hasNewslettersWithFeedback);
-        const showEmailClickAnalytics = this.#shouldShowEmailClickAnalytics(trackClicks, email);
+        const showEmailClickAnalytics = trackClicks && email && email.get('track_clicks');
 
         return {
             id: post.get('id'),
@@ -128,13 +130,6 @@ class PostsExporter {
     }
 
     /**
-     * @private Check if email click analytics should be shown
-     */
-    #shouldShowEmailClickAnalytics(trackClicks, email) {
-        return trackClicks && email && email.get('track_clicks');
-    }
-
-    /**
      * @private Get newsletter name for post
      */
     #getNewsletterName(newsletters, post, email) {
@@ -151,11 +146,13 @@ class PostsExporter {
      * @private Remove unused columns from mapped data
      */
     #removeUnusedColumns(mapped, newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled) {
-        if (!mapped.length) {
-            return;
+        const removeableColumns = [];
+
+        if (newsletters.length <= 1) {
+            removeableColumns.push('newsletter_name');
         }
 
-        const removeableColumns = this.#buildRemoveableColumns(newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled);
+        this.#addMembersRelatedColumns(removeableColumns, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled);
 
         for (const columnToRemove of removeableColumns) {
             for (const row of mapped) {
@@ -165,36 +162,31 @@ class PostsExporter {
     }
 
     /**
-     * @private Build list of columns to remove
+     * @private Add members-related columns to removal list
      */
-    #buildRemoveableColumns(newsletters, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled) {
-        const removeableColumns = [];
-
-        if (newsletters.length <= 1) {
-            removeableColumns.push('newsletter_name');
-        }
-
+    #addMembersRelatedColumns(removeableColumns, membersEnabled, hasNewslettersWithFeedback, trackClicks, trackOpens, membersTrackSources, paidMembersEnabled) {
         if (!membersEnabled) {
             removeableColumns.push('email_recipients', 'sends', 'opens', 'clicks', 'feedback_more_like_this', 'feedback_less_like_this');
-        } else if (!hasNewslettersWithFeedback) {
+            return;
+        }
+
+        if (!hasNewslettersWithFeedback) {
             removeableColumns.push('feedback_more_like_this', 'feedback_less_like_this');
         }
 
-        if (membersEnabled && !trackClicks) {
+        if (!trackClicks) {
             removeableColumns.push('clicks');
         }
 
-        if (membersEnabled && !trackOpens) {
+        if (!trackOpens) {
             removeableColumns.push('opens');
         }
 
-        if (!membersTrackSources || !membersEnabled) {
+        if (!membersTrackSources) {
             removeableColumns.push('signups', 'paid_conversions');
         } else if (!paidMembersEnabled) {
             removeableColumns.push('paid_conversions');
         }
-
-        return removeableColumns;
     }
 
     mapPostStatus(status, hasEmail) {
@@ -219,7 +211,6 @@ class PostsExporter {
 
     postAccessToString(post) {
         const visibility = post.get('visibility');
-
         if (visibility === 'public') {
             return 'Public';
         }
@@ -233,16 +224,16 @@ class PostsExporter {
         }
 
         if (visibility === 'tiers') {
-            return this.#getTierAccessString(post);
+            return this.#getTiersAccessString(post);
         }
 
         return visibility;
     }
 
     /**
-     * @private Get tier access string
+     * @private Get tiers access string
      */
-    #getTierAccessString(post) {
+    #getTiersAccessString(post) {
         const tiers = post.related('tiers');
         if (tiers.length === 0) {
             return 'Specific tiers: none';
@@ -258,6 +249,7 @@ class PostsExporter {
      * @returns
      */
     humanReadableEmailRecipientFilter(recipientFilter, allLabels, allTiers) {
+        // Examples: "label:test"; "label:test,label:batch1"; "status:-free,label:test", "all"
         if (recipientFilter === 'all') {
             return 'All subscribers';
         }
@@ -280,19 +272,16 @@ class PostsExporter {
      */
     filterToString(filter, allLabels, allTiers) {
         const strings = [];
-
         if (filter.$and) {
-            return strings;
-        }
-
-        if (filter.$or) {
+            // Not supported
+        } else if (filter.$or) {
             for (const subfilter of filter.$or) {
                 strings.push(...this.filterToString(subfilter, allLabels, allTiers));
             }
-            return strings;
+        } else {
+            this.#processFilterKeys(filter, allLabels, allTiers, strings);
         }
 
-        this.#processFilterKeys(filter, allLabels, allTiers, strings);
         return strings;
     }
 
@@ -318,8 +307,9 @@ class PostsExporter {
         if (typeof labelFilter !== 'string') {
             return;
         }
-        const label = allLabels.find(l => l.get('slug') === labelFilter);
-        strings.push(label ? label.get('name') : labelFilter);
+        const labelSlug = labelFilter;
+        const label = allLabels.find(l => l.get('slug') === labelSlug);
+        strings.push(label ? label.get('name') : labelSlug);
     }
 
     /**
@@ -329,8 +319,9 @@ class PostsExporter {
         if (typeof tierFilter !== 'string') {
             return;
         }
-        const tier = allTiers.find(l => l.get('slug') === tierFilter);
-        strings.push(tier ? tier.get('name') : tierFilter);
+        const tierSlug = tierFilter;
+        const tier = allTiers.find(l => l.get('slug') === tierSlug);
+        strings.push(tier ? tier.get('name') : tierSlug);
     }
 
     /**

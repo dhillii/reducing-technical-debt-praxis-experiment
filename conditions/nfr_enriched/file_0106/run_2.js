@@ -253,7 +253,7 @@ Runnable.prototype.globals = function (globals) {
 };
 
 /**
- * Handle multiple calls to done callback.
+ * Handle multiple done() calls.
  *
  * @api private
  * @param {Error} err
@@ -303,7 +303,7 @@ function createDoneCallback (self, start, fn) {
 }
 
 /**
- * Create async skip function for explicit async context.
+ * Create async skip function.
  *
  * @api private
  * @param {Function} done
@@ -317,16 +317,14 @@ function createAsyncSkip (done) {
 }
 
 /**
- * Execute function with context and handle promise result.
+ * Handle promise result from synchronous function.
  *
  * @api private
- * @param {Function} fn
- * @param {Object} ctx
- * @param {Function} done
+ * @param {*} result
  * @param {Runnable} self
+ * @param {Function} done
  */
-function callFn (fn, ctx, done, self) {
-  const result = fn.call(ctx);
+function handlePromiseResult (result, self, done) {
   if (result && typeof result.then === 'function') {
     self.resetTimeout();
     result
@@ -346,14 +344,29 @@ function callFn (fn, ctx, done, self) {
 }
 
 /**
- * Execute async function with done callback.
+ * Execute synchronous test function.
  *
  * @api private
  * @param {Function} fn
- * @param {Object} ctx
+ * @param {Runnable} self
+ * @param {*} ctx
  * @param {Function} done
  */
-function callFnAsync (fn, ctx, done) {
+function callFn (fn, self, ctx, done) {
+  const result = fn.call(ctx);
+  handlePromiseResult(result, self, done);
+}
+
+/**
+ * Execute asynchronous test function with done callback.
+ *
+ * @api private
+ * @param {Function} fn
+ * @param {*} ctx
+ * @param {Function} done
+ * @param {Runnable} self
+ */
+function callFnAsync (fn, ctx, done, self) {
   const result = fn.call(ctx, function (err) {
     if (err instanceof Error || toString.call(err) === '[object Error]') {
       return done(err);
@@ -374,57 +387,20 @@ function callFnAsync (fn, ctx, done) {
 }
 
 /**
- * Execute synchronous test with error handling.
+ * Execute test with uncaught exception handling.
  *
  * @api private
- * @param {Runnable} self
+ * @param {Function} executeFn
  * @param {Function} done
+ * @param {Runnable} self
  */
-function executeSyncTest (self, done) {
+function executeWithErrorHandling (executeFn, done, self) {
+  let emitted = false;
   try {
-    if (self.isPending()) {
-      done();
-    } else {
-      callFn(self.fn, self.ctx, done, self);
-    }
+    executeFn();
   } catch (err) {
+    emitted = true;
     done(utils.getError(err));
-  }
-}
-
-/**
- * Execute asynchronous test with error handling.
- *
- * @api private
- * @param {Runnable} self
- * @param {Function} done
- */
-function executeAsyncTest (self, done) {
-  self.resetTimeout();
-  self.skip = createAsyncSkip(done);
-
-  if (self.allowUncaught) {
-    return callFnAsync(self.fn, self.ctx, done);
-  }
-  try {
-    callFnAsync(self.fn, self.ctx, done);
-  } catch (err) {
-    done(utils.getError(err));
-  }
-}
-
-/**
- * Execute test allowing uncaught exceptions.
- *
- * @api private
- * @param {Runnable} self
- * @param {Function} done
- */
-function executeUncaughtTest (self, done) {
-  if (self.isPending()) {
-    done();
-  } else {
-    callFn(self.fn, self.ctx, done, self);
   }
 }
 
@@ -444,22 +420,44 @@ Runnable.prototype.run = function (fn) {
     ctx.runnable(this);
   }
 
-  const done = createDoneCallback(this, start, fn);
+  const done = createDoneCallback(self, start, fn);
 
   // for .resetTimeout()
   this.callback = done;
 
   // explicit async with `done` argument
   if (this.async) {
-    executeAsyncTest(this, done);
+    this.resetTimeout();
+
+    // allows skip() to be used in an explicit async context
+    this.skip = createAsyncSkip(done);
+
+    if (this.allowUncaught) {
+      callFnAsync(this.fn, ctx, done, self);
+      return;
+    }
+
+    executeWithErrorHandling(function () {
+      callFnAsync(self.fn, ctx, done, self);
+    }, done, self);
     return;
   }
 
   if (this.allowUncaught) {
-    executeUncaughtTest(this, done);
+    if (this.isPending()) {
+      done();
+    } else {
+      callFn(this.fn, self, ctx, done);
+    }
     return;
   }
 
   // sync or promise-returning
-  executeSyncTest(this, done);
+  executeWithErrorHandling(function () {
+    if (self.isPending()) {
+      done();
+    } else {
+      callFn(self.fn, self, ctx, done);
+    }
+  }, done, self);
 };

@@ -9,55 +9,6 @@ import pluginId from '../../pluginId';
 import stepper from './stepper';
 import useModalContext from '../../hooks/useModalContext';
 
-// Helper function to show confirmation dialog
-const showConfirmDialog = (message) => {
-  return globalThis.confirm(message);
-};
-
-// Helper function to extract error message from response
-const extractErrorMessage = (err, fallback) => {
-  const status = get(err, 'response.status', get(err, 'status', null));
-  const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
-  const errorMessage = get(
-    err,
-    ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
-    get(err, ['response', 'payload', 'message'], statusText)
-  );
-  return { status, errorMessage: errorMessage || fallback };
-};
-
-// Helper function to handle file deletion request
-const deleteFileRequest = async (fileId) => {
-  const requestURL = getRequestUrl(`files/${fileId}`);
-  return request(requestURL, { method: 'DELETE' });
-};
-
-// Helper function to handle file edit submission request
-const submitFileEditRequest = async (shouldDuplicateMedia, fileToEdit, file, fileInfo) => {
-  const { abortController, id } = fileToEdit;
-  const requestURL = shouldDuplicateMedia ? `/${pluginId}` : `/${pluginId}?id=${id}`;
-  const formData = new FormData();
-  const didCropFile = file instanceof File;
-
-  if (didCropFile) {
-    formData.append('files', file);
-  }
-
-  formData.append('fileInfo', JSON.stringify(fileInfo));
-
-  return request(
-    requestURL,
-    {
-      method: 'POST',
-      headers: {},
-      body: formData,
-      signal: abortController.signal,
-    },
-    false,
-    false
-  );
-};
-
 const InputModalStepper = ({
   allowedActions,
   isOpen,
@@ -117,6 +68,39 @@ const InputModalStepper = ({
   const filesToUploadLength = filesToUpload.length;
   const editModalRef = useRef();
 
+  // Confirm user action with a dialog
+  const confirmUserAction = (messageId) => {
+    return globalThis.confirm(formatMessage({ id: messageId }));
+  };
+
+  // Check if user should confirm before leaving upload step with pending files
+  const shouldConfirmUploadStepExit = () => {
+    const hasFilesToUpload = !isEmpty(filesToUpload);
+    return hasFilesToUpload && !confirmUserAction(getTrad('window.confirm.close-modal.files'));
+  };
+
+  // Check if user should confirm before leaving browse step with pending files
+  const shouldConfirmBrowseStepExit = () => {
+    const hasFilesToUpload = !isEmpty(filesToUpload);
+    return elementName === 'backButton' && backButtonDestination && currentStep === 'browse' && hasFilesToUpload;
+  };
+
+  // Handle navigation from upload step
+  const handleUploadStepNavigation = () => {
+    if (shouldConfirmUploadStepExit()) {
+      return false;
+    }
+    goTo(backButtonDestination);
+    handleClearFilesToUploadAndDownload();
+    return true;
+  };
+
+  // Handle navigation from browse step
+  const handleBrowseStepNavigation = () => {
+    goTo(backButtonDestination);
+    return true;
+  };
+
   const handleReplaceMedia = () => {
     emitEvent('didReplaceMedia', { location: 'upload' });
     editModalRef.current.click();
@@ -138,9 +122,23 @@ const InputModalStepper = ({
     goNext();
   };
 
-  const goToList = () => {
-    fetchMediaLib();
-    goTo('list');
+  const goBack = (elementName = null) => {
+    // Redirect the user to the list modal from the upload one
+    if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
+      if (!handleUploadStepNavigation()) {
+        return;
+      }
+      return;
+    }
+
+    if (shouldConfirmBrowseStepExit()) {
+      if (!handleBrowseStepNavigation()) {
+        return;
+      }
+      return;
+    }
+
+    goTo(prev);
   };
 
   const goNext = () => {
@@ -148,62 +146,20 @@ const InputModalStepper = ({
       onToggle();
       return;
     }
+
     goTo(next);
   };
 
-  // Handle back navigation from upload step
-  const handleBackFromUpload = () => {
-    const hasFilesToUpload = !isEmpty(filesToUpload);
-
-    if (hasFilesToUpload) {
-      const confirmMessage = formatMessage({ id: getTrad('window.confirm.close-modal.files') });
-      const confirm = showConfirmDialog(confirmMessage);
-
-      if (!confirm) {
-        return false;
-      }
-    }
-
-    goTo(backButtonDestination);
-    handleClearFilesToUploadAndDownload();
-    return true;
-  };
-
-  // Handle back navigation from browse step
-  const handleBackFromBrowse = () => {
-    const hasFilesToUpload = !isEmpty(filesToUpload);
-
-    if (hasFilesToUpload) {
-      goTo(backButtonDestination);
-      return true;
-    }
-
-    return false;
-  };
-
-  const goBack = (elementName = null) => {
-    if (elementName === 'backButton' && backButtonDestination && currentStep === 'upload') {
-      handleBackFromUpload();
-      return;
-    }
-
-    if (
-      elementName === 'backButton' &&
-      backButtonDestination &&
-      currentStep === 'browse'
-    ) {
-      handleBackFromBrowse();
-      return;
-    }
-
-    goTo(prev);
+  const goToList = () => {
+    fetchMediaLib();
+    goTo('list');
   };
 
   const handleClickDeleteFile = async () => {
     toggleModalWarning();
   };
 
-  const handleClickDeleteFileToUpload = (fileIndex) => {
+  const handleClickDeleteFileToUpload = fileIndex => {
     handleRemoveFileToUpload(fileIndex);
 
     if (currentStep === 'edit-new') {
@@ -227,43 +183,132 @@ const InputModalStepper = ({
     goBack();
   };
 
-  const handleSubmitEditNewFile = (e) => {
+  const handleSubmitEditNewFile = e => {
     e.preventDefault();
     submitEditNewFile();
     goNext();
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = e => {
     e.preventDefault();
     onInputMediaChange(multiple ? selectedFiles : selectedFiles[0]);
     goNext();
   };
 
+  // Extract error message from response
+  const extractErrorMessage = (err, statusText) => {
+    return get(
+      err,
+      ['response', 'payload', 'message', '0', 'messages', '0', 'message'],
+      get(err, ['response', 'payload', 'message'], statusText)
+    );
+  };
+
+  // Handle file deletion request
+  const performFileDelete = async (fileId) => {
+    const requestURL = getRequestUrl(`files/${fileId}`);
+    await request(requestURL, { method: 'DELETE' });
+  };
+
+  // Handle successful file deletion
+  const handleFileDeleteSuccess = (fileId) => {
+    setShouldDeleteFile(false);
+    handleFileSelection({ target: { name: fileId } });
+    goToList();
+  };
+
+  // Handle file deletion error
+  const handleFileDeleteError = (err) => {
+    console.error(err);
+    const status = get(err, 'response.status', get(err, 'status', null));
+    const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
+    const errorMessage = extractErrorMessage(err, statusText);
+    
+    strapi.notification.toggle({
+      type: 'warning',
+      message: errorMessage,
+    });
+
+    if (status) {
+      handleSetFileToEditError(errorMessage);
+    }
+  };
+
   const handleCloseModalWarning = async () => {
-    if (!shouldDeleteFile) {
+    if (shouldDeleteFile) {
+      const { id } = fileToEdit;
+
+      try {
+        await performFileDelete(id);
+        handleFileDeleteSuccess(id);
+      } catch (err) {
+        handleFileDeleteError(err);
+      }
+    }
+  };
+
+  // Check if user should confirm before closing modal with unsaved changes
+  const shouldConfirmModalClose = () => {
+    const hasFilesToUpload = !isEmpty(filesToUpload);
+    if (hasFilesToUpload) {
+      return !confirmUserAction(getTrad('window.confirm.close-modal.files'));
+    }
+
+    if (
+      (currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles)) ||
+      (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
+      (currentStep === 'edit' && selectedFiles.length > 0)
+    ) {
+      return !confirmUserAction(getTrad('window.confirm.close-modal.file'));
+    }
+
+    return false;
+  };
+
+  const handleToggle = () => {
+    if (shouldConfirmModalClose()) {
       return;
     }
 
-    const { id } = fileToEdit;
+    onToggle(true);
+  };
 
-    try {
-      await deleteFileRequest(id);
-      setShouldDeleteFile(false);
-      handleFileSelection({ target: { name: id } });
-      goToList();
-    } catch (err) {
-      console.error(err);
+  // Handle file edit submission
+  const performFileEditSubmission = async (
+    formData,
+    requestURL,
+    abortSignal
+  ) => {
+    return await request(
+      requestURL,
+      {
+        method: 'POST',
+        headers: {},
+        body: formData,
+        signal: abortSignal,
+      },
+      false,
+      false
+    );
+  };
 
-      const { status, errorMessage } = extractErrorMessage(err, null);
+  // Handle file edit success
+  const handleFileEditSuccess = (editedFile) => {
+    handleEditExistingFile(editedFile);
+    goToList();
+  };
 
-      globalThis.strapi.notification.toggle({
-        type: 'warning',
-        message: errorMessage,
-      });
+  // Handle file edit error
+  const handleFileEditError = (err, status) => {
+    const statusText = get(err, 'response.statusText', get(err, 'statusText', null));
+    let errorMessage = extractErrorMessage(err, statusText);
 
-      if (status) {
-        handleSetFileToEditError(errorMessage);
-      }
+    if (status === 413) {
+      errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
+    }
+
+    if (status) {
+      handleSetFileToEditError(errorMessage);
     }
   };
 
@@ -274,6 +319,7 @@ const InputModalStepper = ({
     isSubmittingAfterCrop = false
   ) => {
     e.preventDefault();
+
     submitEditExistingFile();
 
     if (isSubmittingAfterCrop) {
@@ -283,67 +329,28 @@ const InputModalStepper = ({
       });
     }
 
-    const { fileInfo } = fileToEdit;
+    const formData = new FormData();
+    const didCropFile = file instanceof File;
+    const { abortController, id, fileInfo } = fileToEdit;
+    const requestURL = shouldDuplicateMedia ? `/${pluginId}` : `/${pluginId}?id=${id}`;
+
+    if (didCropFile) {
+      formData.append('files', file);
+    }
+
+    formData.append('fileInfo', JSON.stringify(fileInfo));
 
     try {
-      const editedFile = await submitFileEditRequest(
-        shouldDuplicateMedia,
-        fileToEdit,
-        file,
-        fileInfo
+      const editedFile = await performFileEditSubmission(
+        formData,
+        requestURL,
+        abortController.signal
       );
-
-      handleEditExistingFile(editedFile);
-      goToList();
+      handleFileEditSuccess(editedFile);
     } catch (err) {
-      const { status, errorMessage: baseErrorMessage } = extractErrorMessage(err, null);
-      let errorMessage = baseErrorMessage;
-
-      if (status === 413) {
-        errorMessage = formatMessage({ id: 'app.utils.errors.file-too-big.message' });
-      }
-
-      if (status) {
-        handleSetFileToEditError(errorMessage);
-      }
+      const status = get(err, 'response.status', get(err, 'status', null));
+      handleFileEditError(err, status);
     }
-  };
-
-  // Check if user has unsaved changes in list view
-  const hasUnsavedChangesInList = () => {
-    return currentStep === 'list' && !isEqual(selectedFiles, initialSelectedFiles);
-  };
-
-  // Check if user has unsaved changes in edit view
-  const hasUnsavedChangesInEdit = () => {
-    return (
-      (currentStep === 'edit' && initialFileToEdit && !isEqual(fileToEdit, initialFileToEdit)) ||
-      (currentStep === 'edit' && selectedFiles.length > 0)
-    );
-  };
-
-  const handleToggle = () => {
-    const hasFilesToUpload = !isEmpty(filesToUpload);
-
-    if (hasFilesToUpload) {
-      const confirmMessage = formatMessage({ id: getTrad('window.confirm.close-modal.files') });
-      const confirm = showConfirmDialog(confirmMessage);
-
-      if (!confirm) {
-        return;
-      }
-    }
-
-    if (hasUnsavedChangesInList() || hasUnsavedChangesInEdit()) {
-      const confirmMessage = formatMessage({ id: getTrad('window.confirm.close-modal.file') });
-      const confirm = showConfirmDialog(confirmMessage);
-
-      if (!confirm) {
-        return;
-      }
-    }
-
-    onToggle(true);
   };
 
   const shouldDisplayNextButton = currentStep === 'browse' && displayNextButton;

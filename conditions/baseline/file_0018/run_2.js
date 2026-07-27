@@ -198,7 +198,7 @@ export default class OfferPage extends React.Component {
         let showNameField = !!portalName;
 
         /** Hide name field for logged in member if empty */
-        if (member && !member?.name) {
+        if (!!member && !member?.name) {
             showNameField = false;
         }
 
@@ -216,7 +216,7 @@ export default class OfferPage extends React.Component {
             });
         }
         fields[0].autoFocus = true;
-        if (fieldNames?.length > 0) {
+        if (fieldNames && fieldNames.length > 0) {
             return fields.filter((f) => {
                 return fieldNames.includes(f.name);
             });
@@ -226,7 +226,7 @@ export default class OfferPage extends React.Component {
 
     renderSignupTerms() {
         const {site} = this.context;
-        if (!site.portal_signup_terms_html) {
+        if (site.portal_signup_terms_html === null || site.portal_signup_terms_html === '') {
             return null;
         }
 

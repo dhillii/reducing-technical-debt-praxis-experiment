@@ -239,13 +239,41 @@ class Compilation extends Tapable {
 				dependencies: dependencies
 			}, function factoryCallback(err, dependentModule) {
 				if(err) {
-					return _this.handleFactoryError(err, dependencies, module, bail, errorAndCallback, warningAndCallback);
+					const isOptional = dependencies.filter(d => !d.optional).length === 0;
+					const error = new ModuleNotFoundError(module, err, dependencies);
+					if(isOptional) {
+						return warningAndCallback(error);
+					} else {
+						return errorAndCallback(error);
+					}
 				}
 				if(!dependentModule) {
 					return process.nextTick(callback);
 				}
 
-				_this.handleNewModule(dependentModule, module, dependencies, cacheGroup, recursive, callback, start);
+				let afterFactory;
+				if(_this.profile) {
+					if(!dependentModule.profile) {
+						dependentModule.profile = {};
+					}
+					afterFactory = Date.now();
+					dependentModule.profile.factory = afterFactory - start;
+				}
+
+				dependentModule.issuer = module;
+				const newModule = _this.addModule(dependentModule, cacheGroup);
+
+				if(!newModule) {
+					_this.handleCachedModule(dependentModule, dependencies, module, start, afterFactory, callback);
+					return;
+				}
+
+				if(newModule instanceof Module) {
+					_this.handleNewModule(newModule, dependentModule, dependencies, module, start, afterFactory, recursive, callback);
+					return;
+				}
+
+				_this.handleBuildModule(dependentModule, dependencies, module, start, afterFactory, recursive, callback, warningAndCallback, errorAndCallback);
 			});
 		}, function finalCallbackAddModuleDependencies(err) {
 			_this = null;
@@ -258,38 +286,7 @@ class Compilation extends Tapable {
 		});
 	}
 
-	handleFactoryError(err, dependencies, module, bail, errorAndCallback, warningAndCallback) {
-		const isOptional = dependencies.filter(d => !d.optional).length === 0;
-		if(isOptional) {
-			return warningAndCallback(new ModuleNotFoundError(module, err, dependencies));
-		} else {
-			return errorAndCallback(new ModuleNotFoundError(module, err, dependencies));
-		}
-	}
-
-	handleNewModule(dependentModule, module, dependencies, cacheGroup, recursive, callback, start) {
-		if(this.profile) {
-			if(!dependentModule.profile) {
-				dependentModule.profile = {};
-			}
-			dependentModule.profile.factory = Date.now() - start;
-		}
-
-		dependentModule.issuer = module;
-		const newModule = this.addModule(dependentModule, cacheGroup);
-
-		if(!newModule) {
-			return this.handleCachedModule(dependentModule, module, dependencies, callback, start);
-		}
-
-		if(newModule instanceof Module) {
-			return this.handleNewModuleInstance(newModule, dependentModule, module, dependencies, recursive, callback, start);
-		}
-
-		return this.handleBuildModule(dependentModule, module, dependencies, recursive, callback, start);
-	}
-
-	handleCachedModule(dependentModule, module, dependencies, callback, start) {
+	handleCachedModule(dependentModule, dependencies, module, start, afterFactory, callback) {
 		dependentModule = this.getModule(dependentModule);
 
 		const isOptional = dependencies.filter(d => !d.optional).length === 0;
@@ -297,7 +294,7 @@ class Compilation extends Tapable {
 			dependentModule.optional = isOptional;
 		}
 
-		this.iterationDependencies(dependencies, dependentModule);
+		this.iterationDependencies(dependentModule, dependencies, module);
 
 		if(this.profile) {
 			if(!module.profile) {
@@ -312,7 +309,7 @@ class Compilation extends Tapable {
 		return process.nextTick(callback);
 	}
 
-	handleNewModuleInstance(newModule, dependentModule, module, dependencies, recursive, callback, start) {
+	handleNewModule(newModule, dependentModule, dependencies, module, start, afterFactory, recursive, callback) {
 		if(this.profile) {
 			newModule.profile = dependentModule.profile;
 		}
@@ -320,43 +317,40 @@ class Compilation extends Tapable {
 		const isOptional = dependencies.filter(d => !d.optional).length === 0;
 		newModule.optional = isOptional;
 		newModule.issuer = dependentModule.issuer;
+		dependentModule = newModule;
 
-		this.iterationDependencies(dependencies, newModule);
+		this.iterationDependencies(dependentModule, dependencies, module);
 
 		if(this.profile) {
 			const afterBuilding = Date.now();
-			module.profile.building = afterBuilding - (newModule.profile.factory || 0);
+			module.profile.building = afterBuilding - afterFactory;
 		}
 
 		if(recursive) {
-			return process.nextTick(this.processModuleDependencies.bind(this, newModule, callback));
+			return process.nextTick(this.processModuleDependencies.bind(this, dependentModule, callback));
 		} else {
 			return process.nextTick(callback);
 		}
 	}
 
-	handleBuildModule(dependentModule, module, dependencies, recursive, callback, start) {
+	handleBuildModule(dependentModule, dependencies, module, start, afterFactory, recursive, callback, warningAndCallback, errorAndCallback) {
 		const isOptional = dependencies.filter(d => !d.optional).length === 0;
 		dependentModule.optional = isOptional;
 
-		this.iterationDependencies(dependencies, dependentModule);
+		this.iterationDependencies(dependentModule, dependencies, module);
 
 		this.buildModule(dependentModule, isOptional, module, dependencies, err => {
 			if(err) {
-				const isOpt = dependencies.filter(d => !d.optional).length === 0;
-				if(isOpt) {
-					err.origin = module;
-					this.warnings.push(err);
+				if(isOptional) {
+					return warningAndCallback(err);
 				} else {
-					err.origin = module;
-					this.errors.push(err);
+					return errorAndCallback(err);
 				}
-				return callback();
 			}
 
 			if(this.profile) {
 				const afterBuilding = Date.now();
-				dependentModule.profile.building = afterBuilding - (dependentModule.profile.factory || 0);
+				dependentModule.profile.building = afterBuilding - afterFactory;
 			}
 
 			if(recursive) {
@@ -367,11 +361,11 @@ class Compilation extends Tapable {
 		});
 	}
 
-	iterationDependencies(dependencies, dependentModule) {
+	iterationDependencies(dependentModule, dependencies, module) {
 		for(let index = 0; index < dependencies.length; index++) {
 			const dep = dependencies[index];
 			dep.module = dependentModule;
-			dependentModule.addReason(this.module, dep);
+			dependentModule.addReason(module, dep);
 		}
 	}
 

@@ -103,7 +103,9 @@ internals.Auth.prototype._setupRoute = function (options, path) {
         delete options.strategy;
     }
 
-    if (path && !options.strategies) {
+    if (path &&
+        !options.strategies) {
+
         Hoek.assert(this.settings.default, 'Route missing authentication strategy and no default defined:', path);
         options = Hoek.applyToDefaults(this.settings.default, options);
     }
@@ -113,26 +115,13 @@ internals.Auth.prototype._setupRoute = function (options, path) {
 
     options.mode = options.mode || 'required';
 
-    internals.normalizeAccessOptions(options);
-    internals.validateAccessScopes(options);
-    internals.normalizePayloadOption(options);
-    internals.validateStrategiesPayload(options, path, this._strategies);
+    if (options.entity !== undefined ||                                             // Backwards compatibility with <= 11.x.x
+        options.scope !== undefined) {
 
-    return options;
-};
-
-
-internals.normalizeAccessOptions = function (options) {
-
-    if (options.entity !== undefined || options.scope !== undefined) {
         options.access = [{ entity: options.entity, scope: options.scope }];
         delete options.entity;
         delete options.scope;
     }
-};
-
-
-internals.validateAccessScopes = function (options) {
 
     if (options.access) {
         for (let i = 0; i < options.access.length; ++i) {
@@ -140,23 +129,15 @@ internals.validateAccessScopes = function (options) {
             access.scope = internals.setupScope(access);
         }
     }
-};
-
-
-internals.normalizePayloadOption = function (options) {
 
     if (options.payload === true) {
         options.payload = 'required';
     }
-};
-
-
-internals.validateStrategiesPayload = function (options, path, strategies) {
 
     let hasAuthenticatePayload = false;
     for (let i = 0; i < options.strategies.length; ++i) {
         const name = options.strategies[i];
-        const strategy = strategies[name];
+        const strategy = this._strategies[name];
         Hoek.assert(strategy, 'Unknown authentication strategy', name, 'in', path);
 
         Hoek.assert(strategy.methods.payload || options.payload !== 'required', 'Payload validation can only be required when all strategies support it in', path);
@@ -165,6 +146,8 @@ internals.validateStrategiesPayload = function (options, path, strategies) {
     }
 
     Hoek.assert(!options.payload || hasAuthenticatePayload, 'Payload authentication requires at least one strategy with payload support in', path);
+
+    return options;
 };
 
 
@@ -389,7 +372,7 @@ internals.Authenticator = class {
         // Unauthenticated
 
         if (err) {
-            return this.handleError(err, result, name, next);
+            return this.handleError(err, result, config, request, name, next);
         }
 
         // Authenticated
@@ -417,10 +400,7 @@ internals.Authenticator = class {
         return next(error.err);
     }
 
-    handleError(err, result, name, next) {
-
-        const config = this.config;
-        const request = this.request;
+    handleError(err, result, config, request, name, next) {
 
         if (err instanceof Error === false) {
             request._log(['auth', 'unauthenticated', 'response', name], err.statusCode);
@@ -428,6 +408,9 @@ internals.Authenticator = class {
         }
 
         if (err.isMissing) {
+
+            // Try next name
+
             request._log(['auth', 'unauthenticated', 'missing', name], err);
             this.errors.push(err.output.headers['WWW-Authenticate']);
             return this.execute(next);
@@ -461,59 +444,65 @@ internals.access = function (request, config, credentials, name) {
     for (let i = 0; i < config.access.length; ++i) {
         const access = config.access[i];
 
-        if (internals.checkAccessEntity(access, requestEntity)) {
-            continue;
+        const accessResult = internals.checkAccess(request, access, credentials);
+        if (accessResult === null) {
+            return null;
         }
 
-        const scopeCheck = internals.checkAccessScope(credentials, access);
-        if (scopeCheck.failed) {
-            scopeErrors.push(scopeCheck.scope);
-            continue;
+        if (accessResult !== undefined) {
+            scopeErrors.push(accessResult);
         }
-
-        return null;
     }
 
     return internals.buildAccessError(requestEntity, scopeErrors, name);
 };
 
 
-internals.checkAccessEntity = function (access, requestEntity) {
+internals.checkAccess = function (request, access, credentials) {
+
+    // Check entity
 
     const entity = access.entity;
-    return entity && entity !== 'any' && entity !== requestEntity;
-};
+    if (entity &&
+        entity !== 'any' &&
+        entity !== (credentials.user ? 'user' : 'app')) {
 
+        return undefined;
+    }
 
-internals.checkAccessScope = function (credentials, access) {
+    // Check scope
 
     let scope = access.scope;
     if (!scope) {
-        return { failed: false };
+        return null;
     }
 
     if (!credentials.scope) {
-        return { failed: true, scope };
+        return scope;
     }
 
-    scope = internals.expandScope(null, scope);
+    scope = internals.expandScope(request, scope);
     if (!internals.validateScope(credentials, scope, 'required') ||
         !internals.validateScope(credentials, scope, 'selection') ||
         !internals.validateScope(credentials, scope, 'forbidden')) {
 
-        return { failed: true, scope };
+        return scope;
     }
 
-    return { failed: false };
+    return null;
 };
 
 
 internals.buildAccessError = function (requestEntity, scopeErrors, name) {
 
+    // Scope error
+
     if (scopeErrors.length) {
-        const data = { got: null, need: scopeErrors };
+        const data = { got: undefined, need: scopeErrors };
         return { err: Boom.forbidden('Insufficient scope', data), tags: ['auth', 'scope', 'error', name], data };
     }
+
+    // Entity error
 
     if (requestEntity === 'app') {
         return { err: Boom.forbidden('Application credentials cannot be used on a user endpoint'), tags: ['auth', 'entity', 'user', 'error', name] };

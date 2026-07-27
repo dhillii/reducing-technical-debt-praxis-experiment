@@ -1,3 +1,11 @@
+/**
+ * Copyright (C) 2015 Laverna project Authors.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+/* global define */
 define([
     'underscore',
     'q',
@@ -6,6 +14,24 @@ define([
 ], function(_, Q, Marionette, Radio) {
     'use strict';
 
+    /**
+     * Collection object from which other collection objects extend.
+     *
+     * For default it
+     *
+     * replies to the following requests:
+     * 1. save            - save model changes
+     * 2. save:collection - save all collection changes
+     * 3. save:all:raw    - saves several objects
+     * 4. fetch           - fetches models from the database
+     * 5. get:model       - returns a specific model
+     * 6. get:all         - returns a collection
+     * 7. remove          - removes a model
+     *
+     * and triggers the following events:
+     * 1. model:update    - after a model is updated or created
+     * 2. destroy:model   - after a model is removed
+     */
     const Module = Marionette.Object.extend({
         /**
          * @type object Backbone collection

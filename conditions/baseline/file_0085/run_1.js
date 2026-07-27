@@ -21,49 +21,46 @@ import type {
   FieldProps,
 } from '../../../../types'
 
-function validateInitialState(
-  value: Value,
-  isRequired: boolean,
-  fieldLabel: string
-): string | undefined {
-  if (value.kind === 'initial' && (value.isSet === null || value.isSet === true)) {
-    return undefined
-  }
-  if (value.kind === 'initial' && isRequired) {
-    return `${fieldLabel} is required`
-  }
-  return undefined
+function validateRequired(fieldLabel: string): string {
+  return `${fieldLabel} is required`
 }
 
-function validateEditingState(
-  value: string,
-  confirm: string,
+function validatePasswordMatch(): string {
+  return `The passwords do not match`
+}
+
+function validateMinLength(fieldLabel: string, minLength: number): string {
+  if (minLength === 1) {
+    return `${fieldLabel} must not be empty`
+  }
+  return `${fieldLabel} must be at least ${minLength} characters long`
+}
+
+function validateMaxLength(fieldLabel: string, maxLength: number): string {
+  return `${fieldLabel} must be no longer than ${maxLength} characters`
+}
+
+function validateCommonPassword(fieldLabel: string): string {
+  return `${fieldLabel} is too common and is not allowed`
+}
+
+function validateEditingValue(
+  val: string,
   validation: Validation,
   fieldLabel: string
 ): string | undefined {
-  if (confirm !== value) {
-    return `The passwords do not match`
+  if (val.length < validation.length.min) {
+    return validateMinLength(fieldLabel, validation.length.min)
   }
-
-  if (value.length < validation.length.min) {
-    if (validation.length.min === 1) {
-      return `${fieldLabel} must not be empty`
-    }
-    return `${fieldLabel} must be at least ${validation.length.min} characters long`
+  if (validation.length.max !== null && val.length > validation.length.max) {
+    return validateMaxLength(fieldLabel, validation.length.max)
   }
-
-  if (validation.length.max !== null && value.length > validation.length.max) {
-    return `${fieldLabel} must be no longer than ${validation.length.max} characters`
-  }
-
-  if (validation.match && !validation.match.regex.test(value)) {
+  if (validation.match && !validation.match.regex.test(val)) {
     return validation.match.explanation
   }
-
-  if (validation.rejectCommon && dumbPasswords.check(value)) {
-    return `${fieldLabel} is too common and is not allowed`
+  if (validation.rejectCommon && dumbPasswords.check(val)) {
+    return validateCommonPassword(fieldLabel)
   }
-
   return undefined
 }
 
@@ -73,11 +70,17 @@ function validate(
   isRequired: boolean,
   fieldLabel: string
 ): string | undefined {
-  if (value.kind === 'initial') {
-    return validateInitialState(value, isRequired, fieldLabel)
+  if (value.kind === 'initial' && (value.isSet === null || value.isSet === true)) {
+    return undefined
+  }
+  if (value.kind === 'initial' && isRequired) {
+    return validateRequired(fieldLabel)
+  }
+  if (value.kind === 'editing' && value.confirm !== value.value) {
+    return validatePasswordMatch()
   }
   if (value.kind === 'editing') {
-    return validateEditingState(value.value, value.confirm, validation, fieldLabel)
+    return validateEditingValue(value.value, validation, fieldLabel)
   }
   return undefined
 }
@@ -94,16 +97,12 @@ function readonlyCheckboxProps(isSet: null | undefined | boolean) {
   }
 }
 
-function renderReadOnlyField(value: Value) {
-  return <Checkbox {...readonlyCheckboxProps(value.isSet)} />
-}
-
-function renderInitialField(
+function renderInitialState(
+  triggerRef: React.RefObject<HTMLButtonElement>,
   value: Value,
   field: { label: string },
   autoFocus: boolean,
-  triggerRef: React.RefObject<HTMLButtonElement>,
-  onChange: (value: Value) => void
+  onChange: ((value: Value) => void) | undefined
 ) {
   return (
     <ActionButton
@@ -111,34 +110,36 @@ function renderInitialField(
       alignSelf="start"
       autoFocus={autoFocus}
       onPress={() => {
-        onChange({
+        onChange?.({
           kind: 'editing',
           confirm: '',
           value: '',
-          isSet: value.isSet,
+          isSet: value.kind === 'initial' ? value.isSet : null,
         })
       }}
     >
-      {value.isSet ? `Change ` : `Set `}
+      {value.kind === 'initial' && value.isSet ? `Change ` : `Set `}
       {field.label.toLocaleLowerCase()}
     </ActionButton>
   )
 }
 
-function renderEditingFields(
+function renderEditingState(
   value: Value,
-  field: { label: string },
+  field: { label: string; description?: string },
+  descriptionId: string,
+  messageId: string,
+  validationMessage: string | undefined,
   secureTextEntry: boolean,
   setSecureTextEntry: (value: boolean) => void,
   touched: { value: boolean; confirm: boolean },
   setTouched: (touched: { value: boolean; confirm: boolean }) => void,
-  validationMessage: string | undefined,
-  descriptionId: string,
-  messageId: string,
+  onChange: ((value: Value) => void) | undefined,
   onEscape: (e: React.KeyboardEvent) => void,
-  onChange: (value: Value) => void,
   cancelEditing: () => void
 ) {
+  if (value.kind !== 'editing') return null
+
   return (
     <Flex
       gap="regular"
@@ -155,7 +156,7 @@ function renderEditingFields(
         // @ts-expect-error — needs to be fixed in "@keystar/ui"
         isInvalid={!!validationMessage}
         onBlur={() => setTouched({ ...touched, value: true })}
-        onChange={text => onChange({ ...value, value: text })}
+        onChange={text => onChange?.({ ...value, value: text })}
         onKeyDown={onEscape}
         placeholder="New"
         type={secureTextEntry ? 'password' : 'text'}
@@ -168,7 +169,7 @@ function renderEditingFields(
         // @ts-expect-error — needs to be fixed in "@keystar/ui"
         isInvalid={!!validationMessage}
         onBlur={() => setTouched({ ...touched, confirm: true })}
-        onChange={text => onChange({ ...value, confirm: text })}
+        onChange={text => onChange?.({ ...value, confirm: text })}
         onKeyDown={onEscape}
         placeholder="Confirm"
         type={secureTextEntry ? 'password' : 'text'}
@@ -217,7 +218,7 @@ export function Field(props: FieldProps<typeof controller>) {
   const messageId = useSlotId([!!field.description, !!validationMessage])
 
   const cancelEditing = () => {
-    onChange?.({ kind: 'initial', isSet: value.isSet })
+    onChange?.({ kind: 'initial', isSet: value.kind === 'initial' ? value.isSet : null })
     setTimeout(() => {
       triggerRef.current?.focus()
     }, 0)
@@ -237,29 +238,6 @@ export function Field(props: FieldProps<typeof controller>) {
     }
   }, [value.kind])
 
-  const renderContent = () => {
-    if (isReadOnly) {
-      return renderReadOnlyField(value)
-    }
-    if (value.kind === 'initial') {
-      return renderInitialField(value, field, autoFocus, triggerRef, onChange!)
-    }
-    return renderEditingFields(
-      value,
-      field,
-      secureTextEntry,
-      setSecureTextEntry,
-      touched,
-      setTouched,
-      validationMessage,
-      descriptionId,
-      messageId,
-      onEscape,
-      onChange!,
-      cancelEditing
-    )
-  }
-
   return (
     <VStack
       role="group"
@@ -276,7 +254,26 @@ export function Field(props: FieldProps<typeof controller>) {
           {field.description}
         </Text>
       )}
-      {renderContent()}
+      {isReadOnly ? (
+        <Checkbox {...readonlyCheckboxProps(value.kind === 'initial' ? value.isSet : null)} />
+      ) : value.kind === 'initial' ? (
+        renderInitialState(triggerRef, value, field, autoFocus, onChange)
+      ) : (
+        renderEditingState(
+          value,
+          field,
+          descriptionId,
+          messageId,
+          validationMessage,
+          secureTextEntry,
+          setSecureTextEntry,
+          touched,
+          setTouched,
+          onChange,
+          onEscape,
+          cancelEditing
+        )
+      )}
       {!!validationMessage && <FieldMessage id={messageId}>{validationMessage}</FieldMessage>}
     </VStack>
   )

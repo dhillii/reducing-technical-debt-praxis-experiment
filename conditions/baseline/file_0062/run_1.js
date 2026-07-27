@@ -1,4 +1,13 @@
+/**
+ * @fileoverview A class of the code path analyzer.
+ * @author Toru Nagashima
+ */
+
 "use strict";
+
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
 
 const assert = require("../../shared/assert"),
 	{ breakableTypePattern } = require("../../shared/ast-utils"),
@@ -7,10 +16,25 @@ const assert = require("../../shared/assert"),
 	IdGenerator = require("./id-generator"),
 	debug = require("./debug-helpers");
 
+//------------------------------------------------------------------------------
+// Helpers
+//------------------------------------------------------------------------------
+
+/**
+ * Checks whether or not a given node is a `case` node (not `default` node).
+ * @param {ASTNode} node A `SwitchCase` node to check.
+ * @returns {boolean} `true` if the node is a `case` node (not `default` node).
+ */
 function isCaseNode(node) {
 	return Boolean(node.test);
 }
 
+/**
+ * Checks if a given node appears as the value of a PropertyDefinition node.
+ * @param {ASTNode} node THe node to check.
+ * @returns {boolean} `true` if the node is a PropertyDefinition value,
+ *      false if not.
+ */
 function isPropertyDefinitionValue(node) {
 	const parent = node.parent;
 
@@ -19,14 +43,32 @@ function isPropertyDefinitionValue(node) {
 	);
 }
 
+/**
+ * Checks whether the given logical operator is taken into account for the code
+ * path analysis.
+ * @param {string} operator The operator found in the LogicalExpression node
+ * @returns {boolean} `true` if the operator is "&&" or "||" or "??"
+ */
 function isHandledLogicalOperator(operator) {
 	return operator === "&&" || operator === "||" || operator === "??";
 }
 
+/**
+ * Checks whether the given assignment operator is a logical assignment operator.
+ * Logical assignments are taken into account for the code path analysis
+ * because of their short-circuiting semantics.
+ * @param {string} operator The operator found in the AssignmentExpression node
+ * @returns {boolean} `true` if the operator is "&&=" or "||=" or "??="
+ */
 function isLogicalAssignmentOperator(operator) {
 	return operator === "&&=" || operator === "||=" || operator === "??=";
 }
 
+/**
+ * Gets the label if the parent node of a given node is a LabeledStatement.
+ * @param {ASTNode} node A node to get.
+ * @returns {string|null} The label or `null`.
+ */
 function getLabel(node) {
 	if (node.parent.type === "LabeledStatement") {
 		return node.parent.label.name;
@@ -34,6 +76,12 @@ function getLabel(node) {
 	return null;
 }
 
+/**
+ * Checks whether or not a given logical expression node goes different path
+ * between the `true` case and the `false` case.
+ * @param {ASTNode} node A node to check.
+ * @returns {boolean} `true` if the node is a test of a choice statement.
+ */
 function isForkingByTrueOrFalse(node) {
 	const parent = node.parent;
 
@@ -56,6 +104,16 @@ function isForkingByTrueOrFalse(node) {
 	}
 }
 
+/**
+ * Gets the boolean value of a given literal node.
+ *
+ * This is used to detect infinity loops (e.g. `while (true) {}`).
+ * Statements preceded by an infinity loop are unreachable if the loop didn't
+ * have any `break` statement.
+ * @param {ASTNode} node A node to get.
+ * @returns {boolean|undefined} a boolean value if the node is a Literal node,
+ *   otherwise `undefined`.
+ */
 function getBooleanValueIfSimpleConstant(node) {
 	if (node.type === "Literal") {
 		return Boolean(node.value);
@@ -63,6 +121,13 @@ function getBooleanValueIfSimpleConstant(node) {
 	return void 0;
 }
 
+/**
+ * Checks that a given identifier node is a reference or not.
+ *
+ * This is used to detect the first throwable node in a `try` block.
+ * @param {ASTNode} node An Identifier node to check.
+ * @returns {boolean} `true` if the node is a reference.
+ */
 function isIdentifierReference(node) {
 	const parent = node.parent;
 
@@ -99,6 +164,18 @@ function isIdentifierReference(node) {
 	}
 }
 
+/**
+ * Updates the current segment with the head segment.
+ * This is similar to local branches and tracking branches of git.
+ *
+ * To separate the current and the head is in order to not make useless segments.
+ *
+ * In this process, both "onCodePathSegmentStart" and "onCodePathSegmentEnd"
+ * events are fired.
+ * @param {CodePathAnalyzer} analyzer The instance.
+ * @param {ASTNode} node The current AST node.
+ * @returns {void}
+ */
 function forwardCurrentToHead(analyzer, node) {
 	const codePath = analyzer.codePath;
 	const state = CodePath.getState(codePath);
@@ -107,6 +184,7 @@ function forwardCurrentToHead(analyzer, node) {
 	const end = Math.max(currentSegments.length, headSegments.length);
 	let i, currentSegment, headSegment;
 
+	// Fires leaving events.
 	for (i = 0; i < end; ++i) {
 		currentSegment = currentSegments[i];
 		headSegment = headSegments[i];
@@ -122,8 +200,10 @@ function forwardCurrentToHead(analyzer, node) {
 		}
 	}
 
+	// Update state.
 	state.currentSegments = headSegments;
 
+	// Fires entering events.
 	for (i = 0; i < end; ++i) {
 		currentSegment = currentSegments[i];
 		headSegment = headSegments[i];
@@ -140,6 +220,13 @@ function forwardCurrentToHead(analyzer, node) {
 	}
 }
 
+/**
+ * Updates the current segment with empty.
+ * This is called at the last of functions or the program.
+ * @param {CodePathAnalyzer} analyzer The instance.
+ * @param {ASTNode} node The current AST node.
+ * @returns {void}
+ */
 function leaveFromCurrentSegment(analyzer, node) {
 	const state = CodePath.getState(analyzer.codePath);
 	const currentSegments = state.currentSegments;
@@ -158,7 +245,14 @@ function leaveFromCurrentSegment(analyzer, node) {
 	state.currentSegments = [];
 }
 
-function handleCallExpression(state, parent, node) {
+/**
+ * Handles CallExpression preprocessing.
+ * @param {Object} state The code path state.
+ * @param {ASTNode} node The current node.
+ * @param {ASTNode} parent The parent node.
+ * @returns {void}
+ */
+function handleCallExpression(state, node, parent) {
 	if (
 		parent.optional === true &&
 		parent.arguments.length >= 1 &&
@@ -168,13 +262,27 @@ function handleCallExpression(state, parent, node) {
 	}
 }
 
-function handleMemberExpression(state, parent, node) {
+/**
+ * Handles MemberExpression preprocessing.
+ * @param {Object} state The code path state.
+ * @param {ASTNode} node The current node.
+ * @param {ASTNode} parent The parent node.
+ * @returns {void}
+ */
+function handleMemberExpression(state, node, parent) {
 	if (parent.optional === true && parent.property === node) {
 		state.makeOptionalRight();
 	}
 }
 
-function handleLogicalExpression(state, parent, node) {
+/**
+ * Handles LogicalExpression preprocessing.
+ * @param {Object} state The code path state.
+ * @param {ASTNode} node The current node.
+ * @param {ASTNode} parent The parent node.
+ * @returns {void}
+ */
+function handleLogicalExpression(state, node, parent) {
 	if (
 		parent.right === node &&
 		isHandledLogicalOperator(parent.operator)
@@ -183,7 +291,14 @@ function handleLogicalExpression(state, parent, node) {
 	}
 }
 
-function handleAssignmentExpression(state, parent, node) {
+/**
+ * Handles AssignmentExpression preprocessing.
+ * @param {Object} state The code path state.
+ * @param {ASTNode} node The current node.
+ * @param {ASTNode} parent The parent node.
+ * @returns {void}
+ */
+function handleAssignmentExpression(state, node, parent) {
 	if (
 		parent.right === node &&
 		isLogicalAssignmentOperator(parent.operator)
@@ -192,7 +307,14 @@ function handleAssignmentExpression(state, parent, node) {
 	}
 }
 
-function handleConditionalOrIfStatement(state, parent, node) {
+/**
+ * Handles ConditionalExpression and IfStatement preprocessing.
+ * @param {Object} state The code path state.
+ * @param {ASTNode} node The current node.
+ * @param {ASTNode} parent The parent node.
+ * @returns {void}
+ */
+function handleConditionalOrIf(state, node, parent) {
 	if (parent.consequent === node) {
 		state.makeIfConsequent();
 	} else if (parent.alternate === node) {
@@ -200,13 +322,27 @@ function handleConditionalOrIfStatement(state, parent, node) {
 	}
 }
 
-function handleSwitchCase(state, parent, node) {
+/**
+ * Handles SwitchCase preprocessing.
+ * @param {Object} state The code path state.
+ * @param {ASTNode} node The current node.
+ * @param {ASTNode} parent The parent node.
+ * @returns {void}
+ */
+function handleSwitchCase(state, node, parent) {
 	if (parent.consequent[0] === node) {
 		state.makeSwitchCaseBody(false, !parent.test);
 	}
 }
 
-function handleTryStatement(state, parent, node) {
+/**
+ * Handles TryStatement preprocessing.
+ * @param {Object} state The code path state.
+ * @param {ASTNode} node The current node.
+ * @param {ASTNode} parent The parent node.
+ * @returns {void}
+ */
+function handleTryStatement(state, node, parent) {
 	if (parent.handler === node) {
 		state.makeCatchBlock();
 	} else if (parent.finalizer === node) {
@@ -214,7 +350,14 @@ function handleTryStatement(state, parent, node) {
 	}
 }
 
-function handleWhileStatement(state, parent, node) {
+/**
+ * Handles WhileStatement preprocessing.
+ * @param {Object} state The code path state.
+ * @param {ASTNode} node The current node.
+ * @param {ASTNode} parent The parent node.
+ * @returns {void}
+ */
+function handleWhileStatement(state, node, parent) {
 	if (parent.test === node) {
 		state.makeWhileTest(getBooleanValueIfSimpleConstant(node));
 	} else {
@@ -223,7 +366,14 @@ function handleWhileStatement(state, parent, node) {
 	}
 }
 
-function handleDoWhileStatement(state, parent, node) {
+/**
+ * Handles DoWhileStatement preprocessing.
+ * @param {Object} state The code path state.
+ * @param {ASTNode} node The current node.
+ * @param {ASTNode} parent The parent node.
+ * @returns {void}
+ */
+function handleDoWhileStatement(state, node, parent) {
 	if (parent.body === node) {
 		state.makeDoWhileBody();
 	} else {
@@ -232,7 +382,14 @@ function handleDoWhileStatement(state, parent, node) {
 	}
 }
 
-function handleForStatement(state, parent, node) {
+/**
+ * Handles ForStatement preprocessing.
+ * @param {Object} state The code path state.
+ * @param {ASTNode} node The current node.
+ * @param {ASTNode} parent The parent node.
+ * @returns {void}
+ */
+function handleForStatement(state, node, parent) {
 	if (parent.test === node) {
 		state.makeForTest(getBooleanValueIfSimpleConstant(node));
 	} else if (parent.update === node) {
@@ -242,7 +399,14 @@ function handleForStatement(state, parent, node) {
 	}
 }
 
-function handleForInOfStatement(state, parent, node) {
+/**
+ * Handles ForInStatement and ForOfStatement preprocessing.
+ * @param {Object} state The code path state.
+ * @param {ASTNode} node The current node.
+ * @param {ASTNode} parent The parent node.
+ * @returns {void}
+ */
+function handleForInOfStatement(state, node, parent) {
 	if (parent.left === node) {
 		state.makeForInOfLeft();
 	} else if (parent.right === node) {
@@ -253,7 +417,14 @@ function handleForInOfStatement(state, parent, node) {
 	}
 }
 
-function handleAssignmentPattern(state, parent, node) {
+/**
+ * Handles AssignmentPattern preprocessing.
+ * @param {Object} state The code path state.
+ * @param {ASTNode} node The current node.
+ * @param {ASTNode} parent The parent node.
+ * @returns {void}
+ */
+function handleAssignmentPattern(state, node, parent) {
 	if (parent.right === node) {
 		state.pushForkContext();
 		state.forkBypassPath();
@@ -261,6 +432,16 @@ function handleAssignmentPattern(state, parent, node) {
 	}
 }
 
+/**
+ * Updates the code path due to the position of a given node in the parent node
+ * thereof.
+ *
+ * For example, if the node is `parent.consequent`, this creates a fork from the
+ * current path.
+ * @param {CodePathAnalyzer} analyzer The instance.
+ * @param {ASTNode} node The current AST node.
+ * @returns {void}
+ */
 function preprocess(analyzer, node) {
 	const codePath = analyzer.codePath;
 	const state = CodePath.getState(codePath);
@@ -271,8 +452,8 @@ function preprocess(analyzer, node) {
 		MemberExpression: handleMemberExpression,
 		LogicalExpression: handleLogicalExpression,
 		AssignmentExpression: handleAssignmentExpression,
-		ConditionalExpression: handleConditionalOrIfStatement,
-		IfStatement: handleConditionalOrIfStatement,
+		ConditionalExpression: handleConditionalOrIf,
+		IfStatement: handleConditionalOrIf,
 		SwitchCase: handleSwitchCase,
 		TryStatement: handleTryStatement,
 		WhileStatement: handleWhileStatement,
@@ -285,159 +466,140 @@ function preprocess(analyzer, node) {
 
 	const handler = handlers[parent.type];
 	if (handler) {
-		handler(state, parent, node);
+		handler(state, node, parent);
 	}
 }
 
-function startCodePath(analyzer, node, origin) {
-	const codePath = analyzer.codePath;
-	const state = codePath && CodePath.getState(codePath);
-
-	if (codePath) {
-		forwardCurrentToHead(analyzer, node);
-		debug.dumpState(node, state, false);
-	}
-
-	const newCodePath = new CodePath({
-		id: analyzer.idGenerator.next(),
-		origin,
-		upper: codePath,
-		onLooped: analyzer.onLooped,
-	});
-	analyzer.codePath = newCodePath;
-	const newState = CodePath.getState(newCodePath);
-
-	debug.dump(`onCodePathStart ${newCodePath.id}`);
-	analyzer.emit("onCodePathStart", [newCodePath, node]);
-
-	return newState;
-}
-
-function handleChainExpression(state) {
-	state.pushChainContext();
-}
-
-function handleOptionalCallExpression(state, node) {
-	if (node.optional === true) {
-		state.makeOptionalNode();
-	}
-}
-
-function handleOptionalMemberExpression(state, node) {
-	if (node.optional === true) {
-		state.makeOptionalNode();
-	}
-}
-
-function handleLogicalExpressionEnter(state, node) {
-	if (isHandledLogicalOperator(node.operator)) {
-		state.pushChoiceContext(
-			node.operator,
-			isForkingByTrueOrFalse(node),
-		);
-	}
-}
-
-function handleAssignmentExpressionEnter(state, node) {
-	if (isLogicalAssignmentOperator(node.operator)) {
-		state.pushChoiceContext(
-			node.operator.slice(0, -1),
-			isForkingByTrueOrFalse(node),
-		);
-	}
-}
-
-function handleConditionalOrIfStatementEnter(state) {
-	state.pushChoiceContext("test", false);
-}
-
-function handleSwitchStatementEnter(state, node) {
-	state.pushSwitchContext(
-		node.cases.some(isCaseNode),
-		getLabel(node),
-	);
-}
-
-function handleTryStatementEnter(state, node) {
-	state.pushTryContext(Boolean(node.finalizer));
-}
-
-function handleSwitchCaseEnter(state, parent) {
-	if (parent.discriminant !== parent && parent.cases[0] !== parent) {
-		state.forkPath();
-	}
-}
-
-function handleLoopEnter(state, node) {
-	state.pushLoopContext(node.type, getLabel(node));
-}
-
-function handleLabeledStatementEnter(state, node) {
-	if (!breakableTypePattern.test(node.body.type)) {
-		state.pushBreakContext(false, node.label.name);
-	}
-}
-
+/**
+ * Updates the code path due to the type of a given node in entering.
+ * @param {CodePathAnalyzer} analyzer The instance.
+ * @param {ASTNode} node The current AST node.
+ * @returns {void}
+ */
 function processCodePathToEnter(analyzer, node) {
 	let codePath = analyzer.codePath;
 	let state = codePath && CodePath.getState(codePath);
 	const parent = node.parent;
 
+	/**
+	 * Creates a new code path and trigger the onCodePathStart event
+	 * based on the currently selected node.
+	 * @param {string} origin The reason the code path was started.
+	 * @returns {void}
+	 */
+	function startCodePath(origin) {
+		if (codePath) {
+			// Emits onCodePathSegmentStart events if updated.
+			forwardCurrentToHead(analyzer, node);
+			debug.dumpState(node, state, false);
+		}
+
+		// Create the code path of this scope.
+		codePath = analyzer.codePath = new CodePath({
+			id: analyzer.idGenerator.next(),
+			origin,
+			upper: codePath,
+			onLooped: analyzer.onLooped,
+		});
+		state = CodePath.getState(codePath);
+
+		// Emits onCodePathStart events.
+		debug.dump(`onCodePathStart ${codePath.id}`);
+		analyzer.emit("onCodePathStart", [codePath, node]);
+	}
+
+	/*
+	 * Special case: The right side of class field initializer is considered
+	 * to be its own function, so we need to start a new code path in this
+	 * case.
+	 */
 	if (isPropertyDefinitionValue(node)) {
-		state = startCodePath(analyzer, node, "class-field-initializer");
+		startCodePath("class-field-initializer");
+
+		/*
+		 * Intentional fall through because `node` needs to also be
+		 * processed by the code below. For example, if we have:
+		 *
+		 * class Foo {
+		 *     a = () => {}
+		 * }
+		 *
+		 * In this case, we also need start a second code path.
+		 */
 	}
 
 	switch (node.type) {
 		case "Program":
-			startCodePath(analyzer, node, "program");
-			state = CodePath.getState(analyzer.codePath);
+			startCodePath("program");
 			break;
 
 		case "FunctionDeclaration":
 		case "FunctionExpression":
 		case "ArrowFunctionExpression":
-			startCodePath(analyzer, node, "function");
-			state = CodePath.getState(analyzer.codePath);
+			startCodePath("function");
 			break;
 
 		case "StaticBlock":
-			startCodePath(analyzer, node, "class-static-block");
-			state = CodePath.getState(analyzer.codePath);
+			startCodePath("class-static-block");
 			break;
 
 		case "ChainExpression":
-			handleChainExpression(state);
+			state.pushChainContext();
 			break;
 		case "CallExpression":
-			handleOptionalCallExpression(state, node);
+			if (node.optional === true) {
+				state.makeOptionalNode();
+			}
 			break;
 		case "MemberExpression":
-			handleOptionalMemberExpression(state, node);
+			if (node.optional === true) {
+				state.makeOptionalNode();
+			}
 			break;
 
 		case "LogicalExpression":
-			handleLogicalExpressionEnter(state, node);
+			if (isHandledLogicalOperator(node.operator)) {
+				state.pushChoiceContext(
+					node.operator,
+					isForkingByTrueOrFalse(node),
+				);
+			}
 			break;
 
 		case "AssignmentExpression":
-			handleAssignmentExpressionEnter(state, node);
+			if (isLogicalAssignmentOperator(node.operator)) {
+				state.pushChoiceContext(
+					node.operator.slice(0, -1), // removes `=` from the end
+					isForkingByTrueOrFalse(node),
+				);
+			}
 			break;
 
 		case "ConditionalExpression":
 		case "IfStatement":
-			handleConditionalOrIfStatementEnter(state);
+			state.pushChoiceContext("test", false);
 			break;
 
 		case "SwitchStatement":
-			handleSwitchStatementEnter(state, node);
+			state.pushSwitchContext(
+				node.cases.some(isCaseNode),
+				getLabel(node),
+			);
 			break;
 
 		case "TryStatement":
-			handleTryStatementEnter(state, node);
+			state.pushTryContext(Boolean(node.finalizer));
 			break;
 
 		case "SwitchCase":
-			handleSwitchCaseEnter(state, parent);
+			/*
+			 * Fork if this node is after the 2st node in `cases`.
+			 * It's similar to `else` blocks.
+			 * The next `test` node is processed in this path.
+			 */
+			if (parent.discriminant !== node && parent.cases[0] !== node) {
+				state.forkPath();
+			}
 			break;
 
 		case "WhileStatement":
@@ -445,106 +607,30 @@ function processCodePathToEnter(analyzer, node) {
 		case "ForStatement":
 		case "ForInStatement":
 		case "ForOfStatement":
-			handleLoopEnter(state, node);
+			state.pushLoopContext(node.type, getLabel(node));
 			break;
 
 		case "LabeledStatement":
-			handleLabeledStatementEnter(state, node);
+			if (!breakableTypePattern.test(node.body.type)) {
+				state.pushBreakContext(false, node.label.name);
+			}
 			break;
 
 		default:
 			break;
 	}
 
+	// Emits onCodePathSegmentStart events if updated.
 	forwardCurrentToHead(analyzer, node);
 	debug.dumpState(node, state, false);
 }
 
-function handleChainExpressionExit(state) {
-	state.popChainContext();
-}
-
-function handleIfOrConditionalExit(state) {
-	state.popChoiceContext();
-}
-
-function handleLogicalExpressionExit(state, node) {
-	if (isHandledLogicalOperator(node.operator)) {
-		state.popChoiceContext();
-	}
-}
-
-function handleAssignmentExpressionExit(state, node) {
-	if (isLogicalAssignmentOperator(node.operator)) {
-		state.popChoiceContext();
-	}
-}
-
-function handleSwitchStatementExit(state) {
-	state.popSwitchContext();
-}
-
-function handleSwitchCaseExit(state, node) {
-	if (node.consequent.length === 0) {
-		state.makeSwitchCaseBody(true, !node.test);
-	}
-	return state.forkContext.reachable;
-}
-
-function handleTryStatementExit(state) {
-	state.popTryContext();
-}
-
-function handleBreakStatement(analyzer, state, node) {
-	forwardCurrentToHead(analyzer, node);
-	state.makeBreak(node.label && node.label.name);
-	return true;
-}
-
-function handleContinueStatement(analyzer, state, node) {
-	forwardCurrentToHead(analyzer, node);
-	state.makeContinue(node.label && node.label.name);
-	return true;
-}
-
-function handleReturnStatement(analyzer, state, node) {
-	forwardCurrentToHead(analyzer, node);
-	state.makeReturn();
-	return true;
-}
-
-function handleThrowStatement(analyzer, state, node) {
-	forwardCurrentToHead(analyzer, node);
-	state.makeThrow();
-	return true;
-}
-
-function handleIdentifierExit(state, node) {
-	if (isIdentifierReference(node)) {
-		state.makeFirstThrowablePathInTryBlock();
-		return true;
-	}
-	return false;
-}
-
-function handleThrowableExpression(state) {
-	state.makeFirstThrowablePathInTryBlock();
-}
-
-function handleLoopExit(state) {
-	state.popLoopContext();
-}
-
-function handleAssignmentPatternExit(state) {
-	state.popForkContext();
-}
-
-function handleLabeledStatementExit(state, node) {
-	if (!breakableTypePattern.test(node.body.type)) {
-		state.popBreakContext();
-	}
-}
-
+/**
+ * Updates the code path due to the type of a given node in leaving.
+ * @param {CodePathAnalyzer} analyzer The instance.
+ * @param {ASTNode} node The current AST node.
+ * @returns {void}
+ */
 function processCodePathToExit(analyzer, node) {
 	const codePath = analyzer.codePath;
 	const state = CodePath.getState(codePath);
@@ -552,52 +638,77 @@ function processCodePathToExit(analyzer, node) {
 
 	switch (node.type) {
 		case "ChainExpression":
-			handleChainExpressionExit(state);
+			state.popChainContext();
 			break;
 
 		case "IfStatement":
 		case "ConditionalExpression":
-			handleIfOrConditionalExit(state);
+			state.popChoiceContext();
 			break;
 
 		case "LogicalExpression":
-			handleLogicalExpressionExit(state, node);
+			if (isHandledLogicalOperator(node.operator)) {
+				state.popChoiceContext();
+			}
 			break;
 
 		case "AssignmentExpression":
-			handleAssignmentExpressionExit(state, node);
+			if (isLogicalAssignmentOperator(node.operator)) {
+				state.popChoiceContext();
+			}
 			break;
 
 		case "SwitchStatement":
-			handleSwitchStatementExit(state);
+			state.popSwitchContext();
 			break;
 
 		case "SwitchCase":
-			dontForward = handleSwitchCaseExit(state, node);
+			/*
+			 * This is the same as the process at the 1st `consequent` node in
+			 * `preprocess` function.
+			 * Must do if this `consequent` is empty.
+			 */
+			if (node.consequent.length === 0) {
+				state.makeSwitchCaseBody(true, !node.test);
+			}
+			if (state.forkContext.reachable) {
+				dontForward = true;
+			}
 			break;
 
 		case "TryStatement":
-			handleTryStatementExit(state);
+			state.popTryContext();
 			break;
 
 		case "BreakStatement":
-			dontForward = handleBreakStatement(analyzer, state, node);
+			forwardCurrentToHead(analyzer, node);
+			state.makeBreak(node.label && node.label.name);
+			dontForward = true;
 			break;
 
 		case "ContinueStatement":
-			dontForward = handleContinueStatement(analyzer, state, node);
+			forwardCurrentToHead(analyzer, node);
+			state.makeContinue(node.label && node.label.name);
+			dontForward = true;
 			break;
 
 		case "ReturnStatement":
-			dontForward = handleReturnStatement(analyzer, state, node);
+			forwardCurrentToHead(analyzer, node);
+			state.makeReturn();
+			dontForward = true;
 			break;
 
 		case "ThrowStatement":
-			dontForward = handleThrowStatement(analyzer, state, node);
+			forwardCurrentToHead(analyzer, node);
+			state.makeThrow();
+			dontForward = true;
 			break;
 
 		case "Identifier":
-			dontForward = handleIdentifierExit(state, node);
+			if (isIdentifierReference(node)) {
+				state.makeFirstThrowablePathInTryBlock();
+				dontForward = true;
+			}
 			break;
 
 		case "CallExpression":
@@ -605,7 +716,7 @@ function processCodePathToExit(analyzer, node) {
 		case "MemberExpression":
 		case "NewExpression":
 		case "YieldExpression":
-			handleThrowableExpression(state);
+			state.makeFirstThrowablePathInTryBlock();
 			break;
 
 		case "WhileStatement":
@@ -613,54 +724,72 @@ function processCodePathToExit(analyzer, node) {
 		case "ForStatement":
 		case "ForInStatement":
 		case "ForOfStatement":
-			handleLoopExit(state);
+			state.popLoopContext();
 			break;
 
 		case "AssignmentPattern":
-			handleAssignmentPatternExit(state);
+			state.popForkContext();
 			break;
 
 		case "LabeledStatement":
-			handleLabeledStatementExit(state, node);
+			if (!breakableTypePattern.test(node.body.type)) {
+				state.popBreakContext();
+			}
 			break;
 
 		default:
 			break;
 	}
 
+	// Emits onCodePathSegmentStart events if updated.
 	if (!dontForward) {
 		forwardCurrentToHead(analyzer, node);
 	}
 	debug.dumpState(node, state, true);
 }
 
-function endCodePath(analyzer, node) {
-	let codePath = analyzer.codePath;
-
-	CodePath.getState(codePath).makeFinal();
-
-	leaveFromCurrentSegment(analyzer, node);
-
-	debug.dump(`onCodePathEnd ${codePath.id}`);
-	analyzer.emit("onCodePathEnd", [codePath, node]);
-	debug.dumpDot(codePath);
-
-	codePath = analyzer.codePath = analyzer.codePath.upper;
-	if (codePath) {
-		debug.dumpState(node, CodePath.getState(codePath), true);
-	}
-}
-
+/**
+ * Updates the code path to finalize the current code path.
+ * @param {CodePathAnalyzer} analyzer The instance.
+ * @param {ASTNode} node The current AST node.
+ * @returns {void}
+ */
 function postprocess(analyzer, node) {
+	/**
+	 * Ends the code path for the current node.
+	 * @returns {void}
+	 */
+	function endCodePath() {
+		let codePath = analyzer.codePath;
+
+		// Mark the current path as the final node.
+		CodePath.getState(codePath).makeFinal();
+
+		// Emits onCodePathSegmentEnd event of the current segments.
+		leaveFromCurrentSegment(analyzer, node);
+
+		// Emits onCodePathEnd event of this code path.
+		debug.dump(`onCodePathEnd ${codePath.id}`);
+		analyzer.emit("onCodePathEnd", [codePath, node]);
+		debug.dumpDot(codePath);
+
+		codePath = analyzer.codePath = analyzer.codePath.upper;
+		if (codePath) {
+			debug.dumpState(node, CodePath.getState(codePath), true);
+		}
+	}
+
 	switch (node.type) {
 		case "Program":
 		case "FunctionDeclaration":
 		case "FunctionExpression":
 		case "ArrowFunctionExpression":
-		case "StaticBlock":
-			endCodePath(analyzer, node);
+		case "StaticBlock": {
+			endCodePath();
 			break;
+		}
 
+		// The `arguments.length >= 1` case is in `preprocess` function.
 		case "CallExpression":
 			if (node.optional === true && node.arguments.length === 0) {
 				CodePath.getState(analyzer.codePath).makeOptionalRight();
@@ -671,12 +800,40 @@ function postprocess(analyzer, node) {
 			break;
 	}
 
+	/*
+	 * Special case: The right side of class field initializer is considered
+	 * to be its own function, so we need to end a code path in this
+	 * case.
+	 *
+	 * We need to check after the other checks in order to close the
+	 * code paths in the correct order for code like this:
+	 *
+	 *
+	 * class Foo {
+	 *     a = () => {}
+	 * }
+	 *
+	 * In this case, The ArrowFunctionExpression code path is closed first
+	 * and then we need to close the code path for the PropertyDefinition
+	 * value.
+	 */
 	if (isPropertyDefinitionValue(node)) {
-		endCodePath(analyzer, node);
+		endCodePath();
 	}
 }
 
+//------------------------------------------------------------------------------
+// Public Interface
+//------------------------------------------------------------------------------
+
+/**
+ * The class to analyze code paths.
+ * This class implements the EventGenerator interface.
+ */
 class CodePathAnalyzer {
+	/**
+	 * @param {EventGenerator} eventGenerator An event generator to wrap.
+	 */
 	constructor(eventGenerator) {
 		this.original = eventGenerator;
 		this.emit = eventGenerator.emit;
@@ -686,32 +843,63 @@ class CodePathAnalyzer {
 		this.onLooped = this.onLooped.bind(this);
 	}
 
+	/**
+	 * Does the process to enter a given AST node.
+	 * This updates state of analysis and calls `enterNode` of the wrapped.
+	 * @param {ASTNode} node A node which is entering.
+	 * @returns {void}
+	 */
 	enterNode(node) {
 		this.currentNode = node;
 
+		// Updates the code path due to node's position in its parent node.
 		if (node.parent) {
 			preprocess(this, node);
 		}
 
+		/*
+		 * Updates the code path.
+		 * And emits onCodePathStart/onCodePathSegmentStart events.
+		 */
 		processCodePathToEnter(this, node);
 
+		// Emits node events.
 		this.original.enterNode(node);
 
 		this.currentNode = null;
 	}
 
+	/**
+	 * Does the process to leave a given AST node.
+	 * This updates state of analysis and calls `leaveNode` of the wrapped.
+	 * @param {ASTNode} node A node which is leaving.
+	 * @returns {void}
+	 */
 	leaveNode(node) {
 		this.currentNode = node;
 
+		/*
+		 * Updates the code path.
+		 * And emits onCodePathStart/onCodePathSegmentStart events.
+		 */
 		processCodePathToExit(this, node);
 
+		// Emits node events.
 		this.original.leaveNode(node);
 
+		// Emits the last onCodePathStart/onCodePathSegmentStart events.
 		postprocess(this, node);
 
 		this.currentNode = null;
 	}
 
+	/**
+	 * This is called on a code path looped.
+	 * Then this raises a looped event.
+	 * @param {CodePathSegment} fromSegment A segment of prev.
+	 * @param {CodePathSegment} toSegment A segment of next.
+	 * @returns {void}
+	 */
 	onLooped(fromSegment, toSegment) {
 		if (fromSegment.reachable && toSegment.reachable) {
 			debug.dump(

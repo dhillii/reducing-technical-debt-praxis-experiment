@@ -1,9 +1,24 @@
+/**
+ * @fileoverview Tests for ast utils.
+ * @author Gyandeep Singh
+ */
+
+"use strict";
+
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
+
 const assert = require("chai").assert,
 	util = require("node:util"),
 	espree = require("espree"),
 	astUtils = require("../../../../lib/rules/utils/ast-utils"),
 	{ Linter } = require("../../../../lib/linter"),
 	{ SourceCode } = require("../../../../lib/languages/js/source-code");
+
+//------------------------------------------------------------------------------
+// Tests
+//------------------------------------------------------------------------------
 
 const ESPREE_CONFIG = {
 	ecmaVersion: 6,
@@ -22,10 +37,10 @@ const linter = new Linter();
  *      must have exactly one node of this type.
  * @param {boolean} expectedInLoop the expected result for whether the
  *      node is in a loop.
- * @param {Map} callCounts map to track function calls for mustCall validation.
+ * @param {Function} mustCallFn the mustCall wrapper function
  * @returns {void}
  */
-function assertNodeTypeInLoop(code, nodeType, expectedInLoop, callCounts) {
+function assertNodeTypeInLoop(code, nodeType, expectedInLoop, mustCallFn) {
 	const results = [];
 
 	linter.verify(code, {
@@ -33,8 +48,8 @@ function assertNodeTypeInLoop(code, nodeType, expectedInLoop, callCounts) {
 			test: {
 				rules: {
 					checker: {
-						create: createMustCallWrapper(callCounts, () => ({
-							[nodeType]: createMustCallWrapper(callCounts, node => {
+						create: mustCallFn(() => ({
+							[nodeType]: mustCallFn(node => {
 								results.push(astUtils.isInLoop(node));
 							}),
 						})),
@@ -47,20 +62,6 @@ function assertNodeTypeInLoop(code, nodeType, expectedInLoop, callCounts) {
 
 	assert.lengthOf(results, 1);
 	assert.strictEqual(results[0], expectedInLoop);
-}
-
-/**
- * Creates a wrapper function that tracks calls for mustCall validation.
- * @param {Map} callCounts map to track function calls.
- * @param {Function} func the function to wrap.
- * @returns {Function} a wrapper around the function.
- */
-function createMustCallWrapper(callCounts, func) {
-	callCounts.set(func, 0);
-	return function Wrapper(...args) {
-		callCounts.set(func, callCounts.get(func) + 1);
-		return func.call(this, ...args);
-	};
 }
 
 describe("ast-utils", () => {
@@ -76,7 +77,12 @@ describe("ast-utils", () => {
 	 * @returns {Function} A wrapper around the same function
 	 */
 	function mustCall(func) {
-		return createMustCallWrapper(callCounts, func);
+		callCounts.set(func, 0);
+		return function Wrapper(...args) {
+			callCounts.set(func, callCounts.get(func) + 1);
+
+			return func.call(this, ...args);
+		};
 	}
 
 	afterEach(() => {
@@ -230,6 +236,7 @@ describe("ast-utils", () => {
 	});
 
 	describe("checkReference", () => {
+		// catch
 		it("should return true if reference is assigned for catch", () => {
 			linter.verify("try { } catch (e) { e = 10; }", {
 				plugins: {
@@ -259,6 +266,7 @@ describe("ast-utils", () => {
 			});
 		});
 
+		// const
 		it("should return true if reference is assigned for const", () => {
 			linter.verify("const a = 1; a = 2;", {
 				plugins: {
@@ -317,6 +325,7 @@ describe("ast-utils", () => {
 			});
 		});
 
+		// class
 		it("should return true if reference is assigned for class", () => {
 			linter.verify("class A { }\n A = 1;", {
 				plugins: {
@@ -567,11 +576,11 @@ describe("ast-utils", () => {
 
 	describe("isInLoop", () => {
 		it("should return true for a loop itself", () => {
-			assertNodeTypeInLoop("while (a) {}", "WhileStatement", true, callCounts);
+			assertNodeTypeInLoop("while (a) {}", "WhileStatement", true, mustCall);
 		});
 
 		it("should return true for a loop condition", () => {
-			assertNodeTypeInLoop("while (a) {}", "Identifier", true, callCounts);
+			assertNodeTypeInLoop("while (a) {}", "Identifier", true, mustCall);
 		});
 
 		it("should return true for a loop assignee", () => {
@@ -579,7 +588,7 @@ describe("ast-utils", () => {
 				"for (var a in b) {}",
 				"VariableDeclaration",
 				true,
-				callCounts,
+				mustCall,
 			);
 		});
 
@@ -588,7 +597,7 @@ describe("ast-utils", () => {
 				"for (var a of b) { console.log('Hello'); }",
 				"Literal",
 				true,
-				callCounts,
+				mustCall,
 			);
 		});
 
@@ -597,7 +606,7 @@ describe("ast-utils", () => {
 				"while (true) {} a(b);",
 				"CallExpression",
 				false,
-				callCounts,
+				mustCall,
 			);
 		});
 
@@ -606,18 +615,25 @@ describe("ast-utils", () => {
 				"while (true) { funcs.push(() => { var a; }); }",
 				"VariableDeclaration",
 				false,
-				callCounts,
+				mustCall,
 			);
 		});
 	});
 
 	describe("getStaticStringValue", () => {
 		const expectedResults = {
+			// string literals
 			"''": "",
 			"'foo'": "foo",
+
+			// boolean literals
 			false: "false",
 			true: "true",
+
+			// null literal
 			null: "null",
+
+			// number literals
 			0: "0",
 			"0.": "0",
 			".0": "0",
@@ -640,14 +656,20 @@ describe("ast-utils", () => {
 			"0o011": "9",
 			"0x11": "17",
 			"0x011": "17",
+
+			// regexp literals
 			"/a/": "/a/",
 			"/a/i": "/a/i",
 			"/[0-9]/": "/[0-9]/",
 			"/(?<zero>0)/": "/(?<zero>0)/",
 			"/(?<zero>0)/s": "/(?<zero>0)/s",
 			"/(?<=a)b/s": "/(?<=a)b/s",
+
+			// simple template literals
 			"``": "",
 			"`foo`": "foo",
+
+			// unsupported
 			"`${''}`": null,
 			"`${0}`": null,
 			"tag``": null,
@@ -1399,6 +1421,8 @@ describe("ast-utils", () => {
 			"1 && 2": false,
 			"1 && foo": true,
 			"foo && 2": false,
+
+			// A future improvement could detect the left side as statically falsy, making this false.
 			"false && foo": true,
 			"foo &&= 2": false,
 			"foo.bar ??= 2": true,
@@ -2133,12 +2157,12 @@ describe("ast-utils", () => {
 				{
 					nodeA: {
 						type: "Literal",
-						value: /(?:)/u,
+						value: /(?:)/u, // eslint-disable-line regexp/no-empty-group -- Test data for regex comparison
 						regex: { pattern: "(?:)", flags: "u" },
 					},
 					nodeB: {
 						type: "Literal",
-						value: /(?:)/u,
+						value: /(?:)/u, // eslint-disable-line regexp/no-empty-group -- Test data for regex comparison
 						regex: { pattern: "(?:)", flags: "u" },
 					},
 					expected: true,
@@ -2164,7 +2188,7 @@ describe("ast-utils", () => {
 					},
 					nodeB: {
 						type: "Literal",
-						value: /(?:)/,
+						value: /(?:)/, // eslint-disable-line require-unicode-regexp, regexp/no-empty-group -- Checking non-Unicode regex
 						regex: { pattern: "(?:)", flags: "" },
 					},
 					expected: false,
@@ -2306,6 +2330,7 @@ describe("ast-utils", () => {
 			"foo\\\nbar\\2baz": true,
 			"\\\n\\8": true,
 			"foo\\\nbar\\9baz": true,
+
 			"\\0": false,
 			" \\0": false,
 			"\\0 ": false,
@@ -2536,6 +2561,7 @@ describe("ast-utils", () => {
 													assertForNode(node);
 
 													if (!expectedRetVal) {
+														// The flow parser sets `directive` to null on non-directive ExpressionStatement nodes.
 														node.directive = null;
 														assertForNode(node);
 													}

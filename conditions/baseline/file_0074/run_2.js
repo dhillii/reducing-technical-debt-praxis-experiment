@@ -48,26 +48,84 @@ function getVariable(scope, name) {
 }
 
 /**
- * Create a test case for isSpaceBetween with given code and expected result
- * @param {string} code The code to test
- * @param {boolean} expected The expected result
- * @param {number} firstTokenIndex Index of first token
- * @param {number} secondTokenIndex Index of second token
- * @returns {Function} Test function
+ * Verify custom globals attributes
+ * @param {Object} variable The variable to check
+ * @param {string} name The variable name
+ * @param {Object} esGlobals ES globals reference
+ * @param {boolean} isES Global Whether this is an ES global
+ * @param {boolean} isDeclared Whether this variable is declared in code
+ * @returns {void}
  */
-function createIsSpaceBetweenTest(code, expected, firstTokenIndex, secondTokenIndex) {
-	return () => {
-		const ast = espree.parse(code, DEFAULT_CONFIG),
-			sourceCode = new SourceCode(code, ast);
-
-		assert.strictEqual(
-			sourceCode.isSpaceBetween(
-				sourceCode.ast.tokens[firstTokenIndex],
-				sourceCode.ast.tokens[secondTokenIndex],
-			),
-			expected,
+function verifyCustomGlobalAttributes(variable, name, esGlobals, isESGlobal, isDeclared) {
+	if (isDeclared) {
+		assert(
+			!Object.hasOwn(variable, "eslintImplicitGlobalSetting"),
 		);
-	};
+		assert(!Object.hasOwn(variable, "eslintExplicitGlobal"));
+		assert(
+			!Object.hasOwn(
+				variable,
+				"eslintExplicitGlobalComments",
+			),
+		);
+		assert(!Object.hasOwn(variable, "writeable"));
+	} else {
+		assert(
+			Object.hasOwn(variable, "eslintImplicitGlobalSetting"),
+		);
+		assert(Object.hasOwn(variable, "eslintExplicitGlobal"));
+		assert(
+			Object.hasOwn(variable, "eslintExplicitGlobalComments"),
+		);
+		assert(Object.hasOwn(variable, "writeable"));
+	}
+}
+
+/**
+ * Verify variable attributes based on name
+ * @param {Object} variable The variable to check
+ * @param {string} name The variable name
+ * @param {Object} esGlobals ES globals reference
+ * @returns {void}
+ */
+function verifyVariableAttributes(variable, name, esGlobals) {
+	if (name === "Foo") {
+		assert.strictEqual(
+			variable.eslintImplicitGlobalSetting,
+			void 0,
+		);
+		assert.strictEqual(variable.eslintExplicitGlobal, true);
+		assert.strictEqual(
+			variable.eslintExplicitGlobalComments.length,
+			1,
+		);
+		assert.strictEqual(variable.writeable, false);
+	} else if (name === "Bar") {
+		assert.strictEqual(
+			variable.eslintImplicitGlobalSetting,
+			"writable",
+		);
+		assert.strictEqual(variable.eslintExplicitGlobal, false);
+		assert.strictEqual(
+			variable.eslintExplicitGlobalComments,
+			void 0,
+		);
+		assert.strictEqual(variable.writeable, true);
+	} else if (name !== "Baz") {
+		assert.strictEqual(
+			variable.eslintImplicitGlobalSetting,
+			esGlobals[name] ? "writable" : "readonly",
+		);
+		assert.strictEqual(variable.eslintExplicitGlobal, false);
+		assert.strictEqual(
+			variable.eslintExplicitGlobalComments,
+			void 0,
+		);
+		assert.strictEqual(
+			variable.writeable,
+			esGlobals[name],
+		);
+	}
 }
 
 //------------------------------------------------------------------------------
@@ -3377,66 +3435,7 @@ describe("SourceCode", () => {
 				assert(Object.hasOwn(variable, "eslintExplicitGlobalComments"));
 				assert(Object.hasOwn(variable, "writeable"));
 
-				if (variable.name === "Foo") {
-					assert.strictEqual(
-						variable.eslintImplicitGlobalSetting,
-						"writable",
-					);
-
-					assert.strictEqual(variable.eslintExplicitGlobal, true);
-
-					assert.strictEqual(
-						variable.eslintExplicitGlobalComments.length,
-						1,
-					);
-
-					assert.strictEqual(variable.writeable, false);
-				} else if (variable.name === "Bar") {
-					assert.strictEqual(
-						variable.eslintImplicitGlobalSetting,
-						"readonly",
-					);
-
-					assert.strictEqual(variable.eslintExplicitGlobal, true);
-
-					assert.strictEqual(
-						variable.eslintExplicitGlobalComments.length,
-						1,
-					);
-
-					assert.strictEqual(variable.writeable, true);
-				} else if (variable.name === "Baz") {
-					assert.strictEqual(
-						variable.eslintImplicitGlobalSetting,
-						"writable",
-					);
-
-					assert.strictEqual(variable.eslintExplicitGlobal, true);
-
-					assert.strictEqual(
-						variable.eslintExplicitGlobalComments.length,
-						1,
-					);
-
-					assert.strictEqual(variable.writeable, false);
-				} else {
-					assert.strictEqual(
-						variable.eslintImplicitGlobalSetting,
-						esGlobals[variable.name] ? "writable" : "readonly",
-					);
-
-					assert.strictEqual(variable.eslintExplicitGlobal, false);
-
-					assert.strictEqual(
-						variable.eslintExplicitGlobalComments,
-						void 0,
-					);
-
-					assert.strictEqual(
-						variable.writeable,
-						esGlobals[variable.name],
-					);
-				}
+				verifyVariableAttributes(variable, variable.name, esGlobals);
 
 				assert.strictEqual(variable.defs.length, 0);
 			}
@@ -3769,28 +3768,8 @@ describe("SourceCode", () => {
 					["Foo", "Bar", "Baz"].includes(variable.name) ? 1 : 0,
 				);
 
-				if (variable.name === "Baz") {
-					assert(
-						!Object.hasOwn(variable, "eslintImplicitGlobalSetting"),
-					);
-					assert(!Object.hasOwn(variable, "eslintExplicitGlobal"));
-					assert(
-						!Object.hasOwn(
-							variable,
-							"eslintExplicitGlobalComments",
-						),
-					);
-					assert(!Object.hasOwn(variable, "writeable"));
-				} else {
-					assert(
-						Object.hasOwn(variable, "eslintImplicitGlobalSetting"),
-					);
-					assert(Object.hasOwn(variable, "eslintExplicitGlobal"));
-					assert(
-						Object.hasOwn(variable, "eslintExplicitGlobalComments"),
-					);
-					assert(Object.hasOwn(variable, "writeable"));
-				}
+				const isDeclared = variable.name === "Baz";
+				verifyCustomGlobalAttributes(variable, variable.name, esGlobals, Object.hasOwn(esGlobals, variable.name), isDeclared);
 
 				if (variable.name === "Foo") {
 					assert.strictEqual(

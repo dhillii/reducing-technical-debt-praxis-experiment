@@ -1,6 +1,6 @@
 'use strict';
 
-const ngModule = angular.module('woServices');
+var ngModule = angular.module('woServices');
 ngModule.service('keychain', Keychain);
 module.exports = Keychain;
 
@@ -59,9 +59,9 @@ Keychain.prototype.verifyPublicKey = function(uuid) {
  * @param {String} options.overridePermission (optional) Indicates if the update should happen automatically (true) or with the user being queried (false). Defaults to false
  */
 Keychain.prototype.refreshKeyForUserId = function(options) {
-    const self = this,
-        userId = options.userId,
-        overridePermission = options.overridePermission;
+    const self = this;
+    const userId = options.userId;
+    const overridePermission = options.overridePermission;
 
     // get the public key corresponding to the userId
     return self.getReceiverPublicKey(userId).then(function(localKey) {

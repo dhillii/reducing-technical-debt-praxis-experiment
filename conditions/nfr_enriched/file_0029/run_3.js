@@ -137,21 +137,19 @@ export default class Analytics extends Component {
         return this.post.count.positive_feedback + this.post.count.negative_feedback;
     }
 
-    buildFeedbackFilterParam(postId, score) {
-        return `(feedback.post_id:'${postId}'+feedback.score:${score})`;
-    }
-
     get feedbackChartData() {
         const values = [this.post.count.positive_feedback, this.post.count.negative_feedback];
         const labels = ['More like this', 'Less like this'];
-        const positiveFilter = this.buildFeedbackFilterParam(this.post.id, 1);
-        const negativeFilter = this.buildFeedbackFilterParam(this.post.id, 0);
         const links = [
-            {filterParam: positiveFilter},
-            {filterParam: negativeFilter}
+            {filterParam: this.buildFeedbackFilterParam(1)},
+            {filterParam: this.buildFeedbackFilterParam(0)}
         ];
         const colors = ['#F080B2', '#8452f633'];
         return {values, labels, links, colors};
+    }
+
+    buildFeedbackFilterParam(score) {
+        return `(feedback.post_id:'${this.post.id}'+feedback.score:${score})`;
     }
 
     @action
@@ -275,16 +273,6 @@ export default class Analytics extends Component {
         }
     }
 
-    buildLinkBulkUpdateUrl(postId, currentLink) {
-        const filter = `post_id:'${postId}'+to:'${currentLink}'`;
-        return this.ghostPaths.url.api('links/bulk') + `?filter=${encodeURIComponent(filter)}`;
-    }
-
-    buildLinksQueryUrl(postId) {
-        const filter = `post_id:'${postId}'`;
-        return this.ghostPaths.url.api('links/') + `?filter=${encodeURIComponent(filter)}`;
-    }
-
     @task
     *_updateLinks(linkId, newLink) {
         this.updateLinkId = linkId;
@@ -304,7 +292,8 @@ export default class Analytics extends Component {
             return link;
         });
 
-        const bulkUpdateUrl = this.buildLinkBulkUpdateUrl(this.post.id, currentLink);
+        const filter = `post_id:'${this.post.id}'+to:'${currentLink}'`;
+        let bulkUpdateUrl = this.ghostPaths.url.api(`links/bulk`) + `?filter=${encodeURIComponent(filter)}`;
         yield this.ajax.put(bulkUpdateUrl, {
             data: {
                 bulk: {
@@ -315,7 +304,8 @@ export default class Analytics extends Component {
         });
 
         // Refresh links data
-        const statsUrl = this.buildLinksQueryUrl(this.post.id);
+        const linksFilter = `post_id:'${this.post.id}'`;
+        let statsUrl = this.ghostPaths.url.api(`links/`) + `?filter=${encodeURIComponent(linksFilter)}`;
         let result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
         this.showSuccess = this.updateLinkId;
@@ -339,7 +329,8 @@ export default class Analytics extends Component {
 
     @task
     *_fetchLinks() {
-        const statsUrl = this.buildLinksQueryUrl(this.post.id);
+        const filter = `post_id:'${this.post.id}'`;
+        let statsUrl = this.ghostPaths.url.api(`links/`) + `?filter=${encodeURIComponent(filter)}`;
         let result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
     }
@@ -351,13 +342,9 @@ export default class Analytics extends Component {
         return this._fetchMentions.perform();
     }
 
-    buildMentionsFilter(postId) {
-        return `resource_id:'${postId}'+resource_type:post`;
-    }
-
     @task
     *_fetchMentions() {
-        const filter = this.buildMentionsFilter(this.post.id);
+        const filter = `resource_id:'${this.post.id}'+resource_type:post`;
         this.mentions = yield this.store.query('mention', {limit: 5, order: 'created_at desc', filter});
     }
 
@@ -371,10 +358,6 @@ export default class Analytics extends Component {
         }
     }
 
-    buildPostQueryFilter(postId) {
-        return `id:${postId}`;
-    }
-
     @task
     *fetchPostTask() {
         const currentSentCount = this.post.email?.emailCount;
@@ -385,8 +368,7 @@ export default class Analytics extends Component {
 
         this.shouldAnimate = true;
 
-        const filter = this.buildPostQueryFilter(this.post.id);
-        const result = yield this.store.query('post', {filter, include: 'email,count.clicks,count.conversions,count.positive_feedback,count.negative_feedback,sentiment', limit: 1});
+        const result = yield this.store.query('post', {filter: `id:${this.post.id}`, include: 'email,count.clicks,count.conversions,count.positive_feedback,count.negative_feedback,sentiment', limit: 1});
         this.post = result.toArray()[0];
 
         this.previousSentCount = currentSentCount;
@@ -400,8 +382,10 @@ export default class Analytics extends Component {
         return true;
     }
 
-    buildAnimationSelector(element) {
-        return Array.from(element.classList).map(className => `.${className}`).join('');
+    buildElementClassSelector(element) {
+        const classNames = Array.from(element.classList);
+        const classSelectors = classNames.map(className => `.${className}`).join('');
+        return classSelectors;
     }
 
     shouldSkipAnimation(element) {
@@ -432,9 +416,10 @@ export default class Analytics extends Component {
         return false;
     }
 
-    animateNewNumbers(selector) {
+    animateNewNumbers(classSelector) {
+        const newNumberTarget = `${classSelector} .new-number span`;
         anime({
-            targets: `${selector} .new-number span`,
+            targets: newNumberTarget,
             translateY: [10, 0],
             opacity: [0, 1],
             easing: 'easeOutElastic',
@@ -444,9 +429,10 @@ export default class Analytics extends Component {
         });
     }
 
-    animateOldNumbers(selector) {
+    animateOldNumbers(classSelector) {
+        const oldNumberTarget = `${classSelector} .old-number span`;
         anime({
-            targets: `${selector} .old-number span`,
+            targets: oldNumberTarget,
             translateY: [0, -10],
             opacity: [1, 0],
             easing: 'easeOutExpo',
@@ -461,9 +447,9 @@ export default class Analytics extends Component {
             return;
         }
 
-        const selector = this.buildAnimationSelector(element);
-        this.animateNewNumbers(selector);
-        this.animateOldNumbers(selector);
+        const classSelector = this.buildElementClassSelector(element);
+        this.animateNewNumbers(classSelector);
+        this.animateOldNumbers(classSelector);
     }
 
     get showLinks() {

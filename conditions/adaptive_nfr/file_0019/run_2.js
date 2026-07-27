@@ -356,49 +356,9 @@ html[dir=rtl] .gh-portal-signup-terms .checkbox:before {
 `;
 
 /**
- * Determines if signup should be blocked based on site configuration
- * @param {Object} site - Site configuration object
- * @param {string} pageQuery - Page query parameter
- * @returns {boolean} True if signup is blocked
- */
-function isSignupBlocked(site, pageQuery) {
-    return !isSignupAllowed({site}) || !hasAvailablePrices({site, pageQuery});
-}
-
-/**
- * Determines if paid members only restriction applies
- * @param {Object} site - Site configuration object
- * @param {string} pageQuery - Page query parameter
- * @returns {boolean} True if paid members only
- */
-function isPaidMembersOnlyRestriction(site, pageQuery) {
-    return isPaidMembersOnly({site}) && pageQuery === 'free';
-}
-
-/**
- * Determines if only free plan should be shown
- * @param {Object} site - Site configuration object
- * @param {string} pageQuery - Page query parameter
- * @returns {boolean} True if only free plan
- */
-function shouldShowOnlyFree(site, pageQuery) {
-    return pageQuery === 'free' && isFreeSignupAllowed({site});
-}
-
-/**
- * Determines if only free plan is available
- * @param {Object} site - Site configuration object
- * @param {string} pageQuery - Page query parameter
- * @returns {boolean} True if only free plan available
- */
-function isOnlyFreePlanAvailable(site, pageQuery) {
-    return hasOnlyFreePlan({site}) || shouldShowOnlyFree(site, pageQuery);
-}
-
-/**
- * Determines submit button label based on action state
+ * Determines the submit button label based on action state
  * @param {string} action - Current action state
- * @returns {Object} Label and state flags
+ * @returns {Object} Object with label and state flags
  */
 function getSubmitButtonState(action) {
     const states = {
@@ -410,35 +370,92 @@ function getSubmitButtonState(action) {
 }
 
 /**
- * Determines section and footer CSS classes based on site configuration
- * @param {Object} site - Site configuration object
+ * Determines if signup should be allowed based on site configuration
+ * @param {Object} site - Site configuration
  * @param {string} pageQuery - Page query parameter
- * @param {number} fieldCount - Number of input fields
- * @returns {Object} Section and footer class names
+ * @returns {boolean} Whether signup is allowed
  */
-function getSignupClassNames(site, pageQuery, fieldCount) {
-    const plansData = getSitePrices({site, pageQuery});
-    let sectionClass = '';
-    let footerClass = '';
+function isSignupAllowedForPage(site, pageQuery) {
+    return isSignupAllowed({site}) && hasAvailablePrices({site, pageQuery});
+}
 
-    if (plansData.length <= 1 || isInviteOnly({site})) {
-        const isSingleFreePlan = (plansData.length === 1 && plansData[0].type === 'free') || isInviteOnly({site, pageQuery});
-        
-        if (isSingleFreePlan) {
-            sectionClass = freeHasBenefitsOrDescription({site}) ? 'singleplan' : 'noplan';
-            if (fieldCount === 1) {
-                sectionClass = 'single-field';
-            }
-            if (isInviteOnly({site})) {
-                footerClass = 'invite-only';
-                sectionClass = 'invite-only';
-            }
-        } else {
-            sectionClass = 'singleplan';
-        }
+/**
+ * Determines the appropriate form content based on site state
+ * @param {Object} params - Parameters object
+ * @returns {string} Content type identifier
+ */
+function getFormContentType(params) {
+    const {site, pageQuery} = params;
+    
+    if (isInviteOnly({site})) {
+        return 'inviteOnly';
     }
+    
+    if (isPaidMembersOnly({site}) && pageQuery === 'free') {
+        return 'paidMembersOnly';
+    }
+    
+    if (!isSignupAllowedForPage(site, pageQuery)) {
+        return isSigninAllowed({site}) ? 'inviteOnly' : 'membersDisabled';
+    }
+    
+    return 'signup';
+}
 
-    return {sectionClass, footerClass};
+/**
+ * Determines the site icon to display
+ * @param {Object} params - Parameters object
+ * @returns {string} Icon type identifier
+ */
+function getSiteIconType(params) {
+    const {site, pageQuery} = params;
+    
+    if (site.icon) {
+        return 'siteIcon';
+    }
+    
+    if (!hasAvailablePrices({site, pageQuery}) || isInviteOnly({site}) || !isSignupAllowed({site})) {
+        return 'invitationIcon';
+    }
+    
+    return 'none';
+}
+
+/**
+ * Determines section and footer CSS classes based on site configuration
+ * @param {Object} params - Parameters object
+ * @returns {Object} Object with sectionClass and footerClass
+ */
+function getClassNamesForPage(params) {
+    const {site, pageQuery, fieldCount} = params;
+    const plansData = getSitePrices({site, pageQuery});
+    
+    const classMap = {
+        inviteOnly: {section: 'invite-only', footer: 'invite-only'},
+        singleFreePlan: {
+            section: freeHasBenefitsOrDescription({site}) ? 'singleplan' : 'noplan',
+            footer: ''
+        },
+        singleField: {section: 'single-field', footer: ''},
+        singlePlan: {section: 'singleplan', footer: ''},
+        default: {section: '', footer: ''}
+    };
+    
+    if (isInviteOnly({site})) {
+        return classMap.inviteOnly;
+    }
+    
+    if (plansData.length <= 1) {
+        if (plansData.length === 1 && plansData[0].type === 'free') {
+            if (fieldCount === 1) {
+                return classMap.singleField;
+            }
+            return classMap.singleFreePlan;
+        }
+        return classMap.singlePlan;
+    }
+    
+    return classMap.default;
 }
 
 class SignupPage extends React.Component {
@@ -684,9 +701,9 @@ class SignupPage extends React.Component {
             return null;
         }
 
-        const showOnlyFree = shouldShowOnlyFree(site, pageQuery);
+        const showOnlyFree = pageQuery === 'free' && isFreeSignupAllowed({site});
 
-        if (!isOnlyFreePlanAvailable(site, pageQuery)) {
+        if (!hasOnlyFreePlan({site}) && !showOnlyFree) {
             return null;
         }
 
@@ -702,7 +719,7 @@ class SignupPage extends React.Component {
                 brandColor={brandColor}
                 label={buttonState.label}
                 isRunning={buttonState.isRunning}
-                tabIndex={0}
+                tabIndex={-1}
             />
         );
     }
@@ -764,56 +781,73 @@ class SignupPage extends React.Component {
 
     renderFormContent() {
         const {site, pageQuery} = this.context;
-        const hasOnlyFree = isOnlyFreePlanAvailable(site, pageQuery);
-        const signupTerms = this.renderSignupTerms();
-
-        if (hasOnlyFree) {
-            return (
-                <>
-                    {this.renderProducts()}
-                    {signupTerms &&
-                    <div className='gh-portal-signup-terms-wrapper free-only'>
-                        {signupTerms}
-                    </div>
-                    }
-                </>
-            );
-        }
-
-        return (
-            <>
-                {signupTerms &&
-                <div className='gh-portal-signup-terms-wrapper'>
-                    {signupTerms}
-                </div>
-                }
-                {this.renderProducts()}
-            </>
-        );
+        const contentType = getFormContentType({site, pageQuery});
+        
+        const contentRenderers = {
+            inviteOnly: () => this.renderInviteOnlyMessage(),
+            paidMembersOnly: () => this.renderPaidMembersOnlyMessage(),
+            membersDisabled: () => this.renderMembersDisabledMessage(),
+            signup: () => this.renderSignupForm()
+        };
+        
+        const renderer = contentRenderers[contentType];
+        return renderer ? renderer() : null;
     }
 
-    renderFormFooter() {
-        const {site, pageQuery} = this.context;
-        const hasOnlyFree = isOnlyFreePlanAvailable(site, pageQuery);
-
-        if (hasOnlyFree) {
-            return (
-                <div className='gh-portal-btn-container'>
-                    <div className='gh-portal-logged-out-form-container'>
-                        {this.renderSubmitButton()}
-                        {this.renderLoginMessage()}
-                    </div>
-                </div>
-            );
-        }
-
-        return this.renderLoginMessage();
-    }
-
-    renderForm() {
+    renderSignupForm() {
         const fields = this.getInputFields({state: this.state});
         const {site, pageQuery} = this.context;
 
+        const showOnlyFree = pageQuery === 'free' && isFreeSignupAllowed({site});
+        const hasOnlyFree = hasOnlyFreePlan({site}) || showOnlyFree;
+
+        const signupTerms = this.renderSignupTerms();
+
+        return (
+            <section className="gh-portal-signup">
+                <div className='gh-portal-section'>
+                    <div className='gh-portal-logged-out-form-container'>
+                        <InputForm
+                            fields={fields}
+                            onChange={(e, field) => this.handleInputChange(e, field)}
+                            onKeyDown={e => this.onKeyDown(e)}
+                        />
+                    </div>
+                    <div>
+                        {(hasOnlyFree ?
+                            <>
+                                {this.renderProducts()}
+                                {signupTerms &&
+                                <div className='gh-portal-signup-terms-wrapper free-only'>
+                                    {signupTerms}
+                                </div>
+                                }
+                            </> :
+                            <>
+                                {signupTerms &&
+                                <div className='gh-portal-signup-terms-wrapper'>
+                                    {signupTerms}
+                                </div>
+                                }
+                                {this.renderProducts()}
+                            </>)}
+
+                        {(hasOnlyFree ?
+                            <div className='gh-portal-btn-container'>
+                                <div className='gh-portal-logged-out-form-container'>
+                                    {this.renderSubmitButton()}
+                                    {this.renderLoginMessage()}
+                                </div>
+                            </div>
+                            :
+                            this.renderLoginMessage())}
+                    </div>
+                </div>
+            </section>
+        );
+    }
+
+    renderForm() {
         if (this.state.showNewsletterSelection) {
             return (
                 <NewsletterSelectionPage
@@ -827,39 +861,7 @@ class SignupPage extends React.Component {
             );
         }
 
-        if (isInviteOnly({site})) {
-            return this.renderInviteOnlyMessage();
-        }
-
-        if (isPaidMembersOnlyRestriction(site, pageQuery)) {
-            return this.renderPaidMembersOnlyMessage();
-        }
-
-        if (isSignupBlocked(site, pageQuery)) {
-            if (!isSigninAllowed({site})) {
-                return this.renderMembersDisabledMessage();
-            }
-
-            return this.renderInviteOnlyMessage();
-        }
-
-        return (
-            <section className="gh-portal-signup">
-                <div className='gh-portal-section'>
-                    <div className='gh-portal-logged-out-form-container'>
-                        <InputForm
-                            fields={fields}
-                            onChange={(e, field) => this.handleInputChange(e, field)}
-                            onKeyDown={e => this.onKeyDown(e)}
-                        />
-                    </div>
-                    <div>
-                        {this.renderFormContent()}
-                        {this.renderFormFooter()}
-                    </div>
-                </div>
-            </section>
-        );
+        return this.renderFormContent();
     }
 
     renderPaidMembersOnlyMessage() {
@@ -911,21 +913,20 @@ class SignupPage extends React.Component {
 
     renderSiteIcon() {
         const {site, pageQuery} = this.context;
-        const siteIcon = site.icon;
-
-        if (siteIcon) {
-            return (
-                <img className='gh-portal-signup-logo' src={siteIcon} alt={site.title} />
-            );
-        }
-
-        if (!hasAvailablePrices({site, pageQuery}) || isInviteOnly({site}) || !isSignupAllowed({site})) {
-            return (
+        const iconType = getSiteIconType({site, pageQuery});
+        
+        const iconRenderers = {
+            siteIcon: () => (
+                <img className='gh-portal-signup-logo' src={site.icon} alt={site.title} />
+            ),
+            invitationIcon: () => (
                 <InvitationIcon className='gh-portal-icon gh-portal-icon-invitation' />
-            );
-        }
-
-        return null;
+            ),
+            none: () => null
+        };
+        
+        const renderer = iconRenderers[iconType];
+        return renderer ? renderer() : null;
     }
 
     renderFormHeader() {
@@ -942,7 +943,12 @@ class SignupPage extends React.Component {
     getClassNames() {
         const {site, pageQuery} = this.context;
         const fields = this.getInputFields({state: this.state});
-        return getSignupClassNames(site, pageQuery, fields.length);
+        
+        return getClassNamesForPage({
+            site,
+            pageQuery,
+            fieldCount: fields.length
+        });
     }
 
     render() {

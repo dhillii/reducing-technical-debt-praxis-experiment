@@ -42,16 +42,16 @@ function resolveHome(filepath) {
   return filepath;
 }
 
-function isSilentFlagPresent() {
+function isSilentModeEnabled() {
   const variadicArgsDashesPos = process.argv.indexOf('--');
   const s1opt = process.argv.indexOf('--silent');
   const s2opt = process.argv.indexOf('-s');
 
-  if (variadicArgsDashesPos > -1) {
-    return (s1opt !== -1 && s1opt < variadicArgsDashesPos) ||
-           (s2opt !== -1 && s2opt < variadicArgsDashesPos);
-  }
-  return s1opt > -1 || s2opt > -1;
+  return process.env.PM2_SILENT || 
+    (variadicArgsDashesPos > -1 &&
+     (s1opt !== -1 && s1opt < variadicArgsDashesPos) &&
+     (s2opt !== -1 && s2opt < variadicArgsDashesPos)) ||
+    (variadicArgsDashesPos === -1 && (s1opt > -1 || s2opt > -1));
 }
 
 function disableConsoleOutput() {
@@ -61,12 +61,12 @@ function disableConsoleOutput() {
       console[key] = function(){};
     }
   }
+  process.env.PM2_DISCRETE_MODE = true;
 }
 
 Common.determineSilentCLI = function() {
-  if (process.env.PM2_SILENT || isSilentFlagPresent()) {
+  if (isSilentModeEnabled()) {
     disableConsoleOutput();
-    process.env.PM2_DISCRETE_MODE = true;
   }
 };
 
@@ -102,9 +102,9 @@ function writeReloadLockFile() {
 }
 
 Common.lockReload = function() {
-  const existingLock = readReloadLockFile();
-  if (existingLock !== null) {
-    return existingLock;
+  const lockDiff = readReloadLockFile();
+  if (lockDiff !== null) {
+    return lockDiff;
   }
   return writeReloadLockFile();
 };
@@ -124,7 +124,7 @@ function validateAppScript(app) {
   return null;
 }
 
-function resolveAppCwd(app, opts) {
+function resolveCwd(app, opts) {
   let cwd = null;
 
   if (app.cwd) {
@@ -132,28 +132,26 @@ function resolveAppCwd(app, opts) {
     process.env.PWD = app.cwd;
   }
 
-  if (cwd && cwd[0] !== '/') {
-    cwd = path.resolve(process.cwd(), cwd);
-  }
+  cwd && (cwd[0] !== '/') && (cwd = path.resolve(process.cwd(), cwd));
+  cwd = cwd || opts.cwd;
 
-  return cwd || opts.cwd;
+  return cwd;
 }
 
-function resolveAppScript(app, cwd) {
+function resolveScriptPath(app, cwd) {
   app.pm_exec_path = path.resolve(cwd, app.script);
 
   if (!fs.existsSync(app.pm_exec_path)) {
-    let resolvedPath = which(app.script);
-    if (resolvedPath) {
-      if (typeof resolvedPath !== 'string') {
-        resolvedPath = resolvedPath.toString();
+    let ckd = which(app.script);
+    if (ckd) {
+      if (typeof(ckd) !== 'string') {
+        ckd = ckd.toString();
       }
-      app.pm_exec_path = resolvedPath;
+      app.pm_exec_path = ckd;
     } else {
       return new Error(`Script not found: ${app.pm_exec_path}`);
     }
   }
-
   return null;
 }
 
@@ -167,28 +165,24 @@ function enableSourceMapSupport(app) {
   }
 }
 
-function filterEnvironmentVariables(envObj, filterConfig) {
-  if (filterConfig === true) {
+function filterEnvironmentVariables(app, envObj) {
+  if (app.filter_env === true) {
     return {};
   }
 
-  if (typeof filterConfig === 'string') {
-    const filtered = Object.assign({}, envObj);
-    delete filtered[filterConfig];
-    return filtered;
+  if (typeof app.filter_env === 'string') {
+    delete envObj[app.filter_env];
+    return envObj;
   }
 
   const newEnv = {};
-  const allowedKeys = Object.keys(envObj).filter(item =>
-    !filterConfig.some(current => item.includes(current))
-  );
-  allowedKeys.forEach(key => {
-    newEnv[key] = envObj[key];
-  });
+  const allowedKeys = app.filter_env.reduce((acc, current) =>
+    acc.filter(item => !item.includes(current)), Object.keys(envObj));
+  allowedKeys.forEach(key => newEnv[key] = envObj[key]);
   return newEnv;
 }
 
-function buildAppEnvironment(app, cwd) {
+function buildAppEnvironment(app, opts) {
   let env = {};
 
   if (cst.PM2_PROGRAMMATIC || process.env.pm_id) {
@@ -197,113 +191,85 @@ function buildAppEnvironment(app, cwd) {
     env = process.env;
   }
 
-  const filteredEnv = (app.filter_env && app.filter_env.length > 0)
-    ? filterEnvironmentVariables(process.env, app.filter_env)
+  const filteredEnv = (app.filter_env && app.filter_env.length > 0) 
+    ? filterEnvironmentVariables(app, process.env) 
     : env;
 
-  app.env = Object.assign({}, filteredEnv, app.env || {});
-  app.pm_cwd = cwd;
-}
-
-function resolveNodeArgs(app) {
-  if (!app.node_args) {
-    app.node_args = [];
-  }
-}
-
-function setPortInEnv(app) {
-  if (app.port && app.env) {
-    app.env.PORT = app.port;
-  }
-}
-
-function resolveLogFilePaths(app, cwd, formattedAppName) {
-  const fileConfigs = [
-    { field: 'log', ext: 'log', isStd: false },
-    { field: 'out', ext: 'log', isStd: true },
-    { field: 'error', ext: 'log', isStd: true },
-    { field: 'pid', ext: 'pid', isStd: false }
-  ];
-
-  fileConfigs.forEach(config => {
-    resolveLogFilePath(app, cwd, formattedAppName, config);
+  app.env = [
+    {}, filteredEnv, app.env || {}
+  ].reduce(function(e1, e2) {
+    return Object.assign(e1, e2);
   });
 }
 
-function resolveLogFilePath(app, cwd, formattedAppName, config) {
-  const { field, ext, isStd } = config;
-  const fileKey = field + '_file';
-  let filePath = app[fileKey];
+function resolveLogPaths(app, cwd, formattedAppName) {
+  const logFileTypes = ['log', 'out', 'error', 'pid'];
 
-  if (filePath) {
-    filePath = resolveHome(filePath);
-  }
+  logFileTypes.forEach(function(f) {
+    const af = app[f + '_file'];
+    const ext = (f === 'pid' ? 'pid' : 'log');
+    const isStd = !~['log', 'pid'].indexOf(f);
+    let resolvedFile = af ? resolveHome(af) : null;
 
-  let pathSegments;
+    let ps;
+    if ((f === 'log' && typeof resolvedFile === 'boolean' && resolvedFile) || 
+        (f !== 'log' && !resolvedFile)) {
+      ps = [cst['DEFAULT_' + ext.toUpperCase() + '_PATH'], 
+            formattedAppName + (isStd ? '-' + f : '') + '.' + ext];
+    } else if ((f !== 'log' || (f === 'log' && resolvedFile)) && 
+               resolvedFile !== 'NULL' && resolvedFile !== '/dev/null') {
+      ps = [cwd, resolvedFile];
 
-  if ((field === 'log' && typeof filePath === 'boolean' && filePath) ||
-      (field !== 'log' && !filePath)) {
-    pathSegments = [
-      cst['DEFAULT_' + ext.toUpperCase() + '_PATH'],
-      formattedAppName + (isStd ? '-' + field : '') + '.' + ext
-    ];
-  } else if ((field !== 'log' || (field === 'log' && filePath)) &&
-             filePath !== 'NULL' && filePath !== '/dev/null') {
-    pathSegments = [cwd, filePath];
-    ensureLogDirectory(cwd, filePath);
-  }
-
-  setLogFilePath(app, cwd, pathSegments, ext, isStd, filePath);
-  delete app[fileKey];
-}
-
-function ensureLogDirectory(cwd, filePath) {
-  const dir = path.dirname(path.resolve(cwd, filePath));
-  if (!fs.existsSync(dir)) {
-    Common.printError(cst.PREFIX_MSG_WARNING + 'Folder does not exist: ' + dir);
-    Common.printOut(cst.PREFIX_MSG + 'Creating folder: ' + dir);
-    try {
-      require('mkdirp').sync(dir);
-    } catch (err) {
-      Common.printError(cst.PREFIX_MSG_ERR + 'Could not create folder: ' + path.dirname(filePath));
-      throw new Error('Could not create folder');
+      const dir = path.dirname(path.resolve(cwd, resolvedFile));
+      if (!fs.existsSync(dir)) {
+        Common.printError(cst.PREFIX_MSG_WARNING + 'Folder does not exist: ' + dir);
+        Common.printOut(cst.PREFIX_MSG + 'Creating folder: ' + dir);
+        try {
+          require('mkdirp').sync(dir);
+        } catch (err) {
+          Common.printError(cst.PREFIX_MSG_ERR + 'Could not create folder: ' + path.dirname(resolvedFile));
+          throw new Error('Could not create folder');
+        }
+      }
     }
-  }
-}
 
-function setLogFilePath(app, cwd, pathSegments, ext, isStd, filePath) {
-  const pathKey = 'pm_' + (isStd ? 'out_err_pid'.substr(0, 3) + '_' : '') + ext + '_path';
-
-  if (filePath !== 'NULL' && filePath !== '/dev/null') {
-    if (pathSegments) {
-      app[pathKey] = path.resolve.apply(null, pathSegments);
+    if (resolvedFile !== 'NULL' && resolvedFile !== '/dev/null') {
+      ps && (app['pm_' + (isStd ? f.substr(0, 3) + '_' : '') + ext + '_path'] = 
+             path.resolve.apply(null, ps));
+    } else if (path.sep === '\\') {
+      app['pm_' + (isStd ? f.substr(0, 3) + '_' : '') + ext + '_path'] = '\\\\.\\NUL';
+    } else {
+      app['pm_' + (isStd ? f.substr(0, 3) + '_' : '') + ext + '_path'] = '/dev/null';
     }
-  } else if (path.sep === '\\') {
-    app[pathKey] = '\\\\.\\NUL';
-  } else {
-    app[pathKey] = '/dev/null';
-  }
+    delete app[f + '_file'];
+  });
 }
 
 Common.prepareAppConf = function(opts, app) {
-  const scriptError = validateAppScript(app);
-  if (scriptError) {
-    return scriptError;
+  const validationError = validateAppScript(app);
+  if (validationError) {
+    return validationError;
   }
 
-  const cwd = resolveAppCwd(app, opts);
-  resolveNodeArgs(app);
-  setPortInEnv(app);
+  if (!app.node_args) {
+    app.node_args = [];
+  }
 
-  const scriptError2 = resolveAppScript(app, cwd);
-  if (scriptError2) {
-    return scriptError2;
+  if (app.port && app.env) {
+    app.env.PORT = app.port;
+  }
+
+  const cwd = resolveCwd(app, opts);
+  const scriptError = resolveScriptPath(app, cwd);
+  if (scriptError) {
+    return scriptError;
   }
 
   enableSourceMapSupport(app);
   delete app.script;
 
-  buildAppEnvironment(app, cwd);
+  buildAppEnvironment(app, opts);
+  app.pm_cwd = cwd;
 
   try {
     Common.sink.resolveInterpreter(app);
@@ -314,7 +280,7 @@ Common.prepareAppConf = function(opts, app) {
   Common.sink.determineExecMode(app);
 
   const formattedAppName = app.name.replace(/[^a-zA-Z0-9\\.\\-]/g, '-');
-  resolveLogFilePaths(app, cwd, formattedAppName);
+  resolveLogPaths(app, cwd, formattedAppName);
 
   return app;
 };
@@ -417,40 +383,41 @@ Common.sink.determineExecMode = function(app) {
   } else if (!app.exec_mode) {
     app.exec_mode = 'fork_mode';
   }
-
   if (typeof app.instances === 'undefined') {
     app.instances = 1;
   }
 };
 
-function getNvmPath() {
-  return cst.IS_WINDOWS ? process.env.NVM_HOME : process.env.NVM_DIR;
+function getNodeVersionFromInterpreter(app) {
+  return app.exec_interpreter.split('@')[1];
 }
 
-function logNvmNotAvailable() {
-  Common.printError(cst.PREFIX_MSG_ERR + chalk.red('NVM is not available in PATH'));
-  Common.printError(cst.PREFIX_MSG_ERR + chalk.red('Fallback to node in PATH'));
-  const msg = cst.IS_WINDOWS
-    ? 'https://github.com/coreybutler/nvm-windows/releases/'
-    : '$ curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash';
-  Common.printOut(cst.PREFIX_MSG_ERR + chalk.bold('Install NVM:\n' + msg));
+function getNodePathForVersion(nodeVersion) {
+  const isWindows = cst.IS_WINDOWS;
+  if (isWindows) {
+    return '/v' + nodeVersion + '/node.exe';
+  }
+  return semver.satisfies(nodeVersion, '>= 0.12.0')
+    ? '/versions/node/v' + nodeVersion + '/bin/node'
+    : '/v' + nodeVersion + '/bin/node';
 }
 
-function getNodeVersionPath(nodeVersion) {
-  return cst.IS_WINDOWS
-    ? '/v' + nodeVersion + '/node.exe'
-    : semver.satisfies(nodeVersion, '>= 0.12.0')
-        ? '/versions/node/v' + nodeVersion + '/bin/node'
-        : '/v' + nodeVersion + '/bin/node';
+function getNvmBinPath() {
+  const nvmPath = cst.IS_WINDOWS ? process.env.NVM_HOME : process.env.NVM_DIR;
+  return path.join(nvmPath, 'nvm.' + (cst.IS_WINDOWS ? 'exe' : 'sh'));
+}
+
+function buildNvmInstallCommand(nvmBin, nodeVersion) {
+  if (cst.IS_WINDOWS) {
+    return nvmBin + ' install ' + nodeVersion;
+  }
+  return '. ' + nvmBin + ' ; nvm install ' + nodeVersion;
 }
 
 function installNodeVersion(nvmPath, nodeVersion) {
-  const nvmBin = path.join(nvmPath, 'nvm.' + (cst.IS_WINDOWS ? 'exe' : 'sh'));
-  const nvmCmd = cst.IS_WINDOWS
-    ? nvmBin + ' install ' + nodeVersion
-    : '. ' + nvmBin + ' ; nvm install ' + nodeVersion;
+  const nvmBin = getNvmBinPath();
+  const nvmCmd = buildNvmInstallCommand(nvmBin, nodeVersion);
 
-  Common.printOut(cst.PREFIX_MSG + 'Installing Node v%s', nodeVersion);
   Common.printOut(cst.PREFIX_MSG + 'Executing: %s', nvmCmd);
 
   execSync(nvmCmd, {
@@ -460,7 +427,7 @@ function installNodeVersion(nvmPath, nodeVersion) {
   });
 }
 
-function adjustWindowsNodePath(nvmNodePath) {
+function adjustNodePathForWindows(nvmNodePath) {
   if (cst.IS_WINDOWS) {
     return nvmNodePath.replace(/node/, 'node' + process.arch.slice(1));
   }
@@ -473,20 +440,27 @@ const resolveNodeInterpreter = function(app) {
     return false;
   }
 
-  const nvmPath = getNvmPath();
+  const nvmPath = cst.IS_WINDOWS ? process.env.NVM_HOME : process.env.NVM_DIR;
   if (!nvmPath) {
-    logNvmNotAvailable();
+    Common.printError(cst.PREFIX_MSG_ERR + chalk.red('NVM is not available in PATH'));
+    Common.printError(cst.PREFIX_MSG_ERR + chalk.red('Fallback to node in PATH'));
+    const msg = cst.IS_WINDOWS
+      ? 'https://github.com/coreybutler/nvm-windows/releases/'
+      : '$ curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash';
+    Common.printOut(cst.PREFIX_MSG_ERR + chalk.bold('Install NVM:\n' + msg));
     return;
   }
 
-  const nodeVersion = app.exec_interpreter.split('@')[1];
-  let nvmNodePath = path.join(nvmPath, getNodeVersionPath(nodeVersion));
+  const nodeVersion = getNodeVersionFromInterpreter(app);
+  const pathToNode = getNodePathForVersion(nodeVersion);
+  let nvmNodePath = path.join(nvmPath, pathToNode);
 
   try {
     fs.accessSync(nvmNodePath);
   } catch(e) {
+    Common.printOut(cst.PREFIX_MSG + 'Installing Node v%s', nodeVersion);
     installNodeVersion(nvmPath, nodeVersion);
-    nvmNodePath = adjustWindowsNodePath(nvmNodePath);
+    nvmNodePath = adjustNodePathForWindows(nvmNodePath);
   }
 
   Common.printOut(cst.PREFIX_MSG + chalk.green.bold('Setting Node to v%s (path=%s)'),
@@ -514,8 +488,21 @@ function resolveInterpreterFromExtension(app, extName, betterInterpreter) {
 
   app.exec_interpreter = betterInterpreter;
 
-  if (betterInterpreter === 'python') {
+  if (betterInterpreter === "python") {
     resolvePythonInterpreter(app);
+  }
+}
+
+function validateInterpreterAvailability(app) {
+  if (app.exec_interpreter === 'none' || which(app.exec_interpreter) !== null) {
+    return;
+  }
+
+  if (app.exec_interpreter === 'node') {
+    Common.warn(`Using builtin node.js version on version ${process.version}`);
+    app.exec_interpreter = cst.BUILTIN_NODE_PATH;
+  } else {
+    throw new Error(`Interpreter ${app.exec_interpreter} is NOT AVAILABLE in PATH. (type 'which ${app.exec_interpreter}' to double check.)`);
   }
 }
 
@@ -529,22 +516,12 @@ function resolveSpecialInterpreters(app) {
   }
 }
 
-function validateInterpreterAvailability(app) {
-  if (app.exec_interpreter !== 'none' && which(app.exec_interpreter) === null) {
-    if (app.exec_interpreter === 'node') {
-      Common.warn(`Using builtin node.js version on version ${process.version}`);
-      app.exec_interpreter = cst.BUILTIN_NODE_PATH;
-    } else {
-      throw new Error(`Interpreter ${app.exec_interpreter} is NOT AVAILABLE in PATH. (type 'which ${app.exec_interpreter}' to double check.)`);
-    }
-  }
-}
-
 Common.sink.resolveInterpreter = function(app) {
   const noInterpreter = !app.exec_interpreter;
   const extName = path.extname(app.pm_exec_path);
   const betterInterpreter = extItps[extName];
 
+  // Bun support
   if (noInterpreter && (extName === '.js' || extName === '.ts') && cst.IS_BUN === true) {
     app.exec_interpreter = process.execPath;
   } else if (noInterpreter && betterInterpreter) {
@@ -570,12 +547,8 @@ Common.deepCopy = Common.serialize = Common.clone = function(obj) {
   return fclone(obj);
 };
 
-function shouldSuppressOutput() {
-  return process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true';
-}
-
 Common.errMod = function(msg) {
-  if (shouldSuppressOutput()) return false;
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return false;
   if (msg instanceof Error) {
     return console.error(msg.message);
   }
@@ -583,7 +556,7 @@ Common.errMod = function(msg) {
 };
 
 Common.err = function(msg) {
-  if (shouldSuppressOutput()) return false;
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return false;
   if (msg instanceof Error) {
     return console.error(`${cst.PREFIX_MSG_ERR}${msg.message}`);
   }
@@ -591,7 +564,7 @@ Common.err = function(msg) {
 };
 
 Common.printError = function(msg) {
-  if (shouldSuppressOutput()) return false;
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return false;
   if (msg instanceof Error) {
     return console.error(msg.message);
   }
@@ -599,22 +572,22 @@ Common.printError = function(msg) {
 };
 
 Common.log = function(msg) {
-  if (shouldSuppressOutput()) return false;
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return false;
   return console.log(`${cst.PREFIX_MSG}${msg}`);
 };
 
 Common.info = function(msg) {
-  if (shouldSuppressOutput()) return false;
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return false;
   return console.log(`${cst.PREFIX_MSG_INFO}${msg}`);
 };
 
 Common.warn = function(msg) {
-  if (shouldSuppressOutput()) return false;
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return false;
   return console.log(`${cst.PREFIX_MSG_WARNING}${msg}`);
 };
 
 Common.logMod = function(msg) {
-  if (shouldSuppressOutput()) return false;
+  if (process.env.PM2_SILENT || process.env.PM2_PROGRAMMATIC === 'true') return false;
   return console.log(`${cst.PREFIX_MSG_MOD}${msg}`);
 };
 
@@ -640,7 +613,7 @@ Common.extend = function(destination, source) {
   return destination;
 };
 
-Common.safeExtend = function(origin, add){
+Common.safeExtend = function(origin, add) {
   if (!add || typeof add !== 'object') return origin;
 
   const keysToIgnore = ['name', 'exec_mode', 'env', 'args', 'pm_cwd', 'exec_interpreter', 'pm_exec_path', 'node_args', 'pm_out_log_path', 'pm_err_log_path', 'pm_pid_path', 'pm_id', 'status', 'pm_uptime', 'created_at', 'windowsHide', 'username', 'merge_logs', 'kill_retry_time', 'prev_restart_delay', 'instance_var', 'unstable_restarts', 'restart_time', 'axm_actions', 'pmx_module', 'command', 'watch', 'filter_env', 'versioning', 'vizion_runing', 'MODULE_DEBUG', 'pmx', 'axm_options', 'created_at', 'watch', 'vizion', 'axm_dynamic', 'axm_monitor', 'instances', 'automation', 'autostart', 'autorestart', 'stop_exit_codes', 'unstable_restart', 'treekill', 'exit_code', 'vizion'];
@@ -655,25 +628,11 @@ Common.safeExtend = function(origin, add){
   return origin;
 };
 
-function stringifyObjectValues(envObj) {
-  const result = {};
-  for (const key in envObj) {
-    if (typeof envObj[key] === 'object') {
-      result[key] = JSON.stringify(envObj[key]);
-    } else {
-      result[key] = envObj[key];
-    }
-  }
-  return result;
-}
-
-function mergeDeployEnvironment(newConf, deployConf, envName) {
+function mergeDeployEnvironment(newConf, app, envName, deployConf) {
   if (deployConf && deployConf[envName] && deployConf[envName]['env']) {
     Object.assign(newConf.env, deployConf[envName]['env']);
   }
-}
 
-function mergeAppEnvironment(newConf, app, envName) {
   Object.assign(newConf.env, app.env);
 
   if ('env_' + envName in app) {
@@ -683,11 +642,11 @@ function mergeAppEnvironment(newConf, app, envName) {
   }
 }
 
-function resolveNodeInterpreterInMerge(app, res) {
-  if (app.exec_interpreter &&
-      app.exec_interpreter.indexOf('@') > -1) {
-    resolveNodeInterpreter(app);
-    res.current_conf.exec_interpreter = app.exec_interpreter;
+function stringifyObjectEnvValues(app) {
+  for (const key in app.env) {
+    if (typeof app.env[key] === 'object') {
+      app.env[key] = JSON.stringify(app.env[key]);
+    }
   }
 }
 
@@ -695,14 +654,14 @@ Common.mergeEnvironmentVariables = function(appEnv, envName, deployConf) {
   const app = fclone(appEnv);
 
   const newConf = {
-    env: stringifyObjectValues(app.env || {})
+    env: {}
   };
 
+  stringifyObjectEnvValues(app);
   Object.assign(newConf, app);
 
   if (envName) {
-    mergeDeployEnvironment(newConf, deployConf, envName);
-    mergeAppEnvironment(newConf, app, envName);
+    mergeDeployEnvironment(newConf, app, envName, deployConf);
   }
 
   delete newConf.exec_mode;
@@ -714,7 +673,12 @@ Common.mergeEnvironmentVariables = function(appEnv, envName, deployConf) {
   Object.assign(res, newConf.env);
   Object.assign(res.current_conf, newConf);
 
-  resolveNodeInterpreterInMerge(app, res);
+  // #2541 force resolution of node interpreter
+  if (app.exec_interpreter &&
+      app.exec_interpreter.indexOf('@') > -1) {
+    resolveNodeInterpreter(app);
+    res.current_conf.exec_interpreter = app.exec_interpreter;
+  }
 
   return res;
 };
@@ -729,9 +693,34 @@ Common.resolveAppAttributes = function(opts, conf) {
   return app;
 };
 
-function normalizeExecMode(app) {
-  if (app.exec_mode) {
-    app.exec_mode = app.exec_mode.replace(/^(fork|cluster)$/, '$1_mode');
+function handleScriptWithSpaces(app) {
+  if (!app.script || app.script.indexOf(' ') === -1 || cst.IS_WINDOWS === true) {
+    return;
+  }
+
+  const scriptContent = app.script;
+
+  if (which('bash')) {
+    app.script = 'bash';
+    app.args = ['-c', scriptContent];
+    if (!app.name) {
+      app.name = scriptContent;
+    }
+  } else if (which('sh')) {
+    app.script = 'sh';
+    app.args = ['-c', scriptContent];
+    if (!app.name) {
+      app.name = scriptContent;
+    }
+  } else {
+    warn('bash or sh not available in $PATH, keeping script as is');
+  }
+}
+
+function handleExecuteCommand(app) {
+  if (app.execute_command === true) {
+    app.exec_mode = 'fork';
+    delete app.execute_command;
   }
 }
 
@@ -746,61 +735,10 @@ function normalizeScriptAlias(app) {
   }
 }
 
-function ensureAppEnv(app) {
-  if (!app.env) {
-    app.env = {};
-  }
-}
-
-function handleExecuteCommand(app) {
-  if (app.execute_command === true) {
-    app.exec_mode = 'fork';
-    delete app.execute_command;
-  }
-}
-
-function handleComplexScript(app) {
-  if (app.script && app.script.indexOf(' ') > -1 && cst.IS_WINDOWS === false) {
-    const script = app.script;
-
-    if (which('bash')) {
-      app.script = 'bash';
-      app.args = ['-c', script];
-      if (!app.name) {
-        app.name = script;
-      }
-    } else if (which('sh')) {
-      app.script = 'sh';
-      app.args = ['-c', script];
-      if (!app.name) {
-        app.name = script;
-      }
-    } else {
-      Common.warn('bash or sh not available in $PATH, keeping script as is');
-    }
-  }
-}
-
-function setLogDateFormat(app) {
+function handleLogDateFormat(app) {
   if (app.time || process.env.ASZ_MODE) {
     app.log_date_format = 'YYYY-MM-DDTHH:mm:ss';
   }
-}
-
-function validateWindowsUidGid(app) {
-  if (cst.IS_WINDOWS === true) {
-    Common.printError(cst.PREFIX_MSG_ERR + '--uid and --git does not works on windows');
-    return new Error('--uid and --git does not works on windows');
-  }
-  return null;
-}
-
-function validateRootPrivileges() {
-  if (process.env.NODE_ENV !== 'test' && process.getuid && process.getuid() !== 0) {
-    Common.printError(cst.PREFIX_MSG_ERR + 'To use --uid and --gid please run pm2 as root');
-    return new Error('To use UID and GID please run PM2 as root');
-  }
-  return null;
 }
 
 function resolveUserInfo(app, users) {
@@ -830,16 +768,47 @@ function resolveGroupInfo(app, groups) {
   return null;
 }
 
-function handleUidGidResolution(app) {
+function handleUidGidResolution(app, users) {
+  const userError = resolveUserInfo(app, users);
+  if (userError) {
+    return userError;
+  }
+
+  if (app.gid) {
+    const passwd = require('./tools/passwd.js');
+    let groups;
+    try {
+      groups = passwd.getGroups();
+    } catch(e) {
+      Common.printError(e);
+      return new Error(e);
+    }
+
+    const groupError = resolveGroupInfo(app, groups);
+    if (groupError) {
+      return groupError;
+    }
+  } else {
+    app.gid = parseInt(users[app.uid || app.user].groupId);
+  }
+
+  return null;
+}
+
+function validateAndResolveUidGid(app) {
   if (!app.uid && !app.gid && !app.user) {
     return null;
   }
 
-  const windowsError = validateWindowsUidGid(app);
-  if (windowsError) return windowsError;
+  if (cst.IS_WINDOWS === true) {
+    Common.printError(cst.PREFIX_MSG_ERR + '--uid and --git does not works on windows');
+    return new Error('--uid and --git does not works on windows');
+  }
 
-  const rootError = validateRootPrivileges();
-  if (rootError) return rootError;
+  if (process.env.NODE_ENV !== 'test' && process.getuid && process.getuid() !== 0) {
+    Common.printError(cst.PREFIX_MSG_ERR + 'To use --uid and --gid please run pm2 as root');
+    return new Error('To use UID and GID please run PM2 as root');
+  }
 
   const passwd = require('./tools/passwd.js');
   let users;
@@ -850,59 +819,21 @@ function handleUidGidResolution(app) {
     return new Error(e);
   }
 
-  const userError = resolveUserInfo(app, users);
-  if (userError) return userError;
-
-  let groups;
-  try {
-    groups = passwd.getGroups();
-  } catch(e) {
-    Common.printError(e);
-    return new Error(e);
-  }
-
-  const groupError = resolveGroupInfo(app, groups);
-  if (groupError) return groupError;
-
-  if (!app.gid) {
-    const userInfo = users[app.uid || app.user];
-    app.gid = parseInt(userInfo.groupId);
-  }
-
-  return null;
+  return handleUidGidResolution(app, users);
 }
 
-function handleDeepMonitoring(app) {
-  if (process.env.PM2_DEEP_MONITORING) {
-    app.deep_monitoring = true;
-  }
-}
-
-function handleAutomation(app) {
-  if (app.automation === false) {
-    app.pmx = false;
-  }
-}
-
-function handleDisableTrace(app) {
-  if (app.disable_trace) {
-    app.trace = false;
-    delete app.disable_trace;
-  }
-}
-
-function normalizeInstances(app) {
+function handleInstancesParam(app) {
   if (app.instances === 'max') {
     app.instances = 0;
   }
 
-  if (typeof app.instances === 'string') {
+  if (typeof(app.instances) === 'string') {
     app.instances = parseInt(app.instances) || 0;
   }
 
   if (app.exec_mode !== 'cluster_mode' &&
       !app.instances &&
-      typeof app.merge_logs === 'undefined') {
+      typeof(app.merge_logs) === 'undefined') {
     app.merge_logs = true;
   }
 }
@@ -910,10 +841,53 @@ function normalizeInstances(app) {
 function validateAppConfiguration(app) {
   const ret = Config.validateJSON(app);
   if (ret.errors && ret.errors.length > 0) {
-    ret.errors.forEach(function(err) { Common.warn(err); });
+    ret.errors.forEach(function(err) { warn(err); });
     return new Error(ret.errors);
   }
   return ret.config;
+}
+
+function processAppConfiguration(app) {
+  normalizeScriptAlias(app);
+
+  if (!app.env) {
+    app.env = {};
+  }
+
+  Common.renderApplicationName(app);
+  handleExecuteCommand(app);
+  app.username = Common.getCurrentUsername();
+  handleScriptWithSpaces(app);
+  handleLogDateFormat(app);
+
+  const uidGidError = validateAndResolveUidGid(app);
+  if (uidGidError) {
+    return uidGidError;
+  }
+
+  if (process.env.PM2_DEEP_MONITORING) {
+    app.deep_monitoring = true;
+  }
+
+  if (app.automation === false) {
+    app.pmx = false;
+  }
+
+  if (app.disable_trace) {
+    app.trace = false;
+    delete app.disable_trace;
+  }
+
+  handleInstancesParam(app);
+
+  if (app.cron_restart) {
+    const cronError = Common.sink.determineCron(app);
+    if (cronError instanceof Error) {
+      return cronError;
+    }
+  }
+
+  return validateAppConfiguration(app);
 }
 
 Common.verifyConfs = function(appConfs) {
@@ -928,40 +902,22 @@ Common.verifyConfs = function(appConfs) {
   for (let i = 0; i < appConfs.length; i++) {
     const app = appConfs[i];
 
-    normalizeExecMode(app);
-    normalizeScriptAlias(app);
-    ensureAppEnv(app);
-    Common.renderApplicationName(app);
-    handleExecuteCommand(app);
-
-    app.username = Common.getCurrentUsername();
-
-    handleComplexScript(app);
-    setLogDateFormat(app);
-
-    const uidGidError = handleUidGidResolution(app);
-    if (uidGidError) return uidGidError;
-
-    handleDeepMonitoring(app);
-    handleAutomation(app);
-    handleDisableTrace(app);
-    normalizeInstances(app);
-
-    if (app.cron_restart) {
-      const cronError = Common.sink.determineCron(app);
-      if (cronError instanceof Error) return cronError;
+    if (app.exec_mode) {
+      app.exec_mode = app.exec_mode.replace(/^(fork|cluster)$/, '$1_mode');
     }
 
-    const validatedConfig = validateAppConfiguration(app);
-    if (validatedConfig instanceof Error) return validatedConfig;
+    const result = processAppConfiguration(app);
+    if (result instanceof Error) {
+      return result;
+    }
 
-    verifiedConf.push(validatedConfig);
+    verifiedConf.push(result);
   }
 
   return verifiedConf;
 };
 
-Common.getCurrentUsername = function(){
+Common.getCurrentUsername = function() {
   let currentUser = '';
 
   if (os.userInfo) {
@@ -980,16 +936,16 @@ Common.getCurrentUsername = function(){
   return currentUser;
 };
 
-Common.renderApplicationName = function(conf){
-  if (!conf.name && conf.script){
+Common.renderApplicationName = function(conf) {
+  if (!conf.name && conf.script) {
     conf.name = conf.script !== undefined ? path.basename(conf.script) : 'undefined';
     const lastDot = conf.name.lastIndexOf('.');
-    if (lastDot > 0){
+    if (lastDot > 0) {
       conf.name = conf.name.slice(0, lastDot);
     }
   }
 };
 
-function warn(warning){
+function warn(warning) {
   Common.printOut(cst.PREFIX_MSG_WARNING + warning);
 }

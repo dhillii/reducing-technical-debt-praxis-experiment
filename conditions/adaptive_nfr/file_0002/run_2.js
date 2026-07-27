@@ -28,8 +28,8 @@ const ERROR_MESSAGE_MAP: Record<number, string> = {
     415: 'The file type is not supported.'
 };
 
-/** Gets error message for upload failure */
-const getUploadErrorMessage = (error: unknown): string => {
+/** Determines the appropriate error message for image upload failures */
+const getImageUploadErrorMessage = (error: unknown): string => {
     if (error && typeof error === 'object' && 'statusCode' in error) {
         const statusCode = (error as {statusCode: number}).statusCode;
         return ERROR_MESSAGE_MAP[statusCode] || 'Failed to upload image. Try again.';
@@ -37,57 +37,48 @@ const getUploadErrorMessage = (error: unknown): string => {
     return 'Failed to upload image. Try again.';
 };
 
-/** Determines if modal is currently open */
-const isModalOpen = (externalOpen: boolean | undefined, internalOpen: boolean): boolean => {
-    return externalOpen !== undefined ? externalOpen : internalOpen;
+/** Determines if the modal is currently open */
+const isModalOpen = (propsOpen: boolean | undefined, internalOpen: boolean): boolean => {
+    return propsOpen !== undefined ? propsOpen : internalOpen;
 };
 
-/** Resets modal form state */
-const resetFormState = (setters: {
-    setContent: (value: string) => void;
-    setImagePreview: (value: null) => void;
-    setUploadedImageUrl: (value: null) => void;
-    setAltText: (value: string) => void;
-    setShowAltInput: (value: boolean) => void;
-    imageInputRef: React.RefObject<HTMLInputElement>;
-    imagePreview: string | null;
-}): void => {
-    setters.setContent('');
-    setters.setImagePreview(null);
-    setters.setUploadedImageUrl(null);
-    setters.setAltText('');
-    setters.setShowAltInput(false);
-    if (setters.imagePreview) {
-        URL.revokeObjectURL(setters.imagePreview);
+/** Resets image-related state */
+const resetImageState = (
+    setImagePreview: (value: string | null) => void,
+    setUploadedImageUrl: (value: string | null) => void,
+    setAltText: (value: string) => void,
+    setShowAltInput: (value: boolean) => void,
+    imagePreview: string | null,
+    imageInputRef: React.RefObject<HTMLInputElement>
+): void => {
+    setImagePreview(null);
+    setUploadedImageUrl(null);
+    setAltText('');
+    setShowAltInput(false);
+    if (imagePreview) {
+        URL.revokeObjectURL(imagePreview);
     }
-    if (setters.imageInputRef.current) {
-        setters.imageInputRef.current.value = '';
-    }
-};
-
-/** Clears image and related state */
-const clearImageState = (setters: {
-    setImagePreview: (value: null) => void;
-    setUploadedImageUrl: (value: null) => void;
-    setAltText: (value: string) => void;
-    setShowAltInput: (value: boolean) => void;
-    imageInputRef: React.RefObject<HTMLInputElement>;
-    imagePreview: string | null;
-}): void => {
-    setters.setImagePreview(null);
-    setters.setUploadedImageUrl(null);
-    setters.setAltText('');
-    setters.setShowAltInput(false);
-    if (setters.imagePreview) {
-        URL.revokeObjectURL(setters.imagePreview);
-    }
-    if (setters.imageInputRef.current) {
-        setters.imageInputRef.current.value = '';
+    if (imageInputRef.current) {
+        imageInputRef.current.value = '';
     }
 };
 
-/** Extracts username from reply target for placeholder */
-const getReplyPlaceholder = (replyTo: {object: ObjectProperties; actor: ActorProperties} | undefined): string => {
+/** Resets all modal content state */
+const resetModalState = (
+    setContent: (value: string) => void,
+    setImagePreview: (value: string | null) => void,
+    setUploadedImageUrl: (value: string | null) => void,
+    setAltText: (value: string) => void,
+    setShowAltInput: (value: boolean) => void,
+    imagePreview: string | null,
+    imageInputRef: React.RefObject<HTMLInputElement>
+): void => {
+    setContent('');
+    resetImageState(setImagePreview, setUploadedImageUrl, setAltText, setShowAltInput, imagePreview, imageInputRef);
+};
+
+/** Determines the placeholder text based on reply context */
+const getPlaceholderText = (replyTo?: {object: ObjectProperties; actor: ActorProperties}): string => {
     if (!replyTo) {
         return 'What\'s new?';
     }
@@ -96,17 +87,6 @@ const getReplyPlaceholder = (replyTo: {object: ObjectProperties; actor: ActorPro
         return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
     }
     return 'What\'s new?';
-};
-
-/** Determines content length color class */
-const getContentLengthColorClass = (length: number, maxLength: number): string => {
-    if (length >= maxLength) {
-        return 'text-red-500';
-    }
-    if (length >= maxLength * 0.9) {
-        return 'text-yellow-600';
-    }
-    return 'text-gray-500';
 };
 
 const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, onReplyError, onOpenChange, ...props}) => {
@@ -279,7 +259,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             setUploadedImageUrl(imageUrl);
         } catch (error) {
             setImagePreview(null);
-            const errorMessage = getUploadErrorMessage(error);
+            const errorMessage = getImageUploadErrorMessage(error);
             toast.error(errorMessage);
         } finally {
             setIsImageUploading(false);
@@ -307,14 +287,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const handleClearImage = (e: React.MouseEvent) => {
         e.stopPropagation();
-        clearImageState({
-            setImagePreview,
-            setUploadedImageUrl,
-            setAltText,
-            setShowAltInput,
-            imageInputRef,
-            imagePreview
-        });
+        resetImageState(setImagePreview, setUploadedImageUrl, setAltText, setShowAltInput, imagePreview, imageInputRef);
     };
 
     const handleToggleAltInput = (e: React.MouseEvent) => {
@@ -327,6 +300,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     };
 
     useEffect(() => {
+        // Cleanup function to revoke object URLs when component unmounts
         return () => {
             if (imagePreview) {
                 URL.revokeObjectURL(imagePreview);
@@ -334,20 +308,12 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         };
     }, [imagePreview]);
 
-    const placeholder = getReplyPlaceholder(replyTo);
+    const placeholder = getPlaceholderText(replyTo);
 
     return (
         <Dialog open={isModalOpen(props.open, isOpen)} onOpenChange={(open) => {
             if (open) {
-                resetFormState({
-                    setContent,
-                    setImagePreview,
-                    setUploadedImageUrl,
-                    setAltText,
-                    setShowAltInput,
-                    imageInputRef,
-                    imagePreview
-                });
+                resetModalState(setContent, setImagePreview, setUploadedImageUrl, setAltText, setShowAltInput, imagePreview, imageInputRef);
             }
 
             setIsOpen(open);
@@ -444,7 +410,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                 <DialogFooter className={`${isSticky ? 'sticky' : 'static'} bottom-0 flex-row bg-background py-6 dark:bg-[#101114]`}>
                     <Button className='mr-auto w-[34px] !min-w-0' variant='outline' onClick={() => imageInputRef.current?.click()}><LucideIcon.Image /></Button>
                     <div className='flex items-center space-x-3'>
-                        <div className={`text-sm ${getContentLengthColorClass(content.length, MAX_CONTENT_LENGTH)}`}>
+                        <div className={`text-sm ${content.length >= MAX_CONTENT_LENGTH ? 'text-red-500' : content.length >= MAX_CONTENT_LENGTH * 0.9 ? 'text-yellow-600' : 'text-gray-500'}`}>
                             {content.length}/{MAX_CONTENT_LENGTH}
                         </div>
                         <Button className='min-w-16' data-testid="post-button" disabled={isDisabled || isImageUploading} onClick={handlePost}>

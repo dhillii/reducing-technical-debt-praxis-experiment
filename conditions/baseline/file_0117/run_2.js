@@ -79,7 +79,7 @@ module.exports = function(God) {
         }))
       }
 
-      const processesWithMonit = processes.map(function(pro) {
+      let processesUpdated = processes.map(function(pro) {
         if (filterBadProcess(pro) === false) {
           pro['monit'] = {
             memory : 0,
@@ -109,7 +109,7 @@ module.exports = function(God) {
         return pro;
       });
 
-      cb(null, processesWithMonit);
+      cb(null, processesUpdated);
     });
   };
 

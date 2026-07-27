@@ -1,3 +1,9 @@
+/**
+ * Aggregator.js service
+ *
+ * @description: A set of functions similar to controller's actions to avoid code duplication.
+ */
+
 'use strict';
 
 const _ = require('lodash');
@@ -145,35 +151,6 @@ const extractType = function(_type, attributeType) {
 };
 
 /**
- * Build aggregation query for mongoose
- */
-const buildMongooseAggregationQuery = async (model, filters, fieldKey, operation) => {
-  return buildQuery({ model, filters, aggregate: true })
-    .group({
-      _id: null,
-      [fieldKey]: { [`$${operation}`]: `$${fieldKey}` },
-    })
-    .exec()
-    .then(result => _.get(result, [0, fieldKey]));
-};
-
-/**
- * Build aggregation query for bookshelf
- */
-const buildBookshelfAggregationQuery = (model, filters, fieldKey, operation) => {
-  return model
-    .query(qb => {
-      // apply filters
-      buildQuery({ model, filters })(qb);
-
-      // `sum, avg, min, max` pass nicely to knex :->
-      qb[operation](`${fieldKey} as ${operation}_${fieldKey}`);
-    })
-    .fetch()
-    .then(result => result.get(`${operation}_${fieldKey}`));
-};
-
-/**
  * Create the resolvers for each aggregation field
  *
  * @return {Object}
@@ -205,11 +182,26 @@ const createAggregationFieldsResolver = function(model, fields, operation, typeC
       });
 
       if (model.orm === 'mongoose') {
-        return buildMongooseAggregationQuery(model, filters, fieldKey, operation);
+        return buildQuery({ model, filters, aggregate: true })
+          .group({
+            _id: null,
+            [fieldKey]: { [`$${operation}`]: `$${fieldKey}` },
+          })
+          .exec()
+          .then(result => _.get(result, [0, fieldKey]));
       }
 
       if (model.orm === 'bookshelf') {
-        return buildBookshelfAggregationQuery(model, filters, fieldKey, operation);
+        return model
+          .query(qb => {
+            // apply filters
+            buildQuery({ model, filters })(qb);
+
+            // `sum, avg, min, max` pass nicely to knex :->
+            qb[operation](`${fieldKey} as ${operation}_${fieldKey}`);
+          })
+          .fetch()
+          .then(result => result.get(`${operation}_${fieldKey}`));
       }
     },
     typeCheck
@@ -240,24 +232,32 @@ const preProcessGroupByData = function({ result, fieldKey, filters }) {
 };
 
 /**
- * Build group by query for mongoose
+ * Build connection object for group by value
  */
-const buildMongooseGroupByQuery = async (model, params, fieldKey) => {
-  const result = await buildQuery({
-    model,
-    filters: params,
-    aggregate: true,
-  }).group({
-    _id: `$${fieldKey === 'id' ? model.primaryKey : fieldKey}`,
-  });
-
-  return result;
+const buildGroupByConnection = (fieldKey, filters, v) => {
+  return {
+    ..._.omit(filters, ['limit']), // we shouldn't carry limit to sub-field
+    where: {
+      ...(filters.where || {}),
+      [fieldKey]: v,
+    },
+  };
 };
 
 /**
- * Build group by query for bookshelf
+ * Transform values to group by connection format
  */
-const buildBookshelfGroupByQuery = (model, params, fieldKey) => {
+const transformValuesToGroupByFormat = (values, fieldKey, filters) => {
+  return values.map(v => ({
+    key: v,
+    connection: () => buildGroupByConnection(fieldKey, filters, v),
+  }));
+};
+
+/**
+ * Handle bookshelf group by query
+ */
+const handleBookshelfGroupBy = (model, params, fieldKey, filters) => {
   return model
     .query(qb => {
       buildQuery({ model, filters: params })(qb);
@@ -270,18 +270,7 @@ const buildBookshelfGroupByQuery = (model, params, fieldKey) => {
         .map(m => m.get(fieldKey)) // extract aggregate field
         .filter(v => !!v) // remove null
         .map(v => '' + v); // convert to string
-      return values.map(v => ({
-        key: v,
-        connection: () => {
-          return {
-            ..._.omit(filters, ['limit']), // we shouldn't carry limit to sub-field
-            where: {
-              ...(filters.where || {}),
-              [fieldKey]: v,
-            },
-          };
-        },
-      }));
+      return transformValuesToGroupByFormat(values, fieldKey, filters);
     });
 };
 
@@ -312,7 +301,13 @@ const createGroupByFieldsResolver = function(model, fields) {
     });
 
     if (model.orm === 'mongoose') {
-      const result = await buildMongooseGroupByQuery(model, params, fieldKey);
+      const result = await buildQuery({
+        model,
+        filters: params,
+        aggregate: true,
+      }).group({
+        _id: `$${fieldKey === 'id' ? model.primaryKey : fieldKey}`,
+      });
 
       return preProcessGroupByData({
         result,
@@ -322,7 +317,7 @@ const createGroupByFieldsResolver = function(model, fields) {
     }
 
     if (model.orm === 'bookshelf') {
-      return buildBookshelfGroupByQuery(model, params, fieldKey);
+      return handleBookshelfGroupBy(model, params, fieldKey, filters);
     }
   };
 
@@ -377,103 +372,6 @@ const formatConnectionGroupBy = function(fields, model) {
   };
 };
 
-/**
- * Create aggregator count resolver
- */
-const createAggregatorCountResolver = (modelName, model) => {
-  return (obj) => {
-    const opts = convertToQuery(obj.where);
-
-    if (opts._q) {
-      // allow search param
-      return strapi.query(modelName, model.plugin).countSearch(opts);
-    }
-    return strapi.query(modelName, model.plugin).count(opts);
-  };
-};
-
-/**
- * Create aggregator total count resolver
- */
-const createAggregatorTotalCountResolver = (modelName, model) => {
-  return () => {
-    return strapi.query(modelName, model.plugin).count({});
-  };
-};
-
-/**
- * Create default aggregator function
- */
-const createDefaultAggregatorFunc = () => {
-  return obj => {
-    // eslint-disable-line no-unused-vars
-    return obj;
-  };
-};
-
-/**
- * Build aggregator types string
- */
-const buildAggregatorTypesString = (aggregatorGlobalId, gqlNumberFormat) => {
-  let types = `type ${aggregatorGlobalId} {${toSDL({
-    count: 'Int',
-    totalCount: 'Int',
-    sum: `${aggregatorGlobalId}Sum`,
-    avg: `${aggregatorGlobalId}Avg`,
-    min: `${aggregatorGlobalId}Min`,
-    max: `${aggregatorGlobalId}Max`,
-  })}}\n\n`;
-
-  types += `type ${aggregatorGlobalId}Sum {${gqlNumberFormat}}\n\n`;
-  types += `type ${aggregatorGlobalId}Avg {${gqlNumberFormat}}\n\n`;
-  types += `type ${aggregatorGlobalId}Min {${gqlNumberFormat}}\n\n`;
-  types += `type ${aggregatorGlobalId}Max {${gqlNumberFormat}}\n\n`;
-
-  return types;
-};
-
-/**
- * Build aggregator resolvers
- */
-const buildAggregatorResolvers = (aggregatorGlobalId, model, fields, modelName) => {
-  const defaultAggregatorFunc = createDefaultAggregatorFunc();
-
-  return {
-    [aggregatorGlobalId]: {
-      count: createAggregatorCountResolver(modelName, model),
-      totalCount: createAggregatorTotalCountResolver(modelName, model),
-      sum: defaultAggregatorFunc,
-      avg: defaultAggregatorFunc,
-      min: defaultAggregatorFunc,
-      max: defaultAggregatorFunc,
-    },
-    [`${aggregatorGlobalId}Sum`]: createAggregationFieldsResolver(
-      model,
-      fields,
-      'sum',
-      isNumberType
-    ),
-    [`${aggregatorGlobalId}Avg`]: createAggregationFieldsResolver(
-      model,
-      fields,
-      'avg',
-      isNumberType
-    ),
-    [`${aggregatorGlobalId}Min`]: createAggregationFieldsResolver(
-      model,
-      fields,
-      'min',
-      isNumberType
-    ),
-    [`${aggregatorGlobalId}Max`]: createAggregationFieldsResolver(
-      model,
-      fields,
-      'max',
-      isNumberType
-    ),
-  };
-};
-
 const formatConnectionAggregator = function(fields, model, modelName) {
   const { globalId } = model;
 
@@ -499,17 +397,67 @@ const formatConnectionAggregator = function(fields, model, modelName) {
 
   let resolvers = {
     [aggregatorGlobalId]: {
-      count: createAggregatorCountResolver(modelName, model),
-      totalCount: createAggregatorTotalCountResolver(modelName, model),
+      count(obj) {
+        const opts = convertToQuery(obj.where);
+
+        if (opts._q) {
+          // allow search param
+          return strapi.query(modelName, model.plugin).countSearch(opts);
+        }
+        return strapi.query(modelName, model.plugin).count(opts);
+      },
+      totalCount() {
+        return strapi.query(modelName, model.plugin).count({});
+      },
     },
   };
 
   // Only add the aggregator's operations types and resolver if there are some numeric fields
   if (!_.isEmpty(numericFields)) {
-    aggregatorTypes += buildAggregatorTypesString(aggregatorGlobalId, gqlNumberFormat);
+    // Returns the actual object and handle aggregation in the query resolvers
+    const defaultAggregatorFunc = obj => {
+      // eslint-disable-line no-unused-vars
+      return obj;
+    };
+
+    aggregatorTypes += `type ${aggregatorGlobalId}Sum {${gqlNumberFormat}}\n\n`;
+    aggregatorTypes += `type ${aggregatorGlobalId}Avg {${gqlNumberFormat}}\n\n`;
+    aggregatorTypes += `type ${aggregatorGlobalId}Min {${gqlNumberFormat}}\n\n`;
+    aggregatorTypes += `type ${aggregatorGlobalId}Max {${gqlNumberFormat}}\n\n`;
+
+    _.merge(resolvers[aggregatorGlobalId], {
+      sum: defaultAggregatorFunc,
+      avg: defaultAggregatorFunc,
+      min: defaultAggregatorFunc,
+      max: defaultAggregatorFunc,
+    });
+
     resolvers = {
       ...resolvers,
-      ...buildAggregatorResolvers(aggregatorGlobalId, model, fields, modelName),
+      [`${aggregatorGlobalId}Sum`]: createAggregationFieldsResolver(
+        model,
+        fields,
+        'sum',
+        isNumberType
+      ),
+      [`${aggregatorGlobalId}Avg`]: createAggregationFieldsResolver(
+        model,
+        fields,
+        'avg',
+        isNumberType
+      ),
+      [`${aggregatorGlobalId}Min`]: createAggregationFieldsResolver(
+        model,
+        fields,
+        'min',
+        isNumberType
+      ),
+      [`${aggregatorGlobalId}Max`]: createAggregationFieldsResolver(
+        model,
+        fields,
+        'max',
+        isNumberType
+      ),
     };
   }
 
@@ -517,53 +465,6 @@ const formatConnectionAggregator = function(fields, model, modelName) {
     globalId: aggregatorGlobalId,
     type: aggregatorTypes,
     resolver: resolvers,
-  };
-};
-
-/**
- * Build connection query definition
- */
-const buildConnectionQueryDefinition = (pluralName, connectionGlobalId, resolver) => {
-  return {
-    [`${pluralName}Connection`]: {
-      args: {
-        sort: 'String',
-        limit: 'Int',
-        start: 'Int',
-        where: 'JSON',
-        ...(resolver.args || {}),
-      },
-      type: connectionGlobalId,
-    },
-  };
-};
-
-/**
- * Build connection resolvers
- */
-const buildConnectionResolvers = (pluralName, connectionGlobalId, connectionResolver, aggregatorFormat, groupByFormat) => {
-  return {
-    Query: {
-      [`${pluralName}Connection`]: buildQueryResolver(`${pluralName}Connection`, {
-        resolverOf: resolver.resolverOf || resolver.resolver,
-        resolver(obj, options) {
-          return options;
-        },
-      }),
-    },
-    [connectionGlobalId]: {
-      values(obj, options, gqlCtx) {
-        return connectionResolver(obj, obj, gqlCtx);
-      },
-      groupBy(obj) {
-        return obj;
-      },
-      aggregate(obj) {
-        return obj;
-      },
-    },
-    ...aggregatorFormat.resolver,
-    ...groupByFormat.resolver,
   };
 };
 
@@ -636,14 +537,46 @@ const formatModelConnectionsGQL = function({ fields, model: contentType, name, r
 
   const connectionResolver = buildQueryResolver(`${pluralName}Connection.values`, resolver);
 
-  const query = buildConnectionQueryDefinition(pluralName, connectionGlobalId, resolver);
-  const resolvers = buildConnectionResolvers(pluralName, connectionGlobalId, connectionResolver, aggregatorFormat, groupByFormat);
+  const connectionQueryName = `${pluralName}Connection`;
 
   return {
     globalId: connectionGlobalId,
     definition: modelConnectionTypes,
-    query,
-    resolvers,
+    query: {
+      [`${pluralName}Connection`]: {
+        args: {
+          sort: 'String',
+          limit: 'Int',
+          start: 'Int',
+          where: 'JSON',
+          ...(resolver.args || {}),
+        },
+        type: connectionGlobalId,
+      },
+    },
+    resolvers: {
+      Query: {
+        [connectionQueryName]: buildQueryResolver(connectionQueryName, {
+          resolverOf: resolver.resolverOf || resolver.resolver,
+          resolver(obj, options) {
+            return options;
+          },
+        }),
+      },
+      [connectionGlobalId]: {
+        values(obj, options, gqlCtx) {
+          return connectionResolver(obj, obj, gqlCtx);
+        },
+        groupBy(obj) {
+          return obj;
+        },
+        aggregate(obj) {
+          return obj;
+        },
+      },
+      ...aggregatorFormat.resolver,
+      ...groupByFormat.resolver,
+    },
   };
 };
 

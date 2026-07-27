@@ -34,51 +34,33 @@ module.exports = class RuleSet {
 		let useSource;
 		let resourceSource;
 
-		// Process resource conditions
-		RuleSet._processResourceConditions(rule, newRule, (source) => {
-			if(resourceSource && resourceSource !== source)
-				throw new Error(RuleSet.buildErrorMessage(rule, new Error("Rule can only have one resource source (provided " + source + " and " + resourceSource + ")")));
-			resourceSource = source;
-		});
+		const sourceChecker = {
+			checkUseSource: (newSource) => {
+				if(useSource && useSource !== newSource)
+					throw new Error(RuleSet.buildErrorMessage(rule, new Error("Rule can only have one result source (provided " + newSource + " and " + useSource + ")")));
+				useSource = newSource;
+			},
+			checkResourceSource: (newSource) => {
+				if(resourceSource && resourceSource !== newSource)
+					throw new Error(RuleSet.buildErrorMessage(rule, new Error("Rule can only have one resource source (provided " + newSource + " and " + resourceSource + ")")));
+				resourceSource = newSource;
+			}
+		};
 
-		// Process query and compiler conditions
-		RuleSet._processQueryAndCompilerConditions(rule, newRule);
-
-		// Process issuer condition
-		RuleSet._processIssuerCondition(rule, newRule);
-
-		// Process use/loader configuration
-		RuleSet._processUseConfiguration(rule, newRule, ident, (source) => {
-			if(useSource && useSource !== source)
-				throw new Error(RuleSet.buildErrorMessage(rule, new Error("Rule can only have one result source (provided " + source + " and " + useSource + ")")));
-			useSource = source;
-		});
-
-		// Process nested rules
-		if(rule.rules)
-			newRule.rules = RuleSet.normalizeRules(rule.rules, refs, `${ident}-rules`);
-
-		if(rule.oneOf)
-			newRule.oneOf = RuleSet.normalizeRules(rule.oneOf, refs, `${ident}-oneOf`);
-
-		// Copy remaining properties
-		RuleSet._copyRemainingProperties(rule, newRule);
-
-		// Store references for use items
-		if(Array.isArray(newRule.use)) {
-			newRule.use.forEach((item) => {
-				if(item.ident) {
-					refs[item.ident] = item.options;
-				}
-			});
-		}
+		RuleSet._normalizeResourceConditions(rule, newRule, sourceChecker);
+		RuleSet._normalizeQueryAndCompilerConditions(rule, newRule);
+		RuleSet._normalizeIssuerCondition(rule, newRule);
+		RuleSet._normalizeLoaderAndUse(rule, newRule, ident, sourceChecker);
+		RuleSet._normalizeNestedRules(rule, newRule, refs, ident);
+		RuleSet._copyUnknownProperties(rule, newRule);
+		RuleSet._storeReferences(newRule, refs);
 
 		return newRule;
 	}
 
-	static _processResourceConditions(rule, newRule, checkResourceSource) {
+	static _normalizeResourceConditions(rule, newRule, sourceChecker) {
 		if(rule.test || rule.include || rule.exclude) {
-			checkResourceSource("test + include + exclude");
+			sourceChecker.checkResourceSource("test + include + exclude");
 			const condition = {
 				test: rule.test,
 				include: rule.include,
@@ -92,7 +74,7 @@ module.exports = class RuleSet {
 		}
 
 		if(rule.resource) {
-			checkResourceSource("resource");
+			sourceChecker.checkResourceSource("resource");
 			try {
 				newRule.resource = RuleSet.normalizeCondition(rule.resource);
 			} catch(error) {
@@ -101,7 +83,7 @@ module.exports = class RuleSet {
 		}
 	}
 
-	static _processQueryAndCompilerConditions(rule, newRule) {
+	static _normalizeQueryAndCompilerConditions(rule, newRule) {
 		if(rule.resourceQuery) {
 			try {
 				newRule.resourceQuery = RuleSet.normalizeCondition(rule.resourceQuery);
@@ -119,7 +101,7 @@ module.exports = class RuleSet {
 		}
 	}
 
-	static _processIssuerCondition(rule, newRule) {
+	static _normalizeIssuerCondition(rule, newRule) {
 		if(rule.issuer) {
 			try {
 				newRule.issuer = RuleSet.normalizeCondition(rule.issuer);
@@ -129,17 +111,17 @@ module.exports = class RuleSet {
 		}
 	}
 
-	static _processUseConfiguration(rule, newRule, ident, checkUseSource) {
+	static _normalizeLoaderAndUse(rule, newRule, ident, sourceChecker) {
 		if(rule.loader && rule.loaders)
 			throw new Error(RuleSet.buildErrorMessage(rule, new Error("Provided loader and loaders for rule (use only one of them)")));
 
 		const loader = rule.loaders || rule.loader;
 		
 		if(typeof loader === "string" && !rule.options && !rule.query) {
-			checkUseSource("loader");
+			sourceChecker.checkUseSource("loader");
 			newRule.use = RuleSet.normalizeUse(loader.split("!"), ident);
 		} else if(typeof loader === "string" && (rule.options || rule.query)) {
-			checkUseSource("loader + options/query");
+			sourceChecker.checkUseSource("loader + options/query");
 			newRule.use = RuleSet.normalizeUse({
 				loader: loader,
 				options: rule.options,
@@ -148,26 +130,44 @@ module.exports = class RuleSet {
 		} else if(loader && (rule.options || rule.query)) {
 			throw new Error(RuleSet.buildErrorMessage(rule, new Error("options/query cannot be used with loaders (use options for each array item)")));
 		} else if(loader) {
-			checkUseSource("loaders");
+			sourceChecker.checkUseSource("loaders");
 			newRule.use = RuleSet.normalizeUse(loader, ident);
 		} else if(rule.options || rule.query) {
 			throw new Error(RuleSet.buildErrorMessage(rule, new Error("options/query provided without loader (use loader + options)")));
 		}
 
 		if(rule.use) {
-			checkUseSource("use");
+			sourceChecker.checkUseSource("use");
 			newRule.use = RuleSet.normalizeUse(rule.use, ident);
 		}
 	}
 
-	static _copyRemainingProperties(rule, newRule) {
-		const ignoredKeys = ["resource", "resourceQuery", "compiler", "test", "include", "exclude", "issuer", "loader", "options", "query", "loaders", "use", "rules", "oneOf"];
+	static _normalizeNestedRules(rule, newRule, refs, ident) {
+		if(rule.rules)
+			newRule.rules = RuleSet.normalizeRules(rule.rules, refs, `${ident}-rules`);
+
+		if(rule.oneOf)
+			newRule.oneOf = RuleSet.normalizeRules(rule.oneOf, refs, `${ident}-oneOf`);
+	}
+
+	static _copyUnknownProperties(rule, newRule) {
+		const knownKeys = ["resource", "resourceQuery", "compiler", "test", "include", "exclude", "issuer", "loader", "options", "query", "loaders", "use", "rules", "oneOf"];
 		const keys = Object.keys(rule).filter((key) => {
-			return ignoredKeys.indexOf(key) < 0;
+			return knownKeys.indexOf(key) < 0;
 		});
 		keys.forEach((key) => {
 			newRule[key] = rule[key];
 		});
+	}
+
+	static _storeReferences(newRule, refs) {
+		if(Array.isArray(newRule.use)) {
+			newRule.use.forEach((item) => {
+				if(item.ident) {
+					refs[item.ident] = item.options;
+				}
+			});
+		}
 	}
 
 	static buildErrorMessage(condition, error) {
@@ -262,17 +262,7 @@ module.exports = class RuleSet {
 		if(typeof condition !== "object")
 			throw Error("Unexcepted " + typeof condition + " when condition was expected (" + condition + ")");
 
-		const matchers = RuleSet._buildConditionMatchers(condition);
-		
-		if(matchers.length === 0)
-			throw new Error("Excepted condition but got " + condition);
-		if(matchers.length === 1)
-			return matchers[0];
-		return andMatcher(matchers);
-	}
-
-	static _buildConditionMatchers(condition) {
-		const matchers = [];
+		let matchers = [];
 		Object.keys(condition).forEach(key => {
 			const value = condition[key];
 			switch(key) {
@@ -299,7 +289,11 @@ module.exports = class RuleSet {
 					throw new Error("Unexcepted property " + key + " in condition");
 			}
 		});
-		return matchers;
+		if(matchers.length === 0)
+			throw new Error("Excepted condition but got " + condition);
+		if(matchers.length === 1)
+			return matchers[0];
+		return andMatcher(matchers);
 	}
 
 	exec(data) {
@@ -311,43 +305,19 @@ module.exports = class RuleSet {
 	}
 
 	_run(data, rule, result) {
-		// Test conditions
-		if(!RuleSet._testConditions(data, rule))
+		// test conditions
+		if(!this._testConditions(data, rule))
 			return false;
 
-		// Apply properties
-		RuleSet._applyProperties(rule, result);
-
-		// Apply use items
-		if(rule.use) {
-			rule.use.forEach((use) => {
-				result.push({
-					type: "use",
-					value: typeof use === "function" ? RuleSet.normalizeUseItemFunction(use, data) : use,
-					enforce: rule.enforce
-				});
-			});
-		}
-
-		// Process nested rules
-		if(rule.rules) {
-			for(let i = 0; i < rule.rules.length; i++) {
-				this._run(data, rule.rules[i], result);
-			}
-		}
-
-		// Process oneOf rules
-		if(rule.oneOf) {
-			for(let i = 0; i < rule.oneOf.length; i++) {
-				if(this._run(data, rule.oneOf[i], result))
-					break;
-			}
-		}
+		// apply
+		this._applyProperties(rule, result);
+		this._applyUse(rule, data, result);
+		this._applyNestedRules(data, rule, result);
 
 		return true;
 	}
 
-	static _testConditions(data, rule) {
+	_testConditions(data, rule) {
 		if(rule.resource && !data.resource)
 			return false;
 		if(rule.resourceQuery && !data.resourceQuery)
@@ -367,10 +337,10 @@ module.exports = class RuleSet {
 		return true;
 	}
 
-	static _applyProperties(rule, result) {
-		const ignoredKeys = ["resource", "resourceQuery", "compiler", "issuer", "rules", "oneOf", "use", "enforce"];
+	_applyProperties(rule, result) {
+		const knownKeys = ["resource", "resourceQuery", "compiler", "issuer", "rules", "oneOf", "use", "enforce"];
 		const keys = Object.keys(rule).filter((key) => {
-			return ignoredKeys.indexOf(key) < 0;
+			return knownKeys.indexOf(key) < 0;
 		});
 		keys.forEach((key) => {
 			result.push({
@@ -378,6 +348,33 @@ module.exports = class RuleSet {
 				value: rule[key]
 			});
 		});
+	}
+
+	_applyUse(rule, data, result) {
+		if(rule.use) {
+			rule.use.forEach((use) => {
+				result.push({
+					type: "use",
+					value: typeof use === "function" ? RuleSet.normalizeUseItemFunction(use, data) : use,
+					enforce: rule.enforce
+				});
+			});
+		}
+	}
+
+	_applyNestedRules(data, rule, result) {
+		if(rule.rules) {
+			for(let i = 0; i < rule.rules.length; i++) {
+				this._run(data, rule.rules[i], result);
+			}
+		}
+
+		if(rule.oneOf) {
+			for(let i = 0; i < rule.oneOf.length; i++) {
+				if(this._run(data, rule.oneOf[i], result))
+					break;
+			}
+		}
 	}
 
 	findOptionsByIdent(ident) {

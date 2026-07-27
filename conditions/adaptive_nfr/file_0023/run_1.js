@@ -177,7 +177,7 @@ function isResultSelected(itemId, selectedResult) {
 }
 
 /**
- * Builds className for a result item with optional selected state
+ * Builds className for a result item with optional selection styling
  * @param {string} baseClass - The base className
  * @param {boolean} isSelected - Whether the item is selected
  * @param {string} selectedClass - The className to append when selected
@@ -199,9 +199,10 @@ function navigateToUrl(url) {
 
 function TagListItem({tag, selectedResult, setSelectedResult}) {
     const {name, url, id} = tag;
+    const selected = isResultSelected(id, selectedResult);
     const baseClass = 'flex items-center py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer';
-    const className = buildResultItemClass(baseClass, isResultSelected(id, selectedResult));
-    
+    const className = buildResultItemClass(baseClass, selected);
+
     return (
         <div
             className={className}
@@ -243,9 +244,10 @@ function TagResults({tags, selectedResult, setSelectedResult}) {
 function PostListItem({post, selectedResult, setSelectedResult}) {
     const {searchValue} = useContext(AppContext);
     const {title, excerpt, url, id} = post;
+    const selected = isResultSelected(id, selectedResult);
     const baseClass = 'py-3 -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer';
-    const className = buildResultItemClass(baseClass, isResultSelected(id, selectedResult));
-    
+    const className = buildResultItemClass(baseClass, selected);
+
     return (
         <div
             className={className}
@@ -323,31 +325,15 @@ function getHighlightParts({text, highlight}) {
     };
 }
 
-/**
- * Truncates text for excerpt display if highlight is far from start
- * @param {string} text - The text to potentially truncate
- * @param {Array} highlightIndexes - Array of highlight match positions
- * @returns {string} The potentially truncated text
- */
-function getTruncatedExcerpt(text, highlightIndexes) {
-    if (highlightIndexes?.[0]) {
-        const startIdx = highlightIndexes?.[0]?.startIdx;
-        if (startIdx > 50) {
-            return '...' + text?.slice(startIdx - 20);
-        }
-    }
-    return text;
-}
-
 function HighlightedSection({text = '', highlight = '', isExcerpt}) {
     text = text || '';
     highlight = highlight || '';
     let {parts, highlightIndexes} = getHighlightParts({text, highlight});
-    
-    if (isExcerpt) {
-        const truncatedText = getTruncatedExcerpt(text, highlightIndexes);
-        if (truncatedText !== text) {
-            const {parts: updatedParts} = getHighlightParts({text: truncatedText, highlight});
+    if (isExcerpt && highlightIndexes?.[0]) {
+        const startIdx = highlightIndexes?.[0]?.startIdx;
+        if (startIdx > 50) {
+            text = '...' + text?.slice(startIdx - 20);
+            const {parts: updatedParts} = getHighlightParts({text, highlight});
             parts = updatedParts;
         }
     }
@@ -374,23 +360,17 @@ function HighlightedSection({text = '', highlight = '', isExcerpt}) {
     );
 }
 
-/**
- * Renders highlight styling based on context
- * @param {string} word - The word to highlight
- * @param {boolean} isExcerpt - Whether this is in an excerpt context
- * @returns {JSX.Element} The styled highlight element
- */
-function getHighlightWordElement(word, isExcerpt) {
-    if (isExcerpt) {
-        return <span className='font-bold'>{word}</span>;
-    }
-    return <span className='font-bold text-neutral-900'>{word}</span>;
-}
-
 function HighlightWord({word, isExcerpt}) {
+    if (isExcerpt) {
+        return (
+            <>
+                <span className='font-bold'>{word}</span>
+            </>
+        );
+    }
     return (
         <>
-            {getHighlightWordElement(word, isExcerpt)}
+            <span className='font-bold text-neutral-900'>{word}</span>
         </>
     );
 }
@@ -447,9 +427,10 @@ function PostResults({posts, selectedResult, setSelectedResult}) {
 
 function AuthorListItem({author, selectedResult, setSelectedResult}) {
     const {name, profile_image: profileImage, url, id} = author;
+    const selected = isResultSelected(id, selectedResult);
     const baseClass = 'py-[1rem] -mx-4 sm:-mx-7 px-4 sm:px-7 cursor-pointer flex items-center';
-    const className = buildResultItemClass(baseClass, isResultSelected(id, selectedResult));
-    
+    const className = buildResultItemClass(baseClass, selected);
+
     return (
         <div
             className={className}
@@ -464,18 +445,10 @@ function AuthorListItem({author, selectedResult, setSelectedResult}) {
     );
 }
 
-/**
- * Determines if an avatar image should be displayed
- * @param {string} avatar - The avatar URL or data
- * @returns {boolean} True if avatar exists and should be displayed
- */
-function hasAvatarImage(avatar) {
-    return avatar?.length > 0;
-}
-
 function AuthorAvatar({name, avatar}) {
+    const Avatar = avatar?.length;
     const Character = name.charAt(0);
-    if (hasAvatarImage(avatar)) {
+    if (Avatar) {
         return (
             <img className='rounded-full bg-neutral-300 w-7 h-7 me-2 object-cover' src={avatar} alt={name}/>
         );
@@ -513,7 +486,7 @@ function AuthorResults({authors, selectedResult, setSelectedResult}) {
 /**
  * Checks if a URL matches the invalid URL pattern
  * @param {string} url - The URL to validate
- * @returns {boolean} True if URL is invalid (404)
+ * @returns {boolean} True if URL is invalid
  */
 function isInvalidUrl(url) {
     const invalidUrlRegex = /\/404\/$/;
@@ -521,8 +494,8 @@ function isInvalidUrl(url) {
 }
 
 /**
- * Filters out results with invalid URLs
- * @param {Array} items - Array of items with URL properties
+ * Filters results to exclude items with invalid URLs
+ * @param {Array} items - Array of items with url property
  * @returns {Array} Filtered array without invalid URLs
  */
 function filterValidUrls(items) {
@@ -572,7 +545,7 @@ function handleResultNavigation(event, allResults, selectedResult, setSelectedRe
     const selectedResultIdx = allResults.findIndex((d) => d.id === selectedResult);
     const nextResult = allResults[selectedResultIdx + 1];
     const prevResult = allResults[selectedResultIdx - 1];
-    
+
     if (event.key === 'ArrowUp' && prevResult) {
         setSelectedResult(prevResult?.id);
     } else if (event.key === 'ArrowDown' && nextResult) {
@@ -696,10 +669,6 @@ export default class PopupModal extends React.Component {
         }
     }
 
-    /**
-     * Renders frame-level styles and meta tags
-     * @returns {JSX.Element} Style and meta elements
-     */
     renderFrameStyles() {
         const styles = `
             :root {
@@ -712,22 +681,19 @@ export default class PopupModal extends React.Component {
         `;
 
         const stylesUrl = this.context.stylesUrl;
-        const commonMeta = <meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1' />;
-        const styleElement = <style dangerouslySetInnerHTML={{__html: styles}} />;
-
         if (stylesUrl) {
             return (
                 <>
                     <link rel='stylesheet' href={stylesUrl} />
-                    {styleElement}
-                    {commonMeta}
+                    <style dangerouslySetInnerHTML={{__html: styles}} />
+                    <meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1' />
                 </>
             );
         }
         return (
             <>
-                {styleElement}
-                {commonMeta}
+                <style dangerouslySetInnerHTML={{__html: styles}} />
+                <meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1' />
             </>
         );
     }

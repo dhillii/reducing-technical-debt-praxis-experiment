@@ -32,8 +32,9 @@ function back({state}) {
         return {
             page: state.lastPage
         };
+    } else {
+        return closePopup({state});
     }
-    return closePopup({state});
 }
 
 function closePopup({state}) {
@@ -140,11 +141,12 @@ async function verifyOTC({data, api}) {
 
         if (response.redirectUrl) {
             return window.location.assign(response.redirectUrl);
+        } else {
+            return {
+                action: 'verifyOTC:failed',
+                actionErrorMessage: chooseBestErrorMessage(response.errors?.[0], genericErrorMessage)
+            };
         }
-        return {
-            action: 'verifyOTC:failed',
-            actionErrorMessage: chooseBestErrorMessage(response.errors?.[0], genericErrorMessage)
-        };
     } catch (e) {
         return {
             action: 'verifyOTC:failed',
@@ -153,42 +155,35 @@ async function verifyOTC({data, api}) {
     }
 }
 
-async function handleFreeSignup({data, api}) {
-    const integrityToken = await api.member.getIntegrityToken();
-    const {inboxLinks} = await api.member.sendMagicLink({emailType: 'signup', integrityToken, ...data, name: data.name?.trim()});
-    return {inboxLinks};
-}
-
-async function handlePaidSignup({data, state, api}) {
-    let {plan, tierId, cadence, email, name, newsletters, offerId} = data;
-    if (!tierId || !cadence) {
-        ({tierId, cadence} = getProductCadenceFromPrice({site: state?.site, priceId: plan}));
-    }
-    await api.member.checkoutPlan({plan, tierId, cadence, email, name, newsletters, offerId});
-    return {page: 'loading'};
-}
-
 async function signup({data, state, api}) {
     try {
-        const {plan, email} = data;
-        const isFree = plan.toLowerCase() === 'free';
-        
-        const result = isFree 
-            ? await handleFreeSignup({data, api})
-            : await handlePaidSignup({data, state, api});
+        let {plan, tierId, cadence, email, name, newsletters, offerId} = data;
+        name = name?.trim();
 
-        if (isFree) {
+        let inboxLinks;
+        if (plan.toLowerCase() === 'free') {
+            const integrityToken = await api.member.getIntegrityToken();
+            ({inboxLinks} = await api.member.sendMagicLink({emailType: 'signup', integrityToken, ...data, name}));
+        } else {
+            if (tierId && cadence) {
+                await api.member.checkoutPlan({plan, tierId, cadence, email, name, newsletters, offerId});
+            } else {
+                ({tierId, cadence} = getProductCadenceFromPrice({site: state?.site, priceId: plan}));
+                await api.member.checkoutPlan({plan, tierId, cadence, email, name, newsletters, offerId});
+            }
             return {
-                page: 'magiclink',
-                lastPage: 'signup',
-                inboxLinks: result.inboxLinks,
-                pageData: {
-                    ...(state.pageData || {}),
-                    email: (email || '').trim()
-                }
+                page: 'loading'
             };
         }
-        return result;
+        return {
+            page: 'magiclink',
+            lastPage: 'signup',
+            inboxLinks,
+            pageData: {
+                ...(state.pageData || {}),
+                email: (email || '').trim()
+            }
+        };
     } catch (e) {
         const message = chooseBestErrorMessage(e, t('Failed to sign up, please try again'));
         return {
@@ -536,71 +531,82 @@ async function refreshMemberData({state, api}) {
     return null;
 }
 
-function buildProfileNotification(type, message, state, autoHide = true) {
-    return createPopupNotification({
-        type, autoHide, closeable: true, status: type.includes('success') ? 'success' : 'error', state, message
-    });
+function buildProfileUpdateResponse(action, status, message, state, dataUpdate, emailUpdate) {
+    return {
+        action,
+        ...(dataUpdate?.success ? {member: dataUpdate.member} : {}),
+        ...(status === 'success' ? {page: 'accountHome'} : {}),
+        popupNotification: createPopupNotification({
+            type: action, autoHide: status === 'success', closeable: true, status, state, message
+        })
+    };
 }
 
-function buildProfileResponse(action, member, page, notification) {
-    const response = {action};
-    if (member) response.member = member;
-    if (page) response.page = page;
-    if (notification) response.popupNotification = notification;
-    return response;
+function getProfileUpdateMessage(dataUpdate, emailUpdate) {
+    if (emailUpdate?.error) {
+        return chooseBestErrorMessage(emailUpdate.error, t('Failed to send verification email'));
+    }
+    if (emailUpdate?.success) {
+        return t('Check your inbox to verify email update');
+    }
+    if (!dataUpdate?.success) {
+        return t('Failed to update account data');
+    }
+    return t('Account details updated successfully');
+}
+
+function handleBothUpdates(dataUpdate, emailUpdate, state) {
+    if (emailUpdate.success) {
+        return buildProfileUpdateResponse(
+            'updateProfile:success',
+            'success',
+            t('Check your inbox to verify email update'),
+            state,
+            dataUpdate,
+            emailUpdate
+        );
+    }
+    const message = !dataUpdate.success ? t('Failed to update account data') : t('Failed to send verification email');
+    return buildProfileUpdateResponse('updateProfile:failed', 'error', message, state, dataUpdate, emailUpdate);
+}
+
+function handleDataUpdateOnly(dataUpdate, state) {
+    const action = dataUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
+    const status = dataUpdate.success ? 'success' : 'error';
+    const message = !dataUpdate.success ? t('Failed to update account details') : t('Account details updated successfully');
+    return buildProfileUpdateResponse(action, status, message, state, dataUpdate, null);
+}
+
+function handleEmailUpdateOnly(emailUpdate, state) {
+    const action = emailUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
+    const status = emailUpdate.success ? 'success' : 'error';
+    const message = getProfileUpdateMessage(null, emailUpdate);
+    return buildProfileUpdateResponse(action, status, message, state, null, emailUpdate);
 }
 
 async function updateProfile({data, state, api}) {
     const [dataUpdate, emailUpdate] = await Promise.all([updateMemberData({data, state, api}), updateMemberEmail({data, state, api})]);
     
     if (dataUpdate && emailUpdate) {
-        if (emailUpdate.success) {
-            return buildProfileResponse(
-                'updateProfile:success',
-                dataUpdate.success ? dataUpdate.member : null,
-                'accountHome',
-                buildProfileNotification('updateProfile:success', t('Check your inbox to verify email update'), state)
-            );
-        }
-        const message = !dataUpdate.success ? t('Failed to update account data') : t('Failed to send verification email');
-        return buildProfileResponse(
-            'updateProfile:failed',
-            dataUpdate.success ? dataUpdate.member : null,
-            null,
-            buildProfileNotification('updateProfile:failed', message, state, false)
-        );
+        return handleBothUpdates(dataUpdate, emailUpdate, state);
     }
     
     if (dataUpdate) {
-        const action = dataUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
-        const message = !dataUpdate.success ? t('Failed to update account details') : t('Account details updated successfully');
-        return buildProfileResponse(
-            action,
-            dataUpdate.success ? dataUpdate.member : null,
-            dataUpdate.success ? 'accountHome' : null,
-            buildProfileNotification(action, message, state, dataUpdate.success)
-        );
+        return handleDataUpdateOnly(dataUpdate, state);
     }
     
     if (emailUpdate) {
-        const action = emailUpdate.success ? 'updateProfile:success' : 'updateProfile:failed';
-        const message = emailUpdate.error 
-            ? chooseBestErrorMessage(emailUpdate.error, t('Failed to send verification email'))
-            : t('Check your inbox to verify email update');
-        return buildProfileResponse(
-            action,
-            null,
-            emailUpdate.success ? 'accountHome' : null,
-            buildProfileNotification(action, message, state, emailUpdate.success)
-        );
+        return handleEmailUpdateOnly(emailUpdate, state);
     }
     
-    return buildProfileResponse(
-        'updateProfile:success',
-        null,
-        'accountHome',
-        buildProfileNotification('updateProfile:success', t('Account details updated successfully'), state)
-    );
+    return {
+        action: 'updateProfile:success',
+        page: 'accountHome',
+        popupNotification: createPopupNotification({
+            type: 'updateProfile:success', autoHide: true, closeable: true, status: 'success', state,
+            message: t('Account details updated successfully')
+        })
+    };
 }
 
 async function oneClickSubscribe({data: {siteUrl}, state}) {

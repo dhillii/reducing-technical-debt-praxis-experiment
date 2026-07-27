@@ -12,6 +12,7 @@ import {inject as service} from '@ember/service';
 
 const BLANK_LEXICAL = '{"root":{"children":[{"children":[],"direction":null,"format":"","indent":0,"type":"paragraph","version":1}],"direction":null,"format":"","indent":0,"type":"root","version":1}}';
 
+// ember-cli-shims doesn't export these so we must get them manually
 const {Comparable} = Ember;
 
 function statusCompare(postA, postB) {
@@ -22,11 +23,11 @@ function statusCompare(postA, postB) {
         return 0;
     }
 
-    if (!status1) {
+    if (!status1 && status2) {
         return -1;
     }
 
-    if (!status2) {
+    if (!status2 && status1) {
         return 1;
     }
 
@@ -49,11 +50,11 @@ function publishedAtCompare(postA, postB) {
         return 0;
     }
 
-    if (!published1) {
+    if (!published1 && published2) {
         return -1;
     }
 
-    if (!published2) {
+    if (!published2 && published1) {
         return 1;
     }
 
@@ -233,17 +234,21 @@ export default Model.extend(Comparable, ValidationEngine, {
     }),
 
     visibilitySegment: computed('visibility', 'isPublic', 'tiers', function () {
-        if (this.isPublic) {
-            return this._getPublicVisibilitySegment();
-        }
-        return this._getRestrictedVisibilitySegment();
+        return this._computeVisibilitySegment();
     }),
 
-    _getPublicVisibilitySegment() {
+    _computeVisibilitySegment() {
+        if (this.isPublic) {
+            return this._computePublicVisibilitySegment();
+        }
+        return this._computePrivateVisibilitySegment();
+    },
+
+    _computePublicVisibilitySegment() {
         return this.settings.defaultContentVisibility === 'paid' ? 'status:-free' : 'status:free,status:-free';
     },
 
-    _getRestrictedVisibilitySegment() {
+    _computePrivateVisibilitySegment() {
         if (this.visibility === 'members') {
             return 'status:free,status:-free';
         }
@@ -251,11 +256,16 @@ export default Model.extend(Comparable, ValidationEngine, {
             return 'status:-free';
         }
         if (this.visibility === 'tiers' && this.tiers) {
-            return this.tiers.map((tier) => {
-                return `tier:${tier.slug}`;
-            }).join(',');
+            return this._computeTiersSegment();
         }
         return this.visibility;
+    },
+
+    _computeTiersSegment() {
+        let filter = this.tiers.map((tier) => {
+            return `tier:${tier.slug}`;
+        }).join(',');
+        return filter;
     },
 
     fullRecipientFilter: computed('newsletter.recipientFilter', 'emailSegment', function () {
@@ -270,7 +280,10 @@ export default Model.extend(Comparable, ValidationEngine, {
         if (!this.isScheduled) {
             return false;
         }
+        return this._computePastScheduledTime();
+    }),
 
+    _computePastScheduledTime() {
         let now = moment.utc();
         let publishedAtUTC = this.publishedAtUTC || now;
         let pastScheduledTime = publishedAtUTC.diff(now, 'hours', true) < 0;
@@ -278,7 +291,7 @@ export default Model.extend(Comparable, ValidationEngine, {
         this.get('clock.second');
 
         return pastScheduledTime;
-    }),
+    },
 
     publishedAtBlogTZ: computed('publishedAtBlogDate', 'publishedAtBlogTime', 'settings.timezone', {
         get() {
@@ -313,13 +326,13 @@ export default Model.extend(Comparable, ValidationEngine, {
         }
 
         if (publishedAtBlogDate && publishedAtBlogTime) {
-            return this._getPublishedAtBlogTZFromStrings(publishedAtUTC, publishedAtBlogDate, publishedAtBlogTime, blogTimezone);
+            return this._getPublishedAtBlogTZFromStrings(publishedAtBlogDate, publishedAtBlogTime, publishedAtUTC, blogTimezone);
         }
 
-        return moment.tz(this.publishedAtUTC, blogTimezone);
+        return moment.tz(publishedAtUTC, blogTimezone);
     },
 
-    _getPublishedAtBlogTZFromStrings(publishedAtUTC, publishedAtBlogDate, publishedAtBlogTime, blogTimezone) {
+    _getPublishedAtBlogTZFromStrings(publishedAtBlogDate, publishedAtBlogTime, publishedAtUTC, blogTimezone) {
         let publishedAtBlog = moment.tz(`${publishedAtBlogDate} ${publishedAtBlogTime}`, blogTimezone);
 
         if (publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0) {
@@ -380,14 +393,26 @@ export default Model.extend(Comparable, ValidationEngine, {
         let updatedAtResult = compare(updated1.valueOf(), updated2.valueOf());
         let publishedAtResult = publishedAtCompare(postA, postB);
 
+        return this._compareByStatus(statusResult, publishedAtResult, updatedAtResult, idResult);
+    },
+
+    _compareByStatus(statusResult, publishedAtResult, updatedAtResult, idResult) {
         if (statusResult !== 0) {
             return statusResult;
         }
 
+        return this._compareByPublishedAt(publishedAtResult, updatedAtResult, idResult);
+    },
+
+    _compareByPublishedAt(publishedAtResult, updatedAtResult, idResult) {
         if (publishedAtResult !== 0) {
             return publishedAtResult * -1;
         }
 
+        return this._compareByUpdatedAt(updatedAtResult, idResult);
+    },
+
+    _compareByUpdatedAt(updatedAtResult, idResult) {
         if (updatedAtResult !== 0) {
             return updatedAtResult * -1;
         }

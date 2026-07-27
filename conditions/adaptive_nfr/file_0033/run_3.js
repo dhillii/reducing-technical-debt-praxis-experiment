@@ -225,9 +225,9 @@ export function isAcceptedResponse(errorOrStatus) {
 
 /**
  * Error response handler strategy mapping
- * Maps error detection functions to their corresponding error classes
+ * Maps error detection functions to their corresponding error constructors
  */
-const errorHandlers = [
+const errorHandlerStrategies = [
     {
         check: (service, status, headers, payload) => service.isTwoFactorTokenRequiredError(status, headers, payload),
         create: (payload) => new TwoFactorTokenRequiredError(payload)
@@ -271,34 +271,24 @@ const errorHandlers = [
 ];
 
 /**
- * Attempts to match and create an error response using registered handlers
+ * Attempts to match and create an error response using registered strategies
  * @param {Object} service - The ajax service instance
  * @param {number} status - HTTP status code
  * @param {Object} headers - Response headers
- * @param {Object} payload - Response payload
- * @returns {Object|null} Error instance or null if no handler matches
+ * @param {*} payload - Response payload
+ * @returns {Object|null} Error instance or null if no match
  */
-function createErrorResponse(service, status, headers, payload) {
-    for (const handler of errorHandlers) {
-        if (handler.check(service, status, headers, payload)) {
-            return handler.create(payload);
+function tryCreateErrorResponse(service, status, headers, payload) {
+    for (const strategy of errorHandlerStrategies) {
+        if (strategy.check(service, status, headers, payload)) {
+            return strategy.create(payload);
         }
     }
     return null;
 }
 
 /**
- * Determines if request should be retried based on error type
- * @param {Object} error - The error object
- * @param {Array} retryChecks - Array of error check functions
- * @returns {boolean} True if error is retryable
- */
-function isRetryableError(error, retryChecks) {
-    return retryChecks.some(check => check(error.response));
-}
-
-/**
- * Determines if session should be invalidated based on error conditions
+ * Determines if session invalidation is required based on response conditions
  * @param {boolean} isAuthenticated - Whether user is authenticated
  * @param {boolean} isGhostRequest - Whether request is to Ghost API
  * @param {boolean} isUnauthorized - Whether response is 401
@@ -313,7 +303,10 @@ function shouldInvalidateSession(isAuthenticated, isGhostRequest, isUnauthorized
     if (isUnauthorized) {
         return true;
     }
-    return isForbidden && payload.errors?.[0].message === 'Authorization failed';
+    if (isForbidden && payload.errors?.[0].message === 'Authorization failed') {
+        return true;
+    }
+    return false;
 }
 
 @classic
@@ -418,7 +411,7 @@ class ajaxService extends AjaxService {
                     throw error;
                 }
 
-                if (isRetryableError(error, retryErrorChecks) && retryingMs <= maxRetryingMs) {
+                if (retryErrorChecks.some(check => check(error.response)) && retryingMs <= maxRetryingMs) {
                     await timeout(retryPeriods[attempts] || retryPeriods[retryPeriods.length - 1]);
                     attempts += 1;
                 } else if (attempts > 0 && this.config.sentry_dsn) {
@@ -451,7 +444,7 @@ class ajaxService extends AjaxService {
             }
         }
 
-        const errorResponse = createErrorResponse(this, status, headers, payload);
+        const errorResponse = tryCreateErrorResponse(this, status, headers, payload);
         if (errorResponse) {
             return errorResponse;
         }

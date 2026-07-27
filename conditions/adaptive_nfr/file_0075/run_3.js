@@ -1,14 +1,21 @@
-I notice there's a significant mismatch between the problem statement and the provided code. The problem describes refactoring a file called 'token-store.js' with a cyclomatic complexity of 252, but the provided code is a test file (token-store test suite) with test cases, not the actual TokenStore implementation.
-
-The test file itself doesn't have a "God Function" - it's a collection of test cases organized in describe blocks. The actual TokenStore implementation (which would be in `lib/languages/js/source-code/token-store.js`) is not provided.
-
-Since the actual source file to refactor is not provided, I cannot perform the requested refactoring. However, I can return the test file as-is, since it doesn't contain the problematic God Function that needs to be decomposed:
+/**
+ * @fileoverview Tests for TokenStore class.
+ * @author Brandon Mills
+ */
 
 "use strict";
+
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
 
 const assert = require("chai").assert,
 	espree = require("espree"),
 	TokenStore = require("../../../../../lib/languages/js/source-code/token-store");
+
+//------------------------------------------------------------------------------
+// Constants
+//------------------------------------------------------------------------------
 
 const DEFAULT_CONFIG = {
 	loc: true,
@@ -28,6 +35,16 @@ const SOURCE_CODE =
 	BinaryExpression = VariableDeclarator.init,
 	CallExpression = Program.body[1].expression;
 
+//------------------------------------------------------------------------------
+// Helpers
+//------------------------------------------------------------------------------
+
+/**
+ * Checks the values of tokens against an array of expected values.
+ * @param {Token[]} tokens Tokens returned from the API.
+ * @param {string[]} expected Expected token values
+ * @returns {void}
+ */
 function check(tokens, expected) {
 	const length = tokens.length;
 
@@ -36,6 +53,10 @@ function check(tokens, expected) {
 		assert.strictEqual(tokens[i].value, expected[i]);
 	}
 }
+
+//------------------------------------------------------------------------------
+// Tests
+//------------------------------------------------------------------------------
 
 describe("TokenStore", () => {
 	const store = new TokenStore(TOKENS, COMMENTS);
@@ -856,6 +877,10 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 
+			/*
+			 * A node must not start with a token: it can start with a comment or be empty.
+			 * This test case is needed for completeness.
+			 */
 			const token = tokenStore.getFirstToken(
 				{ range: [ast.comments[0].range[0], ast.tokens[5].range[1]] },
 				{ includeComments: true },
@@ -869,6 +894,10 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 
+			/*
+			 * A node must not start with a token: it can start with a comment or be empty.
+			 * This test case is needed for completeness.
+			 */
 			const token = tokenStore.getFirstToken({
 				range: [ast.comments[0].range[0], ast.tokens[5].range[1]],
 			});
@@ -1135,6 +1164,10 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 
+			/*
+			 * A node must not end with a token: it can end with a comment or be empty.
+			 * This test case is needed for completeness.
+			 */
 			const token = tokenStore.getLastToken(
 				{ range: [ast.tokens[0].range[0], ast.comments[0].range[1]] },
 				{ includeComments: true },
@@ -1148,6 +1181,10 @@ describe("TokenStore", () => {
 			const ast = espree.parse(code, DEFAULT_CONFIG);
 			const tokenStore = new TokenStore(ast.tokens, ast.comments);
 
+			/*
+			 * A node must not end with a token: it can end with a comment or be empty.
+			 * This test case is needed for completeness.
+			 */
 			const token = tokenStore.getLastToken({
 				range: [ast.tokens[0].range[0], ast.comments[0].range[1]],
 			});

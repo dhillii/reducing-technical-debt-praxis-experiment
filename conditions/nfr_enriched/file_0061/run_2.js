@@ -1,4 +1,12 @@
+/**
+ * @fileoverview Abstraction of JavaScript source code.
+ * @author Nicholas C. Zakas
+ */
 "use strict";
+
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
 
 const TokenStore = require("./token-store"),
 	astUtils = require("../../../shared/ast-utils"),
@@ -13,12 +21,20 @@ const TokenStore = require("./token-store"),
 		Directive,
 	} = require("@eslint/plugin-kit");
 
+//------------------------------------------------------------------------------
+// Type Definitions
+//------------------------------------------------------------------------------
+
 /** @typedef {import("eslint-scope").Variable} Variable */
 /** @typedef {import("eslint-scope").Scope} Scope */
 /** @typedef {import("eslint-scope").ScopeManager} ScopeManager */
 /** @typedef {import("@eslint/core").SourceCode} ISourceCode */
 /** @typedef {import("@eslint/core").Directive} IDirective */
 /** @typedef {import("@eslint/core").TraversalStep} ITraversalStep */
+
+//------------------------------------------------------------------------------
+// Private
+//------------------------------------------------------------------------------
 
 const commentParser = new ConfigCommentParser();
 
@@ -148,7 +164,7 @@ function nodesOrTokensOverlap(first, second) {
 }
 
 /**
- * Calculates the midpoint index for binary search.
+ * Calculates the midpoint index for binary search using Math.trunc.
  * @param {number} low The lower bound index.
  * @param {number} high The upper bound index.
  * @returns {number} The truncated midpoint index.
@@ -184,6 +200,10 @@ function findLineNumberBinarySearch(lineStartIndices, target) {
 
 	return low;
 }
+
+//-----------------------------------------------------------------------------
+// Directive Comments
+//-----------------------------------------------------------------------------
 
 /**
  * Ensures that variables representing built-in properties of the Global Object,
@@ -241,6 +261,10 @@ function markExportedVariables(globalScope, variables) {
 		}
 	});
 }
+
+//------------------------------------------------------------------------------
+// Public Interface
+//------------------------------------------------------------------------------
 
 const caches = Symbol("caches");
 
@@ -302,6 +326,19 @@ class SourceCode extends TokenStore {
 		 */
 		this.isESTree = ast.type === "Program";
 
+		/*
+		 * Backwards compatibility for BOM handling.
+		 *
+		 * The `hasBOM` property has been available on the `SourceCode` object
+		 * for a long time and is used to indicate if the source contains a BOM.
+		 * The linter strips the BOM and just passes the `hasBOM` property to the
+		 * `SourceCode` constructor to make it easier for languages to not deal with
+		 * the BOM.
+		 *
+		 * However, the text passed in to the `SourceCode` constructor might still
+		 * have a BOM if the constructor is called outside of the linter, so we still
+		 * need to check for the BOM in the text.
+		 */
 		const textHasBOM = text.charCodeAt(0) === 0xfeff;
 
 		/**
@@ -369,6 +406,15 @@ class SourceCode extends TokenStore {
 		const lineEndingPattern = astUtils.createGlobalLinebreakMatcher();
 		let match;
 
+		/*
+		 * Previously, this was implemented using a regex that
+		 * matched a sequence of non-linebreak characters followed by a
+		 * linebreak, then adding the lengths of the matches. However,
+		 * this caused a catastrophic backtracking issue when the end
+		 * of a file contained a large number of non-newline characters.
+		 * To avoid this, the current implementation just matches newlines
+		 * and uses match.index to get the correct line start indices.
+		 */
 		while ((match = lineEndingPattern.exec(this.text))) {
 			this.lines.push(
 				this.text.slice(this.lineStartIndices.at(-1), match.index),
@@ -514,6 +560,13 @@ class SourceCode extends TokenStore {
 			);
 		}
 
+		/*
+		 * For an argument of this.text.length, return the location one "spot" past the last character
+		 * of the file. If the last character is a linebreak, the location will be column 0 of the next
+		 * line; otherwise, the location will be in the next column on the same line.
+		 *
+		 * See getIndexFromLoc for the motivation for this special case.
+		 */
 		if (index === this.text.length) {
 			return {
 				line: this.lines.length,
@@ -521,6 +574,10 @@ class SourceCode extends TokenStore {
 			};
 		}
 
+		/*
+		 * To figure out which line index is on, determine the last place at which index could
+		 * be inserted into lineStartIndices to keep the list sorted.
+		 */
 		const lineNumber =
 			index >= this.lineStartIndices.at(-1)
 				? this.lineStartIndices.length
@@ -580,6 +637,14 @@ class SourceCode extends TokenStore {
 				: this.lineStartIndices[loc.line];
 		const positionIndex = lineStartIndex + loc.column;
 
+		/*
+		 * By design, getIndexFromLoc({ line: lineNum, column: 0 }) should return the start index of
+		 * the given line, provided that the line number is valid element of this.lines. Since the
+		 * last element of this.lines is an empty string for files with trailing newlines, add a
+		 * special case where getting the index for the first location after the end of the file
+		 * will return the length of the file, rather than throwing an error. This allows rules to
+		 * use getIndexFromLoc consistently without worrying about edge cases at the end of a file.
+		 */
 		if (
 			(loc.line === this.lineStartIndices.length &&
 				positionIndex > lineEndIndex) ||
@@ -733,9 +798,19 @@ class SourceCode extends TokenStore {
 		const currentScope = this.getScope(refNode);
 		let initialScope = currentScope;
 
+		/*
+		 * When we are in an ESM or CommonJS module, we need to start searching
+		 * from the top-level scope, not the global scope. For ESM the top-level
+		 * scope is the module scope; for CommonJS the top-level scope is the
+		 * outer function scope.
+		 *
+		 * Without this check, we might miss a variable declared with `var` at
+		 * the top-level because it won't exist in the global scope.
+		 */
 		if (
 			currentScope.type === "global" &&
 			currentScope.childScopes.length > 0 &&
+			// top-level scopes refer to a `Program` node
 			currentScope.childScopes[0].block === this.ast
 		) {
 			initialScope = currentScope.childScopes[0];
@@ -880,8 +955,14 @@ class SourceCode extends TokenStore {
 	 * @returns {void}
 	 */
 	applyLanguageOptions(languageOptions) {
+		/*
+		 * Add configured globals and language globals
+		 *
+		 * Using Object.assign instead of object spread for performance reasons
+		 * https://github.com/eslint/eslint/issues/16302
+		 */
 		const configGlobals = Object.assign(
-			Object.create(null),
+			Object.create(null), // https://github.com/eslint/eslint/issues/18363
 			getGlobalsForEcmaVersion(languageOptions.ecmaVersion),
 			languageOptions.sourceType === "commonjs"
 				? globals.commonjs
@@ -889,6 +970,10 @@ class SourceCode extends TokenStore {
 			languageOptions.globals,
 		);
 
+		/*
+		 * `normalizeConfigGlobal` will throw an error if a configured global value is invalid. However, these errors would
+		 * typically be caught when validating a config anyway (validity for inline global comments is checked separately).
+		 */
 		for (const [name, value] of Object.entries(configGlobals)) {
 			configGlobals[name] = normalizeConfigGlobal(value);
 		}
@@ -1032,6 +1117,11 @@ class SourceCode extends TokenStore {
 
 		const steps = (this.#steps = []);
 
+		/*
+		 * This logic works for any AST, not just ESTree. Because ESLint has allowed
+		 * custom parsers to return any AST, we need to ensure that the traversal
+		 * logic works for any AST.
+		 */
 		let analyzer = {
 			enterNode(node) {
 				steps.push(
@@ -1061,10 +1151,24 @@ class SourceCode extends TokenStore {
 			},
 		};
 
+		/*
+		 * We do code path analysis for ESTree only. Code path analysis is not
+		 * necessary for other ASTs, and it's also not possible to do for other
+		 * ASTs because the necessary information is not available.
+		 *
+		 * Generally speaking, we can tell that the AST is an ESTree if it has a
+		 * Program node at the top level. This is not a perfect heuristic, but it
+		 * is good enough for now.
+		 */
 		if (this.isESTree) {
 			analyzer = new CodePathAnalyzer(analyzer);
 		}
 
+		/*
+		 * The actual AST traversal is done by the `Traverser` class. This class
+		 * is responsible for walking the AST and calling the appropriate methods
+		 * on the `analyzer` object, which is appropriate for the given AST.
+		 */
 		Traverser.traverse(this.ast, {
 			enter(node, parent) {
 				// save the parent node on a property for backwards compatibility

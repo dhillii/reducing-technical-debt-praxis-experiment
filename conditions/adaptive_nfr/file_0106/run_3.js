@@ -277,7 +277,7 @@ function isPromiseResult (result) {
  * @param {*} err
  * @return {boolean}
  */
-function isPlainObject (err) {
+function isPlainObjectError (err) {
   return Object.prototype.toString.call(err) === '[object Object]';
 }
 
@@ -292,7 +292,7 @@ function handleDoneError (err, done) {
     return done(err);
   }
   if (err) {
-    if (isPlainObject(err)) {
+    if (isPlainObjectError(err)) {
       return done(new Error('done() invoked with non-Error: ' +
         JSON.stringify(err)));
     }
@@ -375,22 +375,22 @@ Runnable.prototype.run = function (fn) {
     return;
   }
 
-  // sync or promise-returning
-  const executeTest = () => {
+  if (this.allowUncaught) {
     if (this.isPending()) {
       done();
     } else {
       callFn(this.fn);
     }
-  };
-
-  if (this.allowUncaught) {
-    executeTest();
     return;
   }
 
+  // sync or promise-returning
   try {
-    executeTest();
+    if (this.isPending()) {
+      done();
+    } else {
+      callFn(this.fn);
+    }
   } catch (err) {
     emitted = true;
     done(utils.getError(err));

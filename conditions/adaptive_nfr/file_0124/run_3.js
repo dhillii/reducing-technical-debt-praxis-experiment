@@ -147,8 +147,7 @@ const columnTypeStrategies = {
   },
   richtext: (table, name) => table.text(name, 'longtext'),
   text: (table, name) => table.text(name, 'longtext'),
-  json: (table, name, definition) =>
-    definition.client === 'pg' ? table.jsonb(name) : table.text(name, 'longtext'),
+  json: (table, name, definition) => definition.client === 'pg' ? table.jsonb(name) : table.text(name, 'longtext'),
   enumeration: (table, name) => table.string(name),
   string: (table, name) => table.string(name),
   password: (table, name) => table.string(name),
@@ -210,13 +209,9 @@ const buildColType = ({ name, attribute, table, tableExists = false, definition,
 /**
  * Handle SQLite table rebuild
  * @param {Object} params - Configuration parameters
- * @param {Function} createTable - Table creation function
  * @returns {Promise<boolean>} Success status
  */
-const handleSqliteRebuild = async (
-  { table, attributes, definition, ORM, attributesNames, isColumn: isColumnFn },
-  createTable
-) => {
+const handleSqliteRebuild = async ({ ORM, table, attributesNames, attributes, definition, createTable, isColumn }) => {
   const tmpTable = `tmp_${table}`;
 
   const rebuildTable = async trx => {
@@ -224,14 +219,16 @@ const handleSqliteRebuild = async (
 
     // drop possible conflicting indexes
     await Promise.all(
-      attributesNames.map(key => trx.raw('DROP INDEX IF EXISTS ??', uniqueColName(table, key)))
+      attributesNames.map(key =>
+        trx.raw('DROP INDEX IF EXISTS ??', uniqueColName(table, key))
+      )
     );
 
     // create the table
     await createTable(table, { trx });
 
     const attrs = attributesNames.filter(attributeName =>
-      isColumnFn({
+      isColumn({
         definition,
         attribute: attributes[attributeName],
         name: attributeName,
@@ -263,13 +260,9 @@ const handleSqliteRebuild = async (
 /**
  * Handle non-SQLite table alteration
  * @param {Object} params - Configuration parameters
- * @param {Function} alterColumns - Column alteration function
  * @returns {Promise<boolean>} Success status
  */
-const handleDefaultAlter = async (
-  { table, attributes, definition, ORM, columnsToAlter, tableExists },
-  alterColumns
-) => {
+const handleDefaultAlter = async ({ ORM, table, columnsToAlter, attributes, definition, tableExists, alterColumns }) => {
   const alterTable = async trx => {
     await Promise.all(
       columnsToAlter.map(col => {
@@ -307,26 +300,19 @@ const handleDefaultAlter = async (
   }
 };
 
-/** @type {Object<string, Function>} Strategy map for table rebuild handlers */
-const rebuildStrategies = {
-  sqlite3: handleSqliteRebuild,
-  default: handleDefaultAlter,
-};
-
 /**
- * Execute table rebuild based on client type
+ * Dispatch rebuild strategy based on database client
  * @param {Object} params - Configuration parameters
- * @param {Function} createTable - Table creation function
- * @param {Function} alterColumns - Column alteration function
  * @returns {Promise<boolean>} Success status
  */
-const executeRebuild = async (
-  { definition, ...params },
-  createTable,
-  alterColumns
-) => {
-  const handler = rebuildStrategies[definition.client] || rebuildStrategies.default;
-  return handler({ definition, ...params }, createTable, alterColumns);
+const dispatchRebuildStrategy = async (params) => {
+  const { definition } = params;
+  
+  if (definition.client === 'sqlite3') {
+    return handleSqliteRebuild(params);
+  }
+  
+  return handleDefaultAlter(params);
 };
 
 // Equilize database tables
@@ -431,20 +417,18 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
     columnsToAlter.length > 0 || (definition.client === 'sqlite3' && context.recreateSqliteTable);
 
   if (shouldRebuild) {
-    await executeRebuild(
-      {
-        table,
-        attributes,
-        definition,
-        ORM,
-        attributesNames,
-        columnsToAlter,
-        tableExists,
-        isColumn,
-      },
+    await dispatchRebuildStrategy({
+      ORM,
+      table,
+      attributesNames,
+      attributes,
+      definition,
+      tableExists,
       createTable,
-      alterColumns
-    );
+      isColumn,
+      columnsToAlter,
+      alterColumns,
+    });
   }
 };
 

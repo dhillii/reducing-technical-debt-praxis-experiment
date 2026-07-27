@@ -515,6 +515,7 @@ class SignupPage extends React.Component {
                 label: t('Email'),
                 name: 'email',
                 required: true,
+                tabIndex: 0,
                 errorMessage: errors.email || ''
             },
             {
@@ -540,6 +541,7 @@ class SignupPage extends React.Component {
                 label: t('Name'),
                 name: 'name',
                 required: true,
+                tabIndex: 0,
                 errorMessage: errors.name || ''
             });
         }

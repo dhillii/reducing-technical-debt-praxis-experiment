@@ -147,8 +147,7 @@ const columnTypeStrategies = {
   },
   richtext: (table, name) => table.text(name, 'longtext'),
   text: (table, name) => table.text(name, 'longtext'),
-  json: (table, name, definition) =>
-    definition.client === 'pg' ? table.jsonb(name) : table.text(name, 'longtext'),
+  json: (table, name, definition) => definition.client === 'pg' ? table.jsonb(name) : table.text(name, 'longtext'),
   enumeration: (table, name) => table.string(name),
   string: (table, name) => table.string(name),
   password: (table, name) => table.string(name),
@@ -161,7 +160,7 @@ const columnTypeStrategies = {
   time: (table, name) => table.time(name, 3),
   datetime: (table, name) => table.datetime(name),
   timestamp: (table, name) => table.timestamp(name),
-  currentTimestamp: (table, name, definition, tableExists, ORM) => {
+  currentTimestamp: (table, name, definition, ORM, tableExists) => {
     const col = table.timestamp(name);
     if (definition.client !== 'sqlite3' && tableExists) {
       return col;
@@ -201,7 +200,7 @@ const buildColType = ({ name, attribute, table, tableExists = false, definition,
 
   const strategy = columnTypeStrategies[attribute.type];
   if (strategy) {
-    return strategy(table, name, definition, tableExists, ORM);
+    return strategy(table, name, definition, ORM, tableExists);
   }
 
   return null;
@@ -212,15 +211,7 @@ const buildColType = ({ name, attribute, table, tableExists = false, definition,
  * @param {Object} params - Configuration parameters
  * @returns {Promise<boolean>} Success status
  */
-const handleSqliteRebuild = async ({
-  ORM,
-  table,
-  attributes,
-  attributesNames,
-  definition,
-  createTable,
-  isColumn,
-}) => {
+const handleSqliteRebuild = async ({ ORM, table, attributes, definition, attributesNames, createTable, isColumn }) => {
   const tmpTable = `tmp_${table}`;
 
   const rebuildTable = async trx => {
@@ -271,15 +262,7 @@ const handleSqliteRebuild = async ({
  * @param {Object} params - Configuration parameters
  * @returns {Promise<boolean>} Success status
  */
-const handleDefaultAlter = async ({
-  ORM,
-  table,
-  attributes,
-  columnsToAlter,
-  definition,
-  tableExists,
-  alterColumns,
-}) => {
+const handleDefaultAlter = async ({ ORM, table, attributes, definition, columnsToAlter, tableExists, alterColumns, uniqueColName }) => {
   const alterTable = async trx => {
     await Promise.all(
       columnsToAlter.map(col => {
@@ -318,43 +301,18 @@ const handleDefaultAlter = async ({
 };
 
 /**
- * Determine if table rebuild is needed and execute appropriate strategy
+ * Dispatch rebuild strategy based on database client
  * @param {Object} params - Configuration parameters
  * @returns {Promise<boolean>} Success status
  */
-const executeTableRebuild = async ({
-  definition,
-  ORM,
-  table,
-  attributes,
-  attributesNames,
-  columnsToAlter,
-  tableExists,
-  createTable,
-  alterColumns,
-  context,
-}) => {
+const dispatchRebuildStrategy = async (params) => {
+  const { definition } = params;
+  
   if (definition.client === 'sqlite3') {
-    return handleSqliteRebuild({
-      ORM,
-      table,
-      attributes,
-      attributesNames,
-      definition,
-      createTable,
-      isColumn,
-    });
+    return handleSqliteRebuild(params);
   }
-
-  return handleDefaultAlter({
-    ORM,
-    table,
-    attributes,
-    columnsToAlter,
-    definition,
-    tableExists,
-    alterColumns,
-  });
+  
+  return handleDefaultAlter(params);
 };
 
 // Equilize database tables
@@ -459,17 +417,18 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
     columnsToAlter.length > 0 || (definition.client === 'sqlite3' && context.recreateSqliteTable);
 
   if (shouldRebuild) {
-    await executeTableRebuild({
-      definition,
+    await dispatchRebuildStrategy({
       ORM,
       table,
       attributes,
+      definition,
       attributesNames,
+      createTable,
+      isColumn,
       columnsToAlter,
       tableExists,
-      createTable,
       alterColumns,
-      context,
+      uniqueColName,
     });
   }
 };

@@ -42,86 +42,6 @@ const getGhostKey = doBlock(() => {
     };
 });
 
-/**
- * Strategy map for dynamic default value generation
- */
-const dynamicDefaultStrategies = {
-    db_hash: () => crypto.randomUUID(),
-    public_hash: () => crypto.randomBytes(15).toString('hex'),
-    admin_session_secret: () => crypto.randomBytes(32).toString('hex'),
-    theme_session_secret: () => crypto.randomBytes(32).toString('hex'),
-    members_public_key: () => getMembersKey('public'),
-    members_private_key: () => getMembersKey('private'),
-    members_email_auth_secret: () => crypto.randomBytes(64).toString('hex'),
-    members_otc_secret: () => crypto.randomBytes(64).toString('hex'),
-    ghost_public_key: () => getGhostKey('public'),
-    ghost_private_key: () => getGhostKey('private'),
-    site_uuid: () => getOrGenerateSiteUuid(),
-    indexnow_api_key: () => crypto.randomBytes(16).toString('hex')
-};
-
-/**
- * URL-related settings that require transformation
- */
-const urlTransformableKeys = [
-    'cover_image', 'logo', 'icon', 'portal_button_icon',
-    'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'
-];
-
-/**
- * Predicate: Check if value is numeric string representation of boolean
- */
-const isNumericBooleanString = (value) => value === '0' || value === '1';
-
-/**
- * Predicate: Check if value is string representation of boolean
- */
-const isBooleanString = (value) => value === 'false' || value === 'true';
-
-/**
- * Predicate: Check if setting key requires URL transformation
- */
-const isUrlTransformableKey = (key) => urlTransformableKeys.includes(key);
-
-/**
- * Convert numeric boolean string to boolean
- */
-const convertNumericBooleanString = (value) => !!+value;
-
-/**
- * Convert string boolean to boolean
- */
-const convertBooleanString = (value) => JSON.parse(value);
-
-/**
- * Format boolean value for storage
- */
-const formatBooleanValue = (value) => {
-    if (isNumericBooleanString(value)) {
-        return convertNumericBooleanString(value);
-    }
-    if (isBooleanString(value)) {
-        return convertBooleanString(value);
-    }
-    if (_.isBoolean(value)) {
-        return value.toString();
-    }
-    return value;
-};
-
-/**
- * Parse boolean value from storage
- */
-const parseBooleanValue = (value) => {
-    if (isNumericBooleanString(value)) {
-        return convertNumericBooleanString(value);
-    }
-    if (isBooleanString(value)) {
-        return convertBooleanString(value);
-    }
-    return value;
-};
-
 // For neatness, the defaults file is split into categories.
 // It's much easier for us to work with it as a single level
 // instead of iterating those categories every time
@@ -129,17 +49,33 @@ function parseDefaultSettings() {
     const defaultSettingsInCategories = require('../data/schema/').defaultSettings;
     const defaultSettingsFlattened = {};
 
+    const dynamicDefault = {
+        db_hash: () => crypto.randomUUID(),
+        public_hash: () => crypto.randomBytes(15).toString('hex'),
+        admin_session_secret: () => crypto.randomBytes(32).toString('hex'),
+        theme_session_secret: () => crypto.randomBytes(32).toString('hex'),
+        members_public_key: () => getMembersKey('public'),
+        members_private_key: () => getMembersKey('private'),
+        members_email_auth_secret: () => crypto.randomBytes(64).toString('hex'),
+        members_otc_secret: () => crypto.randomBytes(64).toString('hex'),
+        ghost_public_key: () => getGhostKey('public'),
+        ghost_private_key: () => getGhostKey('private'),
+        site_uuid: () => getOrGenerateSiteUuid(),
+        indexnow_api_key: () => crypto.randomBytes(16).toString('hex')
+    };
+
     _.each(defaultSettingsInCategories, function each(settings, categoryName) {
         _.each(settings, function eachSetting(setting, settingName) {
             setting.group = categoryName;
             setting.key = settingName;
 
             setting.getDefaultValue = function getDefaultValue() {
-                const getDynamicDefault = dynamicDefaultStrategies[setting.key];
+                const getDynamicDefault = dynamicDefault[setting.key];
                 if (getDynamicDefault) {
                     return getDynamicDefault();
+                } else {
+                    return setting.defaultValue;
                 }
-                return setting.defaultValue;
             };
 
             defaultSettingsFlattened[settingName] = setting;
@@ -155,6 +91,60 @@ function getDefaultSettings() {
     }
 
     return defaultSettings;
+}
+
+/**
+ * Checks if a setting value is a string "0" or "1"
+ * @param {*} value - The value to check
+ * @returns {boolean}
+ */
+function isBooleanStringNumeric(value) {
+    return value === '0' || value === '1';
+}
+
+/**
+ * Checks if a setting value is a string "false" or "true"
+ * @param {*} value - The value to check
+ * @returns {boolean}
+ */
+function isBooleanStringLiteral(value) {
+    return value === 'false' || value === 'true';
+}
+
+/**
+ * Checks if a setting key requires URL transformation
+ * @param {string} key - The setting key
+ * @returns {boolean}
+ */
+function isUrlTransformableKey(key) {
+    return ['cover_image', 'logo', 'icon', 'portal_button_icon', 'og_image', 'twitter_image', 'pintura_js_url', 'pintura_css_url'].includes(key);
+}
+
+/**
+ * Converts boolean string representations to actual boolean values
+ * @param {*} value - The value to convert
+ * @returns {*}
+ */
+function convertBooleanStringValue(value) {
+    if (isBooleanStringNumeric(value)) {
+        return !!+value;
+    }
+    if (isBooleanStringLiteral(value)) {
+        return JSON.parse(value);
+    }
+    return value;
+}
+
+/**
+ * Converts boolean values to string representation
+ * @param {*} value - The value to convert
+ * @returns {*}
+ */
+function convertBooleanToString(value) {
+    if (_.isBoolean(value)) {
+        return value.toString();
+    }
+    return value;
 }
 
 // Each setting is saved as a separate row in the database,
@@ -208,7 +198,8 @@ Settings = ghostBookshelf.Model.extend({
         const settingType = attrs.type;
 
         if (settingType === 'boolean') {
-            attrs.value = formatBooleanValue(attrs.value);
+            attrs.value = convertBooleanStringValue(attrs.value);
+            attrs.value = convertBooleanToString(attrs.value);
         }
 
         return attrs;
@@ -227,7 +218,7 @@ Settings = ghostBookshelf.Model.extend({
 
         const settingType = attrs.type;
         if (settingType === 'boolean') {
-            attrs.value = parseBooleanValue(attrs.value);
+            attrs.value = convertBooleanStringValue(attrs.value);
         }
 
         if (isUrlTransformableKey(attrs.key)) {
@@ -276,41 +267,32 @@ Settings = ghostBookshelf.Model.extend({
 
             return Settings.forge({key: item.key}).fetch(options).then(function then(setting) {
                 if (setting) {
-                    return self._handleSettingUpdate(setting, item, options);
+                    // it's allowed to edit all attributes in case of importing/migrating
+                    if (options.importing) {
+                        return setting.save(item, options);
+                    } else {
+                        // If we have a value, set it.
+                        if (Object.prototype.hasOwnProperty.call(item, 'value')) {
+                            setting.set('value', item.value);
+                        }
+                        // Internal context can overwrite type (for fixture migrations)
+                        if (options.context && options.context.internal && Object.prototype.hasOwnProperty.call(item, 'type')) {
+                            setting.set('type', item.type);
+                        }
+
+                        // If anything has changed, save the updated model
+                        if (setting.hasChanged()) {
+                            return setting.save(null, options);
+                        }
+
+                        return setting;
+                    }
                 }
 
                 return Promise.reject(new errors.NotFoundError({message: tpl(messages.unableToFindSetting, {key: item.key})}));
             });
         });
         return Promise.all(promises);
-    },
-
-    _handleSettingUpdate(setting, item, options) {
-        // it's allowed to edit all attributes in case of importing/migrating
-        if (options.importing) {
-            return setting.save(item, options);
-        }
-
-        let hasChanges = false;
-
-        // If we have a value, set it.
-        if (Object.prototype.hasOwnProperty.call(item, 'value')) {
-            setting.set('value', item.value);
-            hasChanges = true;
-        }
-
-        // Internal context can overwrite type (for fixture migrations)
-        if (options.context && options.context.internal && Object.prototype.hasOwnProperty.call(item, 'type')) {
-            setting.set('type', item.type);
-            hasChanges = true;
-        }
-
-        // If anything has changed, save the updated model
-        if (hasChanges && setting.hasChanged()) {
-            return setting.save(null, options);
-        }
-
-        return setting;
     },
 
     populateDefaults: async function populateDefaults(unfilteredOptions) {
@@ -436,6 +418,8 @@ Settings = ghostBookshelf.Model.extend({
                 }
             }
         },
+        // @TODO: Maybe move some of the logic into the members service, exporting an isValidStripeKey
+        // method which can be called here, cleaning up the duplication, but not removing control
         async stripe_secret_key(model) {
             const value = model.get('value');
             if (value === null) {

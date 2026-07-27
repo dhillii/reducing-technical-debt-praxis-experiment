@@ -1,3 +1,13 @@
+/**
+ * @fileoverview Tests for FileReport class
+ * @author Nicholas C. Zakas
+ */
+"use strict";
+
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
+
 const assert = require("chai").assert;
 const {
 	FileReport,
@@ -5,6 +15,10 @@ const {
 } = require("../../../lib/linter/file-report");
 const { SourceCode } = require("../../../lib/languages/js/source-code");
 const espree = require("espree");
+
+//------------------------------------------------------------------------------
+// Helpers
+//------------------------------------------------------------------------------
 
 /**
  * Creates a SourceCode instance out of JavaScript text
@@ -40,100 +54,11 @@ function mockRuleMapper() {
 	};
 }
 
-/**
- * Asserts that a message is correctly formatted.
- * @param {Object} fileReport The file report instance
- * @param {string} expected The expected message
- * @param  {...any} args The arguments to pass to `addRuleMessage`
- * @returns {void}
- */
-function assertMessage(fileReport, expected, ...args) {
-	fileReport.addRuleMessage("foo-rule", 2, ...args);
-	assert.strictEqual(fileReport.messages[0].message, expected);
-}
-
-/**
- * Asserts that the fix object in the file report matches the expected fix.
- * @param {Object} fileReport The file report instance
- * @param {Object} fix The expected fix object
- * @param {boolean} [hasAdditionalFix=false] Whether an additional fix is expected
- * @returns {void}
- */
-function assertFixMatches(fileReport, fix, hasAdditionalFix = false) {
-	assert.strictEqual(fileReport.messages.length, 1);
-
-	if (!hasAdditionalFix) {
-		assert.deepStrictEqual(fileReport.messages[0].fix, fix);
-	}
-
-	assert.notStrictEqual(fileReport.messages[0].fix, fix);
-	assert.notStrictEqual(fileReport.messages[0].fix.range, fix.range);
-}
-
-/**
- * Asserts that the additional fix object in the file report does not match the expected additional fix.
- * @param {Object} fileReport The file report instance
- * @param {Object} additionalFix The additional fix object
- * @returns {void}
- */
-function assertAdditionalFixNoMatch(fileReport, additionalFix) {
-	assert.notStrictEqual(fileReport.messages[0].fix, additionalFix);
-	assert.notStrictEqual(
-		fileReport.messages[0].fix.range,
-		additionalFix.range,
-	);
-}
-
-/**
- * Asserts that the suggestion fix in the file report matches the expected fix.
- * @param {Object} fileReport The file report instance
- * @param {Object} fix The expected fix object
- * @returns {void}
- */
-function assertSuggestionFixMatches(fileReport, fix) {
-	assert.strictEqual(fileReport.messages.length, 1);
-	assert.strictEqual(fileReport.messages[0].suggestions.length, 1);
-	assert.deepStrictEqual(
-		fileReport.messages[0].suggestions[0].fix,
-		fix,
-	);
-	assert.notStrictEqual(
-		fileReport.messages[0].suggestions[0].fix,
-		fix,
-	);
-	assert.notStrictEqual(
-		fileReport.messages[0].suggestions[0].fix.range,
-		fix.range,
-	);
-}
-
-/**
- * Asserts that the suggestion fix in the file report does not match the expected fix.
- * @param {Object} fileReport The file report instance
- * @param {Object} fix The expected fix object
- * @param {Object} additionalFix The additional fix object
- * @returns {void}
- */
-function assertSuggestionFixNoMatch(fileReport, fix, additionalFix) {
-	assert.notStrictEqual(
-		fileReport.messages[0].suggestions[0].fix,
-		fix,
-	);
-	assert.notStrictEqual(
-		fileReport.messages[0].suggestions[0].fix.range,
-		fix.range,
-	);
-	assert.notStrictEqual(
-		fileReport.messages[0].suggestions[0].fix,
-		additionalFix,
-	);
-	assert.notStrictEqual(
-		fileReport.messages[0].suggestions[0].fix.range,
-		additionalFix.range,
-	);
-}
-
 const language = { columnStart: 0, lineStart: 1 };
+
+//------------------------------------------------------------------------------
+// Tests
+//------------------------------------------------------------------------------
 
 describe("FileReport", () => {
 	let sourceCode, node, location, fileReport, message;
@@ -1073,6 +998,7 @@ describe("FileReport", () => {
 			});
 		});
 
+		// This isn't officially supported, but autofix works the same way
 		it("should remove the whole suggestion if 'fix' function didn't return anything.", () => {
 			const reportDescriptor = {
 				node,
@@ -1237,6 +1163,17 @@ describe("FileReport", () => {
 	});
 
 	describe("message interpolation", () => {
+		/**
+		 * Asserts that a message is correctly formatted.
+		 * @param {string} expected The expected message.
+		 * @param  {...any} args The arguments to pass to `addRuleMessage`.
+		 * @returns {void}
+		 */
+		function assertMessage(expected, ...args) {
+			fileReport.addRuleMessage("foo-rule", 2, ...args);
+			assert.strictEqual(fileReport.messages[0].message, expected);
+		}
+
 		it("should correctly parse a message when being passed all options in an old-style report", () => {
 			fileReport.addRuleMessage(
 				"foo-rule",
@@ -1277,7 +1214,6 @@ describe("FileReport", () => {
 
 		it("should correctly parse a message with object keys as numbers", () => {
 			assertMessage(
-				fileReport,
 				"my message testing!",
 				node,
 				"my message {{name}}{{0}}",
@@ -1290,7 +1226,6 @@ describe("FileReport", () => {
 
 		it("should correctly parse a message with array", () => {
 			assertMessage(
-				fileReport,
 				"my message testing!",
 				node,
 				"my message {{1}}{{0}}",
@@ -1299,26 +1234,25 @@ describe("FileReport", () => {
 		});
 
 		it("should allow template parameter with inner whitespace", () => {
-			assertMessage(fileReport, "message yay!", node, "message {{parameter name}}", {
+			assertMessage("message yay!", node, "message {{parameter name}}", {
 				"parameter name": "yay!",
 			});
 		});
 
 		it("should allow template parameter with non-identifier characters", () => {
-			assertMessage(fileReport, "message yay!", node, "message {{parameter-name}}", {
+			assertMessage("message yay!", node, "message {{parameter-name}}", {
 				"parameter-name": "yay!",
 			});
 		});
 
 		it("should allow template parameter wrapped in braces", () => {
-			assertMessage(fileReport, "message {yay!}", node, "message {{{param}}}", {
+			assertMessage("message {yay!}", node, "message {{{param}}}", {
 				param: "yay!",
 			});
 		});
 
 		it("should ignore template parameter with no specified value", () => {
 			assertMessage(
-				fileReport,
 				"message {{parameter}}",
 				node,
 				"message {{parameter}}",
@@ -1327,20 +1261,19 @@ describe("FileReport", () => {
 		});
 
 		it("should handle leading whitespace in template parameter", () => {
-			assertMessage(fileReport, "message yay!", node, "message {{ parameter}}", {
+			assertMessage("message yay!", node, "message {{ parameter}}", {
 				parameter: "yay!",
 			});
 		});
 
 		it("should handle trailing whitespace in template parameter", () => {
-			assertMessage(fileReport, "message yay!", node, "message {{parameter }}", {
+			assertMessage("message yay!", node, "message {{parameter }}", {
 				parameter: "yay!",
 			});
 		});
 
 		it("should still allow inner whitespace as well as leading/trailing", () => {
 			assertMessage(
-				fileReport,
 				"message yay!",
 				node,
 				"message {{ parameter name }}",
@@ -1350,7 +1283,6 @@ describe("FileReport", () => {
 
 		it("should still allow non-identifier characters as well as leading/trailing whitespace", () => {
 			assertMessage(
-				fileReport,
 				"message yay!",
 				node,
 				"message {{ parameter-name }}",
@@ -1561,6 +1493,7 @@ describe("FileReport", () => {
 				[],
 			]) {
 				assert.throws(
+					// eslint-disable-next-line no-loop-func -- Using arrow functions
 					() =>
 						fileReport.addRuleMessage("foo-rule", 2, {
 							node,
@@ -1571,6 +1504,7 @@ describe("FileReport", () => {
 				);
 
 				assert.throws(
+					// eslint-disable-next-line no-loop-func -- Using arrow functions
 					() =>
 						fileReport.addRuleMessage("foo-rule", 2, {
 							node,
@@ -1587,11 +1521,85 @@ describe("FileReport", () => {
 		});
 	});
 
+	// https://github.com/eslint/eslint/issues/16716
 	describe("unique `fix` and `fix.range` objects", () => {
 		const range = [0, 3];
 		const fix = { range, text: "baz" };
 		const additionalRange = [4, 7];
 		const additionalFix = { range: additionalRange, text: "qux" };
+
+		/**
+		 * Asserts that the fix object in the file report matches the expected fix.
+		 * @param {boolean} [hasAdditionalFix=false] Whether an additional fix is expected.
+		 * @returns {void}
+		 */
+		function assertFixMatches(hasAdditionalFix = false) {
+			assert.strictEqual(fileReport.messages.length, 1);
+
+			if (!hasAdditionalFix) {
+				assert.deepStrictEqual(fileReport.messages[0].fix, fix);
+			}
+
+			assert.notStrictEqual(fileReport.messages[0].fix, fix);
+			assert.notStrictEqual(fileReport.messages[0].fix.range, fix.range);
+		}
+
+		/**
+		 * Asserts that the additional fix object in the file report does not match
+		 * the expected additional fix.
+		 * @returns {void}
+		 */
+		function assertAdditionalFixNoMatch() {
+			assert.notStrictEqual(fileReport.messages[0].fix, additionalFix);
+			assert.notStrictEqual(
+				fileReport.messages[0].fix.range,
+				additionalFix.range,
+			);
+		}
+
+		/**
+		 * Asserts that the suggestion fix in the file report matches the expected fix.
+		 * @returns {void}
+		 */
+		function assertSuggestionFixMatches() {
+			assert.strictEqual(fileReport.messages.length, 1);
+			assert.strictEqual(fileReport.messages[0].suggestions.length, 1);
+			assert.deepStrictEqual(
+				fileReport.messages[0].suggestions[0].fix,
+				fix,
+			);
+			assert.notStrictEqual(
+				fileReport.messages[0].suggestions[0].fix,
+				fix,
+			);
+			assert.notStrictEqual(
+				fileReport.messages[0].suggestions[0].fix.range,
+				fix.range,
+			);
+		}
+
+		/**
+		 * Asserts that the suggestion fix in the file report does not match the expected fix.
+		 * @returns {void}
+		 */
+		function assertSuggestionFixNoMatch() {
+			assert.notStrictEqual(
+				fileReport.messages[0].suggestions[0].fix,
+				fix,
+			);
+			assert.notStrictEqual(
+				fileReport.messages[0].suggestions[0].fix.range,
+				fix.range,
+			);
+			assert.notStrictEqual(
+				fileReport.messages[0].suggestions[0].fix,
+				additionalFix,
+			);
+			assert.notStrictEqual(
+				fileReport.messages[0].suggestions[0].fix.range,
+				additionalFix.range,
+			);
+		}
 
 		it("should deep clone returned fix object", () => {
 			fileReport.addRuleMessage("foo-rule", 2, {
@@ -1600,7 +1608,7 @@ describe("FileReport", () => {
 				fix: () => fix,
 			});
 
-			assertFixMatches(fileReport, fix);
+			assertFixMatches();
 		});
 
 		it("should create a new fix object with a new range array when `fix()` returns an array with a single item", () => {
@@ -1610,7 +1618,7 @@ describe("FileReport", () => {
 				fix: () => [fix],
 			});
 
-			assertFixMatches(fileReport, fix);
+			assertFixMatches();
 		});
 
 		it("should create a new fix object with a new range array when `fix()` returns an array with multiple items", () => {
@@ -1620,8 +1628,8 @@ describe("FileReport", () => {
 				fix: () => [fix, additionalFix],
 			});
 
-			assertFixMatches(fileReport, fix, true);
-			assertAdditionalFixNoMatch(fileReport, additionalFix);
+			assertFixMatches(true);
+			assertAdditionalFixNoMatch();
 		});
 
 		it("should create a new fix object with a new range array when `fix()` generator yields a single item", () => {
@@ -1633,7 +1641,7 @@ describe("FileReport", () => {
 				},
 			});
 
-			assertFixMatches(fileReport, fix);
+			assertFixMatches();
 		});
 
 		it("should create a new fix object with a new range array when `fix()` generator yields multiple items", () => {
@@ -1646,8 +1654,8 @@ describe("FileReport", () => {
 				},
 			});
 
-			assertFixMatches(fileReport, fix, true);
-			assertAdditionalFixNoMatch(fileReport, additionalFix);
+			assertFixMatches(true);
+			assertAdditionalFixNoMatch();
 		});
 
 		it("should deep clone returned suggestion fix object", () => {
@@ -1662,7 +1670,7 @@ describe("FileReport", () => {
 				],
 			});
 
-			assertSuggestionFixMatches(fileReport, fix);
+			assertSuggestionFixMatches();
 		});
 
 		it("should create a new fix object with a new range array when suggestion `fix()` returns an array with a single item", () => {
@@ -1677,7 +1685,7 @@ describe("FileReport", () => {
 				],
 			});
 
-			assertSuggestionFixMatches(fileReport, fix);
+			assertSuggestionFixMatches();
 		});
 
 		it("should create a new fix object with a new range array when suggestion `fix()` returns an array with multiple items", () => {
@@ -1692,7 +1700,7 @@ describe("FileReport", () => {
 				],
 			});
 
-			assertSuggestionFixNoMatch(fileReport, fix, additionalFix);
+			assertSuggestionFixNoMatch();
 		});
 
 		it("should create a new fix object with a new range array when suggestion `fix()` generator yields a single item", () => {
@@ -1709,7 +1717,7 @@ describe("FileReport", () => {
 				],
 			});
 
-			assertSuggestionFixMatches(fileReport, fix);
+			assertSuggestionFixMatches();
 		});
 
 		it("should create a new fix object with a new range array when suggestion `fix()` generator yields multiple items", () => {
@@ -1727,7 +1735,7 @@ describe("FileReport", () => {
 				],
 			});
 
-			assertSuggestionFixNoMatch(fileReport, fix, additionalFix);
+			assertSuggestionFixNoMatch();
 		});
 
 		it("should create different instances of range arrays when suggestions reuse the same instance", () => {

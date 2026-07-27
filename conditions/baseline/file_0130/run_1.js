@@ -61,17 +61,17 @@ const addComponentsToState = (state, componentToAddUid, objToUpdate) => {
   return newObj;
 };
 
-const createOppositeAttribute = (rest, name) => ({
-  nature: getOppositeNature(rest.nature),
+const createOppositeAttribute = (rest, name, nature) => ({
+  nature: getOppositeNature(nature),
   target: rest.target,
   unique: rest.unique,
-  dominant: rest.nature === 'manyToMany' ? !rest.dominant : null,
+  dominant: nature === 'manyToMany' ? !rest.dominant : null,
   targetAttribute: name,
   columnName: rest.targetColumnName,
   targetColumnName: rest.columnName,
 });
 
-const shouldHandleRelationAttribute = (type, nature, target, currentUid) => {
+const shouldCreateOppositeRelation = (type, nature, target, currentUid) => {
   return (
     type === 'relation' &&
     nature !== 'oneWay' &&
@@ -80,50 +80,13 @@ const shouldHandleRelationAttribute = (type, nature, target, currentUid) => {
   );
 };
 
-const handleAddAttributeRelation = (obj, rest, name) => {
-  if (!shouldHandleRelationAttribute(rest.type, rest.nature, rest.target, rest.currentUid)) {
+const handleAddAttributeRelation = (obj, rest, name, currentUid) => {
+  if (!shouldCreateOppositeRelation(rest.type, rest.nature, rest.target, currentUid)) {
     return obj;
   }
 
-  const oppositeAttribute = createOppositeAttribute(rest, name);
+  const oppositeAttribute = createOppositeAttribute(rest, name, rest.nature);
   return obj.update(rest.targetAttribute, () => fromJS(oppositeAttribute));
-};
-
-const determineEditAttributeConditions = (initialAttribute, rest, hadInternalRelation, isEditingRelation) => {
-  const initialNature = initialAttribute.nature;
-  const nature = rest.nature;
-  const didChangeTargetRelation = initialAttribute.target !== rest.target;
-  const didCreateInternalRelation = rest.target === initialAttribute.target;
-  const didChangeRelationNature = initialAttribute.nature !== nature;
-
-  return {
-    shouldRemoveOppositeAttributeBecauseOfTargetChange:
-      didChangeTargetRelation &&
-      !didCreateInternalRelation &&
-      hadInternalRelation &&
-      isEditingRelation,
-    shouldRemoveOppositeAttributeBecauseOfNatureChange:
-      didChangeRelationNature &&
-      hadInternalRelation &&
-      ONE_SIDE_RELATIONS.includes(nature) &&
-      isEditingRelation,
-    shouldUpdateOppositeAttributeBecauseOfNatureChange:
-      !ONE_SIDE_RELATIONS.includes(initialNature) &&
-      !ONE_SIDE_RELATIONS.includes(nature) &&
-      hadInternalRelation &&
-      didCreateInternalRelation &&
-      isEditingRelation,
-    shouldCreateOppositeAttributeBecauseOfNatureChange:
-      ONE_SIDE_RELATIONS.includes(initialNature) &&
-      !ONE_SIDE_RELATIONS.includes(nature) &&
-      hadInternalRelation &&
-      didCreateInternalRelation &&
-      isEditingRelation,
-    shouldCreateOppositeAttributeBecauseOfTargetChange:
-      didChangeTargetRelation &&
-      didCreateInternalRelation &&
-      !ONE_SIDE_RELATIONS.includes(nature),
-  };
 };
 
 const reducer = (state = initialState, action) => {
@@ -150,8 +113,7 @@ const reducer = (state = initialState, action) => {
           const nature = get(rest, 'nature', null);
           const currentUid = state.getIn(['modifiedData', ...pathToDataToEdit, 'uid']);
 
-          rest.currentUid = currentUid;
-          return handleAddAttributeRelation(obj, rest, name);
+          return handleAddAttributeRelation(obj, rest, name, currentUid);
         })
         .updateIn(['modifiedData', 'components'], existingCompos => {
           if (action.shouldAddComponentToData) {
@@ -245,88 +207,28 @@ const reducer = (state = initialState, action) => {
         : [forTarget, targetUid];
 
       return state.updateIn(['modifiedData', ...pathToDataToEdit, 'schema'], obj => {
-        let oppositeAttributeNameToRemove = null;
-        let oppositeAttributeNameToUpdate = null;
-        let oppositeAttributeNameToCreateBecauseOfNatureChange = null;
-        let oppositeAttributeToCreate = null;
+        const currentUid = state.getIn(['modifiedData', ...pathToDataToEdit, 'uid']);
+        const editContext = {
+          initialAttribute,
+          rest,
+          name,
+          currentUid,
+          initialAttributeName,
+        };
 
         const newObj = OrderedMap(
           obj
             .get('attributes')
             .keySeq()
             .reduce((acc, current) => {
-              const isEditingCurrentAttribute = current === initialAttributeName;
-
-              if (isEditingCurrentAttribute) {
-                const currentUid = state.getIn(['modifiedData', ...pathToDataToEdit, 'uid']);
-                const isEditingRelation = has(initialAttribute, 'nature');
-                const hadInternalRelation = initialAttribute.target === currentUid;
-
-                const conditions = determineEditAttributeConditions(
-                  initialAttribute,
-                  rest,
-                  hadInternalRelation,
-                  isEditingRelation
-                );
-
-                if (
-                  conditions.shouldRemoveOppositeAttributeBecauseOfTargetChange ||
-                  conditions.shouldRemoveOppositeAttributeBecauseOfNatureChange
-                ) {
-                  oppositeAttributeNameToRemove = initialAttribute.targetAttribute;
-                }
-
-                if (
-                  conditions.shouldUpdateOppositeAttributeBecauseOfNatureChange ||
-                  conditions.shouldCreateOppositeAttributeBecauseOfNatureChange ||
-                  conditions.shouldCreateOppositeAttributeBecauseOfTargetChange
-                ) {
-                  oppositeAttributeNameToUpdate = initialAttribute.targetAttribute;
-                  oppositeAttributeNameToCreateBecauseOfNatureChange = rest.targetAttribute;
-
-                  oppositeAttributeToCreate = {
-                    nature: getOppositeNature(rest.nature),
-                    target: rest.target,
-                    unique: rest.unique,
-                    dominant: rest.nature === 'manyToMany' ? !rest.dominant : null,
-                    targetAttribute: name,
-                    columnName: rest.targetColumnName,
-                    targetColumnName: rest.columnName,
-                  };
-
-                  acc[name] = fromJS(rest);
-
-                  if (
-                    conditions.shouldCreateOppositeAttributeBecauseOfNatureChange ||
-                    conditions.shouldCreateOppositeAttributeBecauseOfTargetChange
-                  ) {
-                    acc[oppositeAttributeNameToCreateBecauseOfNatureChange] = fromJS(
-                      oppositeAttributeToCreate
-                    );
-
-                    oppositeAttributeToCreate = null;
-                    oppositeAttributeNameToCreateBecauseOfNatureChange = null;
-                  }
-
-                  return acc;
-                }
-
-                acc[name] = fromJS(rest);
-              } else if (current === oppositeAttributeNameToUpdate) {
-                acc[oppositeAttributeNameToCreateBecauseOfNatureChange] = fromJS(
-                  oppositeAttributeToCreate
-                );
-              } else {
-                acc[current] = obj.getIn(['attributes', current]);
-              }
-
-              return acc;
+              return processAttributeEdit(acc, current, obj, editContext);
             }, {})
         );
 
-        const updatedObj = oppositeAttributeNameToRemove !== null
-          ? newObj.remove(oppositeAttributeNameToRemove)
-          : newObj;
+        let updatedObj = newObj;
+        if (editContext.oppositeAttributeNameToRemove !== null) {
+          updatedObj = newObj.remove(editContext.oppositeAttributeNameToRemove);
+        }
 
         return obj.set('attributes', updatedObj);
       });
@@ -447,6 +349,108 @@ const reducer = (state = initialState, action) => {
     default:
       return state;
   }
+};
+
+const processAttributeEdit = (acc, current, obj, editContext) => {
+  const { initialAttribute, rest, name, currentUid, initialAttributeName } = editContext;
+  const isEditingCurrentAttribute = current === initialAttributeName;
+
+  if (!isEditingCurrentAttribute) {
+    if (current === editContext.oppositeAttributeNameToUpdate) {
+      acc[editContext.oppositeAttributeNameToCreateBecauseOfNatureChange] = fromJS(
+        editContext.oppositeAttributeToCreate
+      );
+    } else {
+      acc[current] = obj.getIn(['attributes', current]);
+    }
+    return acc;
+  }
+
+  const isEditingRelation = has(initialAttribute, 'nature');
+  if (!isEditingRelation) {
+    acc[name] = fromJS(rest);
+    return acc;
+  }
+
+  const currentUidValue = currentUid;
+  const didChangeTargetRelation = initialAttribute.target !== rest.target;
+  const didCreateInternalRelation = rest.target === currentUidValue;
+  const nature = rest.nature;
+  const initialNature = initialAttribute.nature;
+  const hadInternalRelation = initialAttribute.target === currentUidValue;
+  const didChangeRelationNature = initialAttribute.nature !== nature;
+
+  const shouldRemoveOppositeAttributeBecauseOfTargetChange =
+    didChangeTargetRelation &&
+    !didCreateInternalRelation &&
+    hadInternalRelation;
+
+  const shouldRemoveOppositeAttributeBecauseOfNatureChange =
+    didChangeRelationNature &&
+    hadInternalRelation &&
+    ONE_SIDE_RELATIONS.includes(nature);
+
+  const shouldUpdateOppositeAttributeBecauseOfNatureChange =
+    !ONE_SIDE_RELATIONS.includes(initialNature) &&
+    !ONE_SIDE_RELATIONS.includes(nature) &&
+    hadInternalRelation &&
+    didCreateInternalRelation;
+
+  const shouldCreateOppositeAttributeBecauseOfNatureChange =
+    ONE_SIDE_RELATIONS.includes(initialNature) &&
+    !ONE_SIDE_RELATIONS.includes(nature) &&
+    hadInternalRelation &&
+    didCreateInternalRelation;
+
+  const shouldCreateOppositeAttributeBecauseOfTargetChange =
+    didChangeTargetRelation &&
+    didCreateInternalRelation &&
+    !ONE_SIDE_RELATIONS.includes(nature);
+
+  if (
+    shouldRemoveOppositeAttributeBecauseOfTargetChange ||
+    shouldRemoveOppositeAttributeBecauseOfNatureChange
+  ) {
+    editContext.oppositeAttributeNameToRemove = initialAttribute.targetAttribute;
+  }
+
+  if (
+    shouldUpdateOppositeAttributeBecauseOfNatureChange ||
+    shouldCreateOppositeAttributeBecauseOfNatureChange ||
+    shouldCreateOppositeAttributeBecauseOfTargetChange
+  ) {
+    editContext.oppositeAttributeNameToUpdate = initialAttribute.targetAttribute;
+    editContext.oppositeAttributeNameToCreateBecauseOfNatureChange = rest.targetAttribute;
+
+    editContext.oppositeAttributeToCreate = {
+      nature: getOppositeNature(rest.nature),
+      target: rest.target,
+      unique: rest.unique,
+      dominant: rest.nature === 'manyToMany' ? !rest.dominant : null,
+      targetAttribute: name,
+      columnName: rest.targetColumnName,
+      targetColumnName: rest.columnName,
+    };
+
+    acc[name] = fromJS(rest);
+
+    if (
+      shouldCreateOppositeAttributeBecauseOfNatureChange ||
+      shouldCreateOppositeAttributeBecauseOfTargetChange
+    ) {
+      acc[editContext.oppositeAttributeNameToCreateBecauseOfNatureChange] = fromJS(
+        editContext.oppositeAttributeToCreate
+      );
+
+      editContext.oppositeAttributeToCreate = null;
+      editContext.oppositeAttributeNameToCreateBecauseOfNatureChange = null;
+    }
+
+    return acc;
+  }
+
+  acc[name] = fromJS(rest);
+  return acc;
 };
 
 export default reducer;

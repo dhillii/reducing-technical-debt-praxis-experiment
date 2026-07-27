@@ -12,9 +12,7 @@ const moment = require('moment');
 const Utils = require('./utils');
 
 // Base abstract data type class
-function ABSTRACT() {
-  this.dialectTypes = '';
-}
+function ABSTRACT() {}
 
 ABSTRACT.prototype.dialectTypes = '';
 
@@ -288,10 +286,9 @@ DECIMAL.prototype.validate = function validate(value) {
   return true;
 };
 
-// Configure floating point types with special stringify handling
-function configureFloatingPointType(floatingType) {
-  floatingType.prototype.escape = false;
-  floatingType.prototype._stringify = function _stringify(value) {
+for (const floating of [FLOAT, DOUBLE, REAL]) {
+  floating.prototype.escape = false;
+  floating.prototype._stringify = function _stringify(value) {
     if (isNaN(value)) {
       return "'NaN'";
     } else if (!isFinite(value)) {
@@ -301,10 +298,6 @@ function configureFloatingPointType(floatingType) {
 
     return value;
   };
-}
-
-for (const floating of [FLOAT, DOUBLE, REAL]) {
-  configureFloatingPointType(floating);
 }
 
 function BOOLEAN() {
@@ -792,26 +785,21 @@ MACADDR.prototype.validate = function validate(value) {
   return true;
 };
 
-// Apply helper properties to data types
-function applyHelperProperties() {
-  for (const helper of Object.keys(helpers)) {
-    for (const DataType of helpers[helper]) {
-      if (!DataType[helper]) {
-        Object.defineProperty(DataType, helper, {
-          get() {
-            const dataType = new DataType();
-            if (typeof dataType[helper] === 'object') {
-              return dataType;
-            }
-            return dataType[helper].apply(dataType, arguments);
+for (const helper of Object.keys(helpers)) {
+  for (const DataType of helpers[helper]) {
+    if (!DataType[helper]) {
+      Object.defineProperty(DataType, helper, {
+        get() {
+          const dataType = new DataType();
+          if (typeof dataType[helper] === 'object') {
+            return dataType;
           }
-        });
-      }
+          return dataType[helper].apply(dataType, arguments);
+        }
+      });
     }
   }
 }
-
-applyHelperProperties();
 
 /**
  * A convenience class holding commonly used data types. The datatypes are used when defining a new model using `Sequelize.define`, like this:

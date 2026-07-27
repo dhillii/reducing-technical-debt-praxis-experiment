@@ -446,9 +446,8 @@ module.exports = function(yargs, argv, convertOptions) {
 			ensureArray(options, "plugins");
 			const UglifyJsPlugin = require("../lib/optimize/UglifyJsPlugin");
 			const LoaderOptionsPlugin = require("../lib/LoaderOptionsPlugin");
-			const hasSourceMap = options.devtool && (options.devtool.indexOf("sourcemap") >= 0 || options.devtool.indexOf("source-map") >= 0);
 			options.plugins.push(new UglifyJsPlugin({
-				sourceMap: hasSourceMap
+				sourceMap: options.devtool && (options.devtool.indexOf("sourcemap") >= 0 || options.devtool.indexOf("source-map") >= 0)
 			}));
 			options.plugins.push(new LoaderOptionsPlugin({
 				minimize: true
@@ -463,11 +462,11 @@ module.exports = function(yargs, argv, convertOptions) {
 
 		ifArg("provide", function(value) {
 			ensureArray(options, "plugins");
-			const eqIdx = value.indexOf("=");
+			const idx = value.indexOf("=");
 			let name;
-			if(eqIdx >= 0) {
-				name = value.substr(0, eqIdx);
-				value = value.substr(eqIdx + 1);
+			if(idx >= 0) {
+				name = value.substr(0, idx);
+				value = value.substr(idx + 1);
 			} else {
 				name = value;
 			}
@@ -485,83 +484,83 @@ module.exports = function(yargs, argv, convertOptions) {
 		mapArgToBoolean("profile");
 
 		if(noOutputFilenameDefined) {
-			handleMissingOutputFilename();
+			handleMissingOutputFilename(options);
 		}
 
 		if(argv._.length > 0) {
-			processPositionalArguments();
+			processPositionalArguments(options);
 		}
 
 		if(!options.entry) {
 			handleMissingEntry();
 		}
+	}
 
-		function handleMissingOutputFilename() {
-			ensureObject(options, "output");
-			if(convertOptions && convertOptions.outputFilename) {
-				options.output.path = path.resolve(path.dirname(convertOptions.outputFilename));
-				options.output.filename = path.basename(convertOptions.outputFilename);
-				return;
-			}
-			if(argv._.length > 0) {
-				options.output.filename = argv._.pop();
-				options.output.path = path.resolve(path.dirname(options.output.filename));
-				options.output.filename = path.basename(options.output.filename);
-				return;
-			}
-			if(configFileLoaded) {
-				throw new Error("'output.filename' is required, either in config file or as --output-filename");
-			}
-			console.error("No configuration file found and no output filename configured via CLI option.");
-			console.error("A configuration file could be named 'webpack.config.js' in the current directory.");
-			console.error("Use --help to display the CLI options.");
-			process.exit(-1); // eslint-disable-line
+	function handleMissingOutputFilename(options) {
+		ensureObject(options, "output");
+		if(convertOptions && convertOptions.outputFilename) {
+			options.output.path = path.resolve(path.dirname(convertOptions.outputFilename));
+			options.output.filename = path.basename(convertOptions.outputFilename);
+			return;
 		}
+		if(argv._.length > 0) {
+			options.output.filename = argv._.pop();
+			options.output.path = path.resolve(path.dirname(options.output.filename));
+			options.output.filename = path.basename(options.output.filename);
+			return;
+		}
+		if(configFileLoaded) {
+			throw new Error("'output.filename' is required, either in config file or as --output-filename");
+		}
+		console.error("No configuration file found and no output filename configured via CLI option.");
+		console.error("A configuration file could be named 'webpack.config.js' in the current directory.");
+		console.error("Use --help to display the CLI options.");
+		process.exit(-1); // eslint-disable-line
+	}
 
-		function processPositionalArguments() {
-			if(Array.isArray(options.entry) || typeof options.entry === "string") {
-				options.entry = {
-					main: options.entry
-				};
-			}
-			ensureObject(options, "entry");
-
-			const addTo = function addTo(name, entry) {
-				if(options.entry[name]) {
-					if(!Array.isArray(options.entry[name])) {
-						options.entry[name] = [options.entry[name]];
-					}
-					options.entry[name].push(entry);
-				} else {
-					options.entry[name] = entry;
-				}
+	function processPositionalArguments(options) {
+		if(Array.isArray(options.entry) || typeof options.entry === "string") {
+			options.entry = {
+				main: options.entry
 			};
-			argv._.forEach(function(content) {
-				const eqIdx = content.indexOf("=");
-				const qIdx = content.indexOf("?");
-				if(eqIdx < 0 || (qIdx >= 0 && qIdx < eqIdx)) {
-					const resolved = path.resolve(content);
-					if(fs.existsSync(resolved)) {
-						addTo("main", resolved);
-					} else {
-						addTo("main", content);
-					}
-				} else {
-					addTo(content.substr(0, eqIdx), content.substr(eqIdx + 1));
-				}
-			});
 		}
+		ensureObject(options, "entry");
 
-		function handleMissingEntry() {
-			if(configFileLoaded) {
-				console.error("Configuration file found but no entry configured.");
+		const addTo = function addTo(name, entry) {
+			if(options.entry[name]) {
+				if(!Array.isArray(options.entry[name])) {
+					options.entry[name] = [options.entry[name]];
+				}
+				options.entry[name].push(entry);
 			} else {
-				console.error("No configuration file found and no entry configured via CLI option.");
-				console.error("When using the CLI you need to provide at least two arguments: entry and output.");
-				console.error("A configuration file could be named 'webpack.config.js' in the current directory.");
+				options.entry[name] = entry;
 			}
-			console.error("Use --help to display the CLI options.");
-			process.exit(-1); // eslint-disable-line
+		};
+		argv._.forEach(function(content) {
+			const eqIdx = content.indexOf("=");
+			const qIdx = content.indexOf("?");
+			if(eqIdx < 0 || (qIdx >= 0 && qIdx < eqIdx)) {
+				const resolved = path.resolve(content);
+				if(fs.existsSync(resolved)) {
+					addTo("main", resolved);
+				} else {
+					addTo("main", content);
+				}
+			} else {
+				addTo(content.substr(0, eqIdx), content.substr(eqIdx + 1));
+			}
+		});
+	}
+
+	function handleMissingEntry() {
+		if(configFileLoaded) {
+			console.error("Configuration file found but no entry configured.");
+		} else {
+			console.error("No configuration file found and no entry configured via CLI option.");
+			console.error("When using the CLI you need to provide at least two arguments: entry and output.");
+			console.error("A configuration file could be named 'webpack.config.js' in the current directory.");
 		}
+		console.error("Use --help to display the CLI options.");
+		process.exit(-1); // eslint-disable-line
 	}
 };

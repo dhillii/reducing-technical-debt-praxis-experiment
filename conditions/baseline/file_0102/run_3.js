@@ -1,3 +1,23 @@
+/**
+ * @preserve FastClick: polyfill to remove click delays on browsers with touch UIs.
+ *
+ * @version 1.0.2
+ * @codingstandard ftlabs-jsv2
+ * @copyright The Financial Times Limited [All Rights Reserved]
+ * @license MIT License (see LICENSE.txt)
+ */
+
+/*jslint browser:true, node:true*/
+/*global define, Event, Node*/
+
+
+/**
+ * Instantiate fast-clicking listeners on the specified layer.
+ *
+ * @constructor
+ * @param {Element} layer The layer to listen on
+ * @param {Object} options The options to override the defaults
+ */
 function FastClick(layer, options) {
 	'use strict';
 	var oldOnClick;
@@ -454,6 +474,7 @@ FastClick.prototype.onTouchMove = function(event) {
 	if (this.targetElement !== this.getTargetElementFromEventTarget(event.target) || this.touchHasMoved(event)) {
 		this.trackingClick = false;
 		this.targetElement = null;
+		return true;
 	}
 
 	return true;
@@ -746,7 +767,7 @@ FastClick.notNeeded = function(layer) {
 		
 		// BlackBerry 10.3+ does not require Fastclick library.
 		// https://github.com/ftlabs/fastclick/issues/251
-		if (blackberryVersion && blackberryVersion[1] >= 10 && blackberryVersion[2] >= 3) {
+		if (blackberryVersion[1] >= 10 && blackberryVersion[2] >= 3) {
 			metaViewport = document.querySelector('meta[name=viewport]');
 
 			if (metaViewport) {

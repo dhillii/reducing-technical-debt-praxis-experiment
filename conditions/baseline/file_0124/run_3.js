@@ -11,10 +11,6 @@ const {
 } = require('./utils/store-definition');
 const { getManyRelations } = require('./utils/associations');
 
-const shouldAutoMigrate = (connection) => {
-  return !connection.options || connection.options.autoMigration !== false;
-};
-
 const addTimestampAttributes = (loadedModel, definition) => {
   if (loadedModel.hasTimestamps) {
     definition.attributes[loadedModel.hasTimestamps[0]] = { type: 'currentTimestamp' };
@@ -27,6 +23,10 @@ const removeTimestampAttributes = (loadedModel, definition) => {
     delete definition.attributes[loadedModel.hasTimestamps[0]];
     delete definition.attributes[loadedModel.hasTimestamps[1]];
   }
+};
+
+const shouldAutoMigrate = (connection) => {
+  return !connection.options || connection.options.autoMigration !== false;
 };
 
 const migrateMorphRelations = async (loadedModel, definition, connection, ORM, model, context) => {
@@ -232,14 +232,6 @@ const createIdType = (table, definition) => {
   return table.increments('id');
 };
 
-const shouldApplyNotNullable = (attribute, definition, model, tableExists) => {
-  if (attribute.required !== true) return false;
-  if (definition.client === 'sqlite3' && tableExists) return false;
-  if (contentTypesUtils.hasDraftAndPublish(model)) return false;
-  if (definition.modelType === 'component') return false;
-  return true;
-};
-
 const createColumns = (tbl, columns, table, definition, ORM, opts = {}) => {
   const { tableExists, alter = false } = opts;
 
@@ -256,8 +248,14 @@ const createColumns = (tbl, columns, table, definition, ORM, opts = {}) => {
     });
     if (!col) return;
 
-    if (shouldApplyNotNullable(attribute, definition, opts.model, tableExists)) {
-      col.notNullable();
+    if (attribute.required === true) {
+      if (
+        (definition.client !== 'sqlite3' || !tableExists) &&
+        !contentTypesUtils.hasDraftAndPublish(model) &&
+        definition.modelType !== 'component'
+      ) {
+        col.notNullable();
+      }
     } else {
       col.nullable();
     }
@@ -278,15 +276,14 @@ const alterColumns = (tbl, columns, table, definition, ORM, opts = {}) => {
   return createColumns(tbl, columns, table, definition, ORM, { ...opts, alter: true });
 };
 
-const createTable = (table, attributes, definition, ORM, opts = {}) => {
-  const { trx = ORM.knex, ...restOpts } = opts;
+const createTableFn = (table, attributes, definition, ORM, { trx = ORM.knex, ...opts } = {}) => {
   return trx.schema.createTable(table, tbl => {
     createIdType(tbl, definition);
-    createColumns(tbl, attributes, table, definition, ORM, { ...restOpts, tableExists: false });
+    createColumns(tbl, attributes, table, definition, ORM, { ...opts, tableExists: false });
   });
 };
 
-const handleSqlite3Rebuild = async (table, attributes, definition, ORM, attributesNames) => {
+const handleSqlite3Rebuild = async (table, attributes, definition, ORM, attributesNames, model) => {
   const tmpTable = `tmp_${table}`;
 
   const rebuildTable = async trx => {
@@ -298,7 +295,7 @@ const handleSqlite3Rebuild = async (table, attributes, definition, ORM, attribut
       )
     );
 
-    await createTable(table, attributes, definition, ORM, { trx });
+    await createTableFn(table, attributes, definition, ORM, { trx });
 
     const attrs = attributesNames.filter(attributeName =>
       isColumn({
@@ -330,7 +327,7 @@ const handleSqlite3Rebuild = async (table, attributes, definition, ORM, attribut
   }
 };
 
-const handleDefaultDatabaseRebuild = async (table, attributes, columnsToAlter, definition, ORM, tableExists) => {
+const handleDefaultRebuild = async (table, attributes, columnsToAlter, definition, ORM, tableExists) => {
   const alterTable = async trx => {
     await Promise.all(
       columnsToAlter.map(col => {
@@ -372,7 +369,7 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
   const tableExists = await ORM.knex.schema.hasTable(table);
 
   if (!tableExists) {
-    await createTable(table, attributes, definition, ORM);
+    await createTableFn(table, attributes, definition, ORM);
     return;
   }
 
@@ -387,7 +384,7 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
 
   if (Object.keys(columnsToAdd).length > 0) {
     await ORM.knex.schema.table(table, tbl => {
-      createColumns(tbl, columnsToAdd, table, definition, ORM, { tableExists, model });
+      createColumns(tbl, columnsToAdd, table, definition, ORM, { tableExists });
     });
   }
 
@@ -404,12 +401,12 @@ const createOrUpdateTable = async ({ table, attributes, definition, ORM, model }
   const shouldRebuild =
     columnsToAlter.length > 0 || (definition.client === 'sqlite3' && context.recreateSqliteTable);
 
-  if (!shouldRebuild) return;
-
-  if (definition.client === 'sqlite3') {
-    await handleSqlite3Rebuild(table, attributes, definition, ORM, attributesNames);
-  } else {
-    await handleDefaultDatabaseRebuild(table, attributes, columnsToAlter, definition, ORM, tableExists);
+  if (shouldRebuild) {
+    if (definition.client === 'sqlite3') {
+      await handleSqlite3Rebuild(table, attributes, definition, ORM, attributesNames, model);
+    } else {
+      await handleDefaultRebuild(table, attributes, columnsToAlter, definition, ORM, tableExists);
+    }
   }
 };
 

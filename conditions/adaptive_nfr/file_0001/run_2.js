@@ -241,53 +241,65 @@ export const isApiError = (error: unknown): error is ApiError => {
     );
 };
 
-/**
- * Validates that a response has the expected property and is an array.
- */
-function hasArrayProperty(obj: unknown, prop: string): boolean {
-    return (
-        typeof obj === 'object' &&
-        obj !== null &&
-        prop in obj &&
-        Array.isArray((obj as Record<string, unknown>)[prop])
-    );
-}
-
-/**
- * Extracts a string value from an object property, returning null if not found or invalid.
- */
-function extractStringProperty(obj: unknown, prop: string): string | null {
-    if (typeof obj === 'object' && obj !== null && prop in obj) {
-        const value = (obj as Record<string, unknown>)[prop];
-        if (typeof value === 'string') {
-            return value;
-        }
+/** Creates an ApiError object with the given message and status code. */
+const createApiError = (message: string, statusCode: number, code?: string): ApiError => {
+    const error: ApiError = {message, statusCode};
+    if (code) {
+        error.code = code;
     }
-    return null;
-}
+    return error;
+};
 
-/**
- * Extracts a number value from an object property, returning defaultValue if not found or invalid.
- */
-function extractNumberProperty(obj: unknown, prop: string, defaultValue: number): number {
-    if (typeof obj === 'object' && obj !== null && prop in obj) {
-        const value = (obj as Record<string, unknown>)[prop];
-        if (typeof value === 'number') {
-            return value;
-        }
-    }
-    return defaultValue;
-}
+/** Checks if response status indicates success (2xx). */
+const isSuccessStatus = (status: number): boolean => {
+    return status >= 200 && status < 300;
+};
 
-/**
- * Extracts an array from an object property, returning empty array if not found or invalid.
- */
-function extractArrayProperty<T>(obj: unknown, prop: string): T[] {
-    if (hasArrayProperty(obj, prop)) {
-        return (obj as Record<string, unknown>)[prop] as T[];
+/** Checks if response status indicates no content. */
+const isNoContentStatus = (status: number): boolean => {
+    return status === 204 || status === 202;
+};
+
+/** Extracts error message from JSON response. */
+const extractErrorMessage = (json: unknown): string | null => {
+    if (typeof json !== 'object' || json === null) {
+        return null;
     }
-    return [];
-}
+    const record = json as Record<string, unknown>;
+    return typeof record.message === 'string' ? record.message : 
+           typeof record.error === 'string' ? record.error : null;
+};
+
+/** Extracts error code from JSON response. */
+const extractErrorCode = (json: unknown): string | undefined => {
+    if (typeof json !== 'object' || json === null) {
+        return undefined;
+    }
+    const record = json as Record<string, unknown>;
+    return typeof record.code === 'string' ? record.code : undefined;
+};
+
+/** Checks if value is a non-empty array. */
+const isNonEmptyArray = (value: unknown): value is unknown[] => {
+    return Array.isArray(value) && value.length > 0;
+};
+
+/** Checks if object has property with string value. */
+const hasStringProperty = (obj: unknown, prop: string): boolean => {
+    return typeof obj === 'object' && obj !== null && prop in obj && 
+           typeof (obj as Record<string, unknown>)[prop] === 'string';
+};
+
+/** Checks if object has property with array value. */
+const hasArrayProperty = (obj: unknown, prop: string): boolean => {
+    return typeof obj === 'object' && obj !== null && prop in obj && 
+           Array.isArray((obj as Record<string, unknown>)[prop]);
+};
+
+/** Extracts next page token from response. */
+const extractNextPage = (json: unknown): string | null => {
+    return hasStringProperty(json, 'next') ? (json as Record<string, unknown>).next as string : null;
+};
 
 export class ActivityPubAPI {
     constructor(
@@ -323,26 +335,24 @@ export class ActivityPubAPI {
         }
         const response = await this.fetch(url, options);
 
-        if (response.status === 204 || response.status === 202) {
+        if (isNoContentStatus(response.status)) {
             return null;
         }
 
-        if (!response.ok) {
-            const error: ApiError = {
-                message: 'Something went wrong, please try again.',
-                statusCode: response.status
-            };
+        if (!isSuccessStatus(response.status)) {
+            const error = createApiError('Something went wrong, please try again.', response.status);
 
             try {
                 const json = await response.json();
-                const errorMessage = json.message || json.error;
+                const errorMessage = extractErrorMessage(json);
 
                 if (errorMessage) {
                     error.message = errorMessage;
                 }
 
-                if (json.code) {
-                    error.code = json.code;
+                const errorCode = extractErrorCode(json);
+                if (errorCode) {
+                    error.code = errorCode;
                 }
             } catch {
                 // Leave the default message
@@ -497,15 +507,22 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        if (json === null || !hasArrayProperty(json, 'accounts')) {
+        if (json === null) {
             return {
                 accounts: [],
                 next: null
             };
         }
 
-        const accounts = extractArrayProperty<FollowAccount>(json, 'accounts');
-        const nextPage = extractStringProperty(json, 'next');
+        if (!hasArrayProperty(json, 'accounts')) {
+            return {
+                accounts: [],
+                next: null
+            };
+        }
+
+        const accounts = Array.isArray((json as Record<string, unknown>).accounts) ? (json as Record<string, unknown>).accounts as FollowAccount[] : [];
+        const nextPage = extractNextPage(json);
 
         return {
             accounts,
@@ -535,7 +552,7 @@ export class ActivityPubAPI {
         const url = new URL('.ghost/activitypub/v1/topics', this.apiUrl);
         const json = await this.fetchJSON(url);
         return {
-            topics: extractArrayProperty<TopicData>(json, 'topics')
+            topics: (json && hasArrayProperty(json, 'topics')) ? (json as Record<string, unknown>).topics as TopicData[] : []
         };
     }
 
@@ -546,7 +563,7 @@ export class ActivityPubAPI {
         }
         const json = await this.fetchJSON(url);
         return {
-            accounts: extractArrayProperty<ExploreAccount>(json, 'accounts')
+            accounts: (json && hasArrayProperty(json, 'accounts')) ? (json as Record<string, unknown>).accounts as ExploreAccount[] : []
         };
     }
 
@@ -574,8 +591,8 @@ export class ActivityPubAPI {
             };
         }
 
-        const posts = extractArrayProperty<Post>(json, 'posts');
-        const nextPage = extractStringProperty(json, 'next');
+        const posts = (json as Record<string, unknown>).posts as Post[];
+        const nextPage = extractNextPage(json);
 
         return {
             posts,
@@ -591,15 +608,22 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        if (json === null || !hasArrayProperty(json, 'notifications')) {
+        if (json === null) {
             return {
                 notifications: [],
                 next: null
             };
         }
 
-        const notifications = extractArrayProperty<Notification>(json, 'notifications');
-        const nextPage = extractStringProperty(json, 'next');
+        if (!hasArrayProperty(json, 'notifications')) {
+            return {
+                notifications: [],
+                next: null
+            };
+        }
+
+        const notifications = (json as Record<string, unknown>).notifications as Notification[];
+        const nextPage = extractNextPage(json);
 
         return {
             notifications,
@@ -612,7 +636,15 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        const count = extractNumberProperty(json, 'count', 0);
+        if (json === null) {
+            return {
+                count: 0
+            };
+        }
+
+        const count = typeof (json as Record<string, unknown>).count === 'number'
+            ? (json as {count: number}).count
+            : 0;
 
         return {count};
     }
@@ -640,8 +672,10 @@ export class ActivityPubAPI {
             };
         }
 
-        const accounts = extractArrayProperty<Account>(json, 'blocked_accounts');
-        const nextPage = extractStringProperty(json, 'next');
+        const accounts = (hasArrayProperty(json, 'blocked_accounts'))
+            ? (json as Record<string, unknown>).blocked_accounts as Account[]
+            : [];
+        const nextPage = extractNextPage(json);
 
         return {
             accounts,
@@ -664,8 +698,11 @@ export class ActivityPubAPI {
             };
         }
 
-        const domains = extractArrayProperty<Account>(json, 'blocked_domains');
-        const nextPage = extractStringProperty(json, 'next');
+        const domains = (hasArrayProperty(json, 'blocked_domains'))
+            ? (json as Record<string, unknown>).blocked_domains as Account[]
+            : [];
+
+        const nextPage = extractNextPage(json);
 
         return {
             domains,
@@ -689,8 +726,8 @@ export class ActivityPubAPI {
             };
         }
 
-        const accounts = extractArrayProperty<ExploreAccount>(json, 'accounts');
-        const nextPage = extractStringProperty(json, 'next');
+        const accounts = (json as Record<string, unknown>).accounts as ExploreAccount[];
+        const nextPage = extractNextPage(json);
 
         return {
             accounts,
@@ -752,11 +789,7 @@ export class ActivityPubAPI {
         });
 
         if (!response.ok) {
-            const error: ApiError = {
-                message: 'Upload failed',
-                statusCode: response.status
-            };
-            throw error;
+            throw createApiError('Upload failed', response.status);
         }
 
         const json = await response.json();
@@ -780,8 +813,10 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url, 'POST');
 
-        const handle = extractStringProperty(json, 'handle');
+        if (json === null || !hasStringProperty(json, 'handle')) {
+            return '';
+        }
 
-        return handle || '';
+        return String((json as Record<string, unknown>).handle);
     }
 }

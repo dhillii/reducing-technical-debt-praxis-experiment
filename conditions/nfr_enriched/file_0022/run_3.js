@@ -65,16 +65,13 @@ const isProtocolRelative = (url: string): boolean => /^(\/\/)/.test(url);
 const looksLikeUrl = (url: string): boolean => /^[a-zA-Z0-9-]+:/.test(url) || /^(\/|\?)/.test(url);
 
 // Format email URL with mailto protocol
-const formatEmailUrl = (url: string): {save: string; display: string} => ({
-    save: `mailto:${url}`,
-    display: `mailto:${url}`
-});
+const formatEmailUrl = (url: string): {save: string; display: string} => {
+    const mailtoUrl = `mailto:${url}`;
+    return {save: mailtoUrl, display: mailtoUrl};
+};
 
 // Format anchor or protocol-relative URL as-is
-const formatSpecialUrl = (url: string): {save: string; display: string} => ({
-    save: url,
-    display: url
-});
+const formatPassthroughUrl = (url: string): {save: string; display: string} => ({save: url, display: url});
 
 // Add https protocol if missing
 const ensureProtocol = (url: string): string => {
@@ -85,7 +82,7 @@ const ensureProtocol = (url: string): string => {
 };
 
 // Parse and validate URL
-const parseUrl = (url: string, baseUrl?: string): URL | null => {
+const parseUrlSafely = (url: string, baseUrl?: string): URL | null => {
     try {
         return new URL(url, baseUrl);
     } catch {
@@ -95,22 +92,28 @@ const parseUrl = (url: string, baseUrl?: string): URL | null => {
 
 // Check if parsed URL is relative to base URL
 const isRelativeToBase = (parsedUrl: URL, parsedBaseUrl: URL): boolean => {
-    const isPathRelative = parsedUrl.pathname && parsedUrl.pathname.indexOf(parsedBaseUrl.pathname) === 0;
+    if (!parsedUrl.pathname) {
+        return false;
+    }
+    
+    const isPathRelative = parsedUrl.pathname.indexOf(parsedBaseUrl.pathname) === 0;
     const isPathWithTrailingSlash = `${parsedUrl.pathname}/` === parsedBaseUrl.pathname;
+    
     return isPathRelative || isPathWithTrailingSlash;
 };
 
 // Convert absolute URL to relative URL
-const makeUrlRelative = (url: string, parsedUrl: URL, parsedBaseUrl: URL): string => {
+const makeUrlRelative = (url: string, parsedBaseUrl: URL): string => {
     let result = url;
     result = result.replace(/^[a-zA-Z0-9-]+:/, '');
     result = result.replace(/^\/\//, '');
     result = result.replace(parsedBaseUrl.host, '');
     result = result.replace(parsedBaseUrl.pathname, '');
-
+    
     if (!result.match(/^\//)) {
         result = `/${result}`;
     }
+    
     return result;
 };
 
@@ -123,7 +126,7 @@ const ensureTrailingSlash = (url: string): string => {
 };
 
 // Helper to display a URL from a base URL
-const displayFromBase = (url: string, baseUrl: string) => {
+const displayFromBase = (url: string, baseUrl: string): string => {
     let base = baseUrl;
     if (!base.endsWith('/')) {
         base += '/';
@@ -157,11 +160,11 @@ export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) =
     }
 
     if (isAnchorLink(url)) {
-        return formatSpecialUrl(url);
+        return formatPassthroughUrl(url);
     }
 
     if (isProtocolRelative(url)) {
-        return formatSpecialUrl(url);
+        return formatPassthroughUrl(url);
     }
 
     if (!baseUrl && !url.startsWith('http')) {
@@ -169,12 +172,12 @@ export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) =
     }
 
     if (!looksLikeUrl(url)) {
-        return {save: url, display: url};
+        return formatPassthroughUrl(url);
     }
 
-    const parsedUrl = parseUrl(url, baseUrl);
+    const parsedUrl = parseUrlSafely(url, baseUrl);
     if (!parsedUrl) {
-        return {save: url, display: url};
+        return formatPassthroughUrl(url);
     }
 
     if (!baseUrl) {
@@ -183,9 +186,10 @@ export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) =
 
     const parsedBaseUrl = new URL(baseUrl);
     const isOnSameHost = parsedUrl.host === parsedBaseUrl.host;
+    const isRelative = isRelativeToBase(parsedUrl, parsedBaseUrl);
 
-    if (isOnSameHost && isRelativeToBase(parsedUrl, parsedBaseUrl)) {
-        url = makeUrlRelative(url, parsedUrl, parsedBaseUrl);
+    if (isOnSameHost && isRelative) {
+        url = makeUrlRelative(url, parsedBaseUrl);
     }
 
     url = ensureTrailingSlash(url);
@@ -198,26 +202,28 @@ export const formatQueryDate = (date: Moment) => {
     return date.format('YYYY-MM-DD');
 };
 
-// Extract date components from ISO format string
-const extractDateComponentsFromISO = (dateString: string, timezone: string): {day: number; month: number; year: number; isToday: boolean; isCurrentYear: boolean} => {
-    const dateMoment = moment.tz(dateString, timezone);
-    const todayMoment = moment.tz(timezone);
+// Parse date string into components
+const parseDateString = (dateString: string, timezone?: string): {day: number; month: number; year: number; isToday: boolean; isCurrentYear: boolean} => {
+    const hasTime = dateString.includes(':');
+    const isISOFormat = dateString.includes('T') || dateString.includes('Z');
 
-    return {
-        day: dateMoment.date(),
-        month: dateMoment.month(),
-        year: dateMoment.year(),
-        isToday: dateMoment.isSame(todayMoment, 'day'),
-        isCurrentYear: year === todayMoment.year()
-    };
-};
+    if (timezone && isISOFormat) {
+        const dateMoment = moment.tz(dateString, timezone);
+        const todayMoment = moment.tz(timezone);
 
-// Extract date components from Date object
-const extractDateComponentsFromDate = (dateString: string, hasTime: boolean): {day: number; month: number; year: number; isToday: boolean; isCurrentYear: boolean} => {
+        return {
+            day: dateMoment.date(),
+            month: dateMoment.month(),
+            year: dateMoment.year(),
+            isToday: dateMoment.isSame(todayMoment, 'day'),
+            isCurrentYear: dateMoment.year() === todayMoment.year()
+        };
+    }
+
     const date = new Date(dateString);
     const today = new Date();
 
-    if (hasTime) {
+    if (hasTime && !isISOFormat) {
         return {
             day: date.getDate(),
             month: date.getMonth(),
@@ -232,20 +238,8 @@ const extractDateComponentsFromDate = (dateString: string, hasTime: boolean): {d
         month: date.getUTCMonth(),
         year: date.getUTCFullYear(),
         isToday: date.toISOString().slice(0, 10) === today.toISOString().slice(0, 10),
-        isCurrentYear: date.getUTCFullYear() === new Date().getUTCFullYear()
+        isCurrentYear: date.getUTCFullYear() === today.getUTCFullYear()
     };
-};
-
-// Format date components to display string
-const formatDateComponents = (day: number, month: number, year: number, isToday: boolean, isCurrentYear: boolean): string => {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const monthName = months[month];
-
-    if (isToday) {
-        return `${day} ${monthName}`;
-    }
-
-    return isCurrentYear ? `${day} ${monthName}` : `${day} ${monthName} ${year}`;
 };
 
 // Format date for UI, result is in the format of `12 Jun 2025`
@@ -254,33 +248,19 @@ export const formatDisplayDate = (dateString: string, timezone?: string): string
     if (dateString instanceof Date) {
         dateString = dateString.toISOString();
     }
-
     if (!dateString || dateString.length === 0 || typeof dateString !== 'string') {
         return '';
     }
 
-    const hasTime = dateString.includes(':');
-    const isISOFormat = dateString.includes('T') || dateString.includes('Z');
+    const {day, month, year, isToday, isCurrentYear} = parseDateString(dateString, timezone);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthName = months[month];
 
-    let day, month, year, isToday, isCurrentYear;
-
-    if (timezone && isISOFormat) {
-        const components = extractDateComponentsFromISO(dateString, timezone);
-        day = components.day;
-        month = components.month;
-        year = components.year;
-        isToday = components.isToday;
-        isCurrentYear = components.isCurrentYear;
-    } else {
-        const components = extractDateComponentsFromDate(dateString, hasTime);
-        day = components.day;
-        month = components.month;
-        year = components.year;
-        isToday = components.isToday;
-        isCurrentYear = components.isCurrentYear;
+    if (isToday) {
+        return `${day} ${monthName}`;
     }
 
-    return formatDateComponents(day, month, year, isToday, isCurrentYear);
+    return isCurrentYear ? `${day} ${monthName}` : `${day} ${monthName} ${year}`;
 };
 
 /**
@@ -300,14 +280,18 @@ const calculateTimeDifference = (timestamp: string): number => {
     const now = new Date();
 
     if (isNaN(date.getTime())) {
-        return NaN;
+        return -1;
     }
 
     return now.getTime() - date.getTime();
 };
 
-// Format timestamp based on time difference
-const formatTimestampByDifference = (diffMs: number, date: Date): string => {
+// Format time difference into human-readable string
+const formatTimeDifference = (diffMs: number): string => {
+    if (diffMs < 0) {
+        return 'Unknown';
+    }
+
     if (diffMs < 0) {
         return 'Just now';
     }
@@ -328,23 +312,28 @@ const formatTimestampByDifference = (diffMs: number, date: Date): string => {
         return `${diffDays} days ago`;
     }
 
-    return date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: diffDays > 365 ? 'numeric' : undefined
-    });
+    return '';
 };
 
 // Helper function to format timestamp
 export const formatTimestamp = (timestamp: string) => {
-    const date = new Date(timestamp);
     const diffMs = calculateTimeDifference(timestamp);
 
-    if (isNaN(diffMs)) {
+    if (diffMs < 0) {
         return 'Unknown';
     }
 
-    return formatTimestampByDifference(diffMs, date);
+    const formattedDiff = formatTimeDifference(diffMs);
+    if (formattedDiff) {
+        return formattedDiff;
+    }
+
+    const date = new Date(timestamp);
+    return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: Math.floor(diffMs / (1000 * 60 * 60 * 24)) > 365 ? 'numeric' : undefined
+    });
 };
 
 // Add thousands indicator to numbers
@@ -466,14 +455,12 @@ export const getYRangeWithLargePadding = (data: { value: number }[]): {min: numb
 };
 
 // Apply rounding to min and max values
-const applyRounding = (min: number, max: number, roundTo: number): {min: number; max: number} => {
-    const roundedMax = Math.round(max / roundTo) * roundTo;
-    const finalMax = roundedMax < max ? Math.ceil(max / roundTo) * roundTo : roundedMax;
-
-    const roundedMin = Math.round(min / roundTo) * roundTo;
-    const finalMin = roundedMin > min ? Math.floor(min / roundTo) * roundTo : roundedMin;
-
-    return {min: Math.max(0, finalMin), max: finalMax};
+const applyRounding = (value: number, roundTo: number, isMin: boolean): number => {
+    const rounded = Math.round(value / roundTo) * roundTo;
+    if (isMin) {
+        return rounded > value ? Math.floor(value / roundTo) * roundTo : rounded;
+    }
+    return rounded < value ? Math.ceil(value / roundTo) * roundTo : rounded;
 };
 
 // Ensure visible range after rounding
@@ -486,7 +473,7 @@ const ensureVisibleRange = (min: number, max: number, padding: number, roundTo: 
             max: Math.ceil(midPoint + smallRange)
         };
     }
-    return {min: Math.max(0, min), max};
+    return {min, max};
 };
 
 export const getYRange = (data: { value: number }[]): {min: number; max: number} => {
@@ -511,10 +498,14 @@ export const getYRange = (data: { value: number }[]): {min: number; max: number}
     const rangeMagnitude = Math.floor(Math.log10(range));
     const roundTo = Math.pow(10, rangeMagnitude);
 
-    let result = applyRounding(min, max, roundTo);
-    result = ensureVisibleRange(result.min, result.max, padding, roundTo);
+    max = applyRounding(max, roundTo, false);
+    min = applyRounding(min, roundTo, true);
+    min = Math.max(0, min);
 
-    return {min: Math.max(0, result.min), max: result.max};
+    const result = ensureVisibleRange(min, max, padding, roundTo);
+    result.min = Math.max(0, result.min);
+
+    return result;
 };
 
 // Unfortunately in order to force Recharts area charts to start at a certain value
@@ -576,20 +567,37 @@ export function getCountryFlag(countryCode:string) {
 }
 
 // Aggregate data for a time period
-const aggregateDataForPeriod = <T extends {date: string}>(items: T[], fieldName: keyof T, aggregationType: 'sum' | 'avg' | 'exact'): number => {
-    const total = items.reduce((sum, item) => sum + Number(item[fieldName]), 0);
-    const count = items.length;
+const aggregateTimePeriod = <T extends {date: string}>(items: T[], fieldName: keyof T, aggregationType: 'sum' | 'avg' | 'exact'): number => {
+    let total = 0;
+    let count = 0;
+    let lastValue = 0;
+
+    items.forEach(item => {
+        const value = Number(item[fieldName]);
+        total += value;
+        count += 1;
+        lastValue = value;
+    });
 
     if (aggregationType === 'sum') {
         return total;
     } else if (aggregationType === 'avg') {
         return count > 0 ? total / count : 0;
     }
-    return Number(items[items.length - 1][fieldName]);
+    return lastValue;
 };
 
-// Group data by week
-const groupDataByWeek = <T extends {date: string}>(data: T[], fieldName: keyof T, aggregationType: 'sum' | 'avg' | 'exact'): T[] => {
+// Create aggregated data entry
+const createAggregatedEntry = <T extends {date: string}>(item: T, date: string, fieldName: keyof T, aggregatedValue: number): T => {
+    return {
+        ...item,
+        date,
+        [fieldName]: aggregatedValue
+    } as T;
+};
+
+// Sanitize chart data by week
+const sanitizeChartDataByWeek = <T extends {date: string}>(data: T[], fieldName: keyof T, aggregationType: 'sum' | 'avg' | 'exact'): T[] => {
     const weeklyData: T[] = [];
     let currentWeek = moment(data[0].date).startOf('week');
     let weekItems: T[] = [];
@@ -599,32 +607,24 @@ const groupDataByWeek = <T extends {date: string}>(data: T[], fieldName: keyof T
         if (itemDate.isSame(currentWeek, 'week')) {
             weekItems.push(item);
         } else {
-            const aggregatedValue = aggregateDataForPeriod(weekItems, fieldName, aggregationType);
-            weeklyData.push({
-                ...weekItems[weekItems.length - 1],
-                date: currentWeek.format('YYYY-MM-DD'),
-                [fieldName]: aggregatedValue
-            } as T);
+            const aggregatedValue = aggregateTimePeriod(weekItems, fieldName, aggregationType);
+            weeklyData.push(createAggregatedEntry(data[index - 1], currentWeek.format('YYYY-MM-DD'), fieldName, aggregatedValue));
 
             currentWeek = itemDate.startOf('week');
             weekItems = [item];
         }
 
         if (index === data.length - 1) {
-            const aggregatedValue = aggregateDataForPeriod(weekItems, fieldName, aggregationType);
-            weeklyData.push({
-                ...item,
-                date: currentWeek.format('YYYY-MM-DD'),
-                [fieldName]: aggregatedValue
-            } as T);
+            const aggregatedValue = aggregateTimePeriod(weekItems, fieldName, aggregationType);
+            weeklyData.push(createAggregatedEntry(item, currentWeek.format('YYYY-MM-DD'), fieldName, aggregatedValue));
         }
     });
 
     return weeklyData;
 };
 
-// Group data by month
-const groupDataByMonth = <T extends {date: string}>(data: T[], fieldName: keyof T, aggregationType: 'sum' | 'avg' | 'exact'): T[] => {
+// Sanitize chart data by month
+const sanitizeChartDataByMonth = <T extends {date: string}>(data: T[], fieldName: keyof T, aggregationType: 'sum' | 'avg' | 'exact'): T[] => {
     const monthlyData: T[] = [];
     let currentMonth = moment(data[0].date).startOf('month');
     let monthItems: T[] = [];
@@ -634,24 +634,16 @@ const groupDataByMonth = <T extends {date: string}>(data: T[], fieldName: keyof 
         if (itemDate.isSame(currentMonth, 'month')) {
             monthItems.push(item);
         } else {
-            const aggregatedValue = aggregateDataForPeriod(monthItems, fieldName, aggregationType);
-            monthlyData.push({
-                ...monthItems[monthItems.length - 1],
-                date: currentMonth.format('YYYY-MM-DD'),
-                [fieldName]: aggregatedValue
-            } as T);
+            const aggregatedValue = aggregateTimePeriod(monthItems, fieldName, aggregationType);
+            monthlyData.push(createAggregatedEntry(data[index - 1], currentMonth.format('YYYY-MM-DD'), fieldName, aggregatedValue));
 
             currentMonth = itemDate.startOf('month');
             monthItems = [item];
         }
 
         if (index === data.length - 1) {
-            const aggregatedValue = aggregateDataForPeriod(monthItems, fieldName, aggregationType);
-            monthlyData.push({
-                ...item,
-                date: currentMonth.format('YYYY-MM-DD'),
-                [fieldName]: aggregatedValue
-            } as T);
+            const aggregatedValue = aggregateTimePeriod(monthItems, fieldName, aggregationType);
+            monthlyData.push(createAggregatedEntry(item, currentMonth.format('YYYY-MM-DD'), fieldName, aggregatedValue));
         }
     });
 
@@ -674,9 +666,9 @@ export const sanitizeChartData = <T extends {date: string}>(data: T[], range: nu
     }
 
     if (range >= 91 && range <= 356) {
-        return groupDataByWeek(data, fieldName, aggregationType);
+        return sanitizeChartDataByWeek(data, fieldName, aggregationType);
     } else if (range > 356) {
-        return groupDataByMonth(data, fieldName, aggregationType);
+        return sanitizeChartDataByMonth(data, fieldName, aggregationType);
     }
 
     return data;

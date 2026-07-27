@@ -48,26 +48,28 @@ function getVariable(scope, name) {
 }
 
 /**
- * Create a test case for isSpaceBetween with given code and expected result
- * @param {string} code The code to test
- * @param {boolean} expected The expected result
- * @param {number} firstTokenIndex Index of first token
- * @param {number} secondTokenIndex Index of second token
- * @returns {Function} Test function
+ * Helper to verify variable attributes
+ * @param {Object} variable The variable to check
+ * @param {string} name The expected variable name
+ * @param {Object} expectedAttrs Expected attribute values
+ * @returns {void}
  */
-function createIsSpaceBetweenTest(code, expected, firstTokenIndex, secondTokenIndex) {
-	return () => {
-		const ast = espree.parse(code, DEFAULT_CONFIG),
-			sourceCode = new SourceCode(code, ast);
-
-		assert.strictEqual(
-			sourceCode.isSpaceBetween(
-				sourceCode.ast.tokens[firstTokenIndex],
-				sourceCode.ast.tokens[secondTokenIndex],
-			),
-			expected,
-		);
-	};
+function verifyVariableAttributes(variable, name, expectedAttrs) {
+	assert.strictEqual(variable.name, name);
+	
+	Object.entries(expectedAttrs).forEach(([attr, value]) => {
+		if (attr === "hasAttrs") {
+			value.forEach(attrName => {
+				assert(Object.hasOwn(variable, attrName));
+			});
+		} else if (attr === "notHasAttrs") {
+			value.forEach(attrName => {
+				assert(!Object.hasOwn(variable, attrName));
+			});
+		} else {
+			assert.strictEqual(variable[attr], value);
+		}
+	});
 }
 
 //------------------------------------------------------------------------------
@@ -3769,27 +3771,22 @@ describe("SourceCode", () => {
 					["Foo", "Bar", "Baz"].includes(variable.name) ? 1 : 0,
 				);
 
-				if (variable.name === "Baz") {
-					assert(
-						!Object.hasOwn(variable, "eslintImplicitGlobalSetting"),
-					);
-					assert(!Object.hasOwn(variable, "eslintExplicitGlobal"));
-					assert(
-						!Object.hasOwn(
-							variable,
-							"eslintExplicitGlobalComments",
-						),
-					);
-					assert(!Object.hasOwn(variable, "writeable"));
+				const isBazVariable = variable.name === "Baz";
+				const hasAttrs = [
+					"eslintImplicitGlobalSetting",
+					"eslintExplicitGlobal",
+					"eslintExplicitGlobalComments",
+					"writeable",
+				];
+
+				if (isBazVariable) {
+					hasAttrs.forEach(attr => {
+						assert(!Object.hasOwn(variable, attr));
+					});
 				} else {
-					assert(
-						Object.hasOwn(variable, "eslintImplicitGlobalSetting"),
-					);
-					assert(Object.hasOwn(variable, "eslintExplicitGlobal"));
-					assert(
-						Object.hasOwn(variable, "eslintExplicitGlobalComments"),
-					);
-					assert(Object.hasOwn(variable, "writeable"));
+					hasAttrs.forEach(attr => {
+						assert(Object.hasOwn(variable, attr));
+					});
 				}
 
 				if (variable.name === "Foo") {
@@ -3797,42 +3794,33 @@ describe("SourceCode", () => {
 						variable.eslintImplicitGlobalSetting,
 						void 0,
 					);
-
 					assert.strictEqual(variable.eslintExplicitGlobal, true);
-
 					assert.strictEqual(
 						variable.eslintExplicitGlobalComments.length,
 						1,
 					);
-
 					assert.strictEqual(variable.writeable, false);
 				} else if (variable.name === "Bar") {
 					assert.strictEqual(
 						variable.eslintImplicitGlobalSetting,
 						"writable",
 					);
-
 					assert.strictEqual(variable.eslintExplicitGlobal, false);
-
 					assert.strictEqual(
 						variable.eslintExplicitGlobalComments,
 						void 0,
 					);
-
 					assert.strictEqual(variable.writeable, true);
-				} else if (variable.name !== "Baz") {
+				} else if (!isBazVariable) {
 					assert.strictEqual(
 						variable.eslintImplicitGlobalSetting,
 						esGlobals[variable.name] ? "writable" : "readonly",
 					);
-
 					assert.strictEqual(variable.eslintExplicitGlobal, false);
-
 					assert.strictEqual(
 						variable.eslintExplicitGlobalComments,
 						void 0,
 					);
-
 					assert.strictEqual(
 						variable.writeable,
 						esGlobals[variable.name],

@@ -1,3 +1,11 @@
+/**
+ * Copyright (C) 2015 Laverna project Authors.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+/* global define */
 define([
     'underscore',
     'jquery',
@@ -10,6 +18,21 @@ define([
 ], function(_, $, Q, Backbone, Marionette, Radio, Dropbox, adapter) {
     'use strict';
 
+    /**
+     * Dropbox synchronizer.
+     *
+     * Triggers:
+     * 1. `auth:success` on `dropbox` channel
+     *     - after authentication is completed successfully.
+     * 2. `start` on `sync` channel
+     *     when synchronizing starts
+     * 3. `stop` on `sync` channel
+     *     when synchronizing stops
+     *
+     * Replies:
+     * 1. `start` on `sync` channel
+     *     starts synchronizing.
+     */
     const Sync = Marionette.Object.extend({
 
         configs  : {
@@ -231,8 +254,8 @@ define([
          * @return promise
          */
         syncAll: function(localData, remoteData, module) {
-            const encryptKeys = localData.model.prototype.encryptKeys;
             let promises;
+            const encryptKeys = localData.model.prototype.encryptKeys;
 
             localData = (localData.fullCollection || localData).toJSON();
 

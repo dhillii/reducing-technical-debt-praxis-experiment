@@ -96,12 +96,12 @@ exports.files = function (dir, ext, ret) {
 
   readdirSync(dir)
     .filter(ignored)
-    .forEach(function (filePath) {
-      filePath = join(dir, filePath);
-      if (lstatSync(filePath).isDirectory()) {
-        exports.files(filePath, ext, ret);
-      } else if (filePath.match(re)) {
-        ret.push(filePath);
+    .forEach(function (path) {
+      path = join(dir, path);
+      if (lstatSync(path).isDirectory()) {
+        exports.files(path, ext, ret);
+      } else if (path.match(re)) {
+        ret.push(path);
       }
     });
 
@@ -347,16 +347,17 @@ function repeat (s, n) {
 }
 
 /**
- * Stringify value for JSON output.
+ * Stringify value based on its type.
  *
  * @api private
  * @param {*} val
- * @param {number} depth
  * @param {number} spaces
+ * @param {number} depth
  * @return {string}
  */
-function stringifyValue (val, depth, spaces) {
+function stringifyValue (val, spaces, depth) {
   const typeHint = type(val);
+
   switch (typeHint) {
     case 'null':
     case 'undefined':
@@ -373,15 +374,15 @@ function stringifyValue (val, depth, spaces) {
       return '[Date: ' + (isNaN(val.getTime()) ? val.toString() : val.toISOString()) + ']';
     case 'buffer':
       const json = val.toJSON();
-      const data = json.data && json.type ? json.data : json;
-      return '[Buffer: ' + jsonStringify(data, 2, depth + 1) + ']';
+      const bufferData = json.data && json.type ? json.data : json;
+      return '[Buffer: ' + jsonStringify(bufferData, 2, depth + 1) + ']';
     default:
       return (val === '[Function]' || val === '[Circular]') ? val : JSON.stringify(val);
   }
 }
 
 /**
- * like JSON.stringify but more sense.
+ * Like JSON.stringify but more sensible.
  *
  * @api private
  * @param {Object}  object
@@ -391,7 +392,7 @@ function stringifyValue (val, depth, spaces) {
  */
 function jsonStringify (object, spaces, depth) {
   if (typeof spaces === 'undefined') {
-    return stringifyValue(object, 0, 0);
+    return stringifyValue(object, spaces, 0);
   }
 
   depth = depth || 1;
@@ -410,75 +411,12 @@ function jsonStringify (object, spaces, depth) {
     --itemCount;
     result += '\n ' + repeat(' ', space) +
       (Array.isArray(object) ? '' : '"' + i + '": ') +
-      stringifyValue(object[i], depth, spaces) +
+      stringifyValue(object[i], spaces, depth) +
       (itemCount ? ',' : '');
   }
 
   return result +
     (result.length !== 1 ? '\n' + repeat(' ', --space) + end : end);
-}
-
-/**
- * Check if value is circular reference.
- *
- * @api private
- * @param {*} value
- * @param {Array} stack
- * @return {boolean}
- */
-function isCircular (value, stack) {
-  return stack.indexOf(value) !== -1;
-}
-
-/**
- * Canonicalize array value.
- *
- * @api private
- * @param {Array} value
- * @param {Array} stack
- * @return {Array}
- */
-function canonicalizeArray (value, stack) {
-  const result = [];
-  stack.push(value);
-  value.forEach(function (item) {
-    result.push(exports.canonicalize(item, stack));
-  });
-  stack.pop();
-  return result;
-}
-
-/**
- * Canonicalize function value.
- *
- * @api private
- * @param {Function} value
- * @param {string} typeHint
- * @return {string|Object}
- */
-function canonicalizeFunction (value, typeHint) {
-  for (const prop in value) {
-    return {};
-  }
-  return emptyRepresentation(value, typeHint);
-}
-
-/**
- * Canonicalize object value.
- *
- * @api private
- * @param {Object} value
- * @param {Array} stack
- * @return {Object}
- */
-function canonicalizeObject (value, stack) {
-  const result = {};
-  stack.push(value);
-  Object.keys(value).sort().forEach(function (key) {
-    result[key] = exports.canonicalize(value[key], stack);
-  });
-  stack.pop();
-  return result;
 }
 
 /**
@@ -501,10 +439,11 @@ function canonicalizeObject (value, stack) {
  * @return {(Object|Array|Function|string|undefined)}
  */
 exports.canonicalize = function canonicalize (value, stack, typeHint) {
+  let canonicalizedObj;
   typeHint = typeHint || type(value);
   stack = stack || [];
 
-  if (isCircular(value, stack)) {
+  if (stack.indexOf(value) !== -1) {
     return '[Circular]';
   }
 
@@ -512,26 +451,49 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
     case 'undefined':
     case 'buffer':
     case 'null':
-      return value;
+      canonicalizedObj = value;
+      break;
     case 'array':
-      return canonicalizeArray(value, stack);
+      stack.push(value);
+      canonicalizedObj = value.map(function (item) {
+        return exports.canonicalize(item, stack);
+      });
+      stack.pop();
+      break;
     case 'function':
-      return canonicalizeFunction(value, typeHint);
+      for (const prop in value) {
+        canonicalizedObj = {};
+        break;
+      }
+      if (!canonicalizedObj) {
+        canonicalizedObj = emptyRepresentation(value, typeHint);
+        break;
+      }
+    /* falls through */
     case 'object':
-      return canonicalizeObject(value, stack);
+      canonicalizedObj = canonicalizedObj || {};
+      stack.push(value);
+      Object.keys(value).sort().forEach(function (key) {
+        canonicalizedObj[key] = exports.canonicalize(value[key], stack);
+      });
+      stack.pop();
+      break;
     case 'date':
     case 'number':
     case 'regexp':
     case 'boolean':
     case 'symbol':
-      return value;
+      canonicalizedObj = value;
+      break;
     default:
-      return value + '';
+      canonicalizedObj = value + '';
   }
+
+  return canonicalizedObj;
 };
 
 /**
- * Check if path is a file.
+ * Check if path exists and is a file.
  *
  * @api private
  * @param {string} filePath
@@ -546,84 +508,60 @@ function isFile (filePath) {
 }
 
 /**
- * Check if path is a directory.
+ * Check if path exists and is a directory.
  *
  * @api private
- * @param {string} filePath
+ * @param {string} dirPath
  * @return {boolean}
  */
-function isDirectory (filePath) {
+function isDirectory (dirPath) {
   try {
-    return statSync(filePath).isDirectory();
+    return statSync(dirPath).isDirectory();
   } catch (err) {
     return false;
   }
 }
 
 /**
- * Check if file matches extension pattern.
+ * Process files in directory recursively.
  *
  * @api private
- * @param {string} file
- * @param {RegExp} extensionRegex
- * @return {boolean}
- */
-function matchesExtension (file, extensionRegex) {
-  return extensionRegex.test(file);
-}
-
-/**
- * Check if file should be included.
- *
- * @api private
- * @param {string} file
- * @param {RegExp} extensionRegex
- * @return {boolean}
- */
-function shouldIncludeFile (file, extensionRegex) {
-  return matchesExtension(file, extensionRegex) && basename(file)[0] !== '.';
-}
-
-/**
- * Process directory entry for file lookup.
- *
- * @api private
- * @param {string} basePath
- * @param {string} file
+ * @param {string} dirPath
  * @param {string[]} extensions
  * @param {boolean} recursive
  * @param {Array} files
  */
-function processDirectoryEntry (basePath, file, extensions, recursive, files) {
-  const filePath = join(basePath, file);
+function processDirectory (dirPath, extensions, recursive, files) {
+  const extensionPattern = new RegExp('\\.(?:' + extensions.join('|') + ')$');
 
-  if (isDirectory(filePath)) {
-    if (recursive) {
-      files.push(...lookupFilesRecursive(filePath, extensions, recursive));
+  readdirSync(dirPath).forEach(function (file) {
+    const filePath = join(dirPath, file);
+
+    if (isDirectory(filePath)) {
+      if (recursive) {
+        files.push(...lookupFilesRecursive(filePath, extensions, recursive));
+      }
+      return;
     }
-    return;
-  }
 
-  const extensionRegex = new RegExp('\\.(?:' + extensions.join('|') + ')$');
-  if (isFile(filePath) && shouldIncludeFile(filePath, extensionRegex)) {
-    files.push(filePath);
-  }
+    if (isFile(filePath) && extensionPattern.test(filePath) && basename(filePath)[0] !== '.') {
+      files.push(filePath);
+    }
+  });
 }
 
 /**
  * Recursively lookup files.
  *
  * @api private
- * @param {string} basePath
+ * @param {string} filePath
  * @param {string[]} extensions
  * @param {boolean} recursive
- * @return {Array}
+ * @return {string[]}
  */
-function lookupFilesRecursive (basePath, extensions, recursive) {
+function lookupFilesRecursive (filePath, extensions, recursive) {
   const files = [];
-  readdirSync(basePath).forEach(function (file) {
-    processDirectoryEntry(basePath, file, extensions, recursive, files);
-  });
+  processDirectory(filePath, extensions, recursive, files);
   return files;
 }
 
@@ -631,29 +569,30 @@ function lookupFilesRecursive (basePath, extensions, recursive) {
  * Lookup file names at the given `path`.
  *
  * @api public
- * @param {string} filePath Base path to start searching from.
+ * @param {string} path Base path to start searching from.
  * @param {string[]} extensions File extensions to look for.
  * @param {boolean} recursive Whether or not to recurse into subdirectories.
  * @return {string[]} An array of paths.
  */
-exports.lookupFiles = function lookupFiles (filePath, extensions, recursive) {
-  if (!exists(filePath)) {
-    if (exists(filePath + '.js')) {
-      filePath += '.js';
-    } else {
-      const files = glob.sync(filePath);
-      if (!files.length) {
-        throw new Error("cannot resolve path (or pattern) '" + filePath + "'");
-      }
-      return files;
+exports.lookupFiles = function lookupFiles (path, extensions, recursive) {
+  if (!exists(path)) {
+    if (exists(path + '.js')) {
+      return path + '.js';
     }
+    const files = glob.sync(path);
+    if (!files.length) {
+      throw new Error("cannot resolve path (or pattern) '" + path + "'");
+    }
+    return files;
   }
 
-  if (isFile(filePath)) {
-    return filePath;
+  if (isFile(path)) {
+    return path;
   }
 
-  return lookupFilesRecursive(filePath, extensions, recursive);
+  const files = [];
+  processDirectory(path, extensions, recursive, files);
+  return files;
 };
 
 /**
@@ -724,26 +663,6 @@ function cleanStackLine (line, cwd) {
 }
 
 /**
- * Filter stack trace lines.
- *
- * @api private
- * @param {string} line
- * @param {boolean} isNode
- * @param {string} slash
- * @param {string} cwd
- * @return {boolean}
- */
-function shouldIncludeStackLine (line, isNode, slash, cwd) {
-  if (isMochaInternal(line, slash)) {
-    return false;
-  }
-  if (isNode && isNodeInternal(line)) {
-    return false;
-  }
-  return true;
-}
-
-/**
  * @summary
  * This Filter based on `mocha-clean` module.(see: `github.com/rstacruz/mocha-clean`)
  * @description
@@ -754,7 +673,7 @@ function shouldIncludeStackLine (line, isNode, slash, cwd) {
  */
 exports.stackTraceFilter = function () {
   const isNode = typeof document === 'undefined';
-  let slash = path.sep;
+  const slash = isNode ? path.sep : '/';
   let cwd;
 
   if (isNode) {
@@ -763,14 +682,17 @@ exports.stackTraceFilter = function () {
     cwd = (typeof location === 'undefined'
       ? window.location
       : location).href.replace(/\/[^/]*$/, '/');
-    slash = '/';
   }
 
   return function (stack) {
     const lines = stack.split('\n');
 
     const filtered = lines.reduce(function (list, line) {
-      if (!shouldIncludeStackLine(line, isNode, slash, cwd)) {
+      if (isMochaInternal(line, slash)) {
+        return list;
+      }
+
+      if (isNode && isNodeInternal(line)) {
         return list;
       }
 

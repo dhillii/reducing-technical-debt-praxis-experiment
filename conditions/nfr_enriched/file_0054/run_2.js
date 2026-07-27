@@ -243,10 +243,6 @@
     // When called, sets the async flag and returns a function that can
     // be used to continue processing the queue.
     context.async = this._createAsyncHandler(complete);
-    context.async = function() {
-      async = true;
-      return this._createAsyncHandler(complete)();
-    }.bind(this);
 
     // Expose some information about the currently-running task.
     this.current = context;

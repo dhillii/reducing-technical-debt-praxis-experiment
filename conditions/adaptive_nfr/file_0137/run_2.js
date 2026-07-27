@@ -32,18 +32,27 @@ const generateFileName = name => {
   return `${baseName}_${randomSuffix()}`;
 };
 
-/** @description Send telemetry metrics for media with caption or alternative text */
+/**
+ * Sends telemetry metrics for media with caption or alternative text
+ * @param {Object} data - Media data object
+ */
 const sendMediaMetrics = data => {
-  if (_.has(data, 'caption') && !_.isEmpty(data.caption)) {
-    strapi.telemetry.send('didSaveMediaWithCaption');
-  }
+  const metricChecks = [
+    { field: 'caption', event: 'didSaveMediaWithCaption' },
+    { field: 'alternativeText', event: 'didSaveMediaWithAlternativeText' },
+  ];
 
-  if (_.has(data, 'alternativeText') && !_.isEmpty(data.alternativeText)) {
-    strapi.telemetry.send('didSaveMediaWithAlternativeText');
-  }
+  metricChecks.forEach(({ field, event }) => {
+    if (_.has(data, field) && !_.isEmpty(data[field])) {
+      strapi.telemetry.send(event);
+    }
+  });
 };
 
-/** @description Transform mime_ncontains array filter into _where clause */
+/**
+ * Processes mime_ncontains filter to use AND logic instead of OR
+ * @param {Object} params - Query parameters
+ */
 const combineFilters = params => {
   if (_.has(params, 'mime_ncontains') && Array.isArray(params.mime_ncontains)) {
     params._where = params.mime_ncontains.map(val => ({ mime_ncontains: val }));
@@ -51,7 +60,11 @@ const combineFilters = params => {
   }
 };
 
-/** @description Delete file and its formats from provider */
+/**
+ * Deletes file from provider if provider matches config
+ * @param {Object} file - File object with provider and formats
+ * @param {Object} config - Upload config with provider setting
+ */
 const deleteFileFromProvider = async (file, config) => {
   if (file.provider === config.provider) {
     await strapi.plugins.upload.provider.delete(file);
@@ -66,19 +79,11 @@ const deleteFileFromProvider = async (file, config) => {
   }
 };
 
-/** @description Upload thumbnail if generated */
-const uploadThumbnailIfExists = async (fileData, generateThumbnail) => {
-  const thumbnailFile = await generateThumbnail(fileData);
-  if (thumbnailFile) {
-    await strapi.plugins.upload.provider.upload(thumbnailFile);
-    delete thumbnailFile.buffer;
-    _.set(fileData, 'formats.thumbnail', thumbnailFile);
-  }
-};
-
-/** @description Upload responsive formats if generated */
-const uploadResponsiveFormats = async (fileData, generateResponsiveFormats) => {
-  const formats = await generateResponsiveFormats(fileData);
+/**
+ * Processes and uploads generated formats
+ * @param {Array} formats - Array of format objects with key and file
+ */
+const uploadFormats = async (formats) => {
   if (Array.isArray(formats) && formats.length > 0) {
     for (const format of formats) {
       if (!format) continue;
@@ -88,36 +93,33 @@ const uploadResponsiveFormats = async (fileData, generateResponsiveFormats) => {
       await strapi.plugins.upload.provider.upload(file);
       delete file.buffer;
 
-      _.set(fileData, ['formats', key], file);
+      _.set(file, ['formats', key], file);
     }
   }
 };
 
-/** @description Finalize file data with dimensions and provider info */
-const finalizeFileData = async (fileData, config, getDimensions) => {
-  const { width, height } = await getDimensions(fileData.buffer);
-  delete fileData.buffer;
-
-  _.assign(fileData, {
-    provider: config.provider,
-    width,
-    height,
-  });
+/**
+ * Handles thumbnail generation and upload
+ * @param {Object} fileData - File data object
+ * @param {Function} generateThumbnail - Thumbnail generation function
+ */
+const processThumbnail = async (fileData, generateThumbnail) => {
+  const thumbnailFile = await generateThumbnail(fileData);
+  if (thumbnailFile) {
+    await strapi.plugins.upload.provider.upload(thumbnailFile);
+    delete thumbnailFile.buffer;
+    _.set(fileData, 'formats.thumbnail', thumbnailFile);
+  }
 };
 
-/** @description Emit media event to event hub */
+/**
+ * Emits media event and returns result
+ * @param {string} eventType - Type of event (MEDIA_CREATE, MEDIA_UPDATE, MEDIA_DELETE)
+ * @param {Object} media - Media object
+ */
 const emitMediaEvent = (eventType, media) => {
-  strapi.eventHub.emit(eventType, { media });
-};
-
-/** @description Set user audit attributes on file values */
-const setUserAuditAttributes = (fileValues, user, includeCreated = false) => {
-  if (user) {
-    fileValues[UPDATED_BY_ATTRIBUTE] = user.id;
-    if (includeCreated) {
-      fileValues[CREATED_BY_ATTRIBUTE] = user.id;
-    }
-  }
+  const modelDef = strapi.getModel('file', 'upload');
+  strapi.eventHub.emit(eventType, { media: sanitizeEntity(media, { model: modelDef }) });
 };
 
 module.exports = {
@@ -223,10 +225,31 @@ module.exports = {
 
     await strapi.plugins.upload.provider.upload(fileData);
 
-    await uploadThumbnailIfExists(fileData, generateThumbnail);
-    await uploadResponsiveFormats(fileData, generateResponsiveFormats);
+    await processThumbnail(fileData, generateThumbnail);
 
-    await finalizeFileData(fileData, config, getDimensions);
+    const formats = await generateResponsiveFormats(fileData);
+    if (Array.isArray(formats) && formats.length > 0) {
+      for (const format of formats) {
+        if (!format) continue;
+
+        const { key, file } = format;
+
+        await strapi.plugins.upload.provider.upload(file);
+        delete file.buffer;
+
+        _.set(fileData, ['formats', key], file);
+      }
+    }
+
+    const { width, height } = await getDimensions(fileData.buffer);
+
+    delete fileData.buffer;
+
+    _.assign(fileData, {
+      provider: config.provider,
+      width,
+      height,
+    });
 
     return this.add(fileData, { user });
   },
@@ -276,33 +299,56 @@ module.exports = {
 
     _.set(fileData, 'formats', {});
 
-    await uploadThumbnailIfExists(fileData, generateThumbnail);
-    await uploadResponsiveFormats(fileData, generateResponsiveFormats);
+    await processThumbnail(fileData, generateThumbnail);
 
-    await finalizeFileData(fileData, config, getDimensions);
+    const formats = await generateResponsiveFormats(fileData);
+    if (Array.isArray(formats) && formats.length > 0) {
+      for (const format of formats) {
+        if (!format) continue;
+
+        const { key, file } = format;
+
+        await strapi.plugins.upload.provider.upload(file);
+        delete file.buffer;
+
+        _.set(fileData, ['formats', key], file);
+      }
+    }
+
+    const { width, height } = await getDimensions(fileData.buffer);
+    delete fileData.buffer;
+
+    _.assign(fileData, {
+      provider: config.provider,
+      width,
+      height,
+    });
 
     return this.update({ id }, fileData, { user });
   },
 
   async update(params, values, { user } = {}) {
     const fileValues = { ...values };
-    setUserAuditAttributes(fileValues, user);
+    if (user) {
+      fileValues[UPDATED_BY_ATTRIBUTE] = user.id;
+    }
     sendMediaMetrics(fileValues);
 
     const res = await strapi.query('file', 'upload').update(params, fileValues);
-    const modelDef = strapi.getModel('file', 'upload');
-    emitMediaEvent(MEDIA_UPDATE, sanitizeEntity(res, { model: modelDef }));
+    emitMediaEvent(MEDIA_UPDATE, res);
     return res;
   },
 
   async add(values, { user } = {}) {
     const fileValues = { ...values };
-    setUserAuditAttributes(fileValues, user, true);
+    if (user) {
+      fileValues[UPDATED_BY_ATTRIBUTE] = user.id;
+      fileValues[CREATED_BY_ATTRIBUTE] = user.id;
+    }
     sendMediaMetrics(fileValues);
 
     const res = await strapi.query('file', 'upload').create(fileValues);
-    const modelDef = strapi.getModel('file', 'upload');
-    emitMediaEvent(MEDIA_CREATE, sanitizeEntity(res, { model: modelDef }));
+    emitMediaEvent(MEDIA_CREATE, res);
     return res;
   },
 
@@ -337,8 +383,7 @@ module.exports = {
       id: file.id,
     });
 
-    const modelDef = strapi.getModel('file', 'upload');
-    emitMediaEvent(MEDIA_DELETE, sanitizeEntity(media, { model: modelDef }));
+    emitMediaEvent(MEDIA_DELETE, media);
 
     return strapi.query('file', 'upload').delete({ id: file.id });
   },
@@ -376,11 +421,15 @@ module.exports = {
   },
 
   setSettings(value) {
-    const telemetryEvent = value.responsiveDimensions === true
-      ? 'didEnableResponsiveDimensions'
-      : 'didDisableResponsiveDimensions';
+    const telemetryEventMap = {
+      true: 'didEnableResponsiveDimensions',
+      false: 'didDisableResponsiveDimensions',
+    };
 
-    strapi.telemetry.send(telemetryEvent);
+    const event = telemetryEventMap[String(value.responsiveDimensions)];
+    if (event) {
+      strapi.telemetry.send(event);
+    }
 
     return strapi
       .store({

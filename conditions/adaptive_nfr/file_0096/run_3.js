@@ -1,3 +1,11 @@
+/**
+ * Copyright (C) 2015 Laverna project Authors.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+/* global define */
 define([
     'underscore',
     'q',
@@ -102,22 +110,13 @@ define([
         },
 
         /**
-         * Determine the appropriate setter method for a model.
-         * @param {object} model - Backbone model
-         * @return {string} setter method name
-         */
-        _getSetterMethod: function(model) {
-            return model.setEscape ? 'setEscape' : 'set';
-        },
-
-        /**
          * Save changes to a model.
          * @type object Backbone model
          * @type object new values
          */
         save: function(model, data) {
             const self   = this;
-            const setF   = this._getSetterMethod(model);
+            const setF   = model.setEscape ? 'setEscape' : 'set';
             const errors = model.validate(data);
 
             if (errors) {
@@ -190,10 +189,11 @@ define([
         saveRaw: function(data, options) {
             const self   = this;
             const model  = new (this.changeDatabase(options)).prototype.model(data);
+            let errors;
 
             return this.decryptModel(model)
             .then(function() {
-                const errors = model.validate(model.attributes);
+                errors = model.validate(model.attributes);
 
                 // Don't save data which can't be validated
                 if (errors) {
@@ -229,15 +229,6 @@ define([
         },
 
         /**
-         * Normalize model identifier to string ID.
-         * @param {object|string} model - Backbone model or ID string
-         * @return {string} model ID
-         */
-        _normalizeModelId: function(model) {
-            return typeof model === 'string' ? model : model.id;
-        },
-
-        /**
          * Remove a model.
          * @type object Backbone model or ID
          * @type object options
@@ -246,37 +237,15 @@ define([
             const self = this;
 
             // Change model's attributes to default values (empty values)
-            const modelId = this._normalizeModelId(model);
-            const removeModel = new (this.changeDatabase(options)).prototype.model({id: modelId});
+            const modelId = typeof model === 'string' ? model : model.id;
+            const removedModel = new (this.changeDatabase(options)).prototype.model({id: modelId});
 
-            removeModel.set({'trash': 2, updated: Date.now()});
+            removedModel.set({'trash': 2, updated: Date.now()});
 
-            return this.save(removeModel, removeModel.attributes)
+            return this.save(removedModel, removedModel.attributes)
             .then(function() {
-                self.vent.trigger('destroy:model', removeModel);
+                self.vent.trigger('destroy:model', removedModel);
             });
-        },
-
-        /**
-         * Check if model should be fetched from database.
-         * @param {object} options - request options
-         * @param {object} model - model instance
-         * @return {boolean} true if fetch is needed
-         */
-        _shouldFetchModel: function(options, model) {
-            return options[model.idAttribute] && options[model.idAttribute] !== '0';
-        },
-
-        /**
-         * Check if model exists in current collection.
-         * @param {object} model - model instance
-         * @param {string} modelId - model ID
-         * @return {boolean} true if model exists in collection
-         */
-        _modelExistsInCollection: function(model, modelId) {
-            return this.collection &&
-                this.collection.profileId === model.profileId &&
-                this.collection.get(modelId);
         },
 
         /**
@@ -287,17 +256,21 @@ define([
             const Model  = (this.changeDatabase(options)).prototype.model;
             const idAttr = Model.prototype.idAttribute;
             const data   = {};
+            let model;
+
             data[idAttr] = options[idAttr];
-            const model        = new Model(data);
+            model        = new Model(data);
 
             // If id was not provided, return a model with default values
-            if (!this._shouldFetchModel(options, model)) {
+            if (!options[idAttr] || options[idAttr] === '0') {
                 model.set(idAttr, undefined);
                 return new Q(model);
             }
 
             // In case if the collection isn't empty, get the model from there.
-            if (this._modelExistsInCollection(model, options[idAttr])) {
+            if (this.collection &&
+                this.collection.profileId === model.profileId &&
+                this.collection.get(options[idAttr])) {
                 return new Q(this.collection.get(options[idAttr]));
             }
 
@@ -317,28 +290,6 @@ define([
         },
 
         /**
-         * Apply filter conditions to options if filter is specified.
-         * @param {object} options - fetch options
-         */
-        _applyFilterConditions: function(options) {
-            if (options.filter) {
-                const cond = this.Collection.prototype.conditions[options.filter];
-                options.conditions = (typeof cond === 'function' ? cond(options) : cond);
-            }
-        },
-
-        /**
-         * Register collection event handlers.
-         * @param {object} collection - Backbone collection
-         */
-        _registerCollectionEvents: function(collection) {
-            if (collection.registerEvents) {
-                collection.registerEvents();
-            }
-            this.listenTo(collection, 'reset:all', this.onReset);
-        },
-
-        /**
          * Fetch data and create a new collection.
          * @type object options
          */
@@ -347,7 +298,12 @@ define([
             this.vent.trigger('destroy:collection');
 
             // Add filter conditions
-            this._applyFilterConditions(options);
+            if (options.filter) {
+                const cond = this.Collection.prototype.conditions[options.filter];
+                options.conditions = (typeof cond === 'function' ? cond(options) : cond);
+            }
+
+            // this.onReset();
 
             return this.fetch(options || {})
             .then(function(collection) {
@@ -356,7 +312,12 @@ define([
                 self.collection.conditionCurrent = options.conditions;
 
                 // Register events
-                self._registerCollectionEvents(collection);
+                if (self.collection.registerEvents) {
+                    self.collection.registerEvents();
+                }
+
+                // Events
+                self.listenTo(self.collection, 'reset:all', self.onReset);
 
                 return self.collection;
             });
@@ -388,21 +349,40 @@ define([
         },
 
         /**
-         * Check if encryption is disabled for this collection.
-         * @param {object} model - model instance
-         * @return {boolean} true if encryption is disabled
+         * Check if encryption is enabled for configs store.
+         * @type object Backbone model
+         * @return boolean
          */
-        _isEncryptionDisabled: function(model) {
+        _isConfigStore: function() {
             return this.Collection.prototype.storeName === 'configs';
         },
 
         /**
-         * Check if encryption is enabled in configuration.
-         * @param {object} configs - configuration object
-         * @return {boolean} true if encryption is enabled
+         * Get backup encryption configuration.
+         * @return object
          */
-        _isEncryptionEnabledInConfig: function(configs) {
-            const backup  = {encrypt: configs.encryptBackup.encrypt || 0};
+        _getBackupEncryptConfig: function() {
+            const configs = Radio.request('configs', 'get:object');
+            return {encrypt: configs.encryptBackup.encrypt || 0};
+        },
+
+        /**
+         * Check if model has encryption keys defined.
+         * @type object Backbone model
+         * @return boolean
+         */
+        _hasEncryptionKeys: function(model) {
+            return !_.isUndefined(model.encryptKeys);
+        },
+
+        /**
+         * Check if encryption is globally enabled.
+         * @type object Backbone model
+         * @return boolean
+         */
+        _isEncryptionGloballyEnabled: function(model) {
+            const configs = Radio.request('configs', 'get:object');
+            const backup = this._getBackupEncryptConfig();
             return (Number(configs.encrypt) || Number(backup.encrypt)) === 1;
         },
 
@@ -411,16 +391,15 @@ define([
          */
         _isEncryptEnabled: function(model) {
             // Don't use encryption on configs
-            if (this._isEncryptionDisabled(model)) {
+            if (this._isConfigStore()) {
                 return false;
             }
 
-            const configs = Radio.request('configs', 'get:object');
-            model       = model || this.Collection.prototype.model.prototype;
+            model = model || this.Collection.prototype.model.prototype;
 
             return (
-                !_.isUndefined(model.encryptKeys) &&
-                this._isEncryptionEnabledInConfig(configs)
+                this._hasEncryptionKeys(model) &&
+                this._isEncryptionGloballyEnabled(model)
             );
         },
 

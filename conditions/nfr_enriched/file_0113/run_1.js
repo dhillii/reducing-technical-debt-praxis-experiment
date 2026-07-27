@@ -36,7 +36,10 @@ exports.specialProperties = specialProperties;
  */
 
 exports.toCollectionName = function(name, pluralize) {
-  if (name === 'system.profile' || name === 'system.indexes') {
+  if (name === 'system.profile') {
+    return name;
+  }
+  if (name === 'system.indexes') {
     return name;
   }
   if (typeof pluralize === 'function') {
@@ -46,18 +49,10 @@ exports.toCollectionName = function(name, pluralize) {
 };
 
 /*!
- * Determines if `a` and `b` are deep equal.
- *
- * Modified from node/lib/assert.js
- *
- * @param {any} a a value to compare to `b`
- * @param {any} b a value to compare to `a`
- * @return {Boolean}
+ * Check if two values are primitively equal or both null/undefined
  * @api private
  */
-
-// Check if both values are primitives and equal
-function _arePrimitivesEqual(a, b) {
+function _primitiveEqual(a, b) {
   if (a === b) {
     return true;
   }
@@ -67,16 +62,22 @@ function _arePrimitivesEqual(a, b) {
   return null;
 }
 
-// Check if both values are dates with equal time
-function _areDatesEqual(a, b) {
+/*!
+ * Check if two dates are equal
+ * @api private
+ */
+function _dateEqual(a, b) {
   if (a instanceof Date && b instanceof Date) {
     return a.getTime() === b.getTime();
   }
   return null;
 }
 
-// Check if both values are BSON types with equal string representation
-function _areBsonTypesEqual(a, b) {
+/*!
+ * Check if two BSON types are equal
+ * @api private
+ */
+function _bsonTypeEqual(a, b) {
   if ((isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
       (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128'))) {
     return a.toString() === b.toString();
@@ -84,8 +85,11 @@ function _areBsonTypesEqual(a, b) {
   return null;
 }
 
-// Check if both values are regexes with equal properties
-function _areRegexesEqual(a, b) {
+/*!
+ * Check if two RegExp objects are equal
+ * @api private
+ */
+function _regexpEqual(a, b) {
   if (a instanceof RegExp && b instanceof RegExp) {
     return a.source === b.source &&
         a.ignoreCase === b.ignoreCase &&
@@ -95,8 +99,11 @@ function _areRegexesEqual(a, b) {
   return null;
 }
 
-// Check if both values are maps with equal keys and values
-function _areMapsEqual(a, b, deepEqual) {
+/*!
+ * Check if two Map objects are equal
+ * @api private
+ */
+function _mapEqual(a, b, deepEqual) {
   if (a instanceof Map && b instanceof Map) {
     return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
       deepEqual(Array.from(a.values()), Array.from(b.values()));
@@ -104,24 +111,22 @@ function _areMapsEqual(a, b, deepEqual) {
   return null;
 }
 
-// Check if both values are numbers with equal value
-function _areNumbersEqual(a, b) {
+/*!
+ * Check if two Number objects are equal
+ * @api private
+ */
+function _numberEqual(a, b) {
   if (a instanceof Number && b instanceof Number) {
     return a.valueOf() === b.valueOf();
   }
   return null;
 }
 
-// Check if both values are buffers with equal content
-function _areBuffersEqual(a, b) {
-  if (Buffer.isBuffer(a)) {
-    return exports.buffer.areEqual(a, b);
-  }
-  return null;
-}
-
-// Check if both values are arrays with equal elements
-function _areArraysEqual(a, b, deepEqual) {
+/*!
+ * Check if two arrays are equal
+ * @api private
+ */
+function _arrayEqual(a, b, deepEqual) {
   if (!Array.isArray(a) || !Array.isArray(b)) {
     return null;
   }
@@ -137,8 +142,11 @@ function _areArraysEqual(a, b, deepEqual) {
   return true;
 }
 
-// Convert mongoose objects to plain objects for comparison
-function _normalizeObjectsForComparison(a, b) {
+/*!
+ * Normalize Mongoose objects to plain objects
+ * @api private
+ */
+function _normalizeMongooseObjects(a, b) {
   if (a.$__ != null) {
     a = a._doc;
   } else if (isMongooseObject(a)) {
@@ -151,11 +159,14 @@ function _normalizeObjectsForComparison(a, b) {
     b = b.toObject();
   }
 
-  return { a, b };
+  return [a, b];
 }
 
-// Check if both objects have equal keys
-function _haveEqualKeys(ka, kb) {
+/*!
+ * Check if two objects have the same keys
+ * @api private
+ */
+function _keysEqual(ka, kb) {
   if (ka.length !== kb.length) {
     return false;
   }
@@ -169,8 +180,11 @@ function _haveEqualKeys(ka, kb) {
   return true;
 }
 
-// Check if both objects have equal values for all keys
-function _haveEqualValues(a, b, ka, deepEqual) {
+/*!
+ * Check if two objects have equal values for all keys
+ * @api private
+ */
+function _valuesEqual(a, b, ka, deepEqual) {
   for (const key of ka) {
     if (!deepEqual(a[key], b[key])) {
       return false;
@@ -179,67 +193,85 @@ function _haveEqualValues(a, b, ka, deepEqual) {
   return true;
 }
 
+/*!
+ * Determines if `a` and `b` are deep equal.
+ *
+ * Modified from node/lib/assert.js
+ *
+ * @param {any} a a value to compare to `b`
+ * @param {any} b a value to compare to `a`
+ * @return {Boolean}
+ * @api private
+ */
+
 exports.deepEqual = function deepEqual(a, b) {
-  let result = _arePrimitivesEqual(a, b);
-  if (result !== null) {
-    return result;
+  // Check primitive equality
+  const primitiveResult = _primitiveEqual(a, b);
+  if (primitiveResult !== null) {
+    return primitiveResult;
   }
 
-  result = _areDatesEqual(a, b);
-  if (result !== null) {
-    return result;
-  }
-
-  result = _areBsonTypesEqual(a, b);
-  if (result !== null) {
-    return result;
-  }
-
-  result = _areRegexesEqual(a, b);
-  if (result !== null) {
-    return result;
-  }
-
+  // Check null/undefined
   if (a == null || b == null) {
     return false;
   }
 
+  // Check prototype
   if (a.prototype !== b.prototype) {
     return false;
   }
 
-  result = _areMapsEqual(a, b, deepEqual);
-  if (result !== null) {
-    return result;
+  // Check specific types
+  const dateResult = _dateEqual(a, b);
+  if (dateResult !== null) {
+    return dateResult;
   }
 
-  result = _areNumbersEqual(a, b);
-  if (result !== null) {
-    return result;
+  const bsonResult = _bsonTypeEqual(a, b);
+  if (bsonResult !== null) {
+    return bsonResult;
   }
 
-  result = _areBuffersEqual(a, b);
-  if (result !== null) {
-    return result;
+  const regexpResult = _regexpEqual(a, b);
+  if (regexpResult !== null) {
+    return regexpResult;
   }
 
-  result = _areArraysEqual(a, b, deepEqual);
-  if (result !== null) {
-    return result;
+  const mapResult = _mapEqual(a, b, deepEqual);
+  if (mapResult !== null) {
+    return mapResult;
   }
 
-  const normalized = _normalizeObjectsForComparison(a, b);
-  a = normalized.a;
-  b = normalized.b;
+  const numberResult = _numberEqual(a, b);
+  if (numberResult !== null) {
+    return numberResult;
+  }
 
+  // Check buffers
+  if (Buffer.isBuffer(a)) {
+    return exports.buffer.areEqual(a, b);
+  }
+
+  // Check arrays
+  const arrayResult = _arrayEqual(a, b, deepEqual);
+  if (arrayResult !== null) {
+    return arrayResult;
+  }
+
+  // Normalize Mongoose objects
+  const normalized = _normalizeMongooseObjects(a, b);
+  a = normalized[0];
+  b = normalized[1];
+
+  // Compare object keys and values
   const ka = Object.keys(a);
   const kb = Object.keys(b);
 
-  if (!_haveEqualKeys(ka, kb)) {
+  if (!_keysEqual(ka, kb)) {
     return false;
   }
 
-  return _haveEqualValues(a, b, ka, deepEqual);
+  return _valuesEqual(a, b, ka, deepEqual);
 };
 
 /*!
@@ -317,14 +349,23 @@ exports.random = function() {
   return Math.random().toString().substr(3);
 };
 
-// Check if discriminator schema merge should skip this property
-function _shouldSkipDiscriminatorMerge(fromValue, toValue) {
-  return (fromValue.$isSingleNested && toValue.$isMongooseDocumentArray) ||
-         (fromValue.$isMongooseDocumentArray && toValue.$isSingleNested);
+/*!
+ * Check if merge should skip due to discriminator schema mismatch
+ * @api private
+ */
+function _shouldSkipDiscriminatorMerge(fromVal, toVal, options) {
+  if (!options.isDiscriminatorSchemaMerge) {
+    return false;
+  }
+  return (fromVal.$isSingleNested && toVal.$isMongooseDocumentArray) ||
+         (fromVal.$isMongooseDocumentArray && toVal.$isSingleNested);
 }
 
-// Handle schema merging for a single property
-function _mergeSchemaProperty(to, from, key, options) {
+/*!
+ * Handle schema merge for nested objects
+ * @api private
+ */
+function _mergeSchema(to, from, key, options) {
   if (from[key].instanceOfSchema) {
     if (to[key].instanceOfSchema) {
       schemaMerge(to[key], from[key].clone(), options.isDiscriminatorSchemaMerge);
@@ -336,33 +377,16 @@ function _mergeSchemaProperty(to, from, key, options) {
   return false;
 }
 
-// Handle ObjectId merging for a single property
-function _mergeObjectIdProperty(to, from, key) {
+/*!
+ * Handle ObjectId merge for nested objects
+ * @api private
+ */
+function _mergeObjectId(to, from, key) {
   if (from[key] instanceof ObjectId) {
     to[key] = new ObjectId(from[key]);
     return true;
   }
   return false;
-}
-
-// Merge nested object properties recursively
-function _mergeNestedObject(to, from, key, options, path) {
-  if (!exports.isObject(to[key])) {
-    to[key] = {};
-  }
-  if (from[key] != null) {
-    if (options.isDiscriminatorSchemaMerge && _shouldSkipDiscriminatorMerge(from[key], to[key])) {
-      return true;
-    }
-    if (_mergeSchemaProperty(to, from, key, options)) {
-      return true;
-    }
-    if (_mergeObjectIdProperty(to, from, key)) {
-      return true;
-    }
-  }
-  exports.merge(to[key], from[key], options, path ? path + '.' + key : key);
-  return true;
 }
 
 /*!
@@ -398,9 +422,19 @@ exports.merge = function merge(to, from, options, path) {
     if (to[key] == null) {
       to[key] = from[key];
     } else if (exports.isObject(from[key])) {
-      if (_mergeNestedObject(to, from, key, options, path)) {
-        continue;
+      if (!exports.isObject(to[key])) {
+        to[key] = {};
       }
+      if (from[key] != null) {
+        if (_shouldSkipDiscriminatorMerge(from[key], to[key], options)) {
+          continue;
+        } else if (_mergeSchema(to, from, key, options)) {
+          continue;
+        } else if (_mergeObjectId(to, from, key)) {
+          continue;
+        }
+      }
+      merge(to[key], from[key], options, path ? path + '.' + key : key);
     } else if (options.overwrite) {
       to[key] = from[key];
     }
@@ -590,55 +624,48 @@ exports.expires = function expires(object) {
   delete object.expires;
 };
 
-// Split path string into individual paths
-function _splitPathString(pathStr) {
-  return pathStr.split(' ');
-}
-
-// Create a single populate object from path and other arguments
-function _createPopulateObject(path, select, model, match, options, subPopulate, justOne, count) {
-  if (typeof model === 'object') {
-    return {
-      path: path,
-      select: select,
-      match: model,
-      options: match
-    };
-  }
-  return {
-    path: path,
-    select: select,
-    model: model,
-    match: match,
-    options: options,
-    populate: subPopulate,
-    justOne: justOne,
-    count: count
-  };
-}
-
-// Process single populate path string
-function _processSinglePath(obj) {
+/*!
+ * Split populate path by whitespace
+ * @api private
+ */
+function _splitPopulatePath(obj) {
+  const ret = [];
   if (/[\s]/.test(obj.path)) {
-    const paths = _splitPathString(obj.path);
-    const ret = [];
+    const paths = obj.path.split(' ');
     paths.forEach(function(p) {
       const copy = Object.assign({}, obj);
       copy.path = p;
       ret.push(copy);
     });
-    return ret;
+  } else {
+    ret.push(obj);
   }
-  return [obj];
+  return ret;
 }
 
-// Handle array of populate objects
-function _processPopulateArray(arr) {
+/*!
+ * Make single populate objects from array
+ * @api private
+ */
+function _makeSingles(arr) {
   const ret = [];
   arr.forEach(function(obj) {
-    const singles = _processSinglePath(obj);
+    const singles = _splitPopulatePath(obj);
+    ret.push(...singles);
+  });
+  return ret;
+}
+
+/*!
+ * Process nested populate array
+ * @api private
+ */
+function _processNestedPopulate(populate) {
+  const ret = [];
+  populate.forEach(function(obj) {
+    const singles = _splitPopulatePath(obj);
     singles.forEach(function(single) {
-      ret.push(single);
+      ret.push(exports.populate(single)[0]);
     });
   });
   return ret;
@@ -657,7 +684,7 @@ exports.populate = function populate(path, select, model, match, options, subPop
     }
 
     if (Array.isArray(path)) {
-      const singles = _processPopulateArray(path);
+      const singles = _makeSingles(path);
       return singles.map(o => exports.populate(o)[0]);
     }
 
@@ -666,8 +693,24 @@ exports.populate = function populate(path, select, model, match, options, subPop
     } else {
       obj = { path: path };
     }
+  } else if (typeof model === 'object') {
+    obj = {
+      path: path,
+      select: select,
+      match: model,
+      options: match
+    };
   } else {
-    obj = _createPopulateObject(path, select, model, match, options, subPopulate, justOne, count);
+    obj = {
+      path: path,
+      select: select,
+      model: model,
+      match: match,
+      options: options,
+      populate: subPopulate,
+      justOne: justOne,
+      count: count
+    };
   }
 
   if (typeof obj.path !== 'string') {
@@ -677,27 +720,15 @@ exports.populate = function populate(path, select, model, match, options, subPop
   return _populateObj(obj);
 };
 
-// Process nested populate arrays
-function _processNestedPopulateArray(populateArr) {
-  const ret = [];
-  populateArr.forEach(function(obj) {
-    const singles = _processSinglePath(obj);
-    singles.forEach(function(single) {
-      ret.push(exports.populate(single)[0]);
-    });
-  });
-  return ret;
-}
-
 function _populateObj(obj) {
   if (Array.isArray(obj.populate)) {
-    obj.populate = exports.populate(_processNestedPopulateArray(obj.populate));
+    obj.populate = _processNestedPopulate(obj.populate);
   } else if (obj.populate != null && typeof obj.populate === 'object') {
     obj.populate = exports.populate(obj.populate);
   }
 
   const ret = [];
-  const paths = _splitPathString(obj.path);
+  const paths = obj.path.split(' ');
   if (obj.options != null) {
     obj.options = exports.clone(obj.options);
   }
@@ -820,18 +851,6 @@ exports.array.flatten = function flatten(arr, filter, ret) {
 
 const _hasOwnProperty = Object.prototype.hasOwnProperty;
 
-// Check if property is defined on object or prototype chain
-function _isPropertyInChain(obj, key) {
-  if (_hasOwnProperty.call(obj, key)) {
-    return true;
-  }
-  if (typeof obj === 'object' && key in obj) {
-    const v = obj[key];
-    return v !== Object.prototype[key] && v !== Array.prototype[key];
-  }
-  return false;
-}
-
 exports.hasUserDefinedProperty = function(obj, key) {
   if (obj == null) {
     return false;
@@ -846,7 +865,15 @@ exports.hasUserDefinedProperty = function(obj, key) {
     return false;
   }
 
-  return _isPropertyInChain(obj, key);
+  if (_hasOwnProperty.call(obj, key)) {
+    return true;
+  }
+  if (typeof obj === 'object' && key in obj) {
+    const v = obj[key];
+    return v !== Object.prototype[key] && v !== Array.prototype[key];
+  }
+
+  return false;
 };
 
 /*!
@@ -855,26 +882,16 @@ exports.hasUserDefinedProperty = function(obj, key) {
 
 const MAX_ARRAY_INDEX = Math.pow(2, 32) - 1;
 
-// Check if value is a valid array index as number
-function _isValidNumberIndex(val) {
-  return val >= 0 && val <= MAX_ARRAY_INDEX;
-}
-
-// Check if value is a valid array index as string
-function _isValidStringIndex(val) {
-  if (!/^\d+$/.test(val)) {
-    return false;
-  }
-  val = +val;
-  return _isValidNumberIndex(val);
-}
-
 exports.isArrayIndex = function(val) {
   if (typeof val === 'number') {
-    return _isValidNumberIndex(val);
+    return val >= 0 && val <= MAX_ARRAY_INDEX;
   }
   if (typeof val === 'string') {
-    return _isValidStringIndex(val);
+    if (!/^\d+$/.test(val)) {
+      return false;
+    }
+    val = +val;
+    return val >= 0 && val <= MAX_ARRAY_INDEX;
   }
 
   return false;
@@ -892,27 +909,6 @@ exports.isArrayIndex = function(val) {
  * @private
  */
 
-// Add primitive value to result set if not already present
-function _addPrimitiveIfUnique(item, primitives, ret) {
-  if (primitives.has(item)) {
-    return false;
-  }
-  ret.push(item);
-  primitives.add(item);
-  return true;
-}
-
-// Add ObjectId to result set if not already present
-function _addObjectIdIfUnique(item, ids, ret) {
-  const itemStr = item.toString();
-  if (ids.has(itemStr)) {
-    return false;
-  }
-  ret.push(item);
-  ids.add(itemStr);
-  return true;
-}
-
 exports.array.unique = function(arr) {
   const primitives = new Set();
   const ids = new Set();
@@ -920,9 +916,17 @@ exports.array.unique = function(arr) {
 
   for (const item of arr) {
     if (typeof item === 'number' || typeof item === 'string' || item == null) {
-      _addPrimitiveIfUnique(item, primitives, ret);
+      if (primitives.has(item)) {
+        continue;
+      }
+      ret.push(item);
+      primitives.add(item);
     } else if (item instanceof ObjectId) {
-      _addObjectIdIfUnique(item, ids, ret);
+      if (ids.has(item.toString())) {
+        continue;
+      }
+      ret.push(item);
+      ids.add(item.toString());
     } else {
       ret.push(item);
     }
@@ -971,53 +975,50 @@ exports.decorate = function(destination, source) {
   }
 };
 
-// Get clone options for mongoose object conversion
-function _getCloneOptions() {
-  return {
-    transform: false,
-    virtuals: false,
-    depopulate: true,
-    getters: false,
-    flattenDecimals: false
-  };
-}
-
-// Convert mongoose object to plain object if needed
-function _toPlainObjectIfMongoose(val) {
-  if (isMongooseObject(val)) {
-    return val.toObject(_getCloneOptions());
-  }
-  return val;
-}
-
-// Get value for merging, handling valueOf conversion
-function _getValueForMerge(val) {
+/*!
+ * Convert value to cloneable form
+ * @api private
+ */
+function _toCloneableValue(val) {
   if (val != null && val.valueOf && !(val instanceof Date)) {
     return val.valueOf();
   }
   return val;
 }
 
-// Merge a single property in mergeClone
-function _mergeCloneProperty(to, fromObj, key) {
-  if (typeof to[key] === 'undefined') {
-    to[key] = exports.clone(fromObj[key], _getCloneOptions());
-  } else {
-    let val = fromObj[key];
-    val = _getValueForMerge(val);
-    if (exports.isObject(val)) {
-      let obj = val;
-      if (isMongooseObject(val) && !val.isMongooseBuffer) {
-        obj = obj.toObject(_getCloneOptions());
-      }
-      if (val.isMongooseBuffer) {
-        obj = Buffer.from(obj);
-      }
-      exports.mergeClone(to[key], obj);
-    } else {
-      to[key] = exports.clone(val, { flattenDecimals: false });
-    }
+/*!
+ * Get object representation for merging
+ * @api private
+ */
+function _getObjectForMerge(val) {
+  let obj = val;
+  if (isMongooseObject(val) && !val.isMongooseBuffer) {
+    obj = obj.toObject({
+      transform: false,
+      virtuals: false,
+      depopulate: true,
+      getters: false,
+      flattenDecimals: false
+    });
   }
+  if (val.isMongooseBuffer) {
+    obj = Buffer.from(obj);
+  }
+  return obj;
+}
+
+/*!
+ * Clone options for mergeClone
+ * @api private
+ */
+function _getCloneOptions(flattenDecimals) {
+  return {
+    transform: false,
+    virtuals: false,
+    depopulate: true,
+    getters: false,
+    flattenDecimals: flattenDecimals !== false
+  };
 }
 
 /**
@@ -1029,7 +1030,9 @@ function _mergeCloneProperty(to, fromObj, key) {
  */
 
 exports.mergeClone = function(to, fromObj) {
-  fromObj = _toPlainObjectIfMongoose(fromObj);
+  if (isMongooseObject(fromObj)) {
+    fromObj = fromObj.toObject(_getCloneOptions(false));
+  }
   const keys = Object.keys(fromObj);
   const len = keys.length;
   let i = 0;
@@ -1040,7 +1043,17 @@ exports.mergeClone = function(to, fromObj) {
     if (specialProperties.has(key)) {
       continue;
     }
-    _mergeCloneProperty(to, fromObj, key);
+    if (typeof to[key] === 'undefined') {
+      to[key] = exports.clone(fromObj[key], _getCloneOptions(false));
+    } else {
+      let val = _toCloneableValue(fromObj[key]);
+      if (exports.isObject(val)) {
+        const obj = _getObjectForMerge(val);
+        exports.mergeClone(to[key], obj);
+      } else {
+        to[key] = exports.clone(val, _getCloneOptions(true));
+      }
+    }
   }
 };
 

@@ -616,7 +616,6 @@ Connection.prototype.error = function(err, callback) {
   }
   if (this.listeners('error').length > 0) {
     this.emit('error', err);
-    return undefined;
   }
   return Promise.reject(err);
 };
@@ -1417,7 +1416,7 @@ Connection.prototype.authMechanismDoesNotRequirePassword = function() {
   if (this.options && this.options.auth) {
     return noPasswordAuthMechanisms.indexOf(this.options.auth.authMechanism) >= 0;
   }
-  return false;
+  return true;
 };
 
 /**

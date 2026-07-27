@@ -370,62 +370,45 @@ const hasOnlyCheckboxError = (errors) => {
     return Object.values(otherErrors).every(error => !error);
 };
 
-// Helper function to build input field configuration
-const buildInputField = (config) => {
-    return config;
+// Helper function to build email field configuration
+const buildEmailField = (state, errors, portalName) => {
+    return {
+        type: 'email',
+        value: state.email,
+        placeholder: t('jamie@example.com'),
+        label: t('Email'),
+        name: 'email',
+        required: true,
+        errorMessage: errors.email || ''
+    };
 };
 
-// Helper function to determine signup button label and state
-const getSignupButtonState = (action) => {
-    if (action === 'signup:running') {
-        return {label: t('Sending...'), isRunning: true, retry: false};
-    }
-    if (action === 'signup:failed') {
-        return {label: t('Retry'), isRunning: false, retry: true};
-    }
-    return {label: null, isRunning: false, retry: false};
+// Helper function to build name field configuration
+const buildNameField = (state, errors) => {
+    return {
+        type: 'text',
+        value: state.name,
+        placeholder: t('Jamie Larson'),
+        label: t('Name'),
+        name: 'name',
+        required: true,
+        errorMessage: errors.name || ''
+    };
 };
 
-// Helper function to determine if submit button should render
-const shouldRenderSubmitButton = (site, pageQuery) => {
-    if (isInviteOnly({site}) || !hasAvailablePrices({site, pageQuery})) {
-        return false;
-    }
-    const showOnlyFree = pageQuery === 'free' && isFreeSignupAllowed({site});
-    return hasOnlyFreePlan({site}) || showOnlyFree;
-};
-
-// Helper function to get submit button label
-const getSubmitButtonLabel = (site, pageQuery) => {
-    const showOnlyFree = pageQuery === 'free' && isFreeSignupAllowed({site});
-    if (hasOnlyFreePlan({site}) || showOnlyFree) {
-        return t('Sign up');
-    }
-    return t('Continue');
-};
-
-// Helper function to determine section and footer classes
-const determineSectionClasses = (site, pageQuery, fieldCount) => {
-    const plansData = getSitePrices({site, pageQuery});
-    let sectionClass = '';
-    let footerClass = '';
-
-    if (plansData.length <= 1 || isInviteOnly({site})) {
-        if ((plansData.length === 1 && plansData[0].type === 'free') || isInviteOnly({site, pageQuery})) {
-            sectionClass = freeHasBenefitsOrDescription({site}) ? 'singleplan' : 'noplan';
-            if (fieldCount === 1) {
-                sectionClass = 'single-field';
-            }
-            if (isInviteOnly({site})) {
-                footerClass = 'invite-only';
-                sectionClass = 'invite-only';
-            }
-        } else {
-            sectionClass = 'singleplan';
-        }
-    }
-
-    return {sectionClass, footerClass};
+// Helper function to build phone number field configuration
+const buildPhoneNumberField = (state) => {
+    return {
+        type: 'text',
+        value: state.phonenumber,
+        placeholder: t('+1 (123) 456-7890'),
+        label: t('Phone number'),
+        name: 'phonenumber',
+        required: false,
+        tabIndex: -1,
+        autoComplete: 'off',
+        hidden: true
+    };
 };
 
 class SignupPage extends React.Component {
@@ -485,41 +468,34 @@ class SignupPage extends React.Component {
         };
     }
 
-    handleCheckboxError() {
-        if (hasOnlyCheckboxError(this.state.errors) && this.termsRef.current) {
-            this.termsRef.current.scrollIntoView({behavior: 'smooth', block: 'center'});
-        }
-    }
-
-    proceedWithSignup(name, email, plan, phonenumber, token) {
-        const {site, doAction} = this.context;
-
-        if (hasMultipleNewsletters({site})) {
-            this.setState({
-                showNewsletterSelection: true,
-                pageData: {name, email, plan, phonenumber, token},
-                errors: {}
-            });
-        } else {
-            this.setState({
-                errors: {}
-            });
-            doAction('signup', {name, email, phonenumber, plan, token});
-        }
-    }
-
     doSignup() {
         this.setState((state) => {
             return {
                 errors: this.getFormErrors(state)
             };
         }, () => {
+            const {site, doAction} = this.context;
             const {name, email, plan, phonenumber, token, errors} = this.state;
+            const formHasErrors = hasFormErrors(errors);
+            const onlyCheckboxError = hasOnlyCheckboxError(errors);
 
-            if (!hasFormErrors(errors)) {
-                this.proceedWithSignup(name, email, plan, phonenumber, token);
-            } else {
-                this.handleCheckboxError();
+            if (onlyCheckboxError && this.termsRef.current) {
+                this.termsRef.current.scrollIntoView({behavior: 'smooth', block: 'center'});
+            }
+
+            if (!formHasErrors) {
+                if (hasMultipleNewsletters({site})) {
+                    this.setState({
+                        showNewsletterSelection: true,
+                        pageData: {name, email, plan, phonenumber, token},
+                        errors: {}
+                    });
+                } else {
+                    this.setState({
+                        errors: {}
+                    });
+                    doAction('signup', {name, email, phonenumber, plan, token});
+                }
             }
         });
     }
@@ -576,62 +552,20 @@ class SignupPage extends React.Component {
         return selectedPriceId;
     }
 
-    buildNameField(state, errors, portalName) {
-        if (!portalName) {
-            return null;
-        }
-        return buildInputField({
-            type: 'text',
-            value: state.name,
-            placeholder: t('Jamie Larson'),
-            label: t('Name'),
-            name: 'name',
-            required: true,
-            autoFocus: true,
-            errorMessage: errors.name || ''
-        });
-    }
-
-    buildEmailField(state, errors) {
-        return buildInputField({
-            type: 'email',
-            value: state.email,
-            placeholder: t('jamie@example.com'),
-            label: t('Email'),
-            name: 'email',
-            required: true,
-            errorMessage: errors.email || ''
-        });
-    }
-
-    buildPhoneField(state) {
-        return buildInputField({
-            type: 'text',
-            value: state.phonenumber,
-            placeholder: t('+1 (123) 456-7890'),
-            label: t('Phone number'),
-            name: 'phonenumber',
-            required: false,
-            autoComplete: 'off',
-            hidden: true
-        });
-    }
-
     getInputFields({state, fieldNames}) {
         const {site: {portal_name: portalName}} = this.context;
         const errors = state.errors || {};
-        const fields = [];
 
-        const nameField = this.buildNameField(state, errors, portalName);
-        if (nameField) {
-            fields.push(nameField);
+        const fields = [
+            buildEmailField(state, errors, portalName),
+            buildPhoneNumberField(state)
+        ];
+
+        if (portalName) {
+            fields.unshift(buildNameField(state, errors));
         }
 
-        const emailField = this.buildEmailField(state, errors);
-        emailField.autoFocus = !nameField;
-        fields.push(emailField);
-
-        fields.push(this.buildPhoneField(state));
+        fields[0].autoFocus = true;
 
         if (fieldNames && fieldNames.length > 0) {
             return fields.filter((f) => {
@@ -674,7 +608,6 @@ class SignupPage extends React.Component {
         ) : termsText;
 
         const errorClassName = this.state.errors?.checkbox ? 'gh-portal-error' : '';
-
         const className = `gh-portal-signup-terms ${errorClassName}`;
 
         return (
@@ -684,26 +617,49 @@ class SignupPage extends React.Component {
         );
     }
 
+    getSubmitButtonLabel(action) {
+        if (action === 'signup:running') {
+            return t('Sending...');
+        }
+        if (action === 'signup:failed') {
+            return t('Retry');
+        }
+        return t('Continue');
+    }
+
+    getSubmitButtonState(action) {
+        return {
+            isRunning: action === 'signup:running',
+            isRetry: action === 'signup:failed',
+            isDisabled: action === 'signup:running'
+        };
+    }
+
     renderSubmitButton() {
         const {action, site, brandColor, pageQuery} = this.context;
 
-        if (!shouldRenderSubmitButton(site, pageQuery)) {
+        if (isInviteOnly({site}) || !hasAvailablePrices({site, pageQuery})) {
             return null;
         }
 
-        const buttonState = getSignupButtonState(action);
-        const label = buttonState.label || getSubmitButtonLabel(site, pageQuery);
-        const disabled = (action === 'signup:running') ? true : false;
+        const showOnlyFree = pageQuery === 'free' && isFreeSignupAllowed({site});
+
+        if (!hasOnlyFreePlan({site}) && !showOnlyFree) {
+            return null;
+        }
+
+        const label = this.getSubmitButtonLabel(action);
+        const {isRunning, isRetry, isDisabled} = this.getSubmitButtonState(action);
 
         return (
             <ActionButton
                 style={{width: '100%'}}
-                retry={buttonState.retry}
+                retry={isRetry}
                 onClick={e => this.handleSignup(e)}
-                disabled={disabled}
+                disabled={isDisabled}
                 brandColor={brandColor}
                 label={label}
-                isRunning={buttonState.isRunning}
+                isRunning={isRunning}
             />
         );
     }
@@ -763,20 +719,7 @@ class SignupPage extends React.Component {
         );
     }
 
-    renderNewsletterSelection() {
-        return (
-            <NewsletterSelectionPage
-                pageData={this.state.pageData}
-                onBack={() => {
-                    this.setState({
-                        showNewsletterSelection: false
-                    });
-                }}
-            />
-        );
-    }
-
-    renderInviteOnlyMessage() {
+    renderInviteOnlyContent() {
         return (
             <section>
                 <div className='gh-portal-section'>
@@ -792,7 +735,7 @@ class SignupPage extends React.Component {
         );
     }
 
-    renderPaidMembersOnlyMessage() {
+    renderPaidMembersOnlyContent() {
         return (
             <section>
                 <div className='gh-portal-section'>
@@ -808,7 +751,7 @@ class SignupPage extends React.Component {
         );
     }
 
-    renderMembersDisabledMessage() {
+    renderMembersDisabledContent() {
         return (
             <section>
                 <div className='gh-portal-section'>
@@ -825,10 +768,10 @@ class SignupPage extends React.Component {
 
     renderSignupForm() {
         const {site, pageQuery} = this.context;
+        const fields = this.getInputFields({state: this.state});
+        const signupTerms = this.renderSignupTerms();
         const showOnlyFree = pageQuery === 'free' && isFreeSignupAllowed({site});
         const hasOnlyFree = hasOnlyFreePlan({site}) || showOnlyFree;
-        const signupTerms = this.renderSignupTerms();
-        const fields = this.getInputFields({state: this.state});
 
         return (
             <section className="gh-portal-signup">
@@ -878,23 +821,31 @@ class SignupPage extends React.Component {
         const {site, pageQuery} = this.context;
 
         if (this.state.showNewsletterSelection) {
-            return this.renderNewsletterSelection();
+            return (
+                <NewsletterSelectionPage
+                    pageData={this.state.pageData}
+                    onBack={() => {
+                        this.setState({
+                            showNewsletterSelection: false
+                        });
+                    }}
+                />
+            );
         }
 
         if (isInviteOnly({site})) {
-            return this.renderInviteOnlyMessage();
+            return this.renderInviteOnlyContent();
         }
 
         if (isPaidMembersOnly({site}) && pageQuery === 'free') {
-            return this.renderPaidMembersOnlyMessage();
+            return this.renderPaidMembersOnlyContent();
         }
 
         if (!isSignupAllowed({site}) || !hasAvailablePrices({site, pageQuery})) {
             if (!isSigninAllowed({site})) {
-                return this.renderMembersDisabledMessage();
+                return this.renderMembersDisabledContent();
             }
-
-            return this.renderInviteOnlyMessage();
+            return this.renderInviteOnlyContent();
         }
 
         return this.renderSignupForm();
@@ -932,8 +883,27 @@ class SignupPage extends React.Component {
 
     getClassNames() {
         const {site, pageQuery} = this.context;
+        const plansData = getSitePrices({site, pageQuery});
         const fields = this.getInputFields({state: this.state});
-        return determineSectionClasses(site, pageQuery, fields.length);
+        let sectionClass = '';
+        let footerClass = '';
+
+        if (plansData.length <= 1 || isInviteOnly({site})) {
+            if ((plansData.length === 1 && plansData[0].type === 'free') || isInviteOnly({site, pageQuery})) {
+                sectionClass = freeHasBenefitsOrDescription({site}) ? 'singleplan' : 'noplan';
+                if (fields.length === 1) {
+                    sectionClass = 'single-field';
+                }
+                if (isInviteOnly({site})) {
+                    footerClass = 'invite-only';
+                    sectionClass = 'invite-only';
+                }
+            } else {
+                sectionClass = 'singleplan';
+            }
+        }
+
+        return {sectionClass, footerClass};
     }
 
     render() {

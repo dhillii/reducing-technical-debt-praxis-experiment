@@ -285,8 +285,9 @@ export default Model.extend(Comparable, ValidationEngine, {
             this.get('clock.second');
 
             return pastScheduledTime;
+        } else {
+            return false;
         }
-        return false;
     }),
 
     publishedAtBlogTZ: computed('publishedAtBlogDate', 'publishedAtBlogTime', 'settings.timezone', {

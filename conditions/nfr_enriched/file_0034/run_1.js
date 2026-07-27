@@ -100,25 +100,21 @@ export default class PublishOptions {
     @tracked emailDisabledError;
 
     get publishTypeOptions() {
-        return [
-            {
-                value: 'publish+send',
-                label: 'Publish and email',
-                display: 'Publish and email',
-                disabled: this.emailDisabled
-            },
-            {
-                value: 'publish',
-                label: 'Publish only',
-                display: 'Publish'
-            },
-            {
-                value: 'send',
-                label: 'Email only',
-                display: 'Email',
-                disabled: this.emailDisabled
-            }
-        ];
+        return [{
+            value: 'publish+send', // internal
+            label: 'Publish and email', // shown in expanded options
+            display: 'Publish and email', // shown in option title
+            disabled: this.emailDisabled
+        }, {
+            value: 'publish',
+            label: 'Publish only',
+            display: 'Publish'
+        }, {
+            value: 'send',
+            label: 'Email only',
+            display: 'Email',
+            disabled: this.emailDisabled
+        }];
     }
 
     get selectedPublishTypeOption() {
@@ -195,31 +191,26 @@ export default class PublishOptions {
         }
 
         if (recipients === 'visibility' || usuallyNobody) {
-            return this._getVisibilityBasedRecipientFilter();
+            if (this.post.visibility === 'public') {
+                return 'status:free,status:-free';
+            }
+
+            if (this.post.visibility === 'members') {
+                return 'status:free,status:-free';
+            }
+
+            if (this.post.visibility === 'paid') {
+                return 'status:-free';
+            }
+
+            if (this.post.visibility === 'tiers') {
+                return this.post.visibilitySegment;
+            }
+
+            return this.post.visibility;
         }
 
         return filter;
-    }
-
-    // Determines recipient filter based on post visibility setting
-    _getVisibilityBasedRecipientFilter() {
-        if (this.post.visibility === 'public') {
-            return 'status:free,status:-free';
-        }
-
-        if (this.post.visibility === 'members') {
-            return 'status:free,status:-free';
-        }
-
-        if (this.post.visibility === 'paid') {
-            return 'status:-free';
-        }
-
-        if (this.post.visibility === 'tiers') {
-            return this.post.visibilitySegment;
-        }
-
-        return this.post.visibility;
     }
 
     get fullRecipientFilter() {
@@ -269,19 +260,18 @@ export default class PublishOptions {
 
         this.newsletter = this.defaultNewsletter;
 
-        this._initializePublishType();
-    }
-
-    // Initializes publish type based on email availability and post state
-    _initializePublishType() {
         if (this.emailUnavailable || this.emailDisabled) {
             this.publishType = 'publish';
-            return;
         }
 
-        if (this._isDefaultRecipientsUsuallyNobody()) {
+        // When default recipients is set to "Usually nobody":
+        // Set publish type to "Publish" but keep email recipients matching post visibility
+        // to avoid multiple clicks to turn on emailing
+        if (
+            this.settings.editorDefaultEmailRecipients === 'filter' &&
+            this.settings.editorDefaultEmailRecipientsFilter === null
+        ) {
             this.publishType = 'publish';
-            return;
         }
 
         if (this.post.isSent) {
@@ -289,19 +279,7 @@ export default class PublishOptions {
         }
     }
 
-    // Checks if default recipients setting is "Usually nobody"
-    _isDefaultRecipientsUsuallyNobody() {
-        return this.settings.editorDefaultEmailRecipients === 'filter' &&
-            this.settings.editorDefaultEmailRecipientsFilter === null;
-    }
-
-    @task
-    *fetchRequiredDataTask() {
-        const promises = this._buildFetchPromises();
-        yield Promise.all(promises);
-    }
-
-    // Builds array of promises for required data fetching
+    // Builds array of promises for member count, limits, and newsletters
     _buildFetchPromises() {
         const promises = [];
 
@@ -316,16 +294,37 @@ export default class PublishOptions {
             this.totalMemberCount = 1;
         }
 
-        // limits
-        promises.push(this._checkSendingLimit());
-        promises.push(this._checkPublishingLimit());
+        return promises;
+    }
 
-        // newsletters
+    // Builds array of limit check promises
+    _buildLimitPromises() {
+        return [
+            this._checkSendingLimit(),
+            this._checkPublishingLimit()
+        ];
+    }
+
+    // Builds array of newsletter fetch promises
+    _buildNewsletterPromises() {
+        const promises = [];
+
         if (!this.user.isContributor) {
             promises.push(this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'}));
         }
 
         return promises;
+    }
+
+    @task
+    *fetchRequiredDataTask() {
+        const promises = [
+            ...this._buildFetchPromises(),
+            ...this._buildLimitPromises(),
+            ...this._buildNewsletterPromises()
+        ];
+
+        yield Promise.all(promises);
     }
 
     // saving ------------------------------------------------------------------
@@ -398,25 +397,12 @@ export default class PublishOptions {
             this._originalModelValues[property] = this.post[property];
         });
 
-        this._updatePostStatus();
-        this._updatePostPublishedDate();
-        this._updatePostEmailOnly(willEmail);
-    }
-
-    // Updates post status based on scheduling state
-    _updatePostStatus() {
         this.post.status = this.isScheduled ? 'scheduled' : 'published';
-    }
 
-    // Updates post published date if scheduled
-    _updatePostPublishedDate() {
         if (this.isScheduled) {
             this.post.publishedAtUTC = this.scheduledAtUTC;
         }
-    }
 
-    // Updates post emailOnly flag based on publish type
-    _updatePostEmailOnly(willEmail) {
         if (willEmail) {
             this.post.emailOnly = this.publishType === 'send';
         }

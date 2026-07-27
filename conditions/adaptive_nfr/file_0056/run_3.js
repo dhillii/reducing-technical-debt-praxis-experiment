@@ -5,49 +5,14 @@ const os = require('os');
 const chalk = require('chalk');
 const shellQuote = require('shell-quote');
 
-/** @type {Object<string, (editor: string, fileName: string, lineNumber: number, colNumber: number, workspace: string|null) => string[]>} */
-const EDITOR_ARGUMENT_STRATEGIES = {
-  atom: (editor, fileName, lineNumber, colNumber) => [fileName + ':' + lineNumber + ':' + colNumber],
-  subl: (editor, fileName, lineNumber, colNumber) => [fileName + ':' + lineNumber + ':' + colNumber],
-  sublime_text: (editor, fileName, lineNumber, colNumber) => [fileName + ':' + lineNumber + ':' + colNumber],
-  wstorm: (editor, fileName, lineNumber) => [fileName + ':' + lineNumber],
-  charm: (editor, fileName, lineNumber) => [fileName + ':' + lineNumber],
-  notepad: (editor, fileName, lineNumber, colNumber) => ['-n' + lineNumber, '-c' + colNumber, fileName],
-  vim: (editor, fileName, lineNumber) => ['+' + lineNumber, fileName],
-  mvim: (editor, fileName, lineNumber) => ['+' + lineNumber, fileName],
-  joe: (editor, fileName, lineNumber) => ['+' + lineNumber, fileName],
-  gvim: (editor, fileName, lineNumber) => ['+' + lineNumber, fileName],
-  emacs: (editor, fileName, lineNumber, colNumber) => ['+' + lineNumber + ':' + colNumber, fileName],
-  emacsclient: (editor, fileName, lineNumber, colNumber) => ['+' + lineNumber + ':' + colNumber, fileName],
-  rmate: (editor, fileName, lineNumber) => ['--line', lineNumber, fileName],
-  mate: (editor, fileName, lineNumber) => ['--line', lineNumber, fileName],
-  mine: (editor, fileName, lineNumber) => ['--line', lineNumber, fileName],
-  code: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['-g', fileName + ':' + lineNumber + ':' + colNumber], workspace),
-  'code-insiders': (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['-g', fileName + ':' + lineNumber + ':' + colNumber], workspace),
-  vscodium: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['-g', fileName + ':' + lineNumber + ':' + colNumber], workspace),
-  appcode: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
-  clion: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
-  clion64: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
-  idea: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
-  idea64: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
-  phpstorm: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
-  phpstorm64: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
-  pycharm: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
-  pycharm64: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
-  rubymine: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
-  rubymine64: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
-  webstorm: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
-  webstorm64: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
-  goland: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
-  goland64: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
-  rider: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
-  rider64: (editor, fileName, lineNumber, colNumber, workspace) => addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
-};
-
-/** @param {string} editor */
 function isTerminalEditor(editor) {
-  const terminalEditors = ['vim', 'emacs', 'nano'];
-  return terminalEditors.includes(editor);
+  switch (editor) {
+    case 'vim':
+    case 'emacs':
+    case 'nano':
+      return true;
+  }
+  return false;
 }
 
 const COMMON_EDITORS_OSX = {
@@ -143,126 +108,144 @@ function addWorkspaceToArgumentsIfExists(args, workspace) {
   return args;
 }
 
-/**
- * Normalizes editor basename by removing common executable extensions.
- * @param {string} editor - The editor path or name
- * @returns {string} The normalized editor basename
- */
-function normalizeEditorBasename(editor) {
-  return path.basename(editor).replace(/\.(exe|cmd|bat)$/i, '').toLowerCase();
-}
+/** @type {Object<string, (fileName: string, lineNumber: number, colNumber: number, workspace: string|null) => string[]>} */
+const EDITOR_ARGUMENT_STRATEGIES = {
+  atom: (fileName, lineNumber, colNumber) => [fileName + ':' + lineNumber + ':' + colNumber],
+  Atom: (fileName, lineNumber, colNumber) => [fileName + ':' + lineNumber + ':' + colNumber],
+  'Atom Beta': (fileName, lineNumber, colNumber) => [fileName + ':' + lineNumber + ':' + colNumber],
+  subl: (fileName, lineNumber, colNumber) => [fileName + ':' + lineNumber + ':' + colNumber],
+  sublime: (fileName, lineNumber, colNumber) => [fileName + ':' + lineNumber + ':' + colNumber],
+  sublime_text: (fileName, lineNumber, colNumber) => [fileName + ':' + lineNumber + ':' + colNumber],
+  wstorm: (fileName, lineNumber) => [fileName + ':' + lineNumber],
+  charm: (fileName, lineNumber) => [fileName + ':' + lineNumber],
+  notepad++: (fileName, lineNumber, colNumber) => ['-n' + lineNumber, '-c' + colNumber, fileName],
+  vim: (fileName, lineNumber) => ['+' + lineNumber, fileName],
+  mvim: (fileName, lineNumber) => ['+' + lineNumber, fileName],
+  joe: (fileName, lineNumber) => ['+' + lineNumber, fileName],
+  gvim: (fileName, lineNumber) => ['+' + lineNumber, fileName],
+  emacs: (fileName, lineNumber, colNumber) => ['+' + lineNumber + ':' + colNumber, fileName],
+  emacsclient: (fileName, lineNumber, colNumber) => ['+' + lineNumber + ':' + colNumber, fileName],
+  rmate: (fileName, lineNumber) => ['--line', lineNumber, fileName],
+  mate: (fileName, lineNumber) => ['--line', lineNumber, fileName],
+  mine: (fileName, lineNumber) => ['--line', lineNumber, fileName],
+};
+
+/** @type {Object<string, (fileName: string, lineNumber: number, colNumber: number, workspace: string|null) => string[]>} */
+const EDITOR_WORKSPACE_STRATEGIES = {
+  code: (fileName, lineNumber, colNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['-g', fileName + ':' + lineNumber + ':' + colNumber], workspace),
+  Code: (fileName, lineNumber, colNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['-g', fileName + ':' + lineNumber + ':' + colNumber], workspace),
+  'code-insiders': (fileName, lineNumber, colNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['-g', fileName + ':' + lineNumber + ':' + colNumber], workspace),
+  'Code - Insiders': (fileName, lineNumber, colNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['-g', fileName + ':' + lineNumber + ':' + colNumber], workspace),
+  vscodium: (fileName, lineNumber, colNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['-g', fileName + ':' + lineNumber + ':' + colNumber], workspace),
+  VSCodium: (fileName, lineNumber, colNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['-g', fileName + ':' + lineNumber + ':' + colNumber], workspace),
+  appcode: (fileName, lineNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
+  clion: (fileName, lineNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
+  clion64: (fileName, lineNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
+  idea: (fileName, lineNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
+  idea64: (fileName, lineNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
+  phpstorm: (fileName, lineNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
+  phpstorm64: (fileName, lineNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
+  pycharm: (fileName, lineNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
+  pycharm64: (fileName, lineNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
+  rubymine: (fileName, lineNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
+  rubymine64: (fileName, lineNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
+  webstorm: (fileName, lineNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
+  webstorm64: (fileName, lineNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
+  goland: (fileName, lineNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
+  goland64: (fileName, lineNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
+  rider: (fileName, lineNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
+  rider64: (fileName, lineNumber, workspace) =>
+    addWorkspaceToArgumentsIfExists(['--line', lineNumber, fileName], workspace),
+};
 
 /**
- * Gets arguments for launching editor at specific line/column.
- * @param {string} editor - The editor path or name
- * @param {string} fileName - The file to open
- * @param {number} lineNumber - The line number
- * @param {number} colNumber - The column number
- * @param {string|null} workspace - Optional workspace path
- * @returns {string[]} Arguments for the editor
+ * Builds arguments for launching an editor with file location.
+ * @param {string} editor - Editor basename
+ * @param {string} fileName - File path
+ * @param {number} lineNumber - Line number
+ * @param {number} colNumber - Column number
+ * @param {string|null} workspace - Workspace path
+ * @returns {string[]} Arguments array
  */
-function getArgumentsForLineNumber(
-  editor,
-  fileName,
-  lineNumber,
-  colNumber,
-  workspace
-) {
-  const editorBasename = normalizeEditorBasename(editor);
-  const strategy = EDITOR_ARGUMENT_STRATEGIES[editorBasename];
+function getArgumentsForLineNumber(editor, fileName, lineNumber, colNumber, workspace) {
+  const editorBasename = path.basename(editor).replace(/\.(exe|cmd|bat)$/i, '');
   
-  if (strategy) {
-    return strategy(editor, fileName, lineNumber, colNumber, workspace);
+  if (EDITOR_WORKSPACE_STRATEGIES[editorBasename]) {
+    return EDITOR_WORKSPACE_STRATEGIES[editorBasename](fileName, lineNumber, colNumber, workspace);
+  }
+  
+  if (EDITOR_ARGUMENT_STRATEGIES[editorBasename]) {
+    return EDITOR_ARGUMENT_STRATEGIES[editorBasename](fileName, lineNumber, colNumber);
   }
 
   return [fileName];
 }
-
-/**
- * Attempts to find running editor process on macOS.
- * @returns {string[]|null} Editor command or null
- */
-function findEditorOnDarwin() {
-  try {
-    const output = child_process.execSync('ps x').toString();
-    const processNames = Object.keys(COMMON_EDITORS_OSX);
-    for (let i = 0; i < processNames.length; i++) {
-      const processName = processNames[i];
-      if (output.indexOf(processName) !== -1) {
-        return [COMMON_EDITORS_OSX[processName]];
-      }
-    }
-  } catch (error) {
-    // Ignore
-  }
-  return null;
-}
-
-/**
- * Attempts to find running editor process on Windows.
- * @returns {string[]|null} Editor command or null
- */
-function findEditorOnWin32() {
-  try {
-    const output = child_process
-      .execSync(
-        'wmic process where "executablepath is not null" get executablepath'
-      )
-      .toString();
-    const runningProcesses = output.split('\r\n');
-    for (let i = 0; i < runningProcesses.length; i++) {
-      const processPath = runningProcesses[i].trim();
-      const processName = path.basename(processPath);
-      if (COMMON_EDITORS_WIN.indexOf(processName) !== -1) {
-        return [processPath];
-      }
-    }
-  } catch (error) {
-    // Ignore
-  }
-  return null;
-}
-
-/**
- * Attempts to find running editor process on Linux.
- * @returns {string[]|null} Editor command or null
- */
-function findEditorOnLinux() {
-  try {
-    const output = child_process
-      .execSync('ps x --no-heading -o comm --sort=comm')
-      .toString();
-    const processNames = Object.keys(COMMON_EDITORS_LINUX);
-    for (let i = 0; i < processNames.length; i++) {
-      const processName = processNames[i];
-      if (output.indexOf(processName) !== -1) {
-        return [COMMON_EDITORS_LINUX[processName]];
-      }
-    }
-  } catch (error) {
-    // Ignore
-  }
-  return null;
-}
-
-/** @type {Object<string, () => string[]|null>} */
-const PLATFORM_EDITOR_FINDERS = {
-  darwin: findEditorOnDarwin,
-  win32: findEditorOnWin32,
-  linux: findEditorOnLinux,
-};
 
 function guessEditor() {
   if (process.env.REACT_EDITOR) {
     return shellQuote.parse(process.env.REACT_EDITOR);
   }
 
-  const platformFinder = PLATFORM_EDITOR_FINDERS[process.platform];
-  if (platformFinder) {
-    const result = platformFinder();
-    if (result) {
-      return result;
+  try {
+    if (process.platform === 'darwin') {
+      const output = child_process.execSync('ps x').toString();
+      const processNames = Object.keys(COMMON_EDITORS_OSX);
+      for (let i = 0; i < processNames.length; i++) {
+        const processName = processNames[i];
+        if (output.indexOf(processName) !== -1) {
+          return [COMMON_EDITORS_OSX[processName]];
+        }
+      }
+    } else if (process.platform === 'win32') {
+      const output = child_process
+        .execSync(
+          'wmic process where "executablepath is not null" get executablepath'
+        )
+        .toString();
+      const runningProcesses = output.split('\r\n');
+      for (let i = 0; i < runningProcesses.length; i++) {
+        const processPath = runningProcesses[i].trim();
+        const processName = path.basename(processPath);
+        if (COMMON_EDITORS_WIN.indexOf(processName) !== -1) {
+          return [processPath];
+        }
+      }
+    } else if (process.platform === 'linux') {
+      const output = child_process
+        .execSync('ps x --no-heading -o comm --sort=comm')
+        .toString();
+      const processNames = Object.keys(COMMON_EDITORS_LINUX);
+      for (let i = 0; i < processNames.length; i++) {
+        const processName = processNames[i];
+        if (output.indexOf(processName) !== -1) {
+          return [COMMON_EDITORS_LINUX[processName]];
+        }
+      }
     }
+  } catch (error) {
+    // Ignore...
   }
 
   if (process.env.VISUAL) {
@@ -301,8 +284,8 @@ function printInstructions(fileName, errorMessage) {
 }
 
 /**
- * Validates that lineNumber is a positive integer.
- * @param {number} lineNumber - The line number to validate
+ * Validates line number is a positive integer.
+ * @param {number} lineNumber - Line number to validate
  * @returns {boolean} True if valid
  */
 function isValidLineNumber(lineNumber) {
@@ -310,8 +293,8 @@ function isValidLineNumber(lineNumber) {
 }
 
 /**
- * Validates that colNumber is a positive integer, defaults to 1.
- * @param {number} colNumber - The column number to validate
+ * Validates column number is a positive integer, defaults to 1.
+ * @param {number} colNumber - Column number to validate
  * @returns {number} Valid column number
  */
 function normalizeColNumber(colNumber) {
@@ -319,38 +302,87 @@ function normalizeColNumber(colNumber) {
 }
 
 /**
- * Checks if file path is valid on Windows.
- * @param {string} fileName - The file path to validate
- * @returns {boolean} True if valid
+ * Checks if editor is disabled via 'none' value.
+ * @param {string} editor - Editor name
+ * @returns {boolean} True if editor is disabled
  */
-function isValidWindowsFilePath(fileName) {
+function isEditorDisabled(editor) {
+  return editor && editor.toLowerCase() === 'none';
+}
+
+/**
+ * Checks if running on WSL with file in /mnt/ path.
+ * @param {string} fileName - File path
+ * @returns {boolean} True if WSL environment detected
+ */
+function isWSLEnvironment(fileName) {
+  return process.platform === 'linux' &&
+    fileName.startsWith('/mnt/') &&
+    /Microsoft/i.test(os.release());
+}
+
+/**
+ * Checks if file name passes Windows security whitelist.
+ * @param {string} fileName - File path
+ * @returns {boolean} True if file name is valid
+ */
+function isValidWindowsFileName(fileName) {
   return WINDOWS_FILE_NAME_WHITELIST.test(fileName.trim());
 }
 
 /**
- * Checks if running on WSL with a /mnt/ path.
- * @param {string} fileName - The file path
- * @returns {boolean} True if WSL environment detected
+ * Prints Windows file name validation error.
  */
-function isWSLEnvironment(fileName) {
-  return (
-    process.platform === 'linux' &&
-    fileName.startsWith('/mnt/') &&
-    /Microsoft/i.test(os.release())
+function printWindowsFileNameError() {
+  console.log();
+  console.log(
+    chalk.red('Could not open ' + path.basename(fileName) + ' in the editor.')
   );
+  console.log();
+  console.log(
+    'When running on Windows, file names are checked against a whitelist ' +
+      'to protect against remote code execution attacks. File names may ' +
+      'consist only of alphanumeric characters (all languages), periods, ' +
+      'dashes, slashes, and underscores.'
+  );
+  console.log();
 }
 
 /**
- * Converts WSL path to relative path for Windows editor interop.
- * @param {string} fileName - The file path
- * @returns {string} Converted path
+ * Spawns editor process with appropriate arguments.
+ * @param {string} editor - Editor executable
+ * @param {string[]} args - Arguments array
  */
-function convertWSLPath(fileName) {
-  return path.relative('', fileName);
+function spawnEditorProcess(editor, args) {
+  if (process.platform === 'win32') {
+    _childProcess = child_process.spawn(
+      'cmd.exe',
+      ['/C', editor].concat(args),
+      { stdio: 'inherit' }
+    );
+  } else {
+    _childProcess = child_process.spawn(editor, args, { stdio: 'inherit' });
+  }
+}
+
+/**
+ * Attaches event handlers to editor process.
+ * @param {string} fileName - File path for error reporting
+ */
+function attachEditorProcessHandlers(fileName) {
+  _childProcess.on('exit', function (errorCode) {
+    _childProcess = null;
+    if (errorCode) {
+      printInstructions(fileName, '(code ' + errorCode + ')');
+    }
+  });
+
+  _childProcess.on('error', function (error) {
+    printInstructions(fileName, error.message);
+  });
 }
 
 let _childProcess = null;
-
 function launchEditor(fileName, lineNumber, colNumber) {
   if (!fs.existsSync(fileName)) {
     return;
@@ -369,40 +401,23 @@ function launchEditor(fileName, lineNumber, colNumber) {
     return;
   }
 
-  if (editor.toLowerCase() === 'none') {
+  if (isEditorDisabled(editor)) {
     return;
   }
 
   if (isWSLEnvironment(fileName)) {
-    fileName = convertWSLPath(fileName);
+    fileName = path.relative('', fileName);
   }
 
-  if (process.platform === 'win32' && !isValidWindowsFilePath(fileName)) {
-    console.log();
-    console.log(
-      chalk.red('Could not open ' + path.basename(fileName) + ' in the editor.')
-    );
-    console.log();
-    console.log(
-      'When running on Windows, file names are checked against a whitelist ' +
-        'to protect against remote code execution attacks. File names may ' +
-        'consist only of alphanumeric characters (all languages), periods, ' +
-        'dashes, slashes, and underscores.'
-    );
-    console.log();
+  if (process.platform === 'win32' && !isValidWindowsFileName(fileName)) {
+    printWindowsFileNameError();
     return;
   }
 
   let workspace = null;
   if (lineNumber) {
     args = args.concat(
-      getArgumentsForLineNumber(
-        editor,
-        fileName,
-        lineNumber,
-        colNumber,
-        workspace
-      )
+      getArgumentsForLineNumber(editor, fileName, lineNumber, colNumber, workspace)
     );
   } else {
     args.push(fileName);
@@ -412,27 +427,8 @@ function launchEditor(fileName, lineNumber, colNumber) {
     _childProcess.kill('SIGKILL');
   }
 
-  if (process.platform === 'win32') {
-    _childProcess = child_process.spawn(
-      'cmd.exe',
-      ['/C', editor].concat(args),
-      { stdio: 'inherit' }
-    );
-  } else {
-    _childProcess = child_process.spawn(editor, args, { stdio: 'inherit' });
-  }
-
-  _childProcess.on('exit', function (errorCode) {
-    _childProcess = null;
-
-    if (errorCode) {
-      printInstructions(fileName, '(code ' + errorCode + ')');
-    }
-  });
-
-  _childProcess.on('error', function (error) {
-    printInstructions(fileName, error.message);
-  });
+  spawnEditorProcess(editor, args);
+  attachEditorProcessHandlers(fileName);
 }
 
 module.exports = launchEditor;

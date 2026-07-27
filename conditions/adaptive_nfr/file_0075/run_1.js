@@ -1,14 +1,21 @@
-I notice there's a significant mismatch between the problem statement and the provided code. The problem describes refactoring a file called 'token-store.js' with a cyclomatic complexity of 252, but the provided code is a test file (token-store test suite) with test cases, not the actual TokenStore implementation.
-
-The test file itself doesn't have a "God Function" - it's a collection of test cases organized in describe blocks. The actual TokenStore implementation (which would be in `lib/languages/js/source-code/token-store.js`) is not provided.
-
-Since the actual source file to refactor is not provided, I cannot perform the requested refactoring. However, I'll return the test file as-is since it's already well-structured and doesn't exhibit the God Function anti-pattern:
+/**
+ * @fileoverview Tests for TokenStore class.
+ * @author Brandon Mills
+ */
 
 "use strict";
+
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
 
 const assert = require("chai").assert,
 	espree = require("espree"),
 	TokenStore = require("../../../../../lib/languages/js/source-code/token-store");
+
+//------------------------------------------------------------------------------
+// Constants
+//------------------------------------------------------------------------------
 
 const DEFAULT_CONFIG = {
 	loc: true,
@@ -28,6 +35,16 @@ const SOURCE_CODE =
 	BinaryExpression = VariableDeclarator.init,
 	CallExpression = Program.body[1].expression;
 
+//------------------------------------------------------------------------------
+// Helpers
+//------------------------------------------------------------------------------
+
+/**
+ * Checks the values of tokens against an array of expected values.
+ * @param {Token[]} tokens Tokens returned from the API.
+ * @param {string[]} expected Expected token values
+ * @returns {void}
+ */
 function check(tokens, expected) {
 	const length = tokens.length;
 
@@ -37,9 +54,16 @@ function check(tokens, expected) {
 	}
 }
 
-describe("TokenStore", () => {
-	const store = new TokenStore(TOKENS, COMMENTS);
+//------------------------------------------------------------------------------
+// Test Suites
+//------------------------------------------------------------------------------
 
+/**
+ * Creates test suite for getTokens method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetTokens(store) {
 	describe("when calling getTokens", () => {
 		it("should retrieve all tokens for root node", () => {
 			check(store.getTokens(Program), [
@@ -148,7 +172,14 @@ describe("TokenStore", () => {
 			]);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getTokensBefore method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetTokensBefore(store) {
 	describe("when calling getTokensBefore", () => {
 		it("should retrieve zero tokens before a node", () => {
 			check(store.getTokensBefore(BinaryExpression, 0), []);
@@ -256,7 +287,14 @@ describe("TokenStore", () => {
 			);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getTokenBefore method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetTokenBefore(store) {
 	describe("when calling getTokenBefore", () => {
 		it("should retrieve one token before a node", () => {
 			assert.strictEqual(
@@ -390,7 +428,14 @@ describe("TokenStore", () => {
 			);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getTokensAfter method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetTokensAfter(store) {
 	describe("when calling getTokensAfter", () => {
 		it("should retrieve zero tokens after a node", () => {
 			check(store.getTokensAfter(VariableDeclarator.id, 0), []);
@@ -515,7 +560,14 @@ describe("TokenStore", () => {
 			);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getTokenAfter method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetTokenAfter(store) {
 	describe("when calling getTokenAfter", () => {
 		it("should retrieve one token after a node", () => {
 			assert.strictEqual(
@@ -657,7 +709,14 @@ describe("TokenStore", () => {
 			);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getFirstTokens method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetFirstTokens(store) {
 	describe("when calling getFirstTokens", () => {
 		it("should retrieve zero tokens from a node's token stream", () => {
 			check(store.getFirstTokens(BinaryExpression, 0), []);
@@ -765,7 +824,14 @@ describe("TokenStore", () => {
 			);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getFirstToken method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetFirstToken(store) {
 	describe("when calling getFirstToken", () => {
 		it("should retrieve the first token of a node's token stream", () => {
 			assert.strictEqual(
@@ -937,7 +1003,14 @@ describe("TokenStore", () => {
 			);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getLastTokens method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetLastTokens(store) {
 	describe("when calling getLastTokens", () => {
 		it("should retrieve zero tokens from the end of a node's token stream", () => {
 			check(store.getLastTokens(BinaryExpression, 0), []);
@@ -1045,7 +1118,14 @@ describe("TokenStore", () => {
 			);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getLastToken method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetLastToken(store) {
 	describe("when calling getLastToken", () => {
 		it("should retrieve the last token of a node's token stream", () => {
 			assert.strictEqual(store.getLastToken(BinaryExpression).value, "b");
@@ -1216,7 +1296,14 @@ describe("TokenStore", () => {
 			assert.strictEqual(token, null);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getFirstTokensBetween method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetFirstTokensBetween(store) {
 	describe("when calling getFirstTokensBetween", () => {
 		it("should retrieve zero tokens between adjacent nodes", () => {
 			check(
@@ -1302,7 +1389,14 @@ describe("TokenStore", () => {
 			);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getFirstTokenBetween method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetFirstTokenBetween(store) {
 	describe("when calling getFirstTokenBetween", () => {
 		it("should return null between adjacent nodes", () => {
 			assert.strictEqual(
@@ -1407,7 +1501,14 @@ describe("TokenStore", () => {
 			);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getLastTokensBetween method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetLastTokensBetween(store) {
 	describe("when calling getLastTokensBetween", () => {
 		it("should retrieve zero tokens between adjacent nodes", () => {
 			check(
@@ -1493,7 +1594,14 @@ describe("TokenStore", () => {
 			);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getLastTokenBetween method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetLastTokenBetween(store) {
 	describe("when calling getLastTokenBetween", () => {
 		it("should return null between adjacent nodes", () => {
 			assert.strictEqual(
@@ -1598,7 +1706,14 @@ describe("TokenStore", () => {
 			);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getTokensBetween method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetTokensBetween(store) {
 	describe("when calling getTokensBetween", () => {
 		it("should retrieve zero tokens between adjacent nodes", () => {
 			check(store.getTokensBetween(BinaryExpression, CallExpression), []);
@@ -1635,7 +1750,14 @@ describe("TokenStore", () => {
 			);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getTokenByRangeStart method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetTokenByRangeStart(store) {
 	describe("when calling getTokenByRangeStart", () => {
 		it("should return identifier token", () => {
 			const result = store.getTokenByRangeStart(9);
@@ -1673,7 +1795,14 @@ describe("TokenStore", () => {
 			assert.isNull(result);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getFirstToken & getTokenAfter integration.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetFirstTokenAndGetTokenAfter(store) {
 	describe("when calling getFirstToken & getTokenAfter", () => {
 		it("should retrieve all tokens and comments in the node", () => {
 			const code = "(function(a, /*b,*/ c){})";
@@ -1733,7 +1862,14 @@ describe("TokenStore", () => {
 			]);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getLastToken & getTokenBefore integration.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetLastTokenAndGetTokenBefore(store) {
 	describe("when calling getLastToken & getTokenBefore", () => {
 		it("should retrieve all tokens and comments in the node", () => {
 			const code = "(function(a, /*b,*/ c){})";
@@ -1793,7 +1929,14 @@ describe("TokenStore", () => {
 			]);
 		});
 	});
+}
 
+/**
+ * Creates test suite for commentsExistBetween method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeCommentsExistBetween(store) {
 	describe("when calling commentsExistBetween", () => {
 		it("should retrieve false if comments don't exist", () => {
 			assert.isFalse(
@@ -1807,7 +1950,14 @@ describe("TokenStore", () => {
 			);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getCommentsBefore method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetCommentsBefore(store) {
 	describe("getCommentsBefore", () => {
 		it("should retrieve comments before a node", () => {
 			assert.strictEqual(
@@ -1847,7 +1997,14 @@ describe("TokenStore", () => {
 			check(tokenStore.getCommentsBefore(ast), []);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getCommentsAfter method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetCommentsAfter(store) {
 	describe("getCommentsAfter", () => {
 		it("should retrieve comments after a node", () => {
 			assert.strictEqual(
@@ -1887,7 +2044,14 @@ describe("TokenStore", () => {
 			check(tokenStore.getCommentsAfter(ast), []);
 		});
 	});
+}
 
+/**
+ * Creates test suite for getCommentsInside method.
+ * @param {TokenStore} store The token store instance.
+ * @returns {void}
+ */
+function describeGetCommentsInside(store) {
 	describe("getCommentsInside", () => {
 		it("should retrieve comments inside a node", () => {
 			check(store.getCommentsInside(Program), [
@@ -1912,4 +2076,34 @@ describe("TokenStore", () => {
 			check(store.getCommentsInside(TOKENS[2]), []);
 		});
 	});
+}
+
+//------------------------------------------------------------------------------
+// Main Test Suite
+//------------------------------------------------------------------------------
+
+describe("TokenStore", () => {
+	const store = new TokenStore(TOKENS, COMMENTS);
+
+	describeGetTokens(store);
+	describeGetTokensBefore(store);
+	describeGetTokenBefore(store);
+	describeGetTokensAfter(store);
+	describeGetTokenAfter(store);
+	describeGetFirstTokens(store);
+	describeGetFirstToken(store);
+	describeGetLastTokens(store);
+	describeGetLastToken(store);
+	describeGetFirstTokensBetween(store);
+	describeGetFirstTokenBetween(store);
+	describeGetLastTokensBetween(store);
+	describeGetLastTokenBetween(store);
+	describeGetTokensBetween(store);
+	describeGetTokenByRangeStart(store);
+	describeGetFirstTokenAndGetTokenAfter(store);
+	describeGetLastTokenAndGetTokenBefore(store);
+	describeCommentsExistBetween(store);
+	describeGetCommentsBefore(store);
+	describeGetCommentsAfter(store);
+	describeGetCommentsInside(store);
 });

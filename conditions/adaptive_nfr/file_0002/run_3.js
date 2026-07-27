@@ -28,7 +28,7 @@ const ERROR_MESSAGE_MAP: Record<number, string> = {
     415: 'The file type is not supported.'
 };
 
-/** Gets error message for upload failure */
+/** Extracts error message from upload error object */
 const getUploadErrorMessage = (error: unknown): string => {
     if (error && typeof error === 'object' && 'statusCode' in error) {
         const statusCode = (error as {statusCode: number}).statusCode;
@@ -37,57 +37,13 @@ const getUploadErrorMessage = (error: unknown): string => {
     return 'Failed to upload image. Try again.';
 };
 
-/** Determines if modal is currently open */
-const isModalOpen = (externalOpen: boolean | undefined, internalOpen: boolean): boolean => {
-    return externalOpen !== undefined ? externalOpen : internalOpen;
+/** Determines if modal is currently open based on controlled/uncontrolled state */
+const isModalOpen = (propOpen: boolean | undefined, stateOpen: boolean): boolean => {
+    return propOpen !== undefined ? propOpen : stateOpen;
 };
 
-/** Resets modal form state */
-const resetFormState = (setters: {
-    setContent: (value: string) => void;
-    setImagePreview: (value: null) => void;
-    setUploadedImageUrl: (value: null) => void;
-    setAltText: (value: string) => void;
-    setShowAltInput: (value: boolean) => void;
-    imageInputRef: React.RefObject<HTMLInputElement>;
-    imagePreview: string | null;
-}): void => {
-    setters.setContent('');
-    setters.setImagePreview(null);
-    setters.setUploadedImageUrl(null);
-    setters.setAltText('');
-    setters.setShowAltInput(false);
-    if (setters.imagePreview) {
-        URL.revokeObjectURL(setters.imagePreview);
-    }
-    if (setters.imageInputRef.current) {
-        setters.imageInputRef.current.value = '';
-    }
-};
-
-/** Clears image and related state */
-const clearImageState = (setters: {
-    setImagePreview: (value: null) => void;
-    setUploadedImageUrl: (value: null) => void;
-    setAltText: (value: string) => void;
-    setShowAltInput: (value: boolean) => void;
-    imageInputRef: React.RefObject<HTMLInputElement>;
-    imagePreview: string | null;
-}): void => {
-    setters.setImagePreview(null);
-    setters.setUploadedImageUrl(null);
-    setters.setAltText('');
-    setters.setShowAltInput(false);
-    if (setters.imagePreview) {
-        URL.revokeObjectURL(setters.imagePreview);
-    }
-    if (setters.imageInputRef.current) {
-        setters.imageInputRef.current.value = '';
-    }
-};
-
-/** Extracts username from reply target for placeholder text */
-const getReplyPlaceholder = (replyTo: {object: ObjectProperties; actor: ActorProperties} | undefined): string => {
+/** Generates placeholder text based on reply context */
+const getPlaceholder = (replyTo?: {object: ObjectProperties; actor: ActorProperties}): string => {
     if (!replyTo) {
         return 'What\'s new?';
     }
@@ -98,23 +54,34 @@ const getReplyPlaceholder = (replyTo: {object: ObjectProperties; actor: ActorPro
     return 'What\'s new?';
 };
 
-/** Determines if post button should be disabled */
-const isPostDisabled = (content: string, user: ActorProperties | undefined, isPosting: boolean, maxLength: number): boolean => {
-    return !content.trim() || !user || isPosting || content.length > maxLength;
+/** Determines character count color based on content length */
+const getCharCountColor = (length: number, max: number): string => {
+    if (length >= max) return 'text-red-500';
+    if (length >= max * 0.9) return 'text-yellow-600';
+    return 'text-gray-500';
 };
 
-/** Checks if clipboard item is an image */
-const isImageClipboardItem = (item: DataTransferItem): boolean => {
-    return item.type.indexOf('image') !== -1;
-};
-
-/** Validates file size and shows error if needed */
-const validateFileSize = (file: File): boolean => {
-    if (file.size > MAX_FILE_SIZE) {
-        toast.error(FILE_SIZE_ERROR_MESSAGE);
-        return false;
+/** Resets modal form state to initial values */
+const resetFormState = (
+    setContent: (value: string) => void,
+    setImagePreview: (value: null) => void,
+    setUploadedImageUrl: (value: null) => void,
+    setAltText: (value: string) => void,
+    setShowAltInput: (value: boolean) => void,
+    imagePreview: string | null,
+    imageInputRef: React.RefObject<HTMLInputElement>
+): void => {
+    setContent('');
+    setImagePreview(null);
+    setUploadedImageUrl(null);
+    setAltText('');
+    setShowAltInput(false);
+    if (imagePreview) {
+        URL.revokeObjectURL(imagePreview);
     }
-    return true;
+    if (imageInputRef.current) {
+        imageInputRef.current.value = '';
+    }
 };
 
 const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, onReplyError, onOpenChange, ...props}) => {
@@ -158,7 +125,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [isOpen, props.open]);
 
-    const isDisabled = isPostDisabled(content, user, isPosting, MAX_CONTENT_LENGTH);
+    const isDisabled = !content.trim() || !user || isPosting || content.length > MAX_CONTENT_LENGTH;
 
     const handlePost = useCallback(async () => {
         const trimmedContent = content.trim();
@@ -254,10 +221,15 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
-            if (isImageClipboardItem(item)) {
+            if (item.type.indexOf('image') !== -1) {
                 e.preventDefault();
                 const file = item.getAsFile();
-                if (file && validateFileSize(file)) {
+                if (file) {
+                    if (file.size > MAX_FILE_SIZE) {
+                        toast.error(FILE_SIZE_ERROR_MESSAGE);
+                        return;
+                    }
+
                     const previewUrl = URL.createObjectURL(file);
                     setImagePreview(previewUrl);
                     await handleImageUpload(file);
@@ -295,7 +267,8 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         if (files && files.length > 0) {
             const file = files[0];
 
-            if (!validateFileSize(file)) {
+            if (file.size > MAX_FILE_SIZE) {
+                toast.error(FILE_SIZE_ERROR_MESSAGE);
                 e.target.value = '';
                 return;
             }
@@ -309,14 +282,17 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
 
     const handleClearImage = (e: React.MouseEvent) => {
         e.stopPropagation();
-        clearImageState({
-            setImagePreview,
-            setUploadedImageUrl,
-            setAltText,
-            setShowAltInput,
-            imageInputRef,
-            imagePreview
-        });
+        setImagePreview(null);
+        setUploadedImageUrl(null);
+        setAltText('');
+        setShowAltInput(false);
+        if (imagePreview) {
+            URL.revokeObjectURL(imagePreview);
+        }
+
+        if (imageInputRef.current) {
+            imageInputRef.current.value = '';
+        }
     };
 
     const handleToggleAltInput = (e: React.MouseEvent) => {
@@ -329,6 +305,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
     };
 
     useEffect(() => {
+        // Cleanup function to revoke object URLs when component unmounts
         return () => {
             if (imagePreview) {
                 URL.revokeObjectURL(imagePreview);
@@ -336,20 +313,12 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         };
     }, [imagePreview]);
 
-    const placeholder = getReplyPlaceholder(replyTo);
+    const placeholder = getPlaceholder(replyTo);
 
     return (
         <Dialog open={isModalOpen(props.open, isOpen)} onOpenChange={(open) => {
             if (open) {
-                resetFormState({
-                    setContent,
-                    setImagePreview,
-                    setUploadedImageUrl,
-                    setAltText,
-                    setShowAltInput,
-                    imageInputRef,
-                    imagePreview
-                });
+                resetFormState(setContent, setImagePreview, setUploadedImageUrl, setAltText, setShowAltInput, imagePreview, imageInputRef);
             }
 
             setIsOpen(open);
@@ -446,7 +415,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
                 <DialogFooter className={`${isSticky ? 'sticky' : 'static'} bottom-0 flex-row bg-background py-6 dark:bg-[#101114]`}>
                     <Button className='mr-auto w-[34px] !min-w-0' variant='outline' onClick={() => imageInputRef.current?.click()}><LucideIcon.Image /></Button>
                     <div className='flex items-center space-x-3'>
-                        <div className={`text-sm ${content.length >= MAX_CONTENT_LENGTH ? 'text-red-500' : content.length >= MAX_CONTENT_LENGTH * 0.9 ? 'text-yellow-600' : 'text-gray-500'}`}>
+                        <div className={`text-sm ${getCharCountColor(content.length, MAX_CONTENT_LENGTH)}`}>
                             {content.length}/{MAX_CONTENT_LENGTH}
                         </div>
                         <Button className='min-w-16' data-testid="post-button" disabled={isDisabled || isImageUploading} onClick={handlePost}>

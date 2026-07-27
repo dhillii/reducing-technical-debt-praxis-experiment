@@ -337,19 +337,28 @@ class ajaxService extends AjaxService {
                     throw error;
                 }
 
-                const shouldRetry = retryErrorChecks.some(check => check(error.response)) && retryingMs <= maxRetryingMs;
-                
-                if (shouldRetry) {
+                if (retryErrorChecks.some(check => check(error.response)) && retryingMs <= maxRetryingMs) {
                     await timeout(retryPeriods[attempts] || retryPeriods[retryPeriods.length - 1]);
                     attempts += 1;
+                } else if (attempts > 0 && this.config.sentry_dsn) {
+                    Sentry.captureMessage('Request failed after multiple attempts', {extra: getErrorData()});
+                    throw error;
                 } else {
-                    if (attempts > 0 && this.config.sentry_dsn) {
-                        Sentry.captureMessage('Request failed after multiple attempts', {extra: getErrorData()});
-                    }
                     throw error;
                 }
             }
         }
+    }
+
+    _setSentryContext(status, headers, request) {
+        Sentry.setContext('ajax', {
+            url: request.url,
+            method: request.method,
+            status
+        });
+        Sentry.setTag('ajax_status', status);
+        Sentry.setTag('ajax_url', request.url.slice(0, 200));
+        Sentry.setTag('ajax_method', request.method);
     }
 
     _checkVersionMismatch(headers) {
@@ -363,7 +372,7 @@ class ajaxService extends AjaxService {
         }
     }
 
-    _getErrorResponse(status, headers, payload) {
+    _checkErrorResponse(status, headers, payload) {
         for (const handler of ERROR_HANDLERS) {
             if (this[handler.check](status, headers, payload)) {
                 return new handler.ErrorClass(payload);
@@ -382,35 +391,24 @@ class ajaxService extends AjaxService {
         const isAuthenticated = this.get('session.isAuthenticated');
         const isUnauthorized = this.isUnauthorizedError(status, headers, payload);
         const isForbidden = isForbiddenError(status, headers, payload);
-        const isForbiddenAuthError = isForbidden && payload.errors?.[0].message === 'Authorization failed';
 
-        if (isAuthenticated && isGhostRequest && (isUnauthorized || isForbiddenAuthError)) {
+        if (isGhostRequest) {
+            this._responseServer = headers.server;
+        }
+
+        if (isAuthenticated && isGhostRequest && (isUnauthorized || (isForbidden && payload.errors?.[0].message === 'Authorization failed'))) {
             this.skipSessionDeletion = true;
             this.session.invalidate();
         }
     }
 
     handleResponse(status, headers, payload, request) {
-        // set some context variables for Sentry in case there is an error
-        Sentry.setContext('ajax', {
-            url: request.url,
-            method: request.method,
-            status
-        });
-        Sentry.setTag('ajax_status', status);
-        Sentry.setTag('ajax_url', request.url.slice(0, 200)); // the max length of a tag value is 200 characters
-        Sentry.setTag('ajax_method', request.method);
-
+        this._setSentryContext(status, headers, request);
         this._checkVersionMismatch(headers);
 
-        const errorResponse = this._getErrorResponse(status, headers, payload);
+        const errorResponse = this._checkErrorResponse(status, headers, payload);
         if (errorResponse) {
             return errorResponse;
-        }
-
-        // used when reporting connection errors, helps distinguish CDN
-        if (GHOST_REQUEST.test(request.url)) {
-            this._responseServer = headers.server;
         }
 
         this._handleSessionInvalidation(status, headers, payload, request);

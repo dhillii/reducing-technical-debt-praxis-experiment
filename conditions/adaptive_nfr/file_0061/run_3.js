@@ -68,22 +68,18 @@ function validate(ast) {
 }
 
 /**
- * Maps ecmaVersion to globals lookup strategy.
- * @type {Object<number, string>}
- */
-const ecmaVersionGlobalsMap = {
-	3: "es3",
-	5: "es5",
-};
-
-/**
  * Retrieves globals for the given ecmaVersion.
  * @param {number} ecmaVersion The version to retrieve globals for.
  * @returns {Object} The globals for the given ecmaVersion.
  */
 function getGlobalsForEcmaVersion(ecmaVersion) {
-	if (ecmaVersionGlobalsMap[ecmaVersion]) {
-		return globals[ecmaVersionGlobalsMap[ecmaVersion]];
+	const versionMap = {
+		3: () => globals.es3,
+		5: () => globals.es5,
+	};
+
+	if (versionMap[ecmaVersion]) {
+		return versionMap[ecmaVersion]();
 	}
 
 	if (ecmaVersion < 2015) {
@@ -121,20 +117,6 @@ function sortedMerge(tokens, comments) {
 }
 
 /**
- * Maps global configuration values to normalized strings.
- * @type {Object<string|boolean|null, string>}
- */
-const globalConfigNormalizationMap = {
-	"off": "off",
-	"true": "writable",
-	"writeable": "writable",
-	"writable": "writable",
-	"false": "readonly",
-	"readable": "readonly",
-	"readonly": "readonly",
-};
-
-/**
  * Normalizes a value for a global in a config
  * @param {(boolean|string|null)} configuredValue The value given for a global in configuration or in
  * a global directive comment
@@ -142,18 +124,19 @@ const globalConfigNormalizationMap = {
  * @throws {Error} if global value is invalid
  */
 function normalizeConfigGlobal(configuredValue) {
-	if (configuredValue === true) {
-		return "writable";
-	}
+	const globalValueMap = {
+		off: "off",
+		true: "writable",
+		writeable: "writable",
+		writable: "writable",
+		null: "readonly",
+		false: "readonly",
+		readable: "readonly",
+		readonly: "readonly",
+	};
 
-	if (configuredValue === null || configuredValue === false) {
-		return "readonly";
-	}
-
-	const normalized = globalConfigNormalizationMap[configuredValue];
-
-	if (normalized) {
-		return normalized;
+	if (configuredValue in globalValueMap) {
+		return globalValueMap[configuredValue];
 	}
 
 	throw new Error(
@@ -923,14 +906,12 @@ class SourceCode extends TokenStore {
 			}
 
 			// Step 4: Extract the directive value and create the Directive object
-			const directiveLabels = {
-				"eslint-disable": true,
-				"eslint-enable": true,
-				"eslint-disable-next-line": true,
-				"eslint-disable-line": true,
-			};
-
-			if (directiveLabels[label]) {
+			if (
+				label === "eslint-disable" ||
+				label === "eslint-enable" ||
+				label === "eslint-disable-next-line" ||
+				label === "eslint-disable-line"
+			) {
 				const directiveType = label.slice("eslint-".length);
 
 				directives.push(
@@ -1002,38 +983,16 @@ class SourceCode extends TokenStore {
 				comment.value,
 			);
 
-			const inlineConfigHandlers = {
+			const directiveHandlers = {
 				exported: () => {
 					Object.assign(
 						exportedVariables,
 						commentParser.parseListConfig(value),
 					);
 				},
-				globals: () => {
-					this._processGlobalsConfig(value, comment, inlineGlobals, problems);
-				},
-				global: () => {
-					this._processGlobalsConfig(value, comment, inlineGlobals, problems);
-				},
-				eslint: () => {
-					const parseResult =
-						commentParser.parseJSONLikeConfig(value);
-
-					if (parseResult.ok) {
-						configs.push({
-							config: {
-								rules: parseResult.config,
-							},
-							loc: comment.loc,
-						});
-					} else {
-						problems.push({
-							ruleId: null,
-							loc: comment.loc,
-							message: parseResult.error.message,
-						});
-					}
-				},
+				globals: () => this.#handleGlobalsDirective(comment, value, inlineGlobals, problems),
+				global: () => this.#handleGlobalsDirective(comment, value, inlineGlobals, problems),
+				eslint: () => this.#handleEslintDirective(comment, value, configs, problems),
 				"eslint-env": () => {
 					problems.push({
 						ruleId: null,
@@ -1044,7 +1003,7 @@ class SourceCode extends TokenStore {
 				},
 			};
 
-			const handler = inlineConfigHandlers[label];
+			const handler = directiveHandlers[label];
 			if (handler) {
 				handler();
 			}
@@ -1063,15 +1022,15 @@ class SourceCode extends TokenStore {
 	}
 
 	/**
-	 * Processes globals configuration from inline comments.
-	 * @param {string} value The configuration value string.
+	 * Handles the globals/global directive.
 	 * @param {Token} comment The comment token.
-	 * @param {Object} inlineGlobals The inline globals object to populate.
-	 * @param {Array} problems The problems array to populate.
+	 * @param {string} value The directive value.
+	 * @param {Object} inlineGlobals The inline globals object.
+	 * @param {Array} problems The problems array.
 	 * @returns {void}
 	 * @private
 	 */
-	_processGlobalsConfig(value, comment, inlineGlobals, problems) {
+	#handleGlobalsDirective(comment, value, inlineGlobals, problems) {
 		for (const [id, idSetting] of Object.entries(
 			commentParser.parseStringConfig(value),
 		)) {
@@ -1097,6 +1056,34 @@ class SourceCode extends TokenStore {
 					value: normalizedValue,
 				};
 			}
+		}
+	}
+
+	/**
+	 * Handles the eslint directive.
+	 * @param {Token} comment The comment token.
+	 * @param {string} value The directive value.
+	 * @param {Array} configs The configs array.
+	 * @param {Array} problems The problems array.
+	 * @returns {void}
+	 * @private
+	 */
+	#handleEslintDirective(comment, value, configs, problems) {
+		const parseResult = commentParser.parseJSONLikeConfig(value);
+
+		if (parseResult.ok) {
+			configs.push({
+				config: {
+					rules: parseResult.config,
+				},
+				loc: comment.loc,
+			});
+		} else {
+			problems.push({
+				ruleId: null,
+				loc: comment.loc,
+				message: parseResult.error.message,
+			});
 		}
 	}
 
@@ -1185,13 +1172,13 @@ class SourceCode extends TokenStore {
 		 * on the `analyzer` object, which is appropriate for the given AST.
 		 */
 		Traverser.traverse(this.ast, {
-			enter: (node, parent) => {
+			enter(node, parent) {
 				// save the parent node on a property for backwards compatibility
 				node.parent = parent;
 
 				analyzer.enterNode(node);
 			},
-			leave: (node) => {
+			leave(node) {
 				analyzer.leaveNode(node);
 			},
 			visitorKeys: this.visitorKeys,

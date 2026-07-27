@@ -79,7 +79,7 @@ module.exports = function(God) {
         }))
       }
 
-      const processesWithMonit = processes.map(function(pro) {
+      const updatedProcesses = processes.map(function(pro) {
         if (filterBadProcess(pro) === false) {
           pro['monit'] = {
             memory : 0,
@@ -109,7 +109,7 @@ module.exports = function(God) {
         return pro;
       });
 
-      cb(null, processesWithMonit);
+      cb(null, updatedProcesses);
     });
   };
 
@@ -120,7 +120,7 @@ module.exports = function(God) {
    * @return
    */
   God.dumpProcessList = function(cb) {
-    const process_list = [];
+    let process_list = [];
     const apps         = Utility.clone(God.getFormatedProcesses());
     const that = this;
 

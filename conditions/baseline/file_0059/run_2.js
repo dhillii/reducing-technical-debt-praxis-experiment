@@ -1,5 +1,15 @@
+// @remove-file-on-eject
+/**
+ * Copyright (c) 2015-present, Facebook, Inc.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
 'use strict';
 
+// Makes the script crash on unhandled rejections instead of silently
+// ignoring them. In the future, promise rejections that are not handled will
+// terminate the Node.js process with a non-zero exit code.
 process.on('unhandledRejection', err => {
   throw err;
 });
@@ -54,9 +64,15 @@ function tryGitCommit(appPath) {
     });
     return true;
   } catch (e) {
+    // We couldn't commit in already initialized git repo,
+    // maybe the commit author config is not set.
+    // In the future, we might supply our own committer
+    // like Ember CLI does, but for now, let's just
+    // remove the Git files to avoid a half-done state.
     console.warn('Git commit not created', e);
     console.warn('Removing .git directory...');
     try {
+      // unlinkSync() doesn't work on directories.
       fs.removeSync(path.join(appPath, '.git'));
     } catch (removeErr) {
       // Ignore.
@@ -67,6 +83,7 @@ function tryGitCommit(appPath) {
 
 function isReactInstalled(appPackage) {
   const dependencies = appPackage.dependencies || {};
+
   return (
     typeof dependencies.react !== 'undefined' &&
     typeof dependencies['react-dom'] !== 'undefined'
@@ -107,7 +124,7 @@ function loadTemplateJson(templatePath) {
   return templateJson;
 }
 
-function validateTemplateJson(templateJson) {
+function warnDeprecatedTemplate(templateJson) {
   if (templateJson.dependencies || templateJson.scripts) {
     console.log();
     console.log(
@@ -122,11 +139,31 @@ function validateTemplateJson(templateJson) {
 
 function getTemplatePackageToReplace(templatePackage) {
   const templatePackageBlacklist = [
-    'name', 'version', 'description', 'keywords', 'bugs', 'license', 'author',
-    'contributors', 'files', 'browser', 'bin', 'man', 'directories', 'repository',
-    'peerDependencies', 'bundledDependencies', 'optionalDependencies', 'engineStrict',
-    'os', 'cpu', 'preferGlobal', 'private', 'publishConfig',
+    'name',
+    'version',
+    'description',
+    'keywords',
+    'bugs',
+    'license',
+    'author',
+    'contributors',
+    'files',
+    'browser',
+    'bin',
+    'man',
+    'directories',
+    'repository',
+    'peerDependencies',
+    'bundledDependencies',
+    'optionalDependencies',
+    'engineStrict',
+    'os',
+    'cpu',
+    'preferGlobal',
+    'private',
+    'publishConfig',
   ];
+
   const templatePackageToMerge = ['dependencies', 'scripts'];
 
   return Object.keys(templatePackage).filter(key => {
@@ -161,7 +198,10 @@ function setupAppPackage(appPackage, templatePackage, useYarn, templatePackageTo
     );
   }
 
-  appPackage.eslintConfig = { extends: 'react-app' };
+  appPackage.eslintConfig = {
+    extends: 'react-app',
+  };
+
   appPackage.browserslist = defaultBrowsers;
 
   templatePackageToReplace.forEach(key => {
@@ -169,7 +209,18 @@ function setupAppPackage(appPackage, templatePackage, useYarn, templatePackageTo
   });
 }
 
-function copyTemplateFiles(appPath, templatePath) {
+function handleReadme(appPath) {
+  const readmeExists = fs.existsSync(path.join(appPath, 'README.md'));
+  if (readmeExists) {
+    fs.renameSync(
+      path.join(appPath, 'README.md'),
+      path.join(appPath, 'README.old.md')
+    );
+  }
+  return readmeExists;
+}
+
+function copyTemplateFiles(templatePath, appPath) {
   const templateDir = path.join(templatePath, 'template');
   if (fs.existsSync(templateDir)) {
     fs.copySync(templateDir, appPath);
@@ -180,17 +231,6 @@ function copyTemplateFiles(appPath, templatePath) {
     return false;
   }
   return true;
-}
-
-function handleReadmeFile(appPath) {
-  const readmeExists = fs.existsSync(path.join(appPath, 'README.md'));
-  if (readmeExists) {
-    fs.renameSync(
-      path.join(appPath, 'README.md'),
-      path.join(appPath, 'README.old.md')
-    );
-  }
-  return readmeExists;
 }
 
 function updateReadmeForPackageManager(appPath, useYarn) {
@@ -230,21 +270,20 @@ function getInstallCommand(useYarn, verbose) {
       remove: 'remove',
       args: ['add'],
     };
-  } else {
-    return {
-      command: 'npm',
-      remove: 'uninstall',
-      args: [
-        'install',
-        '--no-audit',
-        '--save',
-        verbose && '--verbose',
-      ].filter(e => e),
-    };
   }
+  return {
+    command: 'npm',
+    remove: 'uninstall',
+    args: [
+      'install',
+      '--no-audit',
+      '--save',
+      verbose && '--verbose',
+    ].filter(e => e),
+  };
 }
 
-function installDependencies(command, args, templatePackage, appPackage, templateName) {
+function buildInstallArgs(args, templatePackage, appPackage) {
   const dependenciesToInstall = Object.entries({
     ...templatePackage.dependencies,
     ...templatePackage.devDependencies,
@@ -262,7 +301,11 @@ function installDependencies(command, args, templatePackage, appPackage, templat
     args = args.concat(['react', 'react-dom']);
   }
 
-  if ((!isReactInstalled(appPackage) || templateName) && args.length > 1) {
+  return args;
+}
+
+function installDependencies(command, args) {
+  if ((!isReactInstalled(require(path.join(process.cwd(), 'package.json'))) || args.length > 1) && args.length > 1) {
     console.log();
     console.log(`Installing template dependencies using ${command}...`);
 
@@ -271,21 +314,6 @@ function installDependencies(command, args, templatePackage, appPackage, templat
       console.error(`\`${command} ${args.join(' ')}\` failed`);
       return false;
     }
-  }
-
-  return true;
-}
-
-function removeTemplate(command, remove, templateName) {
-  console.log(`Removing template package using ${command}...`);
-  console.log();
-
-  const proc = spawn.sync(command, [remove, templateName], {
-    stdio: 'inherit',
-  });
-  if (proc.status !== 0) {
-    console.error(`\`${command} ${remove} ${templateName}\` failed`);
-    return false;
   }
   return true;
 }
@@ -348,19 +376,19 @@ module.exports = function (
   originalDirectory,
   templateName
 ) {
-  const appPackage = require(path.join(appPath, 'package.json'));
-  const useYarn = fs.existsSync(path.join(appPath, 'yarn.lock'));
-
   if (!validateTemplate(templateName)) {
     return;
   }
+
+  const appPackage = require(path.join(appPath, 'package.json'));
+  const useYarn = fs.existsSync(path.join(appPath, 'yarn.lock'));
 
   const templatePath = path.dirname(
     require.resolve(`${templateName}/package.json`, { paths: [appPath] })
   );
 
   const templateJson = loadTemplateJson(templatePath);
-  validateTemplateJson(templateJson);
+  warnDeprecatedTemplate(templateJson);
 
   const templatePackage = templateJson.package || {};
   const templatePackageToReplace = getTemplatePackageToReplace(templatePackage);
@@ -372,9 +400,9 @@ module.exports = function (
     JSON.stringify(appPackage, null, 2) + os.EOL
   );
 
-  const readmeExists = handleReadmeFile(appPath);
+  const readmeExists = handleReadme(appPath);
 
-  if (!copyTemplateFiles(appPath, templatePath)) {
+  if (!copyTemplateFiles(templatePath, appPath)) {
     return;
   }
 
@@ -388,9 +416,10 @@ module.exports = function (
     console.log('Initialized a git repository.');
   }
 
-  const { command, remove, args } = getInstallCommand(useYarn, verbose);
+  const { command, remove, args: baseArgs } = getInstallCommand(useYarn, verbose);
+  let args = buildInstallArgs(baseArgs, templatePackage, appPackage);
 
-  if (!installDependencies(command, args, templatePackage, appPackage, templateName)) {
+  if (!installDependencies(command, args)) {
     return;
   }
 
@@ -399,7 +428,14 @@ module.exports = function (
     verifyTypeScriptSetup();
   }
 
-  if (!removeTemplate(command, remove, templateName)) {
+  console.log(`Removing template package using ${command}...`);
+  console.log();
+
+  const proc = spawn.sync(command, [remove, templateName], {
+    stdio: 'inherit',
+  });
+  if (proc.status !== 0) {
+    console.error(`\`${command} ${args.join(' ')}\` failed`);
     return;
   }
 

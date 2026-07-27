@@ -2,15 +2,18 @@
 
 const grunt = require('../grunt');
 
-// The actual config data.
+// Get/set config data. If value was passed, set. Otherwise, get.
 const config = module.exports = function(prop, value) {
   if (arguments.length === 2) {
+    // Two arguments were passed, set the property's value.
     return config.set(prop, value);
   } else {
+    // Get the property's value (or the entire data object).
     return config.get(prop);
   }
 };
 
+// The actual config data.
 config.data = {};
 
 // Escape any . in name with \. so dot-based namespacing works properly.
@@ -26,8 +29,10 @@ config.getPropString = function(prop) {
 // Get raw, unprocessed config data.
 config.getRaw = function(prop) {
   if (prop) {
+    // Prop was passed, get that specific property's value.
     return grunt.util.namespace.get(config.data, config.getPropString(prop));
   } else {
+    // No prop was passed, return the entire config.data object.
     return config.data;
   }
 };
@@ -45,16 +50,18 @@ config.get = function(prop) {
 // already retrieved from the config.
 config.process = function(raw) {
   return grunt.util.recurse(raw, function(value) {
-    if (typeof value !== 'string') {
-      return value;
-    }
+    // If the value is not a string, return it.
+    if (typeof value !== 'string') { return value; }
+    // If possible, access the specified property via config.get, in case it
+    // doesn't refer to a string, but instead refers to an object or array.
     const matches = value.match(propStringTmplRe);
     if (matches) {
       const result = config.get(matches[1]);
-      if (result != null) {
-        return result;
-      }
+      // If the result retrieved from the config data wasn't null or undefined,
+      // return it.
+      if (result != null) { return result; }
     }
+    // Process the string as a template.
     return grunt.template.process(value, {data: config.data});
   });
 };
@@ -73,33 +80,29 @@ config.merge = function(obj) {
 // Initialize config data.
 config.init = function(obj) {
   grunt.verbose.write('Initializing config...').ok();
+  // Initialize and return data.
   return (config.data = obj || {});
 };
 
-// Retrieve properties that failed validation.
-const getFailedProps = function(props) {
-  return config.data && props.filter(function(prop) {
+// Validate that required config properties exist.
+const validateRequiredProps = function(props) {
+  const failProps = config.data && props.filter(function(prop) {
     return config.get(prop) == null;
   }).map(function(prop) {
     return '"' + prop + '"';
   });
+  return failProps;
 };
 
-// Build the verification message for required config properties.
-const buildVerificationMessage = function(props) {
+// Generate validation message for required properties.
+const generateValidationMessage = function(props) {
   const p = grunt.util.pluralize;
   return 'Verifying propert' + p(props.length, 'y/ies') +
     ' ' + grunt.log.wordlist(props) + ' exist' + p(props.length, 's') +
     ' in config...';
 };
 
-// Handle successful config validation.
-const handleValidationSuccess = function() {
-  grunt.verbose.ok();
-  return true;
-};
-
-// Handle failed config validation.
+// Handle validation failure with appropriate error.
 const handleValidationFailure = function(msg, failProps) {
   const p = grunt.util.pluralize;
   grunt.verbose.or.write(msg);
@@ -116,11 +119,12 @@ const handleValidationFailure = function(msg, failProps) {
 // exception (use this inside of a task).
 config.requires = function() {
   const props = grunt.util.toArray(arguments).map(config.getPropString);
-  const msg = buildVerificationMessage(props);
+  const msg = generateValidationMessage(props);
   grunt.verbose.write(msg);
-  const failProps = getFailedProps(props);
+  const failProps = validateRequiredProps(props);
   if (config.data && failProps.length === 0) {
-    return handleValidationSuccess();
+    grunt.verbose.ok();
+    return true;
   } else {
     handleValidationFailure(msg, failProps);
   }

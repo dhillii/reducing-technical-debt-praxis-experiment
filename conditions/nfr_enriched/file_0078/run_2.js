@@ -15,7 +15,7 @@ exports = module.exports = internals.Auth = function (connection) {
     this._schemes = {};
     this._strategies = {};
     this.settings = {
-        default: null
+        default: null           // Strategy used as default if route has no auth settings
     };
 
     this.api = {};
@@ -47,7 +47,10 @@ internals.Auth.prototype.strategy = function (name, scheme /*, mode, options */)
     const server = this.connection.server._clone([this.connection], '');
     const strategy = this._schemes[scheme](server, options);
 
-    internals.validateStrategyMethods(strategy, name);
+    Hoek.assert(strategy.authenticate, 'Invalid scheme:', name, 'missing authenticate() method');
+    Hoek.assert(typeof strategy.authenticate === 'function', 'Invalid scheme:', name, 'invalid authenticate() method');
+    Hoek.assert(!strategy.payload || typeof strategy.payload === 'function', 'Invalid scheme:', name, 'invalid payload() method');
+    Hoek.assert(!strategy.response || typeof strategy.response === 'function', 'Invalid scheme:', name, 'invalid response() method');
     strategy.options = strategy.options || {};
     Hoek.assert(strategy.payload || !strategy.options.payload, 'Cannot require payload validation without a payload method');
 
@@ -66,21 +69,12 @@ internals.Auth.prototype.strategy = function (name, scheme /*, mode, options */)
 };
 
 
-internals.validateStrategyMethods = function (strategy, name) {
-
-    Hoek.assert(strategy.authenticate, 'Invalid scheme:', name, 'missing authenticate() method');
-    Hoek.assert(typeof strategy.authenticate === 'function', 'Invalid scheme:', name, 'invalid authenticate() method');
-    Hoek.assert(!strategy.payload || typeof strategy.payload === 'function', 'Invalid scheme:', name, 'invalid payload() method');
-    Hoek.assert(!strategy.response || typeof strategy.response === 'function', 'Invalid scheme:', name, 'invalid response() method');
-};
-
-
 internals.Auth.prototype.default = function (options) {
 
     Hoek.assert(!this.settings.default, 'Cannot set default strategy more than once');
     options = Schema.apply('auth', options, 'default strategy');
 
-    this.settings.default = this._setupRoute(Hoek.clone(options));
+    this.settings.default = this._setupRoute(Hoek.clone(options));      // Can change options
 };
 
 
@@ -98,12 +92,20 @@ internals.Auth.prototype.test = function (name, request, next) {
 internals.Auth.prototype._setupRoute = function (options, path) {
 
     if (!options) {
-        return options;
+        return options;         // Preserve the difference between undefined and false
     }
 
-    internals.normalizeStrategyOptions(options);
+    if (typeof options === 'string') {
+        options = { strategies: [options] };
+    }
+    else if (options.strategy) {
+        options.strategies = [options.strategy];
+        delete options.strategy;
+    }
 
-    if (path && !options.strategies) {
+    if (path &&
+        !options.strategies) {
+
         Hoek.assert(this.settings.default, 'Route missing authentication strategy and no default defined:', path);
         options = Hoek.applyToDefaults(this.settings.default, options);
     }
@@ -113,39 +115,28 @@ internals.Auth.prototype._setupRoute = function (options, path) {
 
     options.mode = options.mode || 'required';
 
-    internals.migrateAccessOptions(options);
-
-    if (options.payload === true) {
-        options.payload = 'required';
-    }
-
-    internals.validateStrategiesPayload(this._strategies, options, path);
+    internals.normalizeAccessOptions(options);
+    internals.setupAccessScopes(options);
+    internals.normalizePayloadOption(options);
+    internals.validateStrategiesPayload(options, path, this._strategies);
 
     return options;
 };
 
 
-internals.normalizeStrategyOptions = function (options) {
+internals.normalizeAccessOptions = function (options) {
 
-    if (typeof options === 'string') {
-        options.strategies = [options];
-        return;
-    }
+    if (options.entity !== undefined ||
+        options.scope !== undefined) {
 
-    if (options.strategy) {
-        options.strategies = [options.strategy];
-        delete options.strategy;
-    }
-};
-
-
-internals.migrateAccessOptions = function (options) {
-
-    if (options.entity !== undefined || options.scope !== undefined) {
         options.access = [{ entity: options.entity, scope: options.scope }];
         delete options.entity;
         delete options.scope;
     }
+};
+
+
+internals.setupAccessScopes = function (options) {
 
     if (options.access) {
         for (let i = 0; i < options.access.length; ++i) {
@@ -156,7 +147,15 @@ internals.migrateAccessOptions = function (options) {
 };
 
 
-internals.validateStrategiesPayload = function (strategies, options, path) {
+internals.normalizePayloadOption = function (options) {
+
+    if (options.payload === true) {
+        options.payload = 'required';
+    }
+};
+
+
+internals.validateStrategiesPayload = function (options, path, strategies) {
 
     let hasAuthenticatePayload = false;
     for (let i = 0; i < options.strategies.length; ++i) {
@@ -326,9 +325,13 @@ internals.Authenticator = class {
 
         this.request.auth.mode = this.config.mode;
 
+        // Injection bypass
+
         if (this.request.auth.credentials) {
             return this.validate(null, { credentials: this.request.auth.credentials, artifacts: this.request.auth.artifacts }, next);
         }
+
+        // Authenticate
 
         return this.execute(next);
     }
@@ -337,6 +340,8 @@ internals.Authenticator = class {
 
         const config = this.config;
         const request = this.request;
+
+        // Find next strategy
 
         ++this.current;
         if (this.current < config.strategies.length) {
@@ -352,7 +357,21 @@ internals.Authenticator = class {
             return;
         }
 
-        internals.handleAuthenticationFailure(request, config, this.errors, next);
+        // No more strategies
+
+        const err = Boom.unauthorized('Missing authentication', this.errors);
+
+        if (config.mode === 'optional' ||
+            config.mode === 'try') {
+
+            request.auth.isAuthenticated = false;
+            request.auth.credentials = null;
+            request.auth.error = err;
+            request._log(['auth', 'unauthenticated']);
+            return next();
+        }
+
+        return next(err);
     }
 
     validate(err, result, next) {
@@ -363,83 +382,82 @@ internals.Authenticator = class {
 
         result = result || {};
 
-        if (!err && !result.credentials) {
+        // Invalid
+
+        if (!err &&
+            !result.credentials) {
+
             return next(Boom.badImplementation('Authentication response missing both error and credentials'));
         }
 
+        // Unauthenticated
+
         if (err) {
-            return internals.handleValidationError(err, result, request, config, name, this, next);
+            return this.handleUnauthenticated(err, result, name, next);
         }
 
-        return internals.handleAuthenticationSuccess(result, request, config, name, next);
-    }
-};
+        // Authenticated
 
-
-internals.handleAuthenticationFailure = function (request, config, errors, next) {
-
-    const err = Boom.unauthorized('Missing authentication', errors);
-
-    if (config.mode === 'optional' || config.mode === 'try') {
-        request.auth.isAuthenticated = false;
-        request.auth.credentials = null;
-        request.auth.error = err;
-        request._log(['auth', 'unauthenticated']);
-        return next();
+        return this.handleAuthenticated(result, name, next);
     }
 
-    return next(err);
-};
+    handleUnauthenticated(err, result, name, next) {
 
+        const config = this.config;
+        const request = this.request;
 
-internals.handleValidationError = function (err, result, request, config, name, authenticator, next) {
+        if (err instanceof Error === false) {
+            request._log(['auth', 'unauthenticated', 'response', name], err.statusCode);
+            return next(err);
+        }
 
-    if (err instanceof Error === false) {
-        request._log(['auth', 'unauthenticated', 'response', name], err.statusCode);
+        if (err.isMissing) {
+            request._log(['auth', 'unauthenticated', 'missing', name], err);
+            this.errors.push(err.output.headers['WWW-Authenticate']);
+            return this.execute(next);
+        }
+
+        if (config.mode === 'try') {
+            request.auth.isAuthenticated = false;
+            request.auth.strategy = name;
+            request.auth.credentials = result.credentials;
+            request.auth.artifacts = result.artifacts;
+            request.auth.error = err;
+            request._log(['auth', 'unauthenticated', 'try', name], err);
+            return next();
+        }
+
+        request._log(['auth', 'unauthenticated', 'error', name], err);
         return next(err);
     }
 
-    if (err.isMissing) {
-        request._log(['auth', 'unauthenticated', 'missing', name], err);
-        authenticator.errors.push(err.output.headers['WWW-Authenticate']);
-        return authenticator.execute(next);
-    }
+    handleAuthenticated(result, name, next) {
 
-    if (config.mode === 'try') {
-        request.auth.isAuthenticated = false;
+        const request = this.request;
+        const config = this.config;
+        const credentials = result.credentials;
+
         request.auth.strategy = name;
-        request.auth.credentials = result.credentials;
+        request.auth.credentials = credentials;
         request.auth.artifacts = result.artifacts;
-        request.auth.error = err;
-        request._log(['auth', 'unauthenticated', 'try', name], err);
-        return next();
+
+        const authenticated = () => {
+
+            request._log(['auth', name]);
+            request.auth.isAuthenticated = true;
+            return next();
+        };
+
+        // Check access rules
+
+        const error = internals.access(request, config, credentials, name);
+        if (!error) {
+            return authenticated();
+        }
+
+        request._log(error.tags, error.data);
+        return next(error.err);
     }
-
-    request._log(['auth', 'unauthenticated', 'error', name], err);
-    return next(err);
-};
-
-
-internals.handleAuthenticationSuccess = function (result, request, config, name, next) {
-
-    const credentials = result.credentials;
-    request.auth.strategy = name;
-    request.auth.credentials = credentials;
-    request.auth.artifacts = result.artifacts;
-
-    const authenticated = () => {
-        request._log(['auth', name]);
-        request.auth.isAuthenticated = true;
-        return next();
-    };
-
-    const error = internals.access(request, config, credentials, name);
-    if (!error) {
-        return authenticated();
-    }
-
-    request._log(error.tags, error.data);
-    return next(error.err);
 };
 
 
@@ -455,27 +473,29 @@ internals.access = function (request, config, credentials, name) {
     for (let i = 0; i < config.access.length; ++i) {
         const access = config.access[i];
 
-        if (!internals.checkAccessEntity(access, requestEntity)) {
+        const entityMatch = internals.checkEntity(access.entity, requestEntity);
+        if (!entityMatch) {
             continue;
         }
 
-        const scopeCheck = internals.checkAccessScope(request, access, credentials);
-        if (scopeCheck.failed) {
-            scopeErrors.push(scopeCheck.scope);
+        const scopeMatch = internals.checkScope(request, access.scope, credentials, scopeErrors);
+        if (!scopeMatch) {
             continue;
         }
 
         return null;
     }
 
-    return internals.buildAccessError(requestEntity, credentials.scope, scopeErrors, name);
+    return internals.buildAccessError(requestEntity, scopeErrors, name);
 };
 
 
-internals.checkAccessEntity = function (access, requestEntity) {
+internals.checkEntity = function (entity, requestEntity) {
 
-    const entity = access.entity;
-    if (!entity || entity === 'any' || entity === requestEntity) {
+    if (!entity ||
+        entity === 'any' ||
+        entity === requestEntity) {
+
         return true;
     }
 
@@ -483,33 +503,34 @@ internals.checkAccessEntity = function (access, requestEntity) {
 };
 
 
-internals.checkAccessScope = function (request, access, credentials) {
+internals.checkScope = function (request, scope, credentials, scopeErrors) {
 
-    let scope = access.scope;
     if (!scope) {
-        return { failed: false };
+        return true;
     }
 
     if (!credentials.scope) {
-        return { failed: true, scope };
+        scopeErrors.push(scope);
+        return false;
     }
 
-    scope = internals.expandScope(request, scope);
-    if (!internals.validateScope(credentials, scope, 'required') ||
-        !internals.validateScope(credentials, scope, 'selection') ||
-        !internals.validateScope(credentials, scope, 'forbidden')) {
+    const expandedScope = internals.expandScope(request, scope);
+    if (!internals.validateScope(credentials, expandedScope, 'required') ||
+        !internals.validateScope(credentials, expandedScope, 'selection') ||
+        !internals.validateScope(credentials, expandedScope, 'forbidden')) {
 
-        return { failed: true, scope };
+        scopeErrors.push(expandedScope);
+        return false;
     }
 
-    return { failed: false };
+    return true;
 };
 
 
-internals.buildAccessError = function (requestEntity, credentialScope, scopeErrors, name) {
+internals.buildAccessError = function (requestEntity, scopeErrors, name) {
 
     if (scopeErrors.length) {
-        const data = { got: credentialScope, need: scopeErrors };
+        const data = { got: undefined, need: scopeErrors };
         return { err: Boom.forbidden('Insufficient scope', data), tags: ['auth', 'scope', 'error', name], data };
     }
 

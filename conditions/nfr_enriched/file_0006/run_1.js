@@ -7,89 +7,40 @@ import {GhostOrb, Icon} from '@tryghost/admin-x-design-system';
 import {isManagedEmail} from '@tryghost/admin-x-framework/api/config';
 import {useGlobalData} from '../../../providers/global-data-provider';
 
-interface NewsletterPreviewContentProps {
-    senderName?: string;
-    senderEmail: string | null;
-    senderReplyTo: string | null;
-    headerImage?: string | null;
-    headerIcon?: string;
-    headerTitle?: string | null;
-    headerSubtitle?: string | null;
-    showPostTitleSection: boolean;
-    showExcerpt: boolean;
-    titleAlignment?: string;
-    titleFontCategory?: string;
-    titleFontWeight?: string;
-    bodyFontCategory?: string;
-    authorPlaceholder?: string;
-    showCommentCta: boolean;
-    showFeatureImage: boolean;
-    showFeedback: boolean;
-    showLatestPosts: boolean;
-    showSubscriptionDetails: boolean;
-    siteTitle?: string;
-    footerContent?: string | null;
-    showBadge?: boolean;
-    backgroundColor?: string;
-    headerBackgroundColor?: string;
-    accentColor?: string;
-    textColor?: string;
-    secondaryTextColor?: string;
-    headerTextColor?: string;
-    secondaryHeaderTextColor?: string;
-    postTitleColor?: string;
-    sectionTitleColor?: string;
-    dividerColor?: string;
-    buttonColor?: string;
-    buttonTextColor?: string;
-    linkColor?: string;
-    buttonStyle?: string;
-    buttonCorners?: string;
-    imageCorners?: string;
-    linkStyle?: string;
-    dividerStyle?: string;
-}
-
 // Helper: Build email header based on managed email configuration
-const buildEmailHeader = (
-    isManagedEmailConfig: boolean,
-    senderName: string | undefined,
-    senderEmail: string | null,
-    senderReplyTo: string | null
-): React.ReactNode => {
+const buildEmailHeader = (isManagedEmailConfig: boolean, senderName?: string, senderEmail: string | null = null, senderReplyTo: string | null = null) => {
     if (isManagedEmailConfig) {
         return (
             <>
+                <p className="leading-normal"><span className="font-semibold text-grey-900">From: </span><span>{senderName} ({senderEmail})</span></p>
                 <p className="leading-normal">
-                    <span className="font-semibold text-grey-900">From: </span>
-                    <span>{senderName} ({senderEmail})</span>
-                </p>
-                <p className="leading-normal">
-                    <span className="font-semibold text-grey-900">Reply-to: </span>
-                    {senderReplyTo ? senderReplyTo : senderEmail}
+                    <span className="font-semibold text-grey-900">Reply-to: </span>{senderReplyTo ? senderReplyTo : senderEmail}
                 </p>
             </>
         );
     }
     return (
         <>
-            <p className="leading-normal">
-                <span className="font-semibold text-grey-900">{senderName}</span>
-                <span> {senderEmail}</span>
-            </p>
-            <p className="leading-normal">
-                <span className="font-semibold text-grey-900">To:</span> Jamie Larson jamie@example.com
-            </p>
+            <p className="leading-normal"><span className="font-semibold text-grey-900">{senderName}</span><span> {senderEmail}</span></p>
+            <p className="leading-normal"><span className="font-semibold text-grey-900">To:</span> Jamie Larson jamie@example.com</p>
         </>
     );
 };
 
-// Helper: Build excerpt classes based on font configuration and alignment
-const buildExcerptClasses = (
-    titleFontCategory: string | undefined,
-    bodyFontCategory: string | undefined,
-    titleAlignment: string | undefined
-): string => {
+// Helper: Get font classes based on font category and weight
+const getFontClasses = (titleFontCategory?: string, titleFontWeight?: string, baseClasses: string = '') => {
+    const fontFamilyClass = titleFontCategory === 'serif' ? 'font-serif' : '';
+    const fontWeightClass = 
+        titleFontWeight === 'normal' ? 'font-normal' :
+        titleFontWeight === 'medium' ? 'font-medium' :
+        titleFontWeight === 'semibold' ? 'font-semibold' :
+        titleFontWeight === 'bold' ? 'font-bold' : '';
+    
+    return clsx(baseClasses, fontFamilyClass, fontWeightClass);
+};
+
+// Helper: Get excerpt classes based on font categories and alignment
+const getExcerptClasses = (titleFontCategory?: string, bodyFontCategory?: string, titleAlignment?: string) => {
     let classes = 'mb-5 text-pretty leading-[1.7] text-black';
 
     if (titleFontCategory === 'serif' && bodyFontCategory === 'serif') {
@@ -109,34 +60,25 @@ const buildExcerptClasses = (
     return classes;
 };
 
-// Helper: Build title font classes
-const buildTitleFontClasses = (
-    titleFontCategory: string | undefined,
-    titleFontWeight: string | undefined
-): string => {
+// Helper: Get divider classes based on style
+const getDividerClasses = (dividerStyle?: string, baseClasses: string = '') => {
     return clsx(
-        titleFontCategory === 'serif' && 'font-serif',
-        titleFontWeight === 'normal' && 'font-normal',
-        titleFontWeight === 'medium' && 'font-medium',
-        titleFontWeight === 'semibold' && 'font-semibold',
-        titleFontWeight === 'bold' && 'font-bold'
-    );
-};
-
-// Helper: Build divider classes
-const buildDividerClasses = (dividerStyle: string | undefined): string => {
-    return clsx(
+        baseClasses,
         dividerStyle === 'dashed' && 'border-dashed',
         dividerStyle === 'dotted' && 'border-b-2 border-dotted'
     );
 };
 
-// Helper: Build button classes
-const buildButtonClasses = (
-    buttonCorners: string | undefined,
-    buttonStyle: string | undefined,
-    linkStyle: string | undefined
-): string => {
+// Helper: Get image corner classes
+const getImageCornerClasses = (imageCorners?: string) => {
+    return clsx(
+        imageCorners === 'square' && 'rounded-none',
+        imageCorners === 'rounded' && 'rounded-md'
+    );
+};
+
+// Helper: Get button classes based on style and corners
+const getButtonClasses = (buttonStyle?: string, buttonCorners?: string, linkStyle?: string) => {
     return clsx(
         'inline-block border px-[18px] py-2 font-sans text-[15px]',
         buttonCorners === 'rounded' && 'rounded-[6px]',
@@ -149,13 +91,8 @@ const buildButtonClasses = (
     );
 };
 
-// Helper: Build button styles
-const buildButtonStyles = (
-    buttonStyle: string | undefined,
-    buttonColor: string | undefined,
-    accentColor: string | undefined,
-    buttonTextColor: string | undefined
-): React.CSSProperties => {
+// Helper: Get button styles based on button style and colors
+const getButtonStyles = (buttonStyle?: string, buttonColor?: string, buttonTextColor?: string, accentColor?: string) => {
     if (buttonStyle === 'outline') {
         return {
             borderColor: buttonColor || accentColor,
@@ -168,25 +105,13 @@ const buildButtonStyles = (
     };
 };
 
-// Helper: Build image corner classes
-const buildImageCornerClasses = (imageCorners: string | undefined): string => {
+// Helper: Get link classes based on link style
+const getLinkClasses = (linkStyle?: string) => {
     return clsx(
-        imageCorners === 'square' && 'rounded-none',
-        imageCorners === 'rounded' && 'rounded-md'
+        linkStyle === 'underline' && 'underline',
+        linkStyle === 'bold' && 'font-bold'
     );
 };
-
-// Helper: Process footer content to add security attributes to links
-const processFooterContent = (footerContent: string | undefined): string => {
-    return footerContent ? footerContent.replace(/<a/g, '<a target="_blank" rel="noopener noreferrer"') : '';
-};
-
-// Component: Email header section
-const EmailHeaderSection: React.FC<{emailHeader: React.ReactNode}> = ({emailHeader}) => (
-    <div className="flex-column flex min-h-[77px] justify-center rounded-t-sm border-b border-grey-200 bg-white px-6 text-sm text-grey-700">
-        {emailHeader}
-    </div>
-);
 
 // Component: Header section with icon, title, and subtitle
 const HeaderSection: React.FC<{
@@ -222,7 +147,7 @@ const HeaderSection: React.FC<{
     );
 };
 
-// Component: Post title section with metadata
+// Component: Post title section with author and date
 const PostTitleSection: React.FC<{
     showPostTitleSection: boolean;
     showExcerpt: boolean;
@@ -235,34 +160,20 @@ const PostTitleSection: React.FC<{
     headerTextColor?: string;
     secondaryHeaderTextColor?: string;
     currentDate: string;
-}> = ({
-    showPostTitleSection,
-    showExcerpt,
-    titleAlignment,
-    titleFontCategory,
-    titleFontWeight,
-    bodyFontCategory,
-    authorPlaceholder,
-    postTitleColor,
-    headerTextColor,
-    secondaryHeaderTextColor,
-    currentDate
-}) => {
+}> = ({showPostTitleSection, showExcerpt, titleAlignment, titleFontCategory, titleFontWeight, bodyFontCategory, authorPlaceholder, postTitleColor, headerTextColor, secondaryHeaderTextColor, currentDate}) => {
     if (!showPostTitleSection) {
         return null;
     }
 
-    const excerptClasses = buildExcerptClasses(titleFontCategory, bodyFontCategory, titleAlignment);
-    const titleFontClasses = buildTitleFontClasses(titleFontCategory, titleFontWeight);
+    const excerptClasses = getExcerptClasses(titleFontCategory, bodyFontCategory, titleAlignment);
 
     return (
         <div className={clsx('flex flex-col py-8', titleAlignment === 'center' ? 'items-center' : 'items-start')}>
-            <h2 className={clsx(
+            <h2 className={getFontClasses(titleFontCategory, titleFontWeight, clsx(
                 'text-4xl font-bold leading-supertight text-black',
-                titleFontClasses,
                 titleAlignment === 'center' ? 'text-center' : 'text-left',
                 showExcerpt ? 'mb-2' : 'mb-8'
-            )} style={{color: postTitleColor}}>Your email newsletter</h2>
+            ))} style={{color: postTitleColor}}>Your email newsletter</h2>
             {showExcerpt && (
                 <p className={excerptClasses} style={{color: headerTextColor}}>A subtitle to highlight key points and engage your readers.</p>
             )}
@@ -291,8 +202,6 @@ const FeatureImageSection: React.FC<{
         return null;
     }
 
-    const imageClasses = buildImageCornerClasses(imageCorners);
-
     return (
         <>
             <div className={clsx(
@@ -301,7 +210,7 @@ const FeatureImageSection: React.FC<{
             )}>
                 <img alt="Feature" className={clsx(
                     'min-h-full min-w-full shrink-0',
-                    imageClasses
+                    getImageCornerClasses(imageCorners)
                 )} src={CoverImage} />
             </div>
             <div className="mt-1 w-full max-w-[600px] pb-8 text-center text-[1.3rem] text-grey-700" style={{color: secondaryHeaderTextColor}}>Feature image caption</div>
@@ -313,69 +222,43 @@ const FeatureImageSection: React.FC<{
 const MainContentSection: React.FC<{
     showFeatureImage: boolean;
     showPostTitleSection: boolean;
-    bodyFontCategory?: string;
     dividerStyle?: string;
     dividerColor?: string;
+    bodyFontCategory?: string;
     textColor?: string;
     sectionTitleColor?: string;
     linkColor?: string;
     accentColor?: string;
-    linkStyle?: string;
-    buttonCorners?: string;
-    buttonStyle?: string;
     buttonColor?: string;
     buttonTextColor?: string;
+    buttonStyle?: string;
+    buttonCorners?: string;
+    linkStyle?: string;
     titleFontCategory?: string;
     titleFontWeight?: string;
-    headerBackgroundColor?: string;
-}> = ({
-    showFeatureImage,
-    showPostTitleSection,
-    bodyFontCategory,
-    dividerStyle,
-    dividerColor,
-    textColor,
-    sectionTitleColor,
-    linkColor,
-    accentColor,
-    linkStyle,
-    buttonCorners,
-    buttonStyle,
-    buttonColor,
-    buttonTextColor,
-    titleFontCategory,
-    titleFontWeight,
-    headerBackgroundColor
-}) => {
-    const dividerClasses = buildDividerClasses(dividerStyle);
-    const titleFontClasses = buildTitleFontClasses(titleFontCategory, titleFontWeight);
-    const buttonClasses = buildButtonClasses(buttonCorners, buttonStyle, linkStyle);
-    const buttonStyles = buildButtonStyles(buttonStyle, buttonColor, accentColor, buttonTextColor);
-
+}> = ({showFeatureImage, showPostTitleSection, dividerStyle, dividerColor, bodyFontCategory, textColor, sectionTitleColor, linkColor, accentColor, buttonColor, buttonTextColor, buttonStyle, buttonCorners, linkStyle, titleFontCategory, titleFontWeight}) => {
     return (
-        <div className={clsx('px-[7rem]', headerBackgroundColor !== 'transparent' && 'pt-10')}>
-            <div className={clsx(
-                'max-w-[600px] border-b border-grey-200 pb-[52px] leading-[27.2px] text-black',
-                dividerClasses,
-                bodyFontCategory === 'serif' ? 'font-serif text-[1.8rem]' : 'text-[1.7rem] tracking-tight',
-                (showFeatureImage || showPostTitleSection) ? '' : 'pt-8'
-            )} style={{borderColor: dividerColor}}>
-                <p className="mb-6" style={{color: textColor}}>This is what your content will look like when you send one of your posts as an email newsletter to your subscribers.</p>
-                <p className="mb-6" style={{color: textColor}}>Over there on the right you&apos;ll see some settings that allow you to customize the look and feel of this template – from colors and typography to layout and buttons – to make it perfectly suited to your brand.</p>
-                <p className="mb-[52px]" style={{color: textColor}}>Email templates are exceptionally finnicky to make, but we&apos;ve spent a long time optimising this one to make it work beautifully across devices, email clients and content types. So, you can trust that every email you send with Ghost will look great and work well. Just like the rest of your site.</p>
-                <hr className={clsx('my-[52px] border-[#e0e7eb]', dividerClasses)} style={{borderColor: dividerColor}} />
-                <h3 className={clsx('mb-[13px] text-[2.6rem] leading-supertight', titleFontClasses)} style={{color: sectionTitleColor}}>Need inspiration?</h3>
-                <p className="mb-[27px]" style={{color: textColor}}>We&apos;ve put together a <a className={clsx(linkStyle === 'underline' && 'underline', linkStyle === 'bold' && 'font-bold')} href="https://ghost.org/help/email-design/" rel="noopener noreferrer" style={{color: linkColor || accentColor}} target="_blank">quick guide</a> that walks through all of the available settings, along with a few examples of what&apos;s possible.</p>
-                <a
-                    className={buttonClasses}
-                    href="https://ghost.org/help/email-design/"
-                    rel="noopener noreferrer"
-                    style={buttonStyles}
-                    target="_blank"
-                >
-                    Learn more
-                </a>
-            </div>
+        <div className={clsx(
+            'max-w-[600px] border-b border-grey-200 pb-[52px] leading-[27.2px] text-black',
+            getDividerClasses(dividerStyle),
+            bodyFontCategory === 'serif' ? 'font-serif text-[1.8rem]' : 'text-[1.7rem] tracking-tight',
+            (showFeatureImage || showPostTitleSection) ? '' : 'pt-8'
+        )} style={{borderColor: dividerColor}}>
+            <p className="mb-6" style={{color: textColor}}>This is what your content will look like when you send one of your posts as an email newsletter to your subscribers.</p>
+            <p className="mb-6" style={{color: textColor}}>Over there on the right you&apos;ll see some settings that allow you to customize the look and feel of this template – from colors and typography to layout and buttons – to make it perfectly suited to your brand.</p>
+            <p className="mb-[52px]" style={{color: textColor}}>Email templates are exceptionally finnicky to make, but we&apos;ve spent a long time optimising this one to make it work beautifully across devices, email clients and content types. So, you can trust that every email you send with Ghost will look great and work well. Just like the rest of your site.</p>
+            <hr className={clsx('my-[52px] border-[#e0e7eb]', dividerStyle === 'dashed' && 'border-dashed', dividerStyle === 'dotted' && 'border-b-2 border-t-0 border-dotted')} style={{borderColor: dividerColor}} />
+            <h3 className={getFontClasses(titleFontCategory, titleFontWeight, 'mb-[13px] text-[2.6rem] leading-supertight')} style={{color: sectionTitleColor}}>Need inspiration?</h3>
+            <p className="mb-[27px]" style={{color: textColor}}>We&apos;ve put together a <a className={getLinkClasses(linkStyle)} href="https://ghost.org/help/email-design/" rel="noopener noreferrer" style={{color: linkColor || accentColor}} target="_blank">quick guide</a> that walks through all of the available settings, along with a few examples of what&apos;s possible.</p>
+            <a
+                className={getButtonClasses(buttonStyle, buttonCorners, linkStyle)}
+                href="https://ghost.org/help/email-design/"
+                rel="noopener noreferrer"
+                style={getButtonStyles(buttonStyle, buttonColor, buttonTextColor, accentColor)}
+                target="_blank"
+            >
+                Learn more
+            </a>
         </div>
     );
 };
@@ -392,10 +275,8 @@ const FeedbackSection: React.FC<{
         return null;
     }
 
-    const dividerClasses = buildDividerClasses(dividerStyle);
-
     return (
-        <div className={clsx('grid gap-5 border-b border-grey-200 px-6 py-5', dividerClasses)} style={{borderColor: dividerColor}}>
+        <div className={getDividerClasses(dividerStyle, 'grid gap-5 border-b border-grey-200 px-6 py-5')} style={{borderColor: dividerColor}}>
             <div className="flex justify-center gap-3">
                 {showFeedback && (
                     <>
@@ -434,48 +315,32 @@ const LatestPostsSection: React.FC<{
     textColor?: string;
     sectionTitleColor?: string;
     secondaryTextColor?: string;
+    imageCorners?: string;
     titleFontCategory?: string;
     titleFontWeight?: string;
-    imageCorners?: string;
-}> = ({
-    showLatestPosts,
-    dividerStyle,
-    dividerColor,
-    textColor,
-    sectionTitleColor,
-    secondaryTextColor,
-    titleFontCategory,
-    titleFontWeight,
-    imageCorners
-}) => {
+}> = ({showLatestPosts, dividerStyle, dividerColor, textColor, sectionTitleColor, secondaryTextColor, imageCorners, titleFontCategory, titleFontWeight}) => {
     if (!showLatestPosts) {
         return null;
     }
 
-    const dividerClasses = buildDividerClasses(dividerStyle);
-    const titleFontClasses = buildTitleFontClasses(titleFontCategory, titleFontWeight);
-    const imageClasses = buildImageCornerClasses(imageCorners);
-
-    const latestPostsData = [
-        {title: 'The three latest posts published on your site', description: 'Posts sent as an email only will never be shown here.', image: LatestPosts1},
-        {title: 'Displayed at the bottom of each newsletter', description: 'Giving your readers one more place to discover your stories.', image: LatestPosts2},
-        {title: 'To keep your work front and center', description: 'Making sure that your audience stays engaged.', image: LatestPosts3}
-    ];
+    const postItem = (title: string, description: string, image: string) => (
+        <div className="flex justify-between gap-4 py-2">
+            <div>
+                <h4 className={getFontClasses(titleFontCategory, titleFontWeight, 'mt-0.5 text-[1.9rem] text-black')} style={{color: sectionTitleColor}}>{title}</h4>
+                <p className="m-0 text-base text-grey-700" style={{color: secondaryTextColor}}>{description}</p>
+            </div>
+            <div className="aspect-square h-auto w-full max-w-[100px] bg-cover bg-no-repeat">
+                <img alt="Latest post" className={getImageCornerClasses(imageCorners)} src={image} />
+            </div>
+        </div>
+    );
 
     return (
-        <div className={clsx('border-b border-grey-200 py-6', dividerClasses)} style={{borderColor: dividerColor}}>
+        <div className={getDividerClasses(dividerStyle, 'border-b border-grey-200 py-6')} style={{borderColor: dividerColor}}>
             <h3 className="mb-4 mt-2 pb-1 text-[1.2rem] font-semibold uppercase tracking-wide text-black" style={{color: textColor}}>Keep reading</h3>
-            {latestPostsData.map((post, index) => (
-                <div key={index} className="flex justify-between gap-4 py-2">
-                    <div>
-                        <h4 className={clsx('mt-0.5 text-[1.9rem] text-black', titleFontClasses)} style={{color: sectionTitleColor}}>{post.title}</h4>
-                        <p className="m-0 text-base text-grey-700" style={{color: secondaryTextColor}}>{post.description}</p>
-                    </div>
-                    <div className="aspect-square h-auto w-full max-w-[100px] bg-cover bg-no-repeat">
-                        <img alt="Latest post" className={imageClasses} src={post.image} />
-                    </div>
-                </div>
-            ))}
+            {postItem('The three latest posts published on your site', 'Posts sent as an email only will never be shown here.', LatestPosts1)}
+            {postItem('Displayed at the bottom of each newsletter', 'Giving your readers one more place to discover your stories.', LatestPosts2)}
+            {postItem('To keep your work front and center', 'Making sure that your audience stays engaged.', LatestPosts3)}
         </div>
     );
 };
@@ -486,28 +351,17 @@ const SubscriptionDetailsSection: React.FC<{
     dividerStyle?: string;
     dividerColor?: string;
     textColor?: string;
+    siteTitle?: string;
     linkColor?: string;
     accentColor?: string;
     linkStyle?: string;
-    siteTitle?: string;
-}> = ({
-    showSubscriptionDetails,
-    dividerStyle,
-    dividerColor,
-    textColor,
-    linkColor,
-    accentColor,
-    linkStyle,
-    siteTitle
-}) => {
+}> = ({showSubscriptionDetails, dividerStyle, dividerColor, textColor, siteTitle, linkColor, accentColor, linkStyle}) => {
     if (!showSubscriptionDetails) {
         return null;
     }
 
-    const dividerClasses = buildDividerClasses(dividerStyle);
-
     return (
-        <div className={clsx('border-b border-grey-200 py-8', dividerClasses)} style={{borderColor: dividerColor}}>
+        <div className={getDividerClasses(dividerStyle, 'border-b border-grey-200 py-8')} style={{borderColor: dividerColor}}>
             <h4 className="mb-3 text-[1.2rem] uppercase tracking-wide text-black" style={{color: textColor}}>Subscription details</h4>
             <p className="m-0 mb-4 text-base" style={{color: textColor}}>You are receiving this because you are a paid subscriber to {siteTitle}. Your subscription will renew on 17 Jul 2024.</p>
             <div className="flex">
@@ -516,7 +370,7 @@ const SubscriptionDetailsSection: React.FC<{
                     <p style={{color: textColor}}>Email: jamie@example.com</p>
                     <p style={{color: textColor}}>Member since: 17 July 2023</p>
                 </div>
-                <span className={clsx('w-full self-end whitespace-nowrap text-right text-base', linkStyle === 'underline' && 'underline', linkStyle === 'bold' && 'font-bold')} style={{color: linkColor || accentColor}}>
+                <span className={clsx('w-full self-end whitespace-nowrap text-right text-base', getLinkClasses(linkStyle))} style={{color: linkColor || accentColor}}>
                     Manage subscription
                 </span>
             </div>
@@ -524,33 +378,83 @@ const SubscriptionDetailsSection: React.FC<{
     );
 };
 
-// Component: Footer section with branding
+// Component: Footer section
 const FooterSection: React.FC<{
-    processedFooterContent: string;
-    secondaryTextColor?: string;
+    footerContent?: string | null;
     siteTitle?: string;
     currentYear: number;
     showBadge?: boolean;
+    secondaryTextColor?: string;
     textColor?: string;
-}> = ({processedFooterContent, secondaryTextColor, siteTitle, currentYear, showBadge, textColor}) => (
-    <div className="flex flex-col items-center pt-10">
-        <div dangerouslySetInnerHTML={{__html: processedFooterContent || ''}} className="text break-words px-8 py-3 text-center text-[1.3rem] leading-base text-grey-700 [&_a]:underline" style={{color: secondaryTextColor}} />
-        <div className="px-8 pb-14 pt-3 text-center text-[1.3rem] text-grey-700">
-            <span style={{color: secondaryTextColor}}>{siteTitle} © {currentYear} &mdash; </span>
-            <span className="pointer-events-none cursor-auto underline" style={{color: secondaryTextColor}}>Unsubscribe</span>
-        </div>
-        {showBadge && (
-            <div className="flex flex-col items-center pb-[40px] pt-[10px]">
-                <a className="pointer-events-none inline-flex cursor-auto items-center px-2 py-1 text-[1.25rem] font-semibold tracking-tight text-grey-900" href="https://ghost.org" style={{color: textColor}}>
-                    <GhostOrb className="mr-[6px] size-4"/>
-                    <span>Powered by Ghost</span>
-                </a>
-            </div>
-        )}
-    </div>
-);
+}> = ({footerContent, siteTitle, currentYear, showBadge, secondaryTextColor, textColor}) => {
+    const processedFooterContent = footerContent ? footerContent.replace(/<a/g, '<a target="_blank" rel="noopener noreferrer"') : '';
 
-const NewsletterPreviewContent: React.FC<NewsletterPreviewContentProps> = ({
+    return (
+        <div className="flex flex-col items-center pt-10">
+            <div dangerouslySetInnerHTML={{__html: processedFooterContent || ''}} className="text break-words px-8 py-3 text-center text-[1.3rem] leading-base text-grey-700 [&_a]:underline" style={{color: secondaryTextColor}} />
+
+            <div className="px-8 pb-14 pt-3 text-center text-[1.3rem] text-grey-700">
+                <span style={{color: secondaryTextColor}}>{siteTitle} © {currentYear} &mdash; </span>
+                <span className="pointer-events-none cursor-auto underline" style={{color: secondaryTextColor}}>Unsubscribe</span>
+            </div>
+
+            {showBadge && (
+                <div className="flex flex-col items-center pb-[40px] pt-[10px]">
+                    <a className="pointer-events-none inline-flex cursor-auto items-center px-2 py-1 text-[1.25rem] font-semibold tracking-tight text-grey-900" href="https://ghost.org" style={{color: textColor}}>
+                        <GhostOrb className="mr-[6px] size-4"/>
+                        <span>Powered by Ghost</span>
+                    </a>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const NewsletterPreviewContent: React.FC<{
+    senderName?: string;
+    senderEmail: string | null;
+    senderReplyTo: string | null;
+    headerImage?: string | null;
+    headerIcon?: string;
+    headerTitle?: string | null;
+    headerSubtitle?: string | null;
+    showPostTitleSection: boolean;
+    showExcerpt: boolean;
+    titleAlignment?: string;
+    titleFontCategory?: string;
+    titleFontWeight?: string;
+    bodyFontCategory?: string;
+    authorPlaceholder?: string;
+
+    showCommentCta: boolean;
+    showFeatureImage: boolean;
+    showFeedback: boolean;
+    showLatestPosts: boolean;
+    showSubscriptionDetails: boolean;
+
+    siteTitle?: string;
+    footerContent?: string | null;
+    showBadge?: boolean;
+
+    backgroundColor?: string;
+    headerBackgroundColor?: string;
+    accentColor?: string;
+    textColor?: string;
+    secondaryTextColor?: string;
+    headerTextColor?: string;
+    secondaryHeaderTextColor?: string;
+    postTitleColor?: string;
+    sectionTitleColor?: string;
+    dividerColor?: string;
+    buttonColor?: string;
+    buttonTextColor?: string;
+    linkColor?: string;
+    buttonStyle?: string;
+    buttonCorners?: string;
+    imageCorners?: string;
+    linkStyle?: string;
+    dividerStyle?: string;
+}> = ({
     senderName,
     senderEmail,
     senderReplyTo,
@@ -565,14 +469,17 @@ const NewsletterPreviewContent: React.FC<NewsletterPreviewContentProps> = ({
     titleFontWeight,
     bodyFontCategory,
     authorPlaceholder,
+
     showCommentCta,
     showFeatureImage,
     showFeedback,
     showLatestPosts,
     showSubscriptionDetails,
+
     siteTitle,
     footerContent,
     showBadge,
+
     backgroundColor,
     headerBackgroundColor,
     accentColor,
@@ -586,8 +493,8 @@ const NewsletterPreviewContent: React.FC<NewsletterPreviewContentProps> = ({
     buttonColor,
     buttonTextColor,
     linkColor,
-    buttonStyle,
     buttonCorners,
+    buttonStyle,
     imageCorners,
     linkStyle,
     dividerStyle
@@ -601,15 +508,18 @@ const NewsletterPreviewContent: React.FC<NewsletterPreviewContentProps> = ({
     });
     const currentYear = new Date().getFullYear();
 
-    const processedFooterContent = processFooterContent(footerContent);
     const emailHeader = buildEmailHeader(isManagedEmail(config), senderName, senderEmail, senderReplyTo);
 
     return (
         <div className="relative flex grow flex-col">
             <div className="absolute inset-0 m-5 flex items-center justify-center">
                 <div className="mx-auto my-0 flex max-h-full w-full max-w-[700px] flex-col overflow-hidden rounded-[4px] text-black shadow-sm">
-                    <EmailHeaderSection emailHeader={emailHeader} />
+                    {/* Email header */}
+                    <div className="flex-column flex min-h-[77px] justify-center rounded-t-sm border-b border-grey-200 bg-white px-6 text-sm text-grey-700">
+                        {emailHeader}
+                    </div>
 
+                    {/* Email content */}
                     <div className="overflow-y-auto text-sm" style={{backgroundColor}}>
                         <HeaderSection
                             headerImage={headerImage}
@@ -621,86 +531,91 @@ const NewsletterPreviewContent: React.FC<NewsletterPreviewContentProps> = ({
                             headerBackgroundColor={headerBackgroundColor}
                         />
 
-                        <PostTitleSection
-                            showPostTitleSection={showPostTitleSection}
-                            showExcerpt={showExcerpt}
-                            titleAlignment={titleAlignment}
-                            titleFontCategory={titleFontCategory}
-                            titleFontWeight={titleFontWeight}
-                            bodyFontCategory={bodyFontCategory}
-                            authorPlaceholder={authorPlaceholder}
-                            postTitleColor={postTitleColor}
-                            headerTextColor={headerTextColor}
-                            secondaryHeaderTextColor={secondaryHeaderTextColor}
-                            currentDate={currentDate}
-                        />
+                        <div className={clsx(headerBackgroundColor !== 'transparent' && 'pt-10')}>
+                            <div className="px-[7rem]">
+                                <PostTitleSection
+                                    showPostTitleSection={showPostTitleSection}
+                                    showExcerpt={showExcerpt}
+                                    titleAlignment={titleAlignment}
+                                    titleFontCategory={titleFontCategory}
+                                    titleFontWeight={titleFontWeight}
+                                    bodyFontCategory={bodyFontCategory}
+                                    authorPlaceholder={authorPlaceholder}
+                                    postTitleColor={postTitleColor}
+                                    headerTextColor={headerTextColor}
+                                    secondaryHeaderTextColor={secondaryHeaderTextColor}
+                                    currentDate={currentDate}
+                                />
 
-                        <FeatureImageSection
-                            showFeatureImage={showFeatureImage}
-                            showPostTitleSection={showPostTitleSection}
-                            imageCorners={imageCorners}
-                            secondaryHeaderTextColor={secondaryHeaderTextColor}
-                        />
+                                <FeatureImageSection
+                                    showFeatureImage={showFeatureImage}
+                                    showPostTitleSection={showPostTitleSection}
+                                    imageCorners={imageCorners}
+                                    secondaryHeaderTextColor={secondaryHeaderTextColor}
+                                />
+                            </div>
 
-                        <MainContentSection
-                            showFeatureImage={showFeatureImage}
-                            showPostTitleSection={showPostTitleSection}
-                            bodyFontCategory={bodyFontCategory}
-                            dividerStyle={dividerStyle}
-                            dividerColor={dividerColor}
-                            textColor={textColor}
-                            sectionTitleColor={sectionTitleColor}
-                            linkColor={linkColor}
-                            accentColor={accentColor}
-                            linkStyle={linkStyle}
-                            buttonCorners={buttonCorners}
-                            buttonStyle={buttonStyle}
-                            buttonColor={buttonColor}
-                            buttonTextColor={buttonTextColor}
-                            titleFontCategory={titleFontCategory}
-                            titleFontWeight={titleFontWeight}
-                            headerBackgroundColor={headerBackgroundColor}
-                        />
+                            <div className="px-[7rem]">
+                                <MainContentSection
+                                    showFeatureImage={showFeatureImage}
+                                    showPostTitleSection={showPostTitleSection}
+                                    dividerStyle={dividerStyle}
+                                    dividerColor={dividerColor}
+                                    bodyFontCategory={bodyFontCategory}
+                                    textColor={textColor}
+                                    sectionTitleColor={sectionTitleColor}
+                                    linkColor={linkColor}
+                                    accentColor={accentColor}
+                                    buttonColor={buttonColor}
+                                    buttonTextColor={buttonTextColor}
+                                    buttonStyle={buttonStyle}
+                                    buttonCorners={buttonCorners}
+                                    linkStyle={linkStyle}
+                                    titleFontCategory={titleFontCategory}
+                                    titleFontWeight={titleFontWeight}
+                                />
 
-                        <FeedbackSection
-                            showFeedback={showFeedback}
-                            showCommentCta={showCommentCta}
-                            dividerStyle={dividerStyle}
-                            dividerColor={dividerColor}
-                            textColor={textColor}
-                        />
+                                <FeedbackSection
+                                    showFeedback={showFeedback}
+                                    showCommentCta={showCommentCta}
+                                    dividerStyle={dividerStyle}
+                                    dividerColor={dividerColor}
+                                    textColor={textColor}
+                                />
 
-                        <LatestPostsSection
-                            showLatestPosts={showLatestPosts}
-                            dividerStyle={dividerStyle}
-                            dividerColor={dividerColor}
-                            textColor={textColor}
-                            sectionTitleColor={sectionTitleColor}
-                            secondaryTextColor={secondaryTextColor}
-                            titleFontCategory={titleFontCategory}
-                            titleFontWeight={titleFontWeight}
-                            imageCorners={imageCorners}
-                        />
+                                <LatestPostsSection
+                                    showLatestPosts={showLatestPosts}
+                                    dividerStyle={dividerStyle}
+                                    dividerColor={dividerColor}
+                                    textColor={textColor}
+                                    sectionTitleColor={sectionTitleColor}
+                                    secondaryTextColor={secondaryTextColor}
+                                    imageCorners={imageCorners}
+                                    titleFontCategory={titleFontCategory}
+                                    titleFontWeight={titleFontWeight}
+                                />
 
-                        <SubscriptionDetailsSection
-                            showSubscriptionDetails={showSubscriptionDetails}
-                            dividerStyle={dividerStyle}
-                            dividerColor={dividerColor}
-                            textColor={textColor}
-                            linkColor={linkColor}
-                            accentColor={accentColor}
-                            linkStyle={linkStyle}
-                            siteTitle={siteTitle}
-                        />
+                                <SubscriptionDetailsSection
+                                    showSubscriptionDetails={showSubscriptionDetails}
+                                    dividerStyle={dividerStyle}
+                                    dividerColor={dividerColor}
+                                    textColor={textColor}
+                                    siteTitle={siteTitle}
+                                    linkColor={linkColor}
+                                    accentColor={accentColor}
+                                    linkStyle={linkStyle}
+                                />
 
-                        <FooterSection
-                            processedFooterContent={processedFooterContent}
-                            secondaryTextColor={secondaryTextColor}
-                            siteTitle={siteTitle}
-                            currentYear={currentYear}
-                            showBadge={showBadge}
-                            textColor={textColor}
-                        />
+                                <FooterSection
+                                    footerContent={footerContent}
+                                    siteTitle={siteTitle}
+                                    currentYear={currentYear}
+                                    showBadge={showBadge}
+                                    secondaryTextColor={secondaryTextColor}
+                                    textColor={textColor}
+                                />
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

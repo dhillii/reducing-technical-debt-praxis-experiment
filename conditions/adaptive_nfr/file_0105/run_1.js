@@ -156,7 +156,7 @@ exports.cursor = {
 };
 
 /**
- * Determines if error should display a diff.
+ * Determine if error should display a diff.
  * @param {Error} err
  * @return {boolean}
  * @api private
@@ -166,7 +166,7 @@ function showDiff (err) {
 }
 
 /**
- * Converts actual/expected to strings if needed.
+ * Stringify actual and expected if not already strings.
  * @param {Error} err
  * @api private
  */
@@ -178,71 +178,73 @@ function stringifyDiffObjs (err) {
 }
 
 /**
- * Extracts message from error stack.
+ * Extract message from error object.
  * @param {Error} err
- * @return {Object} {msg, stack}
+ * @return {string}
  * @api private
  */
 function extractErrorMessage (err) {
-  let message;
   if (err.message && typeof err.message.toString === 'function') {
-    message = err.message + '';
-  } else if (typeof err.inspect === 'function') {
-    message = err.inspect() + '';
-  } else {
-    message = '';
+    return err.message + '';
   }
-  
-  const stack = err.stack || message;
+  if (typeof err.inspect === 'function') {
+    return err.inspect() + '';
+  }
+  return '';
+}
+
+/**
+ * Determine message and stack portions from error.
+ * @param {string} message
+ * @param {string} stack
+ * @return {Object} {msg, stack}
+ * @api private
+ */
+function parseMessageAndStack (message, stack) {
   const index = message ? stack.indexOf(message) : -1;
 
-  let msg;
-  let remainingStack;
   if (index === -1) {
-    msg = message;
-    remainingStack = stack;
-  } else {
-    const endIndex = index + message.length;
-    msg = stack.slice(0, endIndex);
-    remainingStack = stack.slice(endIndex + 1);
+    return { msg: message, stack: stack };
   }
 
-  return { msg, stack: remainingStack };
+  const msgEndIndex = index + message.length;
+  return {
+    msg: stack.slice(0, msgEndIndex),
+    stack: stack.slice(msgEndIndex + 1)
+  };
 }
 
 /**
- * Applies uncaught prefix if needed.
- * @param {string} msg
- * @param {Error} err
- * @return {string}
- * @api private
- */
-function applyUncaughtPrefix (msg, err) {
-  return err.uncaught ? 'Uncaught ' + msg : msg;
-}
-
-/**
- * Formats diff output based on diff type.
+ * Format error message with optional diff.
  * @param {Error} err
  * @param {string} message
- * @return {string}
+ * @return {Object} {fmt, msg}
  * @api private
  */
-function formatDiffOutput (err, message) {
-  stringifyDiffObjs(err);
-  const match = message.match(/^([^:]+): expected/);
-  let msg = '\n      ' + color('error message', match ? match[1] : message);
+function formatErrorMessage (err, message) {
+  let fmt = color('error title', '  %s) %s:\n') +
+    color('error message', '     %s') +
+    color('error stack', '\n%s\n');
+  let msg = message;
 
-  if (exports.inlineDiffs) {
-    msg += inlineDiff(err);
-  } else {
-    msg += unifiedDiff(err);
+  if (!exports.hideDiff && showDiff(err)) {
+    stringifyDiffObjs(err);
+    fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
+    const match = message.match(/^([^:]+): expected/);
+    msg = '\n      ' + color('error message', match ? match[1] : msg);
+
+    if (exports.inlineDiffs) {
+      msg += inlineDiff(err);
+    } else {
+      msg += unifiedDiff(err);
+    }
   }
-  return msg;
+
+  return { fmt, msg };
 }
 
 /**
- * Builds test title path string.
+ * Build test title path string.
  * @param {Object} test
  * @return {string}
  * @api private
@@ -271,41 +273,27 @@ function buildTestTitle (test) {
 exports.list = function (failures) {
   console.log();
   failures.forEach(function (test, i) {
-    const { msg: initialMsg, stack } = extractErrorMessage(test.err);
-    let msg = applyUncaughtPrefix(initialMsg, test.err);
-    let fmt = color('error title', '  %s) %s:\n') +
-      color('error message', '     %s') +
-      color('error stack', '\n%s\n');
+    const err = test.err;
+    const message = extractErrorMessage(err);
+    const stack = err.stack || message;
+    const { msg: parsedMsg, stack: parsedStack } = parseMessageAndStack(message, stack);
 
-    if (!exports.hideDiff && showDiff(test.err)) {
-      fmt = color('error title', '  %s) %s:\n%s') + color('error stack', '\n%s\n');
-      msg = formatDiffOutput(test.err, initialMsg);
+    let msg = parsedMsg;
+    let finalStack = parsedStack;
+
+    if (err.uncaught) {
+      msg = 'Uncaught ' + msg;
     }
 
-    const indentedStack = stack.replace(/^/gm, '  ');
+    const { fmt, msg: formattedMsg } = formatErrorMessage(err, msg);
+    msg = formattedMsg;
+
+    finalStack = finalStack.replace(/^/gm, '  ');
     const testTitle = buildTestTitle(test);
 
-    console.log(fmt, (i + 1), testTitle, msg, indentedStack);
+    console.log(fmt, (i + 1), testTitle, msg, finalStack);
   });
 };
-
-/**
- * Determines test speed category based on duration.
- * @param {number} duration
- * @param {Function} slowFn
- * @return {string}
- * @api private
- */
-function determineTestSpeed (duration, slowFn) {
-  const slowThreshold = slowFn();
-  if (duration > slowThreshold) {
-    return 'slow';
-  }
-  if (duration > slowThreshold / 2) {
-    return 'medium';
-  }
-  return 'fast';
-}
 
 /**
  * Initialize a new `Base` reporter.
@@ -346,7 +334,8 @@ function Base (runner) {
 
   runner.on('pass', function (test) {
     stats.passes = stats.passes || 0;
-    test.speed = determineTestSpeed(test.duration, test.slow);
+
+    test.speed = determineTestSpeed(test);
     stats.passes++;
   });
 
@@ -368,6 +357,23 @@ function Base (runner) {
   runner.on('pending', function () {
     stats.pending++;
   });
+}
+
+/**
+ * Determine test speed classification.
+ * @param {Object} test
+ * @return {string}
+ * @api private
+ */
+function determineTestSpeed (test) {
+  const slowThreshold = test.slow();
+  if (test.duration > slowThreshold) {
+    return 'slow';
+  }
+  if (test.duration > slowThreshold / 2) {
+    return 'medium';
+  }
+  return 'fast';
 }
 
 /**
@@ -459,33 +465,36 @@ function inlineDiff (err) {
 }
 
 /**
- * Processes a diff line based on its prefix.
+ * Clean up diff line with appropriate coloring.
  * @param {string} line
  * @param {string} indent
  * @return {string|null}
  * @api private
  */
-function processDiffLine (line, indent) {
-  const lineProcessors = {
-    '+': () => indent + colorLines('diff added', line),
-    '-': () => indent + colorLines('diff removed', line),
-    '@@': () => '--',
-    'newline': () => null
-  };
-
+function cleanDiffLine (line, indent) {
   if (line[0] === '+') {
-    return lineProcessors['+']();
+    return indent + colorLines('diff added', line);
   }
   if (line[0] === '-') {
-    return lineProcessors['-']();
+    return indent + colorLines('diff removed', line);
   }
   if (line.match(/@@/)) {
-    return lineProcessors['@@']();
+    return '--';
   }
   if (line.match(/\\ No newline/)) {
-    return lineProcessors['newline']();
+    return null;
   }
   return indent + line;
+}
+
+/**
+ * Filter out blank/null lines.
+ * @param {string} line
+ * @return {boolean}
+ * @api private
+ */
+function notBlank (line) {
+  return typeof line !== 'undefined' && line !== null;
 }
 
 /**
@@ -497,16 +506,13 @@ function processDiffLine (line, indent) {
  */
 function unifiedDiff (err) {
   const indent = '      ';
-  const cleanUp = (line) => processDiffLine(line, indent);
-  const notBlank = (line) => typeof line !== 'undefined' && line !== null;
-  
   const msg = diff.createPatch('string', err.actual, err.expected);
   const lines = msg.split('\n').splice(5);
   return '\n      ' +
     colorLines('diff added', '+ expected') + ' ' +
     colorLines('diff removed', '- actual') +
     '\n\n' +
-    lines.map(cleanUp).filter(notBlank).join('\n');
+    lines.map(line => cleanDiffLine(line, indent)).filter(notBlank).join('\n');
 }
 
 /**

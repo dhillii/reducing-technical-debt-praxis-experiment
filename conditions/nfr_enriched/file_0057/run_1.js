@@ -6,12 +6,12 @@ const launchEditorEndpoint = require('./launchEditorEndpoint');
 const formatWebpackMessages = require('./formatWebpackMessages');
 const ErrorOverlay = require('react-error-overlay');
 
-// State management for hot module replacement
-const hmrState = {
+// State management for runtime errors and compilation
+const state = {
+  hadRuntimeError: false,
   isFirstCompilation: true,
   mostRecentCompilationHash: null,
   hasCompileErrors: false,
-  hadRuntimeError: false,
 };
 
 // Configure error overlay editor handler
@@ -27,22 +27,22 @@ ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
   );
 });
 
-// Initialize error reporting
+// Start reporting runtime errors
 ErrorOverlay.startReportingRuntimeErrors({
   onError: function () {
-    hmrState.hadRuntimeError = true;
+    state.hadRuntimeError = true;
   },
   filename: '/static/js/bundle.js',
 });
 
-// Cleanup on module disposal
+// Cleanup on hot module disposal
 if (module.hot && typeof module.hot.dispose === 'function') {
   module.hot.dispose(function () {
     ErrorOverlay.stopReportingRuntimeErrors();
   });
 }
 
-// Create WebSocket connection to development server
+// Create WebSocket connection to dev server
 const connection = new WebSocket(
   url.format({
     protocol: window.location.protocol === 'https:' ? 'wss' : 'ws',
@@ -53,7 +53,7 @@ const connection = new WebSocket(
   })
 );
 
-// Handle WebSocket disconnection
+// Handle connection close
 connection.onclose = function () {
   if (typeof console !== 'undefined' && typeof console.info === 'function') {
     console.info(
@@ -62,10 +62,10 @@ connection.onclose = function () {
   }
 };
 
-// Clear outdated compilation errors from console
+// Clear outdated console errors if compilation had errors
 function clearOutdatedErrors() {
   if (typeof console !== 'undefined' && typeof console.clear === 'function') {
-    if (hmrState.hasCompileErrors) {
+    if (state.hasCompileErrors) {
       console.clear();
     }
   }
@@ -75,9 +75,9 @@ function clearOutdatedErrors() {
 function handleSuccess() {
   clearOutdatedErrors();
 
-  const isHotUpdate = !hmrState.isFirstCompilation;
-  hmrState.isFirstCompilation = false;
-  hmrState.hasCompileErrors = false;
+  const isHotUpdate = !state.isFirstCompilation;
+  state.isFirstCompilation = false;
+  state.hasCompileErrors = false;
 
   if (isHotUpdate) {
     tryApplyUpdates(function onHotUpdateSuccess() {
@@ -111,9 +111,9 @@ function printWarnings(warnings) {
 function handleWarnings(warnings) {
   clearOutdatedErrors();
 
-  const isHotUpdate = !hmrState.isFirstCompilation;
-  hmrState.isFirstCompilation = false;
-  hmrState.hasCompileErrors = false;
+  const isHotUpdate = !state.isFirstCompilation;
+  state.isFirstCompilation = false;
+  state.hasCompileErrors = false;
 
   printWarnings(warnings);
 
@@ -125,7 +125,7 @@ function handleWarnings(warnings) {
 }
 
 // Log errors to console
-function logErrorsToConsole(errors) {
+function logErrors(errors) {
   if (typeof console !== 'undefined' && typeof console.error === 'function') {
     for (let i = 0; i < errors.length; i++) {
       console.error(stripAnsi(errors[i]));
@@ -137,8 +137,8 @@ function logErrorsToConsole(errors) {
 function handleErrors(errors) {
   clearOutdatedErrors();
 
-  hmrState.isFirstCompilation = false;
-  hmrState.hasCompileErrors = true;
+  state.isFirstCompilation = false;
+  state.hasCompileErrors = true;
 
   const formatted = formatWebpackMessages({
     errors: errors,
@@ -146,22 +146,22 @@ function handleErrors(errors) {
   });
 
   ErrorOverlay.reportBuildError(formatted.errors[0]);
-  logErrorsToConsole(formatted.errors);
+  logErrors(formatted.errors);
 }
 
 // Dismiss error overlay if no compile errors
 function tryDismissErrorOverlay() {
-  if (!hmrState.hasCompileErrors) {
+  if (!state.hasCompileErrors) {
     ErrorOverlay.dismissBuildError();
   }
 }
 
 // Update the most recent compilation hash
 function handleAvailableHash(hash) {
-  hmrState.mostRecentCompilationHash = hash;
+  state.mostRecentCompilationHash = hash;
 }
 
-// Route incoming messages from WebSocket
+// Route incoming messages from server
 function routeMessage(message) {
   switch (message.type) {
     case 'hash':
@@ -185,7 +185,7 @@ function routeMessage(message) {
   }
 }
 
-// Handle incoming WebSocket messages
+// Handle messages from the server
 connection.onmessage = function (e) {
   const message = JSON.parse(e.data);
   routeMessage(message);
@@ -194,10 +194,10 @@ connection.onmessage = function (e) {
 // Check if a newer version of code is available
 function isUpdateAvailable() {
   /* globals __webpack_hash__ */
-  return hmrState.mostRecentCompilationHash !== __webpack_hash__;
+  return state.mostRecentCompilationHash !== __webpack_hash__;
 }
 
-// Check if hot module replacement is in idle state
+// Check if hot module replacement can apply updates
 function canApplyUpdates() {
   return module.hot.status() === 'idle';
 }
@@ -211,7 +211,7 @@ function canAcceptErrors() {
 
 // Handle the result of applying hot updates
 function handleApplyUpdates(err, updatedModules, onHotUpdateSuccess) {
-  const haveErrors = err || hmrState.hadRuntimeError;
+  const haveErrors = err || state.hadRuntimeError;
   const needsForcedReload = !err && !updatedModules;
 
   if ((haveErrors && !canAcceptErrors()) || needsForcedReload) {

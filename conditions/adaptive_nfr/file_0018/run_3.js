@@ -273,42 +273,59 @@ export default class OfferPage extends React.Component {
         }
     }
 
+    /** @private Validates offer and product data */
+    isValidOfferContext() {
+        const {pageData: offer, site} = this.context;
+        return offer?.tier && getProductFromId({site, productId: offer.tier.id});
+    }
+
+    /** @private Gets price based on offer cadence */
+    getPriceForOffer(product, offer) {
+        return offer.cadence === 'month' ? product.monthlyPrice : product.yearlyPrice;
+    }
+
+    /** @private Handles form submission with validation and newsletter selection */
+    submitSignupForm(signupData) {
+        const {doAction} = this.context;
+        const {site} = this.context;
+        
+        if (hasMultipleNewsletters({site})) {
+            this.setState({
+                showNewsletterSelection: true,
+                pageData: signupData,
+                errors: {}
+            });
+        } else {
+            doAction('signup', signupData);
+            this.setState({
+                errors: {}
+            });
+        }
+    }
+
     handleSignup(e) {
         e.preventDefault();
         const {pageData: offer, site} = this.context;
-        if (!offer?.tier) {
+        if (!this.isValidOfferContext()) {
             return null;
         }
         const product = getProductFromId({site, productId: offer.tier.id});
-        const price = offer.cadence === 'month' ? product.monthlyPrice : product.yearlyPrice;
         this.setState((state) => {
             return {
                 errors: this.getFormErrors(state)
             };
         }, () => {
-            const {doAction} = this.context;
             const {name, email, phonenumber, errors} = this.state;
-            const hasFormErrors = (errors && Object.values(errors).filter(d => !!d).length > 0);
+            const hasFormErrors = errors && Object.values(errors).filter(d => !!d).length > 0;
             if (!hasFormErrors) {
                 const signupData = {
                     name,
                     email,
-                    plan: price?.id,
+                    plan: this.getPriceForOffer(product, offer)?.id,
                     offerId: offer?.id,
                     phonenumber
                 };
-                if (hasMultipleNewsletters({site})) {
-                    this.setState({
-                        showNewsletterSelection: true,
-                        pageData: signupData,
-                        errors: {}
-                    });
-                } else {
-                    doAction('signup', signupData);
-                    this.setState({
-                        errors: {}
-                    });
-                }
+                this.submitSignupForm(signupData);
             }
         });
     }
@@ -373,40 +390,27 @@ export default class OfferPage extends React.Component {
         );
     }
 
-    /** @returns {string} Submit button label based on offer type and action state */
-    getSubmitButtonLabel() {
-        const {action, pageData: offer} = this.context;
-        
-        const labelStrategies = {
-            'signup:running': () => t('Sending...'),
-            'signup:failed': () => t('Retry'),
-            'trial': () => t('Start {amount}-day free trial', {amount: offer.amount})
-        };
-
-        if (action === 'signup:running' || action === 'signup:failed') {
-            return labelStrategies[action]();
-        }
-        
-        return offer.type === 'trial' ? labelStrategies.trial() : t('Continue');
-    }
-
-    /** @returns {boolean} Whether submit button is in loading state */
-    isSubmitButtonLoading() {
-        return this.context.action === 'signup:running';
-    }
-
-    /** @returns {boolean} Whether submit button is in retry state */
-    isSubmitButtonRetry() {
-        return this.context.action === 'signup:failed';
-    }
-
     renderSubmitButton() {
-        const {brandColor} = this.context;
-        const label = this.getSubmitButtonLabel();
-        const isRunning = this.isSubmitButtonLoading();
-        const retry = this.isSubmitButtonRetry();
-        const disabled = isRunning;
+        const {action, brandColor} = this.context;
+        const {pageData: offer} = this.context;
+        let label = t('Continue');
 
+        if (offer.type === 'trial') {
+            label = t('Start {amount}-day free trial', {amount: offer.amount});
+        }
+
+        let isRunning = false;
+        if (action === 'signup:running') {
+            label = t('Sending...');
+            isRunning = true;
+        }
+        let retry = false;
+        if (action === 'signup:failed') {
+            label = t('Retry');
+            retry = true;
+        }
+
+        const disabled = action === 'signup:running';
         return (
             <ActionButton
                 style={{width: '100%'}}
@@ -442,25 +446,17 @@ export default class OfferPage extends React.Component {
         );
     }
 
-    /** @returns {React.ReactElement|React.ReactElement[]} Offer tag element based on offer type */
-    getOfferTagElement() {
-        const {pageData: offer} = this.context;
-
-        const offerTagStrategies = {
-            fixed: () => (
-                <h5 className="gh-portal-discount-label">{t('{amount} off', {
-                    amount: `${getCurrencySymbol(offer.currency)}${offer.amount / 100}`
-                })}</h5>
-            ),
-            trial: () => (
-                <h5 className="gh-portal-discount-label">{t('{amount} days free', {amount: offer.amount})}</h5>
-            ),
-            percent: () => (
-                <h5 className="gh-portal-discount-label">{t('{amount} off', {amount: offer.amount + '%'})}</h5>
-            )
+    /** @private Renders offer tag based on offer type */
+    getOfferTagContent(offer) {
+        const strategies = {
+            fixed: () => t('{amount} off', {
+                amount: `${getCurrencySymbol(offer.currency)}${offer.amount / 100}`
+            }),
+            trial: () => t('{amount} days free', {amount: offer.amount}),
+            percent: () => t('{amount} off', {amount: offer.amount + '%'})
         };
-
-        return offerTagStrategies[offer.type]?.() || <></>;
+        
+        return strategies[offer.type]?.() || '';
     }
 
     renderOfferTag() {
@@ -470,7 +466,8 @@ export default class OfferPage extends React.Component {
             return <></>;
         }
 
-        return this.getOfferTagElement();
+        const content = this.getOfferTagContent(offer);
+        return <h5 className="gh-portal-discount-label">{content}</h5>;
     }
 
     renderBenefits({product}) {
@@ -494,29 +491,23 @@ export default class OfferPage extends React.Component {
     }
 
     getOriginalPrice({offer, product}) {
-        const price = offer.cadence === 'month' ? product.monthlyPrice : product.yearlyPrice;
+        const price = this.getPriceForOffer(product, offer);
         const originalAmount = this.renderRoundedPrice(price.amount / 100);
         return `${getCurrencySymbol(price.currency)}${originalAmount}/${offer.cadence}`;
     }
 
-    /** @returns {number} Updated price after discount applied */
     getUpdatedPrice({offer, product}) {
-        const price = offer.cadence === 'month' ? product.monthlyPrice : product.yearlyPrice;
+        const price = this.getPriceForOffer(product, offer);
         const originalAmount = price.amount;
-
-        const priceCalculators = {
-            fixed: () => {
-                if (isSameCurrency(offer.currency, price.currency)) {
-                    const updatedAmount = (originalAmount - offer.amount) / 100;
-                    return updatedAmount > 0 ? updatedAmount : 0;
-                }
-                return originalAmount / 100;
-            },
-            percent: () => (originalAmount - ((originalAmount * offer.amount) / 100)) / 100,
-            default: () => originalAmount / 100
-        };
-
-        return (priceCalculators[offer.type] || priceCalculators.default)();
+        let updatedAmount;
+        if (offer.type === 'fixed' && isSameCurrency(offer.currency, price.currency)) {
+            updatedAmount = ((originalAmount - offer.amount)) / 100;
+            return updatedAmount > 0 ? updatedAmount : 0;
+        } else if (offer.type === 'percent') {
+            updatedAmount = (originalAmount - ((originalAmount * offer.amount) / 100)) / 100;
+            return updatedAmount;
+        }
+        return originalAmount / 100;
     }
 
     renderRoundedPrice(price) {
@@ -527,19 +518,19 @@ export default class OfferPage extends React.Component {
         return price;
     }
 
-    /** @returns {string} Formatted discount amount based on offer type */
+    /** @private Gets discount amount formatted by offer type */
     getOffAmount({offer}) {
-        const offAmountStrategies = {
+        const strategies = {
             fixed: () => `${getCurrencySymbol(offer.currency)}${offer.amount / 100}`,
             percent: () => `${offer.amount}%`,
             trial: () => offer.amount
         };
-
-        return offAmountStrategies[offer.type]?.() || '';
+        
+        return strategies[offer.type]?.() || '';
     }
 
-    /** @returns {string} Offer message based on discount duration */
-    getOfferMessageLabel({offer}) {
+    /** @private Determines offer label and renewal text based on duration */
+    getOfferLabelAndRenewal(offer) {
         const offerMessages = {
             forever: t(`{amount} off forever.`, {
                 amount: this.getOffAmount({offer})
@@ -554,23 +545,24 @@ export default class OfferPage extends React.Component {
             })
         };
 
+        const discountDuration = offer.duration;
+        const durationInMonths = offer.duration_in_months || '';
+        
         const durationStrategies = {
             once: () => ({label: offerMessages.firstPeriod, useRenewsLabel: true}),
             forever: () => ({label: offerMessages.forever, useRenewsLabel: false}),
-            repeating: () => {
-                const durationInMonths = offer.duration_in_months || '';
-                const label = durationInMonths === 1 ? offerMessages.firstPeriod : offerMessages.firstNMonths;
-                return {label, useRenewsLabel: true};
-            }
+            repeating: () => ({
+                label: durationInMonths === 1 ? offerMessages.firstPeriod : offerMessages.firstNMonths,
+                useRenewsLabel: true
+            })
         };
 
-        return durationStrategies[offer.duration] || {label: '', useRenewsLabel: false};
+        return durationStrategies[discountDuration]?.() || {label: '', useRenewsLabel: false};
     }
 
     renderOfferMessage({offer, product}) {
-        const originalPrice = this.getOriginalPrice({offer, product});
-
         if (offer.duration === 'trial') {
+            const originalPrice = this.getOriginalPrice({offer, product});
             return (
                 <p className="footnote">{t('Try free for {amount} days, then {originalPrice}.', {
                     amount: offer.amount,
@@ -580,8 +572,9 @@ export default class OfferPage extends React.Component {
             );
         }
 
-        const {label: offerLabel, useRenewsLabel} = this.getOfferMessageLabel({offer});
+        const originalPrice = this.getOriginalPrice({offer, product});
         const renewsLabel = t(`Renews at {price}.`, {price: originalPrice, interpolation: {escapeValue: false}});
+        const {label: offerLabel, useRenewsLabel} = this.getOfferLabelAndRenewal(offer);
 
         return (
             <p className="footnote">{offerLabel} {useRenewsLabel ? renewsLabel : ''}</p>
@@ -601,9 +594,13 @@ export default class OfferPage extends React.Component {
         );
     }
 
+    /** @private Renders price container with optional trial styling */
+    getPriceContainerClass(offer) {
+        return offer.type === 'trial' ? 'gh-portal-product-card-pricecontainer offer-type-trial' : 'gh-portal-product-card-pricecontainer';
+    }
+
     renderUpdatedTierPrice({offer, currencyClass, updatedPrice, price}) {
-        const containerClass = offer.type === 'trial' ? 'gh-portal-product-card-pricecontainer offer-type-trial' : 'gh-portal-product-card-pricecontainer';
-        
+        const containerClass = this.getPriceContainerClass(offer);
         return (
             <div className={containerClass}>
                 <div className="gh-portal-product-price">
@@ -667,7 +664,7 @@ export default class OfferPage extends React.Component {
         if (!product) {
             return null;
         }
-        const price = offer.cadence === 'month' ? product.monthlyPrice : product.yearlyPrice;
+        const price = this.getPriceForOffer(product, offer);
         const updatedPrice = this.getUpdatedPrice({offer, product});
         const benefits = product.benefits || [];
 

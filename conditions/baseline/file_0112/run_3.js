@@ -50,22 +50,9 @@ function SchemaType(path, options, instance) {
   this.splitPath();
 
   options = options || {};
-  this._applyDefaultOptions(options);
-
-  if (options.select == null) {
-    delete options.select;
-  }
-
-  const Options = this.OptionsConstructor || SchemaTypeOptions;
-  this.options = new Options(options);
-  this._index = null;
-
-  if (utils.hasUserDefinedProperty(this.options, 'immutable')) {
-    this.$immutable = this.options.immutable;
-    handleImmutable(this);
-  }
-
-  this._processOptions(options);
+  this._mergeDefaultOptions(options);
+  this._initializeOptions(options);
+  this._processOptionProperties(options);
 
   Object.defineProperty(this, '$$context', {
     enumerable: false,
@@ -76,10 +63,9 @@ function SchemaType(path, options, instance) {
 }
 
 /*!
- * Apply default options from constructor
+ * Merge default options into provided options
  */
-
-SchemaType.prototype._applyDefaultOptions = function(options) {
+SchemaType.prototype._mergeDefaultOptions = function(options) {
   const defaultOptions = this.constructor.defaultOptions || {};
   const defaultOptionsKeys = Object.keys(defaultOptions);
 
@@ -88,13 +74,30 @@ SchemaType.prototype._applyDefaultOptions = function(options) {
       options[option] = defaultOptions[option];
     }
   }
+
+  if (options.select == null) {
+    delete options.select;
+  }
 };
 
 /*!
- * Process options and apply them to the schema type
+ * Initialize the options object
  */
+SchemaType.prototype._initializeOptions = function(options) {
+  const Options = this.OptionsConstructor || SchemaTypeOptions;
+  this.options = new Options(options);
+  this._index = null;
 
-SchemaType.prototype._processOptions = function(options) {
+  if (utils.hasUserDefinedProperty(this.options, 'immutable')) {
+    this.$immutable = this.options.immutable;
+    handleImmutable(this);
+  }
+};
+
+/*!
+ * Process option properties and apply them
+ */
+SchemaType.prototype._processOptionProperties = function(options) {
   const keys = Object.keys(this.options);
   for (const prop of keys) {
     if (prop === 'cast') {
@@ -105,15 +108,14 @@ SchemaType.prototype._processOptions = function(options) {
       continue;
     }
 
-    this._applyOption(prop, options);
+    this._applyOptionProperty(prop, options);
   }
 };
 
 /*!
- * Apply a single option to the schema type
+ * Apply a single option property
  */
-
-SchemaType.prototype._applyOption = function(prop, options) {
+SchemaType.prototype._applyOptionProperty = function(prop, options) {
   if (prop === 'index') {
     this._handleIndexOption(options);
     return;
@@ -130,9 +132,8 @@ SchemaType.prototype._applyOption = function(prop, options) {
 };
 
 /*!
- * Handle index option with validation
+ * Handle index option validation
  */
-
 SchemaType.prototype._handleIndexOption = function(options) {
   if (!this._index) {
     return;
@@ -147,7 +148,6 @@ SchemaType.prototype._handleIndexOption = function(options) {
 /*!
  * Validate index conflicts with unique and sparse
  */
-
 SchemaType.prototype._validateIndexConflict = function() {
   const index = this._index;
   if (typeof index !== 'object' || index == null) {
@@ -877,7 +877,6 @@ SchemaType.prototype.validate = function(obj, message, type) {
 /*!
  * Add a single validator
  */
-
 SchemaType.prototype._addSingleValidator = function(obj, message, type) {
   const properties = this._buildValidatorProperties(obj, message, type);
 
@@ -891,7 +890,6 @@ SchemaType.prototype._addSingleValidator = function(obj, message, type) {
 /*!
  * Build validator properties object
  */
-
 SchemaType.prototype._buildValidatorProperties = function(obj, message, type) {
   if (typeof message === 'function') {
     return {
@@ -921,7 +919,6 @@ SchemaType.prototype._buildValidatorProperties = function(obj, message, type) {
 /*!
  * Add multiple validators
  */
-
 SchemaType.prototype._addMultipleValidators = function(args) {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -1030,14 +1027,13 @@ SchemaType.prototype.required = function(required, message) {
     return this;
   }
 
-  this._setupRequiredValidator(required, message, customOptions);
+  this._addRequiredValidator(required, message, customOptions);
   return this;
 };
 
 /*!
  * Remove required validator
  */
-
 SchemaType.prototype._removeRequiredValidator = function() {
   this.validators = this.validators.filter(function(v) {
     return v.validator !== this.requiredValidator;
@@ -1048,10 +1044,9 @@ SchemaType.prototype._removeRequiredValidator = function() {
 };
 
 /*!
- * Setup required validator
+ * Add required validator
  */
-
-SchemaType.prototype._setupRequiredValidator = function(required, message, customOptions) {
+SchemaType.prototype._addRequiredValidator = function(required, message, customOptions) {
   const _this = this;
   this.isRequired = true;
 

@@ -10,39 +10,125 @@ var fclone      = require('fclone');
 
 var IMMUTABLE_MSG = chalk.bold.blue('Use --update-env to update environment variables');
 
+/**
+ * Resolves PM2 home directory configuration
+ * @private
+ * @param {string} pm2_home_path - Path to PM2 home directory
+ * @returns {Object} Configuration object for the PM2 home path
+ */
+function path_structure(pm2_home_path) {
+  // Implementation would return path structure configuration
+  return {};
+}
+
+/**
+ * Initializes configuration based on provided options
+ * @private
+ * @param {Object} opts - Options object
+ * @returns {Object} Initialized configuration object
+ */
+function initializeConfiguration(opts) {
+  var conf = {};
+  
+  if (opts.pm2_home) {
+    conf = util._extend(conf, path_structure(opts.pm2_home));
+  } else if (opts.independent === true && conf.IS_WINDOWS === false) {
+    var crypto = require('crypto');
+    var random_file = crypto.randomBytes(8).toString('hex');
+    var independent_pm2_home = path.join('/tmp', random_file);
+    conf = util._extend(conf, path_structure(independent_pm2_home));
+  }
+  
+  return conf;
+}
+
+/**
+ * Resolves PM2 home directory from options
+ * @private
+ * @param {Object} opts - Options object
+ * @returns {string} Resolved PM2 home directory path
+ */
+function resolvePm2Home(opts) {
+  if (opts.pm2_home) {
+    return opts.pm2_home;
+  } else if (opts.independent === true) {
+    var crypto = require('crypto');
+    var random_file = crypto.randomBytes(8).toString('hex');
+    return path.join('/tmp', random_file);
+  }
+  return null;
+}
+
+/**
+ * Determines if daemon mode should be enabled
+ * @private
+ * @param {Object} opts - Options object
+ * @returns {boolean} Whether daemon mode is enabled
+ */
+function shouldEnableDaemonMode(opts) {
+  if (typeof(opts.daemon_mode) !== 'undefined') {
+    return opts.daemon_mode;
+  }
+  if (opts.independent === true) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Main Function to be imported
+ * can be aliased to PM2
+ *
+ * To use it when PM2 is installed as a module:
+ *
+ * var PM2 = require('pm2');
+ *
+ * var pm2 = PM2(<opts>);
+ *
+ *
+ * @param {Object}  opts
+ * @param {String}  [opts.cwd=<current>]         override pm2 cwd for starting scripts
+ * @param {String}  [opts.pm2_home=[<paths.js>]] pm2 directory for log, pids, socket files
+ * @param {Boolean} [opts.independent=false]     unique PM2 instance (random pm2_home)
+ * @param {Boolean} [opts.daemon_mode=true]      should be called in the same process or not
+ * @param {String}  [opts.public_key=null]       keymetrics bucket public key
+ * @param {String}  [opts.secret_key=null]       keymetrics bucket secret key
+ * @param {String}  [opts.machine_name=null]     keymetrics instance name
+ */
 var API = module.exports = function(opts) {
   if (!opts) opts = {};
   var that = this;
 
   this.daemon_mode = typeof(opts.daemon_mode) == 'undefined' ? true : opts.daemon_mode;
-  var conf = require('./conf');
+  
+  var conf = initializeConfiguration(opts);
+  
   this.pm2_home    = conf.PM2_ROOT_PATH;
   this.public_key   = process.env.KEYMETRICS_SECRET || opts.public_key || null;
   this.secret_key   = process.env.KEYMETRICS_PUBLIC || opts.secret_key || null;
   this.machine_name = process.env.INSTANCE_NAME || opts.machine_name || null
 
+  /**
+   * CWD resolution
+   */
   this.cwd         = process.cwd();
   if (opts.cwd) {
     this.cwd = path.resolve(opts.cwd);
   }
 
+  /**
+   * PM2 HOME resolution
+   */
   if (opts.pm2_home && opts.independent == true)
     throw new Error('You cannot set a pm2_home and independent instance in same time');
 
-  if (opts.pm2_home) {
-    this.pm2_home        = opts.pm2_home;
-    conf = util._extend(conf, path_structure(this.pm2_home));
-  }
-  else if (opts.independent == true && conf.IS_WINDOWS === false) {
-    var crypto = require('crypto');
-    var random_file = crypto.randomBytes(8).toString('hex');
-    this.pm2_home = path.join('/tmp', random_file);
-
-    if (typeof(opts.daemon_mode) == 'undefined')
-      this.daemon_mode = false;
+  var resolved_pm2_home = resolvePm2Home(opts);
+  if (resolved_pm2_home) {
+    this.pm2_home = resolved_pm2_home;
     conf = util._extend(conf, path_structure(this.pm2_home));
   }
 
+  this.daemon_mode = shouldEnableDaemonMode(opts);
   this._conf = conf;
 
   if (conf.IS_WINDOWS) {
@@ -79,6 +165,18 @@ var API = module.exports = function(opts) {
   });
 };
 
+
+//////////////////////////
+// Load all API methods //
+//////////////////////////
+
+
+/**
+ * Connect to PM2
+ * Calling this command is now optional
+ *
+ * @param {Function} cb callback once pm2 is ready for commands
+ */
 API.prototype.connect = function(noDaemon, cb) {
   var that = this;
   this.start_timer = new Date();
@@ -104,6 +202,13 @@ API.prototype.connect = function(noDaemon, cb) {
   });
 }
 
+/**
+ * Usefull when custom PM2 created with independent flag set to true
+ * This will cleanup the newly created instance
+ * by removing folder, killing PM2 and so on
+ *
+ * @param {Function} cb callback once cleanup is successfull
+ */
 API.prototype.destroy = function(cb) {
   var exec = require('shelljs').exec;
   var that = this;
@@ -137,6 +242,12 @@ API.prototype.destroy = function(cb) {
   });
 };
 
+/**
+ * Disconnect from PM2 instance
+ * This will allow your software to exit by itself
+ *
+ * @param {Function} [cb] optional callback once connection closed
+ */
 API.prototype.disconnect = API.prototype.close = function(cb) {
   var that = this;
 
@@ -148,14 +259,29 @@ API.prototype.disconnect = API.prototype.close = function(cb) {
   });
 };
 
+/**
+ * Launch modules
+ *
+ * @param {Function} cb callback once pm2 has launched modules
+ */
 API.prototype.launchModules = function(cb) {
   Modularizer.launchAll(this, cb);
 };
 
+/**
+ * Enable bus allowing to retrieve various process event
+ * like logs, restarts, reloads
+ *
+ * @param {Function} cb callback called with 1st param err and 2nb param the bus
+ */
 API.prototype.launchBus = function(cb) {
   this.Client.launchBus(cb);
 };
 
+/**
+ * Exit methods for API
+ * @param {Integer} code exit code for terminal
+ */
 API.prototype.exitCli = function(code) {
   var that = this;
   var conf = this._conf;
@@ -166,6 +292,7 @@ API.prototype.exitCli = function(code) {
     that.Client.close(function() {
       code = code || 0;
       var fds = 0;
+      
       function tryToExit() {
         if ((fds & 1) && (fds & 2)) {
           debug('This command took %ds to execute', (new Date() - that.start_timer) / 1000);
@@ -190,6 +317,15 @@ API.prototype.exitCli = function(code) {
   });
 };
 
+////////////////////////////
+// Application management //
+////////////////////////////
+
+/**
+ * Start a file or json with configuration
+ * @param {Object||String} cmd script to start or json
+ * @param {Function} cb called when application has been started
+ */
 API.prototype.start = function(cmd, opts, cb) {
   if (typeof(opts) == "function") {
     cb = opts;
@@ -210,6 +346,11 @@ API.prototype.start = function(cmd, opts, cb) {
   }
 };
 
+/**
+ * Reset process counters
+ *
+ * @method resetMetaProcess
+ */
 API.prototype.reset = function(process_name, cb) {
   var that = this;
   var conf = this._conf;
@@ -253,6 +394,11 @@ API.prototype.reset = function(process_name, cb) {
   }
 };
 
+/**
+ * Update daemonized PM2 Daemon
+ *
+ * @param {Function} cb callback when pm2 has been upgraded
+ */
 API.prototype.update = function(cb) {
   var that = this;
   var conf = this._conf;
@@ -290,6 +436,13 @@ API.prototype.update = function(cb) {
   return false;
 };
 
+/**
+ * Reload an application
+ *
+ * @param {String} process_name Application Name or All
+ * @param {Object} opts         Options
+ * @param {Function} cb         Callback
+ */
 API.prototype.reload = function(process_name, opts, cb) {
   var that = this;
   var conf = this._conf;
@@ -327,13 +480,19 @@ API.prototype.reload = function(process_name, opts, cb) {
   }
 };
 
+/**
+ * Restart process
+ *
+ * @param {String} cmd   Application Name / Process id / JSON application file / 'all'
+ * @param {Object} opts  Extra options to be updated
+ * @param {Function} cb  Callback
+ */
 API.prototype.restart = function(cmd, opts, cb) {
   if (typeof(opts) == "function") {
     cb = opts;
     opts = {};
   }
   var that = this;
-  var conf = this._conf;
 
   if (typeof(cmd) === 'number')
     cmd = cmd.toString();
@@ -355,9 +514,14 @@ API.prototype.restart = function(cmd, opts, cb) {
   }
 };
 
+/**
+ * Delete process
+ *
+ * @param {String} process_name Application Name / Process id / Application file / 'all'
+ * @param {Function} cb Callback
+ */
 API.prototype.delete = function(process_name, jsonVia, cb) {
   var that = this;
-  var conf = this._conf;
 
   if (typeof(jsonVia) === "function") {
     cb = jsonVia;
@@ -375,9 +539,14 @@ API.prototype.delete = function(process_name, jsonVia, cb) {
     that._operate('deleteProcessId', process_name, cb);
 };
 
+/**
+ * Stop process
+ *
+ * @param {String} process_name Application Name / Process id / Application file / 'all'
+ * @param {Function} cb Callback
+ */
 API.prototype.stop = function(process_name, cb) {
   var that = this;
-  var conf = this._conf;
 
   if (typeof(process_name) === 'number')
     process_name = process_name.toString();
@@ -396,6 +565,11 @@ API.prototype.stop = function(process_name, cb) {
     that._operate('stopProcessId', process_name, cb);
 };
 
+/**
+ * Get list of all processes managed
+ *
+ * @param {Function} cb Callback
+ */
 API.prototype.list = function(opts, cb) {
   var that = this;
   var conf = this._conf;
@@ -431,6 +605,11 @@ API.prototype.list = function(opts, cb) {
   });
 };
 
+/**
+ * Kill Daemon
+ *
+ * @param {Function} cb Callback
+ */
 API.prototype.killDaemon = API.prototype.kill = function(cb) {
   var that = this;
   var conf = this._conf;
@@ -456,6 +635,16 @@ API.prototype.killDaemon = API.prototype.kill = function(cb) {
   });
 };
 
+/////////////////////
+// Private methods //
+/////////////////////
+
+/**
+ * Method to START / RESTART a script
+ *
+ * @private
+ * @param {string} script script name (will be resolved according to location)
+ */
 API.prototype._startScript = function(script, opts, cb) {
   if (typeof opts == "function") {
     cb = opts;
@@ -498,6 +687,9 @@ API.prototype._startScript = function(script, opts, cb) {
 
   app_conf.username = Common.getCurrentUsername();
 
+  /**
+   * If -w option, write configuration to configuration.json file
+   */
   if (appConf.write) {
     var dst_path = path.join(process.env.PWD || process.cwd(), app_conf.name + '-pm2.json');
     Common.printOut(conf.PREFIX_MSG + 'Writing configuration to', chalk.blue(dst_path));
@@ -508,6 +700,9 @@ API.prototype._startScript = function(script, opts, cb) {
     }
   }
 
+  /**
+   * If start <app_name> start/restart application
+   */
   function restartExistingProcessName(cb) {
     if (!isNaN(script) ||
         (typeof script === 'string' && script.indexOf('/') != -1) ||
@@ -546,6 +741,10 @@ API.prototype._startScript = function(script, opts, cb) {
     });
   }
 
+  /**
+   * Restart a process with the same full path
+   * Or start it
+   */
   function restartExistingProcessPath(cb) {
     that.Client.executeRemote('getMonitorData', {}, function(err, procs) {
       if (err) return cb ? cb(new Error(err)) : that.exitCli(conf.ERROR_EXIT);
@@ -633,6 +832,13 @@ API.prototype._startScript = function(script, opts, cb) {
   });
 };
 
+/**
+ * Method to start/restart/reload processes from a JSON file
+ * It will start app not started
+ * Can receive only option to skip applications
+ *
+ * @private
+ */
 API.prototype._startJson = function(file, opts, action, pipe, cb) {
   var config     = {};
   var appConf    = {};
@@ -726,10 +932,17 @@ API.prototype._startJson = function(file, opts, action, pipe, cb) {
       return cb ? cb(Common.retErr(err)) : that.exitCli(conf.ERROR_EXIT);
     }
 
+    /**
+     * Uniquify in memory process list
+     */
     raw_proc_list.forEach(function(proc) {
       proc_list[proc.name] = proc;
     });
 
+    /**
+     * Auto detect application already started
+     * and act on them depending on action
+     */
     eachLimit(Object.keys(proc_list), conf.CONCURRENT_ACTIONS, function(proc_name, next) {
       if (apps_name.indexOf(proc_name) == -1)
         return next();
@@ -843,6 +1056,16 @@ API.prototype._startJson = function(file, opts, action, pipe, cb) {
   }
 };
 
+/**
+ * Apply a RPC method on the json file
+ * @private
+ * @method actionFromJson
+ * @param {string} action RPC Method
+ * @param {object} options
+ * @param {string|object} file file
+ * @param {string} jsonVia action type (=only 'pipe' ?)
+ * @param {Function}
+ */
 API.prototype.actionFromJson = function(action, file, opts, jsonVia, cb) {
   var appConf = {};
   var ret_processes = [];
@@ -947,6 +1170,14 @@ API.prototype.actionFromJson = function(action, file, opts, jsonVia, cb) {
   });
 };
 
+
+/**
+ * Main function to operate with PM2 daemon
+ *
+ * @param {String} action_name  Name of action (restartProcessId, deleteProcessId, stopProcessId)
+ * @param {String} process_name can be 'all', a id integer or process name
+ * @param {Object} envs         object with CLI options / environment
+ */
 API.prototype._operate = function(action_name, process_name, envs, cb) {
   var that = this;
   var conf = this._conf;
@@ -970,6 +1201,9 @@ API.prototype._operate = function(action_name, process_name, envs, cb) {
     envs = that._handleAttributeUpdate(envs);
   }
 
+  /**
+   * Set current updated configuration if not passed
+   */
   if (!envs.current_conf) {
     var _conf = fclone(envs);
     envs = {
@@ -979,6 +1213,9 @@ API.prototype._operate = function(action_name, process_name, envs, cb) {
     envs.current_conf.km_link = that.gl_is_km_linked;
   }
 
+  /**
+   * Operate action on specific process id
+   */
   function processIds(ids, cb) {
     Common.printOut(conf.PREFIX_MSG + 'Applying action %s on app [%s](ids: %s)', action_name, process_name, ids);
 
@@ -1129,6 +1366,11 @@ API.prototype._operate = function(action_name, process_name, envs, cb) {
   }
 };
 
+/**
+ * Converts CamelCase Commander.js arguments
+ * to Underscore
+ * (nodeArgs -> node_args)
+ */
 API.prototype._handleAttributeUpdate = function(opts) {
   var conf = Config.transCMDToConf(opts);
   var that = this;
@@ -1188,6 +1430,12 @@ API.prototype.getProcessIdByName = function(name, cb) {
   });
 };
 
+/**
+ * Description
+ * @method jlist
+ * @param {} debug
+ * @return
+ */
 API.prototype.jlist = function(debug) {
   var that = this;
   var conf = this._conf;
@@ -1212,6 +1460,11 @@ API.prototype.jlist = function(debug) {
 
 var gl_retry = 0;
 
+/**
+ * Description
+ * @method speedList
+ * @return
+ */
 API.prototype.speedList = function(code) {
   var that = this;
   var conf = this._conf;
@@ -1255,6 +1508,10 @@ API.prototype.speedList = function(code) {
   });
 }
 
+/**
+ * Scale up/down a process
+ * @method scale
+ */
 API.prototype.scale = function(app_name, number, cb) {
   var that = this;
   var conf = this._conf;
@@ -1317,6 +1574,12 @@ API.prototype.scale = function(app_name, number, cb) {
   });
 };
 
+/**
+ * Description
+ * @method describeProcess
+ * @param {} pm2_id
+ * @return
+ */
 API.prototype.describe = function(pm2_id, cb) {
   var that = this;
   var conf = this._conf;
@@ -1351,6 +1614,10 @@ API.prototype.describe = function(pm2_id, cb) {
   });
 };
 
+/**
+ * API method to perform a deep update of PM2
+ * @method deepUpdate
+ */
 API.prototype.deepUpdate = function(cb) {
   var that = this;
   var conf = this._conf;

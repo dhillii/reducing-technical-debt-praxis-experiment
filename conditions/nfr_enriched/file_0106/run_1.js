@@ -253,42 +253,40 @@ Runnable.prototype.globals = function (globals) {
 };
 
 /**
- * Handle multiple calls to done callback.
+ * Handle multiple done() calls by emitting error.
  *
  * @api private
- * @param {Function} emitError - Function to emit error
- * @return {Function} Handler for multiple done calls
+ * @param {Error} err
  */
-function createMultipleCallHandler (emitError) {
-  let emitted = false;
-  return function multiple (err) {
-    if (emitted) {
-      return;
-    }
-    emitted = true;
-    emitError(err || new Error('done() called multiple times; stacktrace may be inaccurate'));
-  };
+function handleMultipleDone (self, emitted, err) {
+  if (emitted) {
+    return;
+  }
+  self.emit('error', err || new Error('done() called multiple times; stacktrace may be inaccurate'));
 }
 
 /**
  * Create the done callback for test execution.
  *
  * @api private
- * @param {Runnable} self - The runnable instance
- * @param {Date} start - Start time
- * @param {Function} fn - Callback function
- * @param {Function} multiple - Multiple call handler
- * @return {Function} Done callback
+ * @param {Runnable} self
+ * @param {Date} start
+ * @param {Function} fn
+ * @return {Function}
  */
-function createDoneCallback (self, start, fn, multiple) {
+function createDoneCallback (self, start, fn) {
   let finished = false;
+  let emitted = false;
+
   return function done (err) {
     const ms = self.timeout();
     if (self.timedOut) {
       return;
     }
     if (finished) {
-      return multiple(err || self._trace);
+      emitted = true;
+      handleMultipleDone(self, emitted, err || self._trace);
+      return;
     }
 
     self.clearTimeout();
@@ -306,8 +304,8 @@ function createDoneCallback (self, start, fn, multiple) {
  * Create async skip function for explicit async context.
  *
  * @api private
- * @param {Function} done - Done callback
- * @return {Function} Async skip function
+ * @param {Function} done
+ * @return {Function}
  */
 function createAsyncSkip (done) {
   return function asyncSkip () {
@@ -317,26 +315,38 @@ function createAsyncSkip (done) {
 }
 
 /**
- * Execute synchronous or promise-returning function.
+ * Handle promise-returning function result.
  *
  * @api private
- * @param {Function} fn - Function to execute
- * @param {Object} ctx - Execution context
- * @param {Function} done - Done callback
- * @param {Runnable} self - The runnable instance
+ * @param {Runnable} self
+ * @param {*} result
+ * @param {Function} done
  */
-function callFn (fn, ctx, done, self) {
+function handlePromiseResult (self, result, done) {
+  result
+    .then(function () {
+      done();
+      return null;
+    },
+    function (reason) {
+      done(reason || new Error('Promise rejected with no or falsy reason'));
+    });
+}
+
+/**
+ * Execute synchronous function and handle result.
+ *
+ * @api private
+ * @param {Runnable} self
+ * @param {Function} fn
+ * @param {*} ctx
+ * @param {Function} done
+ */
+function callFn (self, fn, ctx, done) {
   const result = fn.call(ctx);
   if (result && typeof result.then === 'function') {
     self.resetTimeout();
-    result
-      .then(function () {
-        done();
-        return null;
-      },
-      function (reason) {
-        done(reason || new Error('Promise rejected with no or falsy reason'));
-      });
+    handlePromiseResult(self, result, done);
   } else {
     if (self.asyncOnly) {
       return done(new Error('--async-only option in use without declaring `done()` or returning a promise'));
@@ -346,15 +356,15 @@ function callFn (fn, ctx, done, self) {
 }
 
 /**
- * Execute async function with done callback.
+ * Execute asynchronous function with done callback.
  *
  * @api private
- * @param {Function} fn - Function to execute
- * @param {Object} ctx - Execution context
- * @param {Function} done - Done callback
- * @param {Runnable} self - The runnable instance
+ * @param {Runnable} self
+ * @param {Function} fn
+ * @param {*} ctx
+ * @param {Function} done
  */
-function callFnAsync (fn, ctx, done, self) {
+function callFnAsync (self, fn, ctx, done) {
   const result = fn.call(ctx, function (err) {
     if (err instanceof Error || toString.call(err) === '[object Error]') {
       return done(err);
@@ -375,18 +385,40 @@ function callFnAsync (fn, ctx, done, self) {
 }
 
 /**
- * Handle synchronous test execution.
+ * Run async test with explicit done callback.
  *
  * @api private
- * @param {Runnable} self - The runnable instance
- * @param {Function} done - Done callback
+ * @param {Runnable} self
+ * @param {Function} done
+ */
+function runAsync (self, done) {
+  self.resetTimeout();
+
+  self.skip = createAsyncSkip(done);
+
+  if (self.allowUncaught) {
+    return callFnAsync(self, self.fn, self.ctx, done);
+  }
+  try {
+    callFnAsync(self, self.fn, self.ctx, done);
+  } catch (err) {
+    done(utils.getError(err));
+  }
+}
+
+/**
+ * Run sync or promise-returning test.
+ *
+ * @api private
+ * @param {Runnable} self
+ * @param {Function} done
  */
 function runSync (self, done) {
   if (self.allowUncaught) {
     if (self.isPending()) {
       done();
     } else {
-      callFn(self.fn, self.ctx, done, self);
+      callFn(self, self.fn, self.ctx, done);
     }
     return;
   }
@@ -395,31 +427,8 @@ function runSync (self, done) {
     if (self.isPending()) {
       done();
     } else {
-      callFn(self.fn, self.ctx, done, self);
+      callFn(self, self.fn, self.ctx, done);
     }
-  } catch (err) {
-    done(utils.getError(err));
-  }
-}
-
-/**
- * Handle asynchronous test execution.
- *
- * @api private
- * @param {Runnable} self - The runnable instance
- * @param {Function} done - Done callback
- */
-function runAsync (self, done) {
-  self.resetTimeout();
-
-  self.skip = createAsyncSkip(done);
-
-  if (self.allowUncaught) {
-    return callFnAsync(self.fn, self.ctx, done, self);
-  }
-
-  try {
-    callFnAsync(self.fn, self.ctx, done, self);
   } catch (err) {
     done(utils.getError(err));
   }
@@ -441,11 +450,7 @@ Runnable.prototype.run = function (fn) {
     ctx.runnable(this);
   }
 
-  const multiple = createMultipleCallHandler(function (err) {
-    self.emit('error', err);
-  });
-
-  const done = createDoneCallback(self, start, fn, multiple);
+  const done = createDoneCallback(this, start, fn);
 
   // for .resetTimeout()
   this.callback = done;

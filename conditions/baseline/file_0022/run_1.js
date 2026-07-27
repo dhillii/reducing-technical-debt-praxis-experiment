@@ -52,6 +52,81 @@ export const kebabToPascalCase = (str: string): string => {
     return processed.charAt(0).toUpperCase() + processed.slice(1);
 };
 
+// Check if URL is an email
+const isEmailUrl = (url: string): boolean => isEmail(url);
+
+// Check if URL is an anchor link
+const isAnchorLink = (url: string): boolean => /^#/.test(url);
+
+// Check if URL is protocol relative
+const isProtocolRelative = (url: string): boolean => /^(\/\/)/.test(url);
+
+// Check if URL looks like a valid URL pattern
+const looksLikeUrl = (url: string): boolean => /^[a-zA-Z0-9-]+:/.test(url) || /^(\/|\?)/.test(url);
+
+// Handle email URL
+const handleEmailUrl = (url: string) => {
+    const emailUrl = `mailto:${url}`;
+    return {save: emailUrl, display: emailUrl};
+};
+
+// Handle special URL types (anchor, protocol-relative)
+const handleSpecialUrl = (url: string) => ({save: url, display: url});
+
+// Handle URL with base URL
+const handleUrlWithBase = (url: string, baseUrl: string) => {
+    let parsedUrl: URL;
+    try {
+        parsedUrl = new URL(url, baseUrl);
+    } catch {
+        return {save: url, display: url};
+    }
+
+    const parsedBaseUrl = new URL(baseUrl);
+    const pathStartsWithBase = parsedUrl.pathname?.indexOf(parsedBaseUrl.pathname) === 0;
+    const pathWithSlashMatchesBase = `${parsedUrl.pathname}/` === parsedBaseUrl.pathname;
+    const isRelativeToBasePath = pathStartsWithBase || pathWithSlashMatchesBase;
+    const isOnSameHost = parsedUrl.host === parsedBaseUrl.host;
+
+    if (!isOnSameHost || !isRelativeToBasePath) {
+        return {save: parsedUrl.toString(), display: parsedUrl.toString()};
+    }
+
+    let relativePath = url
+        .replace(/^[a-zA-Z0-9-]+:/, '')
+        .replace(/^\/\//, '')
+        .replace(parsedBaseUrl.host, '')
+        .replace(parsedBaseUrl.pathname, '');
+
+    if (!relativePath.match(/^\//)) {
+        relativePath = `/${relativePath}`;
+    }
+
+    if (!relativePath.match(/\/$/) && !relativePath.match(/[.#?]/)) {
+        relativePath = `${relativePath}/`;
+    }
+
+    return {save: relativePath, display: displayFromBase(relativePath, baseUrl)};
+};
+
+// Handle URL without base URL
+const handleUrlWithoutBase = (url: string) => {
+    if (!url.startsWith('http')) {
+        url = `https://${url}`;
+    }
+
+    if (!looksLikeUrl(url)) {
+        return {save: url, display: url};
+    }
+
+    try {
+        const parsedUrl = new URL(url);
+        return {save: parsedUrl.toString(), display: parsedUrl.toString()};
+    } catch {
+        return {save: url, display: url};
+    }
+};
+
 // Helper to format a URL
 export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) => {
     if (nullable && !value) {
@@ -61,84 +136,18 @@ export const formatUrl = (value: string, baseUrl?: string, nullable?: boolean) =
     let url = value.trim();
 
     if (!url) {
-        if (baseUrl) {
-            return {save: '/', display: baseUrl};
-        }
-        return {save: '', display: ''};
+        return baseUrl ? {save: '/', display: baseUrl} : {save: '', display: ''};
     }
 
-    // if we have an email address, add the mailto:
-    if (isEmail(url)) {
-        return {save: `mailto:${url}`, display: `mailto:${url}`};
+    if (isEmailUrl(url)) {
+        return handleEmailUrl(url);
     }
 
-    const isAnchorLink = url.match(/^#/);
-    if (isAnchorLink) {
-        return {save: url, display: url};
+    if (isAnchorLink(url) || isProtocolRelative(url)) {
+        return handleSpecialUrl(url);
     }
 
-    const isProtocolRelative = url.match(/^(\/\/)/);
-    if (isProtocolRelative) {
-        return {save: url, display: url};
-    }
-
-    if (!baseUrl && !url.startsWith('http')) {
-        url = `https://${url}`;
-    }
-
-    // If it doesn't look like a URL, leave it as is rather than assuming it's a pathname etc
-    if (!url.match(/^[a-zA-Z0-9-]+:/) && !url.match(/^(\/|\?)/)) {
-        return {save: url, display: url};
-    }
-
-    let parsedUrl: URL;
-
-    try {
-        parsedUrl = new URL(url, baseUrl);
-    } catch {
-        return {save: url, display: url};
-    }
-
-    if (!baseUrl) {
-        return {save: parsedUrl.toString(), display: parsedUrl.toString()};
-    }
-
-    return processRelativeUrl(url, parsedUrl, baseUrl);
-};
-
-const processRelativeUrl = (url: string, parsedUrl: URL, baseUrl: string) => {
-    const parsedBaseUrl = new URL(baseUrl);
-    const isRelativeToBasePath = checkIfRelativeToBasePath(parsedUrl, parsedBaseUrl);
-    const isOnSameHost = parsedUrl.host === parsedBaseUrl.host;
-
-    if (isOnSameHost && isRelativeToBasePath) {
-        url = stripBaseUrlFromPath(url, parsedBaseUrl);
-    }
-
-    if (!url.match(/\/$/) && !url.match(/[.#?]/)) {
-        url = `${url}/`;
-    }
-
-    return {save: url, display: displayFromBase(url, baseUrl)};
-};
-
-const checkIfRelativeToBasePath = (parsedUrl: URL, parsedBaseUrl: URL): boolean => {
-    if (parsedUrl.pathname && parsedUrl.pathname.indexOf(parsedBaseUrl.pathname) === 0) {
-        return true;
-    }
-    return `${parsedUrl.pathname}/` === parsedBaseUrl.pathname;
-};
-
-const stripBaseUrlFromPath = (url: string, parsedBaseUrl: URL): string => {
-    url = url.replace(/^[a-zA-Z0-9-]+:/, '');
-    url = url.replace(/^\/\//, '');
-    url = url.replace(parsedBaseUrl.host, '');
-    url = url.replace(parsedBaseUrl.pathname, '');
-
-    if (!url.match(/^\//)) {
-        url = `/${url}`;
-    }
-    return url;
+    return baseUrl ? handleUrlWithBase(url, baseUrl) : handleUrlWithoutBase(url);
 };
 
 // Helper to display a URL from a base URL
@@ -174,10 +183,44 @@ export const formatDisplayDate = (dateString: string, timezone?: string): string
         return '';
     }
 
+    // Check if this is a datetime string (contains time) or just a date
     const hasTime = dateString.includes(':');
     const isISOFormat = dateString.includes('T') || dateString.includes('Z');
 
-    const {day, month, year, isToday, isCurrentYear} = extractDateComponents(dateString, timezone, hasTime, isISOFormat);
+    let day, month, year, isToday, isCurrentYear;
+
+    // If timezone is provided and this is an ISO format date, use moment-timezone to convert
+    if (timezone && isISOFormat) {
+        const dateMoment = moment.tz(dateString, timezone);
+        const todayMoment = moment.tz(timezone);
+
+        day = dateMoment.date();
+        month = dateMoment.month();
+        year = dateMoment.year();
+        isToday = dateMoment.isSame(todayMoment, 'day');
+        isCurrentYear = year === todayMoment.year();
+    } else {
+        const date = new Date(dateString);
+        const today = new Date();
+
+        if (hasTime && !isISOFormat) {
+            // This is a localized datetime string like "2025-07-29 19:00:00"
+            // Use local date methods to avoid timezone conversion
+            day = date.getDate();
+            month = date.getMonth();
+            year = date.getFullYear();
+            isToday = date.toDateString() === today.toDateString();
+            isCurrentYear = year === today.getFullYear();
+        } else {
+            // This is either a date-only string or an ISO format with timezone (without explicit timezone param)
+            // Use UTC methods as before
+            day = date.getUTCDate();
+            month = date.getUTCMonth();
+            year = date.getUTCFullYear();
+            isToday = date.toISOString().slice(0, 10) === today.toISOString().slice(0, 10);
+            isCurrentYear = year === today.getUTCFullYear();
+        }
+    }
 
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const monthName = months[month];
@@ -187,42 +230,6 @@ export const formatDisplayDate = (dateString: string, timezone?: string): string
     }
 
     return isCurrentYear ? `${day} ${monthName}` : `${day} ${monthName} ${year}`;
-};
-
-const extractDateComponents = (dateString: string, timezone: string | undefined, hasTime: boolean, isISOFormat: boolean) => {
-    if (timezone && isISOFormat) {
-        const dateMoment = moment.tz(dateString, timezone);
-        const todayMoment = moment.tz(timezone);
-
-        return {
-            day: dateMoment.date(),
-            month: dateMoment.month(),
-            year: dateMoment.year(),
-            isToday: dateMoment.isSame(todayMoment, 'day'),
-            isCurrentYear: dateMoment.year() === todayMoment.year()
-        };
-    }
-
-    const date = new Date(dateString);
-    const today = new Date();
-
-    if (hasTime && !isISOFormat) {
-        return {
-            day: date.getDate(),
-            month: date.getMonth(),
-            year: date.getFullYear(),
-            isToday: date.toDateString() === today.toDateString(),
-            isCurrentYear: date.getFullYear() === today.getFullYear()
-        };
-    }
-
-    return {
-        day: date.getUTCDate(),
-        month: date.getUTCMonth(),
-        year: date.getUTCFullYear(),
-        isToday: date.toISOString().slice(0, 10) === today.toISOString().slice(0, 10),
-        isCurrentYear: date.getUTCFullYear() === today.getUTCFullYear()
-    };
 };
 
 /**
@@ -246,6 +253,8 @@ export const formatTimestamp = (timestamp: string) => {
         return 'Unknown';
     }
 
+    // Both dates are now in the same timezone context (local)
+    // The timestamp from DB is UTC but Date constructor handles the conversion
     const diffMs = now.getTime() - date.getTime();
 
     // Handle negative differences (future dates)
@@ -253,10 +262,6 @@ export const formatTimestamp = (timestamp: string) => {
         return 'Just now';
     }
 
-    return formatTimestampDifference(diffMs, date);
-};
-
-const formatTimestampDifference = (diffMs: number, date: Date): string => {
     const diffMins = Math.floor(diffMs / (1000 * 60));
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
@@ -297,32 +302,27 @@ export function abbreviateNumber(number: number) {
     }
 
     if (num < 1000000) {
-        return abbreviateThousands(num);
+        // For thousands: round to nearest 100 for 10.3k, nearest 1000 for 101k
+        const roundTo = num < 100000 ? 100 : 1000;
+
+        const rounded = Math.round(num / roundTo) * roundTo;
+        const abbreviated = rounded / 1000;
+
+        if (abbreviated === 1000) {
+            return '1M';
+        }
+
+        const formatted = abbreviated % 1 === 0 ? abbreviated.toString() : abbreviated.toFixed(1);
+        return `${formatted}k`;
     }
 
-    return abbreviateMillions(num);
-}
-
-const abbreviateThousands = (num: number): string => {
-    const roundTo = num < 100000 ? 100 : 1000;
-    const rounded = Math.round(num / roundTo) * roundTo;
-    const abbreviated = rounded / 1000;
-
-    if (abbreviated === 1000) {
-        return '1M';
-    }
-
-    const formatted = abbreviated % 1 === 0 ? abbreviated.toString() : abbreviated.toFixed(1);
-    return `${formatted}k`;
-};
-
-const abbreviateMillions = (num: number): string => {
+    // For millions: round to nearest 100,000 for 1.1M
     const roundTo = 100000;
     const rounded = Math.round(num / roundTo) * roundTo;
     const abbreviated = rounded / 1000000;
     const formatted = abbreviated % 1 === 0 ? abbreviated.toString() : abbreviated.toFixed(1);
     return `${formatted}M`;
-};
+}
 
 // Format time duration
 export const formatDuration = (seconds: number): string => {
@@ -426,6 +426,8 @@ export const getYRange = (data: { value: number }[]): {min: number; max: number}
 
     // Determine the order of magnitude for rounding based on the range
     const rangeMagnitude = Math.floor(Math.log10(range));
+    // Always round to at least 10s, but use larger steps for bigger ranges
+    // const roundTo = Math.max(10, Math.pow(10, rangeMagnitude));
     const roundTo = Math.pow(10, rangeMagnitude);
 
     // Round min and max to the appropriate precision
@@ -531,63 +533,97 @@ export const sanitizeChartData = <T extends {date: string}>(data: T[], range: nu
     }
 
     if (range >= 91 && range <= 356) {
-        return aggregateByPeriod(data, fieldName, aggregationType, 'week');
+        // Weekly changes
+        const weeklyData: T[] = [];
+        let currentWeek = moment(data[0].date).startOf('week');
+        let weekTotal = 0;
+        let weekCount = 0;
+        let lastValue = 0;
+
+        data.forEach((item, index) => {
+            const itemDate = moment(item.date);
+            if (itemDate.isSame(currentWeek, 'week')) {
+                weekTotal += Number(item[fieldName]);
+                weekCount += 1;
+                lastValue = Number(item[fieldName]);
+            } else {
+                // Add the value for the previous week
+                weeklyData.push({
+                    ...data[index - 1],
+                    date: currentWeek.format('YYYY-MM-DD'),
+                    [fieldName]: aggregationType === 'sum' ? weekTotal :
+                        aggregationType === 'avg' ? (weekCount > 0 ? weekTotal / weekCount : 0) :
+                            lastValue
+                } as T);
+
+                // Start new week
+                currentWeek = itemDate.startOf('week');
+                weekTotal = Number(item[fieldName]);
+                weekCount = 1;
+                lastValue = Number(item[fieldName]);
+            }
+
+            // Handle the last item
+            if (index === data.length - 1) {
+                weeklyData.push({
+                    ...item,
+                    date: currentWeek.format('YYYY-MM-DD'),
+                    [fieldName]: aggregationType === 'sum' ? weekTotal :
+                        aggregationType === 'avg' ? (weekCount > 0 ? weekTotal / weekCount : 0) :
+                            lastValue
+                } as T);
+            }
+        });
+
+        return weeklyData;
     } else if (range > 356) {
-        return aggregateByPeriod(data, fieldName, aggregationType, 'month');
+        // Monthly changes
+        const monthlyData: T[] = [];
+        let currentMonth = moment(data[0].date).startOf('month');
+        let monthTotal = 0;
+        let monthCount = 0;
+        let lastValue = 0;
+
+        data.forEach((item, index) => {
+            const itemDate = moment(item.date);
+            if (itemDate.isSame(currentMonth, 'month')) {
+                monthTotal += Number(item[fieldName]);
+                monthCount += 1;
+                lastValue = Number(item[fieldName]);
+            } else {
+                // Add the value for the previous month
+                monthlyData.push({
+                    ...data[index - 1],
+                    date: currentMonth.format('YYYY-MM-DD'),
+                    [fieldName]: aggregationType === 'sum' ? monthTotal :
+                        aggregationType === 'avg' ? (monthCount > 0 ? monthTotal / monthCount : 0) :
+                            lastValue
+                } as T);
+
+                // Start new month
+                currentMonth = itemDate.startOf('month');
+                monthTotal = Number(item[fieldName]);
+                monthCount = 1;
+                lastValue = Number(item[fieldName]);
+            }
+
+            // Handle the last item
+            if (index === data.length - 1) {
+                monthlyData.push({
+                    ...item,
+                    date: currentMonth.format('YYYY-MM-DD'),
+                    [fieldName]: aggregationType === 'sum' ? monthTotal :
+                        aggregationType === 'avg' ? (monthCount > 0 ? monthTotal / monthCount : 0) :
+                            lastValue
+                } as T);
+            }
+        });
+
+        return monthlyData;
     }
 
     // Return original data for ranges < 91 days
     return data;
-};
-
-const aggregateByPeriod = <T extends {date: string}>(data: T[], fieldName: keyof T, aggregationType: 'sum' | 'avg' | 'exact', period: 'week' | 'month'): T[] => {
-    const aggregatedData: T[] = [];
-    let currentPeriod = moment(data[0].date).startOf(period);
-    let periodTotal = 0;
-    let periodCount = 0;
-    let lastValue = 0;
-
-    data.forEach((item, index) => {
-        const itemDate = moment(item.date);
-        if (itemDate.isSame(currentPeriod, period)) {
-            periodTotal += Number(item[fieldName]);
-            periodCount += 1;
-            lastValue = Number(item[fieldName]);
-        } else {
-            // Add the value for the previous period
-            aggregatedData.push({
-                ...data[index - 1],
-                date: currentPeriod.format('YYYY-MM-DD'),
-                [fieldName]: calculateAggregatedValue(aggregationType, periodTotal, periodCount, lastValue)
-            } as T);
-
-            // Start new period
-            currentPeriod = itemDate.startOf(period);
-            periodTotal = Number(item[fieldName]);
-            periodCount = 1;
-            lastValue = Number(item[fieldName]);
-        }
-
-        // Handle the last item
-        if (index === data.length - 1) {
-            aggregatedData.push({
-                ...item,
-                date: currentPeriod.format('YYYY-MM-DD'),
-                [fieldName]: calculateAggregatedValue(aggregationType, periodTotal, periodCount, lastValue)
-            } as T);
-        }
-    });
-
-    return aggregatedData;
-};
-
-const calculateAggregatedValue = (aggregationType: 'sum' | 'avg' | 'exact', total: number, count: number, lastValue: number): number => {
-    if (aggregationType === 'sum') {
-        return total;
-    } else if (aggregationType === 'avg') {
-        return count > 0 ? total / count : 0;
-    }
-    return lastValue;
 };
 
 /**

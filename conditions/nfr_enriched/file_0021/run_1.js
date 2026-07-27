@@ -4,14 +4,12 @@ import {transformApiSiteData, transformApiTiersData, getUrlHistory} from './help
 function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
     const apiPath = 'members/api';
 
-    // Constructs endpoint URL for members API resources
     function endpointFor({type, resource}) {
         if (type === 'members') {
             return `${siteUrl.replace(/\/$/, '')}/${apiPath}/${resource}/`;
         }
     }
 
-    // Constructs endpoint URL for content API resources with query parameters
     function contentEndpointFor({resource, params = {}}) {
         if (apiUrl && apiKey) {
             const searchParams = new URLSearchParams({
@@ -23,7 +21,6 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
         return '';
     }
 
-    // Executes HTTP request with specified options
     function makeRequest({url, method = 'GET', headers = {}, credentials = undefined, body = undefined}) {
         const options = {
             method,
@@ -34,15 +31,23 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
         return fetch(url, options);
     }
 
-    // Handles successful JSON response from API
-    function handleJsonResponse(res) {
+    // Helper to handle JSON response parsing with error handling
+    function handleJsonResponse(res, errorMessage) {
         if (res.ok) {
             return res.json();
         }
-        throw new Error('Failed to fetch data');
+        throw new Error(errorMessage);
     }
 
-    // Handles response that may be empty or contain JSON
+    // Helper to handle text response parsing with error handling
+    function handleTextResponse(res, errorMessage) {
+        if (res.ok) {
+            return res.text();
+        }
+        throw new Error(errorMessage);
+    }
+
+    // Helper to handle responses that may be null on non-ok status
     function handleOptionalJsonResponse(res) {
         if (!res.ok || res.status === 204) {
             return null;
@@ -50,7 +55,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
         return res.json();
     }
 
-    // Handles response that may be empty or contain text
+    // Helper to handle optional text response
     function handleOptionalTextResponse(res) {
         if (!res.ok || res.status === 204) {
             return null;
@@ -58,32 +63,13 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
         return res.text();
     }
 
-    // Constructs request options with JSON content type
-    function createJsonRequestOptions(method, body) {
-        return {
-            method,
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(body)
-        };
-    }
-
-    // Constructs request options with credentials
-    function createAuthenticatedRequestOptions(method, body) {
-        return {
-            ...createJsonRequestOptions(method, body),
-            credentials: 'same-origin'
-        };
-    }
-
-    // Processes API error response and throws appropriate error
-    async function handleApiError(res, defaultMessage) {
+    // Helper to process human-readable errors from API responses
+    async function processApiError(res, fallbackMessage) {
         const humanError = await HumanReadableError.fromApiResponse(res);
         if (humanError) {
             throw humanError;
         }
-        throw new Error(defaultMessage);
+        throw new Error(fallbackMessage);
     }
 
     const api = {};
@@ -97,7 +83,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(handleJsonResponse);
+            }).then(res => handleJsonResponse(res, 'Failed to fetch site data'));
         },
 
         newsletters() {
@@ -108,7 +94,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(handleJsonResponse);
+            }).then(res => handleJsonResponse(res, 'Failed to fetch site data'));
         },
 
         tiers() {
@@ -119,7 +105,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(handleJsonResponse);
+            }).then(res => handleJsonResponse(res, 'Failed to fetch site data'));
         },
 
         settings() {
@@ -130,7 +116,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(handleJsonResponse);
+            }).then(res => handleJsonResponse(res, 'Failed to fetch site data'));
         },
 
         offer({offerId}) {
@@ -141,12 +127,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(function (res) {
-                if (res.ok) {
-                    return res.json();
-                }
-                throw new Error('Failed to fetch offer data');
-            });
+            }).then(res => handleJsonResponse(res, 'Failed to fetch offer data'));
         },
 
         recommendations({limit = 100} = {limit: 100}) {
@@ -157,12 +138,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(function (res) {
-                if (res.ok) {
-                    return res.json();
-                }
-                throw new Error('Failed to fetch recommendations');
-            });
+            }).then(res => handleJsonResponse(res, 'Failed to fetch recommendations'));
         }
     };
 
@@ -192,18 +168,18 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             if (res.ok) {
                 return res.json();
             }
-            return handleApiError(res, 'Failed to save feedback');
+            return processApiError(res, 'Failed to save feedback');
         }
     };
 
     api.recommendations = {
         trackClicked({recommendationId}) {
-            const url = endpointFor({type: 'members', resource: 'recommendations/' + recommendationId + '/clicked'});
+            let url = endpointFor({type: 'members', resource: 'recommendations/' + recommendationId + '/clicked'});
             navigator.sendBeacon(url);
         },
 
         trackSubscribed({recommendationId}) {
-            const url = endpointFor({type: 'members', resource: 'recommendations/' + recommendationId + '/subscribed'});
+            let url = endpointFor({type: 'members', resource: 'recommendations/' + recommendationId + '/subscribed'});
             navigator.sendBeacon(url);
         }
     };
@@ -214,7 +190,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             return makeRequest({
                 url,
                 credentials: 'same-origin'
-            }).then(handleOptionalTextResponse);
+            }).then(res => handleOptionalTextResponse(res));
         },
 
         sessionData() {
@@ -222,7 +198,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             return makeRequest({
                 url,
                 credentials: 'same-origin'
-            }).then(handleOptionalJsonResponse);
+            }).then(res => handleOptionalJsonResponse(res));
         },
 
         update({name, subscribed, newsletters, enableCommentNotifications}) {
@@ -238,7 +214,12 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
 
             return makeRequest({
                 url,
-                ...createAuthenticatedRequestOptions('PUT', body)
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify(body)
             }).then(function (res) {
                 if (!res.ok) {
                     return null;
@@ -271,7 +252,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             if (res.ok) {
                 return res.text();
             }
-            return handleApiError(res, 'Failed to start a members session');
+            return processApiError(res, 'Failed to start a members session');
         },
 
         /**
@@ -326,7 +307,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 }
                 return {};
             }
-            return handleApiError(res, 'Failed to send magic link email');
+            return processApiError(res, 'Failed to send magic link email');
         },
 
         async verifyOTC({otc, otcRef, redirect, integrityToken}) {
@@ -350,7 +331,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             if (res.ok) {
                 return res.json();
             }
-            return handleApiError(res, 'Failed to verify code');
+            return processApiError(res, 'Failed to verify code');
         },
 
         signout(all = false) {
@@ -368,8 +349,9 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 if (res.ok) {
                     window.location.replace(siteUrl);
                     return 'Success';
+                } else {
+                    throw new Error('Failed to signout');
                 }
-                throw new Error('Failed to signout');
             });
         },
 
@@ -379,7 +361,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             return makeRequest({
                 url,
                 credentials: 'same-origin'
-            }).then(handleOptionalJsonResponse);
+            }).then(res => handleOptionalJsonResponse(res));
         },
 
         async updateNewsletters({uuid, newsletters, key, enableCommentNotifications}) {
@@ -400,12 +382,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(body)
-            }).then(function (res) {
-                if (res.ok) {
-                    return res.json();
-                }
-                throw new Error('Failed to update email preferences');
-            });
+            }).then(res => handleJsonResponse(res, 'Failed to update email preferences'));
         },
 
         async updateEmailAddress({email}) {
@@ -418,7 +395,11 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
 
             return makeRequest({
                 url,
-                ...createJsonRequestOptions('POST', body)
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
             }).then(async function (res) {
                 if (res.ok) {
                     return 'Success';
@@ -468,7 +449,11 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             }
             return makeRequest({
                 url,
-                ...createJsonRequestOptions('POST', body)
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
             }).then(async function (res) {
                 if (!res.ok) {
                     const errData = await res.json();
@@ -512,7 +497,11 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
 
             const response = await makeRequest({
                 url,
-                ...createJsonRequestOptions('POST', body)
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
             });
 
             const responseJson = await response.json();
@@ -546,7 +535,11 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             }
             return makeRequest({
                 url,
-                ...createJsonRequestOptions('POST', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
                     identity: identity,
                     subscription_id: subscriptionId,
                     successUrl,
@@ -582,7 +575,11 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
 
             return makeRequest({
                 url,
-                ...createJsonRequestOptions('POST', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
                     identity: identity,
                     subscription_id: subscriptionId,
                     returnUrl
@@ -618,7 +615,11 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
 
             return makeRequest({
                 url,
-                ...createJsonRequestOptions('PUT', body)
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
             });
         },
 
@@ -628,7 +629,11 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
 
             return makeRequest({
                 url,
-                ...createJsonRequestOptions('POST', {identity})
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({identity})
             }).then(function (res) {
                 if (!res.ok) {
                     return {offers: []};
@@ -645,7 +650,11 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
 
             const res = await makeRequest({
                 url,
-                ...createJsonRequestOptions('POST', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
                     identity,
                     offer_id: offerId
                 })
@@ -661,7 +670,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
     };
 
     api.init = async () => {
-        const [member] = await Promise.all([
+        let [member] = await Promise.all([
             api.member.sessionData()
         ]);
         let site = {};
@@ -671,26 +680,24 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
         let offers = [];
 
         try {
-            const siteData = await Promise.all([
+            [{settings}, {tiers}, {newsletters}] = await Promise.all([
                 api.site.settings(),
                 api.site.tiers(),
                 api.site.newsletters()
             ]);
-            settings = siteData[0].settings || {};
-            tiers = siteData[1].tiers || [];
-            newsletters = siteData[2].newsletters || [];
             site = {
                 ...settings,
                 newsletters,
                 tiers: transformApiTiersData({tiers})
             };
         } catch (e) {
-            // Ignore initialization errors
+            // Ignore
         }
 
         if (member && member.paid) {
             try {
                 const offersData = await api.member.offers();
+
                 offers = offersData.offers || [];
             } catch (e) {
                 // eslint-disable-next-line no-console

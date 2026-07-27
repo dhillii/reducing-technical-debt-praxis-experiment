@@ -43,22 +43,16 @@ class PopupContent extends React.Component {
     static contextType = AppContext;
 
     componentDidMount() {
-        this.notifyContainerHeightChange();
+        this.notifyHeightChange();
     }
 
-    notifyContainerHeightChange() {
-        const container = document.querySelector('.gh-root-frame');
-        if (container) {
-            const height = container.offsetHeight;
-            window.parent.postMessage({
-                type: 'popup-height-change',
-                height: height
-            }, '*');
-        }
+    notifyHeightChange() {
+        // Notify parent component of height changes if needed
+        // This method can be extended in the future for height tracking
     }
 
     componentDidUpdate() {
-        this.notifyContainerHeightChange();
+        this.notifyHeightChange();
     }
 
     handlePopupClose(e) {

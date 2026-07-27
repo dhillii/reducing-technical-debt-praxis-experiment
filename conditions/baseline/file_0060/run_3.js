@@ -18,6 +18,26 @@ const Minimatch = minimatch.Minimatch;
 const MINIMATCH_OPTIONS = { dot: true };
 const hrtimeBigint = process.hrtime.bigint;
 
+/**
+ * @import { ESLintOptions } from "./eslint.js";
+ * @import { Config as CalculatedConfig } from "../config/config.js";
+ * @import { FlatConfigArray } from "../config/flat-config-array.js";
+ * @import { WarningService } from "../services/warning-service.js";
+ * @import { Retrier } from "@humanwhocodes/retry";
+ */
+
+/** @typedef {import("../types").Linter.Config} Config */
+/** @typedef {import("../types").Linter.LintMessage} LintMessage */
+/** @typedef {import("../types").ESLint.LintResult} LintResult */
+/** @typedef {import("../types").ESLint.Plugin} Plugin */
+
+/**
+ * @typedef {Object} GlobSearch
+ * @property {Array<string>} patterns The normalized patterns to use for a search.
+ * @property {Array<string>} rawPatterns The patterns as entered by the user
+ *      before doing any normalization.
+ */
+
 createDebug.formatters.t = timeDiff =>
 	`${(timeDiff + 500_000n) / 1_000_000n} ms`;
 
@@ -117,52 +137,6 @@ async function globMatch({ basePath, pattern }) {
 	return found;
 }
 
-function createMatchers(patterns, basePath) {
-	const relativeToPatterns = new Map();
-	const matchers = patterns.map((pattern, i) => {
-		const patternToUse = normalizeToPosix(path.relative(basePath, pattern));
-		relativeToPatterns.set(patternToUse, patterns[i]);
-		return new Minimatch(patternToUse, MINIMATCH_OPTIONS);
-	});
-	return { matchers, relativeToPatterns };
-}
-
-async function checkDirectoryFilter(entry, matchers, configLoader, basePath) {
-	if (!matchers.some(matcher => matcher.match(entry.path, true))) {
-		return false;
-	}
-
-	const absolutePath = path.resolve(basePath, entry.path);
-	const configs = await configLoader.loadConfigArrayForDirectory(absolutePath);
-	return !configs.isDirectoryIgnored(absolutePath);
-}
-
-async function checkEntryFilter(entry, matchers, configLoader, basePath, unmatchedPatterns) {
-	const absolutePath = path.resolve(basePath, entry.path);
-
-	if (entry.isDirectory) {
-		return false;
-	}
-
-	const configs = await configLoader.loadConfigArrayForFile(absolutePath);
-	const config = configs.getConfig(absolutePath);
-
-	const matchesPattern =
-		unmatchedPatterns.size > 0
-			? matchers.reduce((previousValue, matcher) => {
-					const pathMatches = matcher.match(entry.path);
-
-					if (pathMatches && config) {
-						unmatchedPatterns.delete(matcher.pattern);
-					}
-
-					return pathMatches || previousValue;
-				}, false)
-			: matchers.some(matcher => matcher.match(entry.path));
-
-	return matchesPattern && config !== void 0;
-}
-
 async function globSearch({
 	basePath,
 	patterns,
@@ -174,13 +148,56 @@ async function globSearch({
 		return [];
 	}
 
-	const { matchers, relativeToPatterns } = createMatchers(patterns, basePath);
+	const relativeToPatterns = new Map();
+	const matchers = patterns.map((pattern, i) => {
+		const patternToUse = normalizeToPosix(path.relative(basePath, pattern));
+
+		relativeToPatterns.set(patternToUse, patterns[i]);
+
+		return new Minimatch(patternToUse, MINIMATCH_OPTIONS);
+	});
+
 	const unmatchedPatterns = new Set([...relativeToPatterns.keys()]);
 	const { hfs } = await import("@humanfs/node");
 
 	const walk = hfs.walk(basePath, {
-		directoryFilter: entry => checkDirectoryFilter(entry, matchers, configLoader, basePath),
-		entryFilter: entry => checkEntryFilter(entry, matchers, configLoader, basePath, unmatchedPatterns),
+		async directoryFilter(entry) {
+			if (!matchers.some(matcher => matcher.match(entry.path, true))) {
+				return false;
+			}
+
+			const absolutePath = path.resolve(basePath, entry.path);
+			const configs =
+				await configLoader.loadConfigArrayForDirectory(absolutePath);
+
+			return !configs.isDirectoryIgnored(absolutePath);
+		},
+		async entryFilter(entry) {
+			const absolutePath = path.resolve(basePath, entry.path);
+
+			if (entry.isDirectory) {
+				return false;
+			}
+
+			const configs =
+				await configLoader.loadConfigArrayForFile(absolutePath);
+			const config = configs.getConfig(absolutePath);
+
+			const matchesPattern =
+				unmatchedPatterns.size > 0
+					? matchers.reduce((previousValue, matcher) => {
+							const pathMatches = matcher.match(entry.path);
+
+							if (pathMatches && config) {
+								unmatchedPatterns.delete(matcher.pattern);
+							}
+
+							return pathMatches || previousValue;
+						}, false)
+					: matchers.some(matcher => matcher.match(entry.path));
+
+			return matchesPattern && config !== void 0;
+		},
 	});
 
 	const filePaths = [];
@@ -276,37 +293,6 @@ async function globMultiSearch({
 	return results.flatMap(result => result.value);
 }
 
-function processFileStats(stat, filePath, pattern, results, promises, searches, configLoader, globInputPaths, cwd, missingPatterns) {
-	if (stat) {
-		if (stat.isFile()) {
-			results.push(filePath);
-			promises.push(configLoader.loadConfigArrayForFile(filePath));
-		}
-
-		if (stat.isDirectory()) {
-			if (!searches.has(filePath)) {
-				searches.set(filePath, { patterns: [], rawPatterns: [] });
-			}
-			const { patterns: globbyPatterns, rawPatterns } = searches.get(filePath);
-			globbyPatterns.push(`${normalizeToPosix(filePath)}/**`);
-			rawPatterns.push(pattern);
-		}
-		return;
-	}
-
-	if (globInputPaths && isGlobPattern(pattern)) {
-		const basePath = path.resolve(cwd, globParent(pattern));
-		if (!searches.has(basePath)) {
-			searches.set(basePath, { patterns: [], rawPatterns: [] });
-		}
-		const { patterns: globbyPatterns, rawPatterns } = searches.get(basePath);
-		globbyPatterns.push(filePath);
-		rawPatterns.push(pattern);
-	} else {
-		missingPatterns.push(pattern);
-	}
-}
-
 async function findFiles({
 	patterns,
 	globInputPaths,
@@ -316,8 +302,10 @@ async function findFiles({
 }) {
 	const results = [];
 	const missingPatterns = [];
+	let globbyPatterns = [];
+	let rawPatterns = [];
 	const searches = new Map([
-		[cwd, { patterns: [], rawPatterns: [] }],
+		[cwd, { patterns: globbyPatterns, rawPatterns: [] }],
 	]);
 
 	const filePaths = patterns.map(filePath => path.resolve(cwd, filePath));
@@ -330,7 +318,40 @@ async function findFiles({
 		const filePath = filePaths[index];
 		const pattern = normalizeToPosix(patterns[index]);
 
-		processFileStats(stat, filePath, pattern, results, promises, searches, configLoader, globInputPaths, cwd, missingPatterns);
+		if (stat) {
+			if (stat.isFile()) {
+				results.push(filePath);
+				promises.push(configLoader.loadConfigArrayForFile(filePath));
+			}
+
+			if (stat.isDirectory()) {
+				if (!searches.has(filePath)) {
+					searches.set(filePath, { patterns: [], rawPatterns: [] });
+				}
+				({ patterns: globbyPatterns, rawPatterns } =
+					searches.get(filePath));
+
+				globbyPatterns.push(`${normalizeToPosix(filePath)}/**`);
+				rawPatterns.push(pattern);
+			}
+
+			return;
+		}
+
+		if (globInputPaths && isGlobPattern(pattern)) {
+			const basePath = path.resolve(cwd, globParent(pattern));
+
+			if (!searches.has(basePath)) {
+				searches.set(basePath, { patterns: [], rawPatterns: [] });
+			}
+			({ patterns: globbyPatterns, rawPatterns } =
+				searches.get(basePath));
+
+			globbyPatterns.push(filePath);
+			rawPatterns.push(pattern);
+		} else {
+			missingPatterns.push(pattern);
+		}
 	});
 
 	if (errorOnUnmatchedPattern && missingPatterns.length) {
@@ -357,32 +378,29 @@ function isErrorMessage(message) {
 	return message.severity === 2;
 }
 
-const IGNORE_MESSAGES = {
-	external: "File ignored because outside of base path.",
-	unconfigured: "File ignored because no matching configuration was supplied.",
-};
+function getIgnoreResultMessage(configStatus, baseDir, filePath) {
+	switch (configStatus) {
+		case "external":
+			return "File ignored because outside of base path.";
+		case "unconfigured":
+			return "File ignored because no matching configuration was supplied.";
+		default: {
+			const isInNodeModules =
+				baseDir &&
+				path
+					.dirname(path.relative(baseDir, filePath))
+					.split(path.sep)
+					.includes("node_modules");
 
-function getIgnoreMessage(configStatus, baseDir, filePath) {
-	if (IGNORE_MESSAGES[configStatus]) {
-		return IGNORE_MESSAGES[configStatus];
+			return isInNodeModules
+				? 'File ignored by default because it is located under the node_modules directory. Use ignore pattern "!**/node_modules/" to disable file ignore settings or use "--no-warn-ignored" to suppress this warning.'
+				: 'File ignored because of a matching ignore pattern. Use "--no-ignore" to disable file ignore settings or use "--no-warn-ignored" to suppress this warning.';
+		}
 	}
-
-	const isInNodeModules =
-		baseDir &&
-		path
-			.dirname(path.relative(baseDir, filePath))
-			.split(path.sep)
-			.includes("node_modules");
-
-	if (isInNodeModules) {
-		return 'File ignored by default because it is located under the node_modules directory. Use ignore pattern "!**/node_modules/" to disable file ignore settings or use "--no-warn-ignored" to suppress this warning.';
-	}
-
-	return 'File ignored because of a matching ignore pattern. Use "--no-ignore" to disable file ignore settings or use "--no-warn-ignored" to suppress this warning.';
 }
 
 function createIgnoreResult(filePath, baseDir, configStatus) {
-	const message = getIgnoreMessage(configStatus, baseDir, filePath);
+	const message = getIgnoreResultMessage(configStatus, baseDir, filePath);
 
 	return {
 		filePath,
@@ -454,119 +472,6 @@ class ESLintInvalidOptionsError extends Error {
 	}
 }
 
-const OPTION_VALIDATORS = {
-	allowInlineConfig: (value, errors) => {
-		if (typeof value !== "boolean") {
-			errors.push("'allowInlineConfig' must be a boolean.");
-		}
-	},
-	baseConfig: (value, errors) => {
-		if (typeof value !== "object") {
-			errors.push("'baseConfig' must be an object or null.");
-		}
-	},
-	cache: (value, errors) => {
-		if (typeof value !== "boolean") {
-			errors.push("'cache' must be a boolean.");
-		}
-	},
-	cacheLocation: (value, errors) => {
-		if (!isNonEmptyString(value)) {
-			errors.push("'cacheLocation' must be a non-empty string.");
-		}
-	},
-	cacheStrategy: (value, errors) => {
-		if (value !== "metadata" && value !== "content") {
-			errors.push('\'cacheStrategy\' must be any of "metadata", "content".');
-		}
-	},
-	concurrency: (value, errors) => {
-		if (value !== "off" && value !== "auto" && !isPositiveInteger(value)) {
-			errors.push('\'concurrency\' must be a positive integer, "auto", or "off".');
-		}
-	},
-	cwd: (value, errors) => {
-		if (!isNonEmptyString(value) || !path.isAbsolute(value)) {
-			errors.push("'cwd' must be an absolute path.");
-		}
-	},
-	errorOnUnmatchedPattern: (value, errors) => {
-		if (typeof value !== "boolean") {
-			errors.push("'errorOnUnmatchedPattern' must be a boolean.");
-		}
-	},
-	fix: (value, errors) => {
-		if (typeof value !== "boolean" && typeof value !== "function") {
-			errors.push("'fix' must be a boolean or a function.");
-		}
-	},
-	fixTypes: (value, errors) => {
-		if (value !== null && !isFixTypeArray(value)) {
-			errors.push('\'fixTypes\' must be an array of any of "directive", "problem", "suggestion", and "layout".');
-		}
-	},
-	flags: (value, errors) => {
-		if (!isEmptyArrayOrArrayOfNonEmptyString(value)) {
-			errors.push("'flags' must be an array of non-empty strings.");
-		}
-	},
-	globInputPaths: (value, errors) => {
-		if (typeof value !== "boolean") {
-			errors.push("'globInputPaths' must be a boolean.");
-		}
-	},
-	ignore: (value, errors) => {
-		if (typeof value !== "boolean") {
-			errors.push("'ignore' must be a boolean.");
-		}
-	},
-	ignorePatterns: (value, errors) => {
-		if (!isEmptyArrayOrArrayOfNonEmptyString(value) && value !== null) {
-			errors.push("'ignorePatterns' must be an array of non-empty strings or null.");
-		}
-	},
-	overrideConfig: (value, errors) => {
-		if (typeof value !== "object") {
-			errors.push("'overrideConfig' must be an object or null.");
-		}
-	},
-	overrideConfigFile: (value, errors) => {
-		if (!isNonEmptyString(value) && value !== null && value !== true) {
-			errors.push("'overrideConfigFile' must be a non-empty string, null, or true.");
-		}
-	},
-	passOnNoPatterns: (value, errors) => {
-		if (typeof value !== "boolean") {
-			errors.push("'passOnNoPatterns' must be a boolean.");
-		}
-	},
-	plugins: (value, errors) => {
-		if (typeof value !== "object") {
-			errors.push("'plugins' must be an object or null.");
-		} else if (value !== null && Object.keys(value).includes("")) {
-			errors.push("'plugins' must not include an empty string.");
-		}
-		if (Array.isArray(value)) {
-			errors.push("'plugins' doesn't add plugins to configuration to load. Please use the 'overrideConfig.plugins' option instead.");
-		}
-	},
-	stats: (value, errors) => {
-		if (typeof value !== "boolean") {
-			errors.push("'stats' must be a boolean.");
-		}
-	},
-	warnIgnored: (value, errors) => {
-		if (typeof value !== "boolean") {
-			errors.push("'warnIgnored' must be a boolean.");
-		}
-	},
-	ruleFilter: (value, errors) => {
-		if (typeof value !== "function") {
-			errors.push("'ruleFilter' must be a function.");
-		}
-	},
-};
-
 const DEPRECATED_OPTIONS = {
 	cacheFile: "'cacheFile' has been removed. Please use the 'cacheLocation' option instead.",
 	configFile: "'configFile' has been removed. Please use the 'overrideConfigFile' option instead.",
@@ -583,16 +488,133 @@ const DEPRECATED_OPTIONS = {
 	reportUnusedDisableDirectives: "'reportUnusedDisableDirectives' has been removed. Please use the 'overrideConfig.linterOptions.reportUnusedDisableDirectives' option instead.",
 };
 
-function validateOptions(options, errors) {
-	const unknownOptionKeys = Object.keys(options);
+function validateDeprecatedOptions(unknownOptionKeys, errors) {
+	if (unknownOptionKeys.length === 0) {
+		return;
+	}
 
-	if (unknownOptionKeys.length >= 1) {
-		errors.push(`Unknown options: ${unknownOptionKeys.join(", ")}`);
-		unknownOptionKeys.forEach(key => {
-			if (DEPRECATED_OPTIONS[key]) {
-				errors.push(DEPRECATED_OPTIONS[key]);
-			}
-		});
+	errors.push(`Unknown options: ${unknownOptionKeys.join(", ")}`);
+
+	for (const key of unknownOptionKeys) {
+		if (DEPRECATED_OPTIONS[key]) {
+			errors.push(DEPRECATED_OPTIONS[key]);
+		}
+	}
+}
+
+function validateOptionTypes(options, errors) {
+	const {
+		allowInlineConfig,
+		baseConfig,
+		cache,
+		cacheLocation,
+		cacheStrategy,
+		concurrency,
+		cwd,
+		errorOnUnmatchedPattern,
+		fix,
+		fixTypes,
+		flags,
+		globInputPaths,
+		ignore,
+		ignorePatterns,
+		overrideConfig,
+		overrideConfigFile,
+		passOnNoPatterns,
+		plugins,
+		stats,
+		warnIgnored,
+		ruleFilter,
+	} = options;
+
+	if (typeof allowInlineConfig !== "boolean") {
+		errors.push("'allowInlineConfig' must be a boolean.");
+	}
+	if (typeof baseConfig !== "object") {
+		errors.push("'baseConfig' must be an object or null.");
+	}
+	if (typeof cache !== "boolean") {
+		errors.push("'cache' must be a boolean.");
+	}
+	if (!isNonEmptyString(cacheLocation)) {
+		errors.push("'cacheLocation' must be a non-empty string.");
+	}
+	if (cacheStrategy !== "metadata" && cacheStrategy !== "content") {
+		errors.push('\'cacheStrategy\' must be any of "metadata", "content".');
+	}
+	if (
+		concurrency !== "off" &&
+		concurrency !== "auto" &&
+		!isPositiveInteger(concurrency)
+	) {
+		errors.push(
+			'\'concurrency\' must be a positive integer, "auto", or "off".',
+		);
+	}
+	if (!isNonEmptyString(cwd) || !path.isAbsolute(cwd)) {
+		errors.push("'cwd' must be an absolute path.");
+	}
+	if (typeof errorOnUnmatchedPattern !== "boolean") {
+		errors.push("'errorOnUnmatchedPattern' must be a boolean.");
+	}
+	if (typeof fix !== "boolean" && typeof fix !== "function") {
+		errors.push("'fix' must be a boolean or a function.");
+	}
+	if (fixTypes !== null && !isFixTypeArray(fixTypes)) {
+		errors.push(
+			'\'fixTypes\' must be an array of any of "directive", "problem", "suggestion", and "layout".',
+		);
+	}
+	if (!isEmptyArrayOrArrayOfNonEmptyString(flags)) {
+		errors.push("'flags' must be an array of non-empty strings.");
+	}
+	if (typeof globInputPaths !== "boolean") {
+		errors.push("'globInputPaths' must be a boolean.");
+	}
+	if (typeof ignore !== "boolean") {
+		errors.push("'ignore' must be a boolean.");
+	}
+	if (
+		!isEmptyArrayOrArrayOfNonEmptyString(ignorePatterns) &&
+		ignorePatterns !== null
+	) {
+		errors.push(
+			"'ignorePatterns' must be an array of non-empty strings or null.",
+		);
+	}
+	if (typeof overrideConfig !== "object") {
+		errors.push("'overrideConfig' must be an object or null.");
+	}
+	if (
+		!isNonEmptyString(overrideConfigFile) &&
+		overrideConfigFile !== null &&
+		overrideConfigFile !== true
+	) {
+		errors.push(
+			"'overrideConfigFile' must be a non-empty string, null, or true.",
+		);
+	}
+	if (typeof passOnNoPatterns !== "boolean") {
+		errors.push("'passOnNoPatterns' must be a boolean.");
+	}
+	if (typeof plugins !== "object") {
+		errors.push("'plugins' must be an object or null.");
+	} else if (plugins !== null && Object.keys(plugins).includes("")) {
+		errors.push("'plugins' must not include an empty string.");
+	}
+	if (Array.isArray(plugins)) {
+		errors.push(
+			"'plugins' doesn't add plugins to configuration to load. Please use the 'overrideConfig.plugins' option instead.",
+		);
+	}
+	if (typeof stats !== "boolean") {
+		errors.push("'stats' must be a boolean.");
+	}
+	if (typeof warnIgnored !== "boolean") {
+		errors.push("'warnIgnored' must be a boolean.");
+	}
+	if (typeof ruleFilter !== "function") {
+		errors.push("'ruleFilter' must be a function.");
 	}
 }
 
@@ -621,8 +643,9 @@ function processOptions({
 	...unknownOptions
 }) {
 	const errors = [];
+	const unknownOptionKeys = Object.keys(unknownOptions);
 
-	validateOptions(unknownOptions, errors);
+	validateDeprecatedOptions(unknownOptionKeys, errors);
 
 	const optionsToValidate = {
 		allowInlineConfig,
@@ -648,11 +671,7 @@ function processOptions({
 		ruleFilter,
 	};
 
-	Object.entries(optionsToValidate).forEach(([key, value]) => {
-		if (OPTION_VALIDATORS[key]) {
-			OPTION_VALIDATORS[key](value, errors);
-		}
-	});
+	validateOptionTypes(optionsToValidate, errors);
 
 	if (errors.length > 0) {
 		throw new ESLintInvalidOptionsError(errors);
@@ -688,6 +707,7 @@ async function loadOptionsFromModule(optionsURL) {
 
 function getCacheFile(cacheFile, cwd, { prefix = ".cache_" } = {}) {
 	const normalizedCacheFile = path.normalize(cacheFile);
+
 	const resolvedCacheFile = path.resolve(cwd, normalizedCacheFile);
 	const looksLikeADirectory = normalizedCacheFile.slice(-1) === path.sep;
 
@@ -758,6 +778,7 @@ function verifyText({
 	const startTime = hrtimeBigint();
 
 	const filePath = providedFilePath || "<text>";
+
 	const filePathToVerify =
 		filePath === "<text>" ? getPlaceholderPath(cwd) : filePath;
 	const { fixed, messages, output } = linter.verifyAndFix(text, configs, {
@@ -828,6 +849,7 @@ async function lintFile(
 	if (!config) {
 		if (warnIgnored) {
 			const configStatus = configs.getConfigStatus(filePath);
+
 			return createIgnoreResult(filePath, cwd, configStatus);
 		}
 

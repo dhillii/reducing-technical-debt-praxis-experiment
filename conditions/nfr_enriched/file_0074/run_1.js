@@ -48,21 +48,53 @@ function getVariable(scope, name) {
 }
 
 /**
- * Create a test configuration for scope checking
- * @param {string} astSelector The AST selector to get scope
- * @returns {Object} Test configuration object
+ * Load global scope from code
+ * @param {string} code the code to check
+ * @returns {Scope} globalScope
  * @private
  */
-function createScopeTestConfig(astSelector) {
-	return {
-		languageOptions: { ecmaVersion: 5, sourceType: "script" },
+function loadGlobalScope(code) {
+	const ast = espree.parse(code, DEFAULT_CONFIG);
+	const scopeManager = eslintScope.analyze(ast, {
+		ignoreEval: true,
+		ecmaVersion: 6,
+	});
+	const sourceCode = new SourceCode({
+		text: code,
+		ast,
+		scopeManager,
+	});
+
+	sourceCode.applyInlineConfig();
+	sourceCode.finalize();
+
+	const globalScope = sourceCode.scopeManager.scopes[0].set;
+
+	return globalScope;
+}
+
+/**
+ * Get the scope on the node `astSelector` specified.
+ * @param {string} code The source code to verify.
+ * @param {string} astSelector The AST selector to get scope.
+ * @param {number} [ecmaVersion=5] The ECMAScript version.
+ * @returns {{node: ASTNode, scope: escope.Scope}} Gotten scope.
+ * @private
+ */
+function getScope(code, astSelector, ecmaVersion = 5) {
+	let node, scope;
+
+	linter.verify(code, {
+		languageOptions: { ecmaVersion, sourceType: "script" },
 		plugins: {
 			test: {
 				rules: {
 					"get-scope": {
 						create: context => ({
 							[astSelector](node0) {
-								return { node: node0, scope: context.sourceCode.getScope(node0) };
+								node = node0;
+								scope =
+									context.sourceCode.getScope(node);
 							},
 						}),
 					},
@@ -70,14 +102,16 @@ function createScopeTestConfig(astSelector) {
 			},
 		},
 		rules: { "test/get-scope": 2 },
-	};
+	});
+
+	return { node, scope };
 }
 
 /**
- * Verify declared variables for a given code and node type
- * @param {string} code A code to check
- * @param {string} type A type string of ASTNode
- * @param {Array<Array<string>>} expectedNamesList An array of expected variable names
+ * Verify getDeclaredVariables for a given code and type
+ * @param {string} code A code to check.
+ * @param {string} type A type string of ASTNode.
+ * @param {Array<Array<string>>} expectedNamesList An array of expected variable names.
  * @returns {void}
  * @private
  */
@@ -189,55 +223,6 @@ function verifyDeclaredVariables(code, type, expectedNamesList) {
 
 	// Check all expected names are asserted.
 	assert.strictEqual(0, expectedNamesList.length);
-}
-
-/**
- * Load global scope from code
- * @param {string} code the code to check
- * @returns {Scope} globalScope
- * @private
- */
-function loadGlobalScope(code) {
-	const ast = espree.parse(code, DEFAULT_CONFIG);
-	const scopeManager = eslintScope.analyze(ast, {
-		ignoreEval: true,
-		ecmaVersion: 6,
-	});
-	const sourceCode = new SourceCode({
-		text: code,
-		ast,
-		scopeManager,
-	});
-
-	sourceCode.applyInlineConfig();
-	sourceCode.finalize();
-
-	const globalScope = sourceCode.scopeManager.scopes[0].set;
-
-	return globalScope;
-}
-
-/**
- * Create a test configuration for checking global references
- * @param {Function} checkFn The function to check global references
- * @returns {Object} Test configuration object
- * @private
- */
-function createGlobalReferenceTestConfig(checkFn) {
-	return {
-		plugins: {
-			test: {
-				rules: {
-					checker: {
-						create(context) {
-							return { Identifier: checkFn(context.sourceCode) };
-						},
-					},
-				},
-			},
-		},
-		rules: { "test/checker": "error" },
-	};
 }
 
 //------------------------------------------------------------------------------
@@ -1361,39 +1346,6 @@ describe("SourceCode", () => {
 				});
 			}, /Missing required argument: node/u);
 		});
-
-		/**
-		 * Get the scope on the node `astSelector` specified.
-		 * @param {string} code The source code to verify.
-		 * @param {string} astSelector The AST selector to get scope.
-		 * @param {number} [ecmaVersion=5] The ECMAScript version.
-		 * @returns {{node: ASTNode, scope: escope.Scope}} Gotten scope.
-		 */
-		function getScope(code, astSelector, ecmaVersion = 5) {
-			let node, scope;
-
-			linter.verify(code, {
-				languageOptions: { ecmaVersion, sourceType: "script" },
-				plugins: {
-					test: {
-						rules: {
-							"get-scope": {
-								create: context => ({
-									[astSelector](node0) {
-										node = node0;
-										scope =
-											context.sourceCode.getScope(node);
-									},
-								}),
-							},
-						},
-					},
-				},
-				rules: { "test/get-scope": 2 },
-			});
-
-			return { node, scope };
-		}
 
 		it("should return 'function' scope on FunctionDeclaration (ES5)", () => {
 			const { node, scope } = getScope(

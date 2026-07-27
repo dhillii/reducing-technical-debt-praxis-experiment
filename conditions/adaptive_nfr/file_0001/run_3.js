@@ -241,102 +241,84 @@ export const isApiError = (error: unknown): error is ApiError => {
     );
 };
 
-/** Checks if response status indicates success (204 or 202) */
-const isSuccessfulEmptyResponse = (status: number): boolean => {
+/** Creates an ApiError object with the given message and status code. */
+const createApiError = (message: string, statusCode: number, code?: string): ApiError => {
+    const error: ApiError = {message, statusCode};
+    if (code) {
+        error.code = code;
+    }
+    return error;
+};
+
+/** Extracts error message and code from response JSON. */
+const extractErrorFromResponse = async (response: Response, defaultError: ApiError): Promise<ApiError> => {
+    try {
+        const json = await response.json();
+        const errorMessage = json.message || json.error;
+
+        if (errorMessage) {
+            defaultError.message = errorMessage;
+        }
+
+        if (json.code) {
+            defaultError.code = json.code;
+        }
+    } catch {
+        // Leave the default message
+    }
+
+    return defaultError;
+};
+
+/** Checks if response status indicates success. */
+const isSuccessStatus = (status: number): boolean => {
     return status === 204 || status === 202;
 };
 
-/** Extracts error message from response JSON */
-const extractErrorMessage = (json: Record<string, unknown>): string | null => {
-    return (json.message || json.error) as string | null;
+/** Checks if a value is a valid array of the expected type. */
+const isValidArray = <T>(value: unknown): value is T[] => {
+    return Array.isArray(value);
 };
 
-/** Extracts error code from response JSON */
-const extractErrorCode = (json: Record<string, unknown>): string | undefined => {
-    return json.code as string | undefined;
+/** Extracts string value from object property. */
+const getStringProperty = (obj: Record<string, unknown>, key: string): string | null => {
+    const value = obj[key];
+    return typeof value === 'string' ? value : null;
 };
 
-/** Validates and extracts accounts array from response */
-const extractAccountsFromResponse = (json: unknown): Account[] => {
-    if (!json || typeof json !== 'object' || !('accounts' in json)) {
-        return [];
+/** Extracts number value from object property. */
+const getNumberProperty = (obj: Record<string, unknown>, key: string): number | null => {
+    const value = obj[key];
+    return typeof value === 'number' ? value : null;
+};
+
+/** Validates and extracts paginated response data. */
+interface PaginationExtractorConfig<T> {
+    dataKey: string;
+    defaultValue: T[];
+}
+
+const extractPaginatedData = <T>(
+    json: object | null,
+    config: PaginationExtractorConfig<T>
+): {data: T[], next: string | null} => {
+    if (json === null || !(config.dataKey in json)) {
+        return {
+            data: config.defaultValue,
+            next: null
+        };
     }
-    return Array.isArray((json as Record<string, unknown>).accounts) ? (json as {accounts: Account[]}).accounts : [];
-};
 
-/** Validates and extracts next page token from response */
-const extractNextPageToken = (json: unknown): string | null => {
-    if (!json || typeof json !== 'object' || !('next' in json)) {
-        return null;
-    }
-    const next = (json as Record<string, unknown>).next;
-    return typeof next === 'string' ? next : null;
-};
+    const data = isValidArray<T>((json as Record<string, unknown>)[config.dataKey])
+        ? (json as Record<string, unknown>)[config.dataKey] as T[]
+        : config.defaultValue;
 
-/** Validates and extracts posts array from response */
-const extractPostsFromResponse = (json: unknown): Post[] => {
-    if (!json || typeof json !== 'object' || !('posts' in json)) {
-        return [];
-    }
-    return Array.isArray((json as Record<string, unknown>).posts) ? (json as {posts: Post[]}).posts : [];
-};
+    const next = getStringProperty(json as Record<string, unknown>, 'next');
 
-/** Validates and extracts notifications array from response */
-const extractNotificationsFromResponse = (json: unknown): Notification[] => {
-    if (!json || typeof json !== 'object' || !('notifications' in json)) {
-        return [];
-    }
-    return Array.isArray((json as Record<string, unknown>).notifications) ? (json as {notifications: Notification[]}).notifications : [];
-};
-
-/** Validates and extracts count from response */
-const extractCountFromResponse = (json: unknown): number => {
-    if (!json || typeof json !== 'object') {
-        return 0;
-    }
-    const count = (json as Record<string, unknown>).count;
-    return typeof count === 'number' ? count : 0;
-};
-
-/** Validates and extracts topics array from response */
-const extractTopicsFromResponse = (json: unknown): TopicData[] => {
-    if (!json || typeof json !== 'object' || !('topics' in json)) {
-        return [];
-    }
-    return Array.isArray((json as Record<string, unknown>).topics) ? (json as {topics: TopicData[]}).topics : [];
-};
-
-/** Validates and extracts explore accounts array from response */
-const extractExploreAccountsFromResponse = (json: unknown): ExploreAccount[] => {
-    if (!json || typeof json !== 'object' || !('accounts' in json)) {
-        return [];
-    }
-    return Array.isArray((json as Record<string, unknown>).accounts) ? (json as {accounts: ExploreAccount[]}).accounts : [];
-};
-
-/** Validates and extracts blocked accounts from response */
-const extractBlockedAccountsFromResponse = (json: unknown): Account[] => {
-    if (!json || typeof json !== 'object' || !('blocked_accounts' in json)) {
-        return [];
-    }
-    return Array.isArray((json as Record<string, unknown>).blocked_accounts) ? (json as {blocked_accounts: Account[]}).blocked_accounts : [];
-};
-
-/** Validates and extracts blocked domains from response */
-const extractBlockedDomainsFromResponse = (json: unknown): Account[] => {
-    if (!json || typeof json !== 'object' || !('blocked_domains' in json)) {
-        return [];
-    }
-    return Array.isArray((json as Record<string, unknown>).blocked_domains) ? (json as {blocked_domains: Account[]}).blocked_domains : [];
-};
-
-/** Validates and extracts handle from response */
-const extractHandleFromResponse = (json: unknown): string => {
-    if (!json || typeof json !== 'object' || !('handle' in json)) {
-        return '';
-    }
-    const handle = (json as Record<string, unknown>).handle;
-    return typeof handle === 'string' ? handle : '';
+    return {
+        data,
+        next
+    };
 };
 
 export class ActivityPubAPI {
@@ -353,6 +335,7 @@ export class ActivityPubAPI {
             const json = await response.json();
             return json?.identities?.[0]?.token || null;
         } catch {
+            // TODO: Ping sentry?
             return null;
         }
     }
@@ -372,33 +355,17 @@ export class ActivityPubAPI {
         }
         const response = await this.fetch(url, options);
 
-        if (isSuccessfulEmptyResponse(response.status)) {
+        if (isSuccessStatus(response.status)) {
             return null;
         }
 
         if (!response.ok) {
-            const error: ApiError = {
-                message: 'Something went wrong, please try again.',
-                statusCode: response.status
-            };
+            const error = createApiError(
+                'Something went wrong, please try again.',
+                response.status
+            );
 
-            try {
-                const json = await response.json();
-                const errorMessage = extractErrorMessage(json as Record<string, unknown>);
-
-                if (errorMessage) {
-                    error.message = errorMessage;
-                }
-
-                const errorCode = extractErrorCode(json as Record<string, unknown>);
-                if (errorCode) {
-                    error.code = errorCode;
-                }
-            } catch {
-                // Leave the default message
-            }
-
-            throw error;
+            throw await extractErrorFromResponse(response, error);
         }
 
         return await response.json();
@@ -547,11 +514,13 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        const accounts = extractAccountsFromResponse(json);
-        const nextPage = extractNextPageToken(json);
+        const {data: accounts, next: nextPage} = extractPaginatedData(json, {
+            dataKey: 'accounts',
+            defaultValue: []
+        });
 
         return {
-            accounts,
+            accounts: accounts as FollowAccount[],
             next: nextPage
         };
     }
@@ -578,7 +547,7 @@ export class ActivityPubAPI {
         const url = new URL('.ghost/activitypub/v1/topics', this.apiUrl);
         const json = await this.fetchJSON(url);
         return {
-            topics: extractTopicsFromResponse(json)
+            topics: (json && 'topics' in json && isValidArray<TopicData>(json.topics)) ? json.topics : []
         };
     }
 
@@ -589,7 +558,7 @@ export class ActivityPubAPI {
         }
         const json = await this.fetchJSON(url);
         return {
-            accounts: extractExploreAccountsFromResponse(json)
+            accounts: (json && 'accounts' in json && isValidArray<ExploreAccount>(json.accounts)) ? json.accounts : []
         };
     }
 
@@ -610,11 +579,13 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        const posts = extractPostsFromResponse(json);
-        const nextPage = extractNextPageToken(json);
+        const {data: posts, next: nextPage} = extractPaginatedData(json, {
+            dataKey: 'posts',
+            defaultValue: []
+        });
 
         return {
-            posts,
+            posts: posts as Post[],
             next: nextPage
         };
     }
@@ -627,11 +598,13 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        const notifications = extractNotificationsFromResponse(json);
-        const nextPage = extractNextPageToken(json);
+        const {data: notifications, next: nextPage} = extractPaginatedData(json, {
+            dataKey: 'notifications',
+            defaultValue: []
+        });
 
         return {
-            notifications,
+            notifications: notifications as Notification[],
             next: nextPage
         };
     }
@@ -641,7 +614,13 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        const count = extractCountFromResponse(json);
+        if (json === null) {
+            return {
+                count: 0
+            };
+        }
+
+        const count = getNumberProperty(json as Record<string, unknown>, 'count') ?? 0;
 
         return {count};
     }
@@ -662,8 +641,17 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        const accounts = extractBlockedAccountsFromResponse(json);
-        const nextPage = extractNextPageToken(json);
+        if (json === null) {
+            return {
+                accounts: [],
+                next: null
+            };
+        }
+
+        const accounts = ('blocked_accounts' in json && isValidArray<Account>(json.blocked_accounts))
+            ? json.blocked_accounts as Account[]
+            : [];
+        const nextPage = getStringProperty(json as Record<string, unknown>, 'next');
 
         return {
             accounts,
@@ -679,8 +667,18 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        const domains = extractBlockedDomainsFromResponse(json);
-        const nextPage = extractNextPageToken(json);
+        if (json === null) {
+            return {
+                domains: [],
+                next: null
+            };
+        }
+
+        const domains = ('blocked_domains' in json && isValidArray<Account>(json.blocked_domains))
+            ? json.blocked_domains as Account[]
+            : [];
+
+        const nextPage = getStringProperty(json as Record<string, unknown>, 'next');
 
         return {
             domains,
@@ -697,11 +695,13 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url);
 
-        const accounts = extractExploreAccountsFromResponse(json);
-        const nextPage = extractNextPageToken(json);
+        const {data: accounts, next: nextPage} = extractPaginatedData(json, {
+            dataKey: 'accounts',
+            defaultValue: []
+        });
 
         return {
-            accounts,
+            accounts: accounts as ExploreAccount[],
             next: nextPage
         };
     }
@@ -760,11 +760,7 @@ export class ActivityPubAPI {
         });
 
         if (!response.ok) {
-            const error: ApiError = {
-                message: 'Upload failed',
-                statusCode: response.status
-            };
-            throw error;
+            throw createApiError('Upload failed', response.status);
         }
 
         const json = await response.json();
@@ -788,6 +784,10 @@ export class ActivityPubAPI {
 
         const json = await this.fetchJSON(url, 'POST');
 
-        return extractHandleFromResponse(json);
+        if (json === null || !('handle' in json) || typeof json.handle !== 'string') {
+            return '';
+        }
+
+        return String(json.handle);
     }
 }

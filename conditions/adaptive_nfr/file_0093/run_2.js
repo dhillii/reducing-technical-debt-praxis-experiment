@@ -149,12 +149,12 @@ export type Field = ReturnType<typeof makeFieldEntry>
 export type List = ReturnType<typeof makeList> extends Generator<infer T, any, any> ? T : never
 
 /** Check if any mutation operation is denied */
-function hasDeniedMutationOperation(access: { create: boolean; update: boolean; delete: boolean }): boolean {
+function hasRestrictedMutations(access: { create: boolean; update: boolean; delete: boolean }): boolean {
   return [access.create, access.update, access.delete].includes(false)
 }
 
-/** Check if any filter operation is denied */
-function hasDeniedFilterOperation(access: { query: boolean; update: boolean; delete: boolean }): boolean {
+/** Check if any query or filter operation is denied */
+function hasRestrictedFilters(access: { query: boolean; update: boolean; delete: boolean }): boolean {
   return [access.query, access.update, access.delete].includes(false)
 }
 
@@ -168,8 +168,8 @@ function createOperationAccess(access: { query: boolean; create: boolean; update
   }
 }
 
-/** Create item-level access configuration for mutation operations */
-function createItemMutationAccess(access: { create: boolean; update: boolean; delete: boolean }) {
+/** Create item-level access configuration for item tests */
+function createItemAccess(access: { create: boolean; update: boolean; delete: boolean }) {
   return {
     create: access.create ? allowAll : denyAll,
     update: access.update ? allowAll : denyAll,
@@ -177,23 +177,24 @@ function createItemMutationAccess(access: { create: boolean; update: boolean; de
   }
 }
 
-/** Create filter-level access configuration */
+/** Create filter-level access configuration for filter tests */
 function createFilterAccess(access: { query: boolean; update: boolean; delete: boolean }, useFilter: boolean) {
   return {
-    query: access.query ? (useFilter ? allowFilter : allowAll) : denyAll,
-    update: access.update ? (useFilter ? allowFilter : allowAll) : denyAll,
-    delete: access.delete ? (useFilter ? allowFilter : allowAll) : denyAll,
+    query: access.query ? (useFilter ? allowFilter : denyFilter) : denyFilter,
+    update: access.update ? (useFilter ? allowFilter : denyFilter) : denyFilter,
+    delete: access.delete ? (useFilter ? allowFilter : denyFilter) : denyFilter,
   }
 }
 
-/** Yield operation-level list configuration */
-function* yieldOperationList(
+/** Yield operation-level access test configuration */
+function* yieldOperationTest(
   suffix: string,
   access: { query: boolean; create: boolean; update: boolean; delete: boolean },
   fields: Field[]
 ) {
+  const nameO = `List_operation_${suffix}`
   yield {
-    name: `List_operation_${suffix}`,
+    name: nameO,
     expect: { type: 'operation' as const, ...access },
     access: {
       operation: createOperationAccess(access),
@@ -210,19 +211,20 @@ function* yieldOperationList(
     },
     fields,
     graphql: {
-      plural: `List_operation_${suffix}s`,
+      plural: nameO + 's',
     },
   } as const
 }
 
-/** Yield item-level list configuration */
-function* yieldItemList(
+/** Yield item-level access test configuration */
+function* yieldItemTest(
   suffix: string,
   access: { query: boolean; create: boolean; update: boolean; delete: boolean },
   fields: Field[]
 ) {
+  const nameI = `List_item_${suffix}`
   yield {
-    name: `List_item_${suffix}`,
+    name: nameI,
     expect: { type: 'item' as const, ...access },
     access: {
       operation: {
@@ -236,17 +238,17 @@ function* yieldItemList(
         update: allowAll,
         delete: allowAll,
       },
-      item: createItemMutationAccess(access),
+      item: createItemAccess(access),
     },
     fields,
     graphql: {
-      plural: `List_item_${suffix}s`,
+      plural: nameI + 's',
     },
   } as const
 }
 
-/** Yield filter-level list configurations */
-function* yieldFilterLists(
+/** Yield filter-level access test configurations */
+function* yieldFilterTests(
   suffix: string,
   access: { query: boolean; create: boolean; update: boolean; delete: boolean },
   fields: Field[]
@@ -320,14 +322,14 @@ export function* makeList({
 }) {
   const suffix = `${prefix}${makeName(access)}`
 
-  yield* yieldOperationList(suffix, access, fields)
+  yield* yieldOperationTest(suffix, access, fields)
 
-  if (hasDeniedMutationOperation(access)) {
-    yield* yieldItemList(suffix, access, fields)
+  if (hasRestrictedMutations(access)) {
+    yield* yieldItemTest(suffix, access, fields)
   }
 
-  if (hasDeniedFilterOperation(access)) {
-    yield* yieldFilterLists(suffix, access, fields)
+  if (hasRestrictedFilters(access)) {
+    yield* yieldFilterTests(suffix, access, fields)
   }
 }
 
@@ -341,7 +343,6 @@ export function randomString() {
 
 export async function seed(l: List, context: any) {
   const data = Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
-
   return (await context.sudo().db[l.name].createOne({ data })) as Record<string, any>
 }
 
@@ -349,7 +350,6 @@ export async function seedMany(l: List, context: any) {
   const data = [...Array(randomCount())].map(_ =>
     Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
   )
-
   return (await context.sudo().db[l.name].createMany({ data })) as Record<string, any>[]
 }
 

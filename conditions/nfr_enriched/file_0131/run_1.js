@@ -19,35 +19,16 @@ const handleAddComponentsToDynamicZone = (state, action) => {
   const { name, components, shouldAddComponents } = action;
 
   return state.updateIn(['modifiedData', name], list => {
-    let updatedList = list;
-
-    if (shouldAddComponents) {
-      updatedList = list.concat(components);
-    } else {
-      updatedList = list.filter(comp => components.indexOf(comp) === -1);
-    }
+    const updatedList = shouldAddComponents
+      ? list.concat(components)
+      : list.filter(comp => components.indexOf(comp) === -1);
 
     return List(makeUnique(updatedList.toJS()));
   });
 };
 
-// Handle default value removal when type changes
-const handleDefaultValueRemoval = (obj, keys, value) => {
-  const hasDefaultValue = Boolean(obj.getIn(['default']));
-
-  if (hasDefaultValue && keys.length === 1 && keys.includes('type')) {
-    const previousType = obj.getIn(['type']);
-
-    if (previousType && ['date', 'datetime', 'time'].includes(previousType)) {
-      return obj.updateIn(keys, () => value).remove('default');
-    }
-  }
-
-  return null;
-};
-
-// Handle nature field updates for relations
-const handleNatureUpdate = (obj, value, oneThatIsCreatingARelationWithAnother) => {
+// Handle nature field changes in relations
+const handleNatureChange = (obj, value, oneThatIsCreatingARelationWithAnother) => {
   return obj
     .update('nature', () => value)
     .update('dominant', () => (value === 'manyToMany' ? true : null))
@@ -58,24 +39,40 @@ const handleNatureUpdate = (obj, value, oneThatIsCreatingARelationWithAnother) =
       if (['oneWay', 'manyWay'].includes(value)) {
         return '-';
       }
-
       return pluralize(
         oldValue === '-' ? snakeCase(oneThatIsCreatingARelationWithAnother) : oldValue,
         shouldPluralizeTargetAttribute(value)
       );
     })
-    .update('targetColumnName', oldValue => {
-      if (['oneWay', 'manyWay'].includes(value)) {
-        return null;
-      }
-
-      return oldValue;
-    });
+    .update('targetColumnName', oldValue =>
+      (['oneWay', 'manyWay'].includes(value) ? null : oldValue)
+    );
 };
 
-// Handle target field updates for relations
-const handleTargetUpdate = (obj, value, action) => {
-  const { selectedContentTypeFriendlyName, oneThatIsCreatingARelationWithAnother, targetContentTypeAllowedRelations } = action;
+// Handle type field changes with default value removal
+const handleTypeChange = (obj, value) => {
+  const hasDefaultValue = Boolean(obj.getIn(['default']));
+  const previousType = obj.getIn(['type']);
+
+  if (
+    hasDefaultValue &&
+    previousType &&
+    ['date', 'datetime', 'time'].includes(previousType)
+  ) {
+    return obj.updateIn(['type'], () => value).remove('default');
+  }
+
+  return obj.updateIn(['type'], () => value);
+};
+
+// Handle target field changes in relations
+const handleTargetChange = (
+  obj,
+  value,
+  selectedContentTypeFriendlyName,
+  targetContentTypeAllowedRelations,
+  oneThatIsCreatingARelationWithAnother
+) => {
   let didChangeNatureBecauseOfRestrictedRelation = false;
 
   return obj
@@ -97,10 +94,7 @@ const handleTargetUpdate = (obj, value, action) => {
         ? targetContentTypeAllowedRelations[0]
         : obj.get('nature');
 
-      return pluralize(
-        snakeCase(selectedContentTypeFriendlyName),
-        shouldPluralizeName(nature)
-      );
+      return pluralize(snakeCase(selectedContentTypeFriendlyName), shouldPluralizeName(nature));
     })
     .update('targetAttribute', () => {
       const currentNature = obj.get('nature');
@@ -123,29 +117,40 @@ const handleTargetUpdate = (obj, value, action) => {
     });
 };
 
-// Handle onChange action for modifiedData
+// Handle onChange action for modified data
 const handleOnChange = (state, action) => {
   return state.update('modifiedData', obj => {
-    const { keys, value, oneThatIsCreatingARelationWithAnother } = action;
+    const {
+      selectedContentTypeFriendlyName,
+      keys,
+      value,
+      oneThatIsCreatingARelationWithAnother,
+      targetContentTypeAllowedRelations,
+    } = action;
 
-    const defaultRemovalResult = handleDefaultValueRemoval(obj, keys, value);
-    if (defaultRemovalResult) {
-      return defaultRemovalResult;
+    if (keys.length === 1 && keys.includes('type')) {
+      return handleTypeChange(obj, value);
     }
 
     if (keys.length === 1 && keys.includes('nature')) {
-      return handleNatureUpdate(obj, value, oneThatIsCreatingARelationWithAnother);
+      return handleNatureChange(obj, value, oneThatIsCreatingARelationWithAnother);
     }
 
     if (keys.length === 1 && keys.includes('target')) {
-      return handleTargetUpdate(obj, value, action);
+      return handleTargetChange(
+        obj,
+        value,
+        selectedContentTypeFriendlyName,
+        targetContentTypeAllowedRelations,
+        oneThatIsCreatingARelationWithAnother
+      );
     }
 
     return obj.updateIn(keys, () => value);
   });
 };
 
-// Handle allowed type changes
+// Handle allowed types changes
 const handleOnChangeAllowedType = (state, action) => {
   if (action.name === 'all') {
     return state.updateIn(['modifiedData', 'allowedTypes'], () => {
@@ -166,22 +171,27 @@ const handleOnChangeAllowedType = (state, action) => {
 };
 
 // Build data schema for different attribute types
-const buildAttributeDataSchema = (attributeType, action, options) => {
-  const { nameToSetForRelation, targetUid, step } = action;
-
+const buildAttributeDataSchema = (attributeType, step, options, nameToSetForRelation, targetUid) => {
   if (attributeType === 'component') {
-    if (step === '1') {
-      return {
-        type: 'component',
-        createComponent: true,
-        componentToCreate: { type: 'component' },
-      };
-    }
-    return { ...options, type: 'component', repeatable: true };
+    return step === '1'
+      ? {
+          type: 'component',
+          createComponent: true,
+          componentToCreate: { type: 'component' },
+        }
+      : {
+          ...options,
+          type: 'component',
+          repeatable: true,
+        };
   }
 
   if (attributeType === 'dynamiczone') {
-    return { ...options, type: 'dynamiczone', components: [] };
+    return {
+      ...options,
+      type: 'dynamiczone',
+      components: [],
+    };
   }
 
   if (attributeType === 'text') {
@@ -223,7 +233,15 @@ const buildAttributeDataSchema = (attributeType, action, options) => {
 
 // Handle setting attribute data schema
 const handleSetAttributeDataSchema = (state, action) => {
-  const { attributeType, isEditing, modifiedDataToSetForEditing, options = {} } = action;
+  const {
+    attributeType,
+    isEditing,
+    modifiedDataToSetForEditing,
+    nameToSetForRelation,
+    targetUid,
+    step,
+    options = {},
+  } = action;
 
   if (isEditing) {
     return state
@@ -231,7 +249,14 @@ const handleSetAttributeDataSchema = (state, action) => {
       .update('initialData', () => fromJS(modifiedDataToSetForEditing));
   }
 
-  const dataToSet = buildAttributeDataSchema(attributeType, action, options);
+  const dataToSet = buildAttributeDataSchema(
+    attributeType,
+    step,
+    options,
+    nameToSetForRelation,
+    targetUid
+  );
+
   return state.update('modifiedData', () => fromJS(dataToSet));
 };
 

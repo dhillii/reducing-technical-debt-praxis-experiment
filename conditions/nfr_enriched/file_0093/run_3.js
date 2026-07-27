@@ -318,6 +318,7 @@ export function randomString() {
 
 export async function seed(l: List, context: any) {
   const data = Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
+
   return (await context.sudo().db[l.name].createOne({ data })) as Record<string, any>
 }
 
@@ -325,6 +326,7 @@ export async function seedMany(l: List, context: any) {
   const data = [...Array(randomCount())].map(_ =>
     Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
   )
+
   return (await context.sudo().db[l.name].createMany({ data })) as Record<string, any>[]
 }
 
@@ -339,8 +341,8 @@ export function makeItem(
   )
 }
 
-// Generates field configurations for all access control combinations
-function* generateFieldConfigurations() {
+// Generates field configurations for non-unique fields
+function* generateNonUniqueFields() {
   for (const read of [false, true]) {
     for (const create of [false, true]) {
       for (const update of [false, true]) {
@@ -360,8 +362,8 @@ function* generateFieldConfigurations() {
   }
 }
 
-// Generates unique field configurations for all access control combinations
-function* generateUniqueFieldConfigurations() {
+// Generates field configurations for unique fields
+function* generateUniqueFields() {
   for (const read of [false, true]) {
     for (const create of [true]) {
       for (const update of [false, true]) {
@@ -381,7 +383,7 @@ function* generateUniqueFieldConfigurations() {
   }
 }
 
-// Generates list configurations for all access control combinations
+// Generates all list configurations for given field sets
 function* generateListConfigurations(fields: Field[], fieldsUnique: Field[]) {
   for (const query of [false, true]) {
     for (const create of [false, true]) {
@@ -415,8 +417,8 @@ function* generateListConfigurations(fields: Field[], fieldsUnique: Field[]) {
 
 export const lists = [
   ...(function* () {
-    const fields = [...generateFieldConfigurations()]
-    const fieldsUnique = [...fields, ...generateUniqueFieldConfigurations()]
+    const fields = [...generateNonUniqueFields()]
+    const fieldsUnique = [...fields, ...generateUniqueFields()]
     yield* generateListConfigurations(fields, fieldsUnique)
   })(),
 ]

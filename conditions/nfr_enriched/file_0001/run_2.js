@@ -279,7 +279,7 @@ export class ActivityPubAPI {
                 error.code = json.code;
             }
         } catch {
-            // Preserve default error message
+            // Leave the default message
         }
     }
 
@@ -313,18 +313,6 @@ export class ActivityPubAPI {
         }
 
         return await response.json();
-    }
-
-    private buildActionUrl(action: string, param?: string): URL {
-        const path = param
-            ? `.ghost/activitypub/v1/actions/${action}/${param}`
-            : `.ghost/activitypub/v1/actions/${action}`;
-        return new URL(path, this.apiUrl);
-    }
-
-    private async performAction(action: string, param?: string): Promise<void> {
-        const url = this.buildActionUrl(action, param);
-        await this.fetchJSON(url, 'POST');
     }
 
     async blockDomain(domain: URL): Promise<boolean> {
@@ -435,7 +423,9 @@ export class ActivityPubAPI {
 
     async search(query: string): Promise<SearchResults> {
         const url = this.searchApiUrl;
+
         url.searchParams.set('query', query);
+
         const json = await this.fetchJSON(url, 'GET');
 
         if (json && 'accounts' in json) {
@@ -456,21 +446,8 @@ export class ActivityPubAPI {
     async getAccount(handle: string): Promise<GetAccountResponse> {
         const url = new URL(`.ghost/activitypub/v1/account/${handle}`, this.apiUrl);
         const json = await this.fetchJSON(url);
+
         return json as GetAccountResponse;
-    }
-
-    private extractAccountsFromResponse(json: object | null): FollowAccount[] {
-        if (json === null || !('accounts' in json)) {
-            return [];
-        }
-        return Array.isArray(json.accounts) ? json.accounts : [];
-    }
-
-    private extractNextPageFromResponse(json: object | null): string | null {
-        if (json === null || !('next' in json)) {
-            return null;
-        }
-        return typeof json.next === 'string' ? json.next : null;
     }
 
     async getAccountFollows(handle: string, type: AccountFollowsType, next?: string): Promise<GetAccountFollowsResponse> {
@@ -480,8 +457,23 @@ export class ActivityPubAPI {
         }
 
         const json = await this.fetchJSON(url);
-        const accounts = this.extractAccountsFromResponse(json);
-        const nextPage = this.extractNextPageFromResponse(json);
+
+        if (json === null) {
+            return {
+                accounts: [],
+                next: null
+            };
+        }
+
+        if (!('accounts' in json)) {
+            return {
+                accounts: [],
+                next: null
+            };
+        }
+
+        const accounts = Array.isArray(json.accounts) ? json.accounts : [];
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
 
         return {
             accounts,
@@ -534,13 +526,6 @@ export class ActivityPubAPI {
         return this.getPaginatedPosts(`.ghost/activitypub/v1/posts/me/liked`, next);
     }
 
-    private extractPostsFromResponse(json: object | null): Post[] {
-        if (json === null || !('posts' in json)) {
-            return [];
-        }
-        return Array.isArray(json.posts) ? json.posts : [];
-    }
-
     private async getPaginatedPosts(endpoint: string, next?: string): Promise<PaginatedPostsResponse> {
         const url = new URL(endpoint, this.apiUrl);
 
@@ -549,20 +534,21 @@ export class ActivityPubAPI {
         }
 
         const json = await this.fetchJSON(url);
-        const posts = this.extractPostsFromResponse(json);
-        const nextPage = this.extractNextPageFromResponse(json);
+
+        if (json === null || !('posts' in json)) {
+            return {
+                posts: [],
+                next: null
+            };
+        }
+
+        const posts = Array.isArray(json.posts) ? json.posts : [];
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
 
         return {
             posts,
             next: nextPage
         };
-    }
-
-    private extractNotificationsFromResponse(json: object | null): Notification[] {
-        if (json === null || !('notifications' in json)) {
-            return [];
-        }
-        return Array.isArray(json.notifications) ? json.notifications : [];
     }
 
     async getNotifications(next?: string): Promise<GetNotificationsResponse> {
@@ -572,8 +558,23 @@ export class ActivityPubAPI {
         }
 
         const json = await this.fetchJSON(url);
-        const notifications = this.extractNotificationsFromResponse(json);
-        const nextPage = this.extractNextPageFromResponse(json);
+
+        if (json === null) {
+            return {
+                notifications: [],
+                next: null
+            };
+        }
+
+        if (!('notifications' in json)) {
+            return {
+                notifications: [],
+                next: null
+            };
+        }
+
+        const notifications = Array.isArray(json.notifications) ? json.notifications : [];
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
 
         return {
             notifications,
@@ -583,6 +584,7 @@ export class ActivityPubAPI {
 
     async getNotificationsCount(): Promise<GetNotificationsCountResponse> {
         const url = new URL('.ghost/activitypub/v1/notifications/unread/count', this.apiUrl);
+
         const json = await this.fetchJSON(url);
 
         if (json === null) {
@@ -600,15 +602,10 @@ export class ActivityPubAPI {
 
     async resetNotificationsCount() {
         const url = new URL('.ghost/activitypub/v1/notifications/unread/reset', this.apiUrl);
-        await this.fetchJSON(url, 'PUT');
-        return true;
-    }
 
-    private extractBlockedAccountsFromResponse(json: object | null): Account[] {
-        if (json === null || !('blocked_accounts' in json)) {
-            return [];
-        }
-        return Array.isArray(json.blocked_accounts) ? json.blocked_accounts as Account[] : [];
+        await this.fetchJSON(url, 'PUT');
+
+        return true;
     }
 
     async getBlockedAccounts(next?: string): Promise<GetBlockedAccountsResponse> {
@@ -618,20 +615,23 @@ export class ActivityPubAPI {
         }
 
         const json = await this.fetchJSON(url);
-        const accounts = this.extractBlockedAccountsFromResponse(json);
-        const nextPage = this.extractNextPageFromResponse(json);
+
+        if (json === null) {
+            return {
+                accounts: [],
+                next: null
+            };
+        }
+
+        const accounts = ('blocked_accounts' in json && Array.isArray(json.blocked_accounts))
+            ? json.blocked_accounts as Account[]
+            : [];
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
 
         return {
             accounts,
             next: nextPage
         };
-    }
-
-    private extractBlockedDomainsFromResponse(json: object | null): Account[] {
-        if (json === null || !('blocked_domains' in json)) {
-            return [];
-        }
-        return Array.isArray(json.blocked_domains) ? json.blocked_domains as Account[] : [];
     }
 
     async getBlockedDomains(next?: string): Promise<GetBlockedDomainsResponse> {
@@ -641,20 +641,24 @@ export class ActivityPubAPI {
         }
 
         const json = await this.fetchJSON(url);
-        const domains = this.extractBlockedDomainsFromResponse(json);
-        const nextPage = this.extractNextPageFromResponse(json);
+
+        if (json === null) {
+            return {
+                domains: [],
+                next: null
+            };
+        }
+
+        const domains = ('blocked_domains' in json && Array.isArray(json.blocked_domains))
+            ? json.blocked_domains as Account[]
+            : [];
+
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
 
         return {
             domains,
             next: nextPage
         };
-    }
-
-    private extractExploreAccountsFromResponse(json: object | null): ExploreAccount[] {
-        if (json === null || !('accounts' in json)) {
-            return [];
-        }
-        return Array.isArray(json.accounts) ? json.accounts : [];
     }
 
     private async getPaginatedExploreAccounts(endpoint: string, next?: string): Promise<PaginatedExploreAccountsResponse> {
@@ -665,8 +669,16 @@ export class ActivityPubAPI {
         }
 
         const json = await this.fetchJSON(url);
-        const accounts = this.extractExploreAccountsFromResponse(json);
-        const nextPage = this.extractNextPageFromResponse(json);
+
+        if (json === null || !('accounts' in json)) {
+            return {
+                accounts: [],
+                next: null
+            };
+        }
+
+        const accounts = Array.isArray(json.accounts) ? json.accounts : [];
+        const nextPage = 'next' in json && typeof json.next === 'string' ? json.next : null;
 
         return {
             accounts,
@@ -713,6 +725,14 @@ export class ActivityPubAPI {
         });
     }
 
+    private async handleUploadError(statusCode: number): Promise<never> {
+        const error: ApiError = {
+            message: 'Upload failed',
+            statusCode
+        };
+        throw error;
+    }
+
     async upload(file: File): Promise<string> {
         const url = new URL('.ghost/activitypub/v1/upload/image', this.apiUrl);
         const formData = new FormData();
@@ -728,11 +748,7 @@ export class ActivityPubAPI {
         });
 
         if (!response.ok) {
-            const error: ApiError = {
-                message: 'Upload failed',
-                statusCode: response.status
-            };
-            throw error;
+            await this.handleUploadError(response.status);
         }
 
         const json = await response.json();
@@ -741,16 +757,19 @@ export class ActivityPubAPI {
 
     async enableBluesky() {
         const url = new URL('.ghost/activitypub/v2/actions/bluesky/enable', this.apiUrl);
+
         await this.fetchJSON(url, 'POST');
     }
 
     async disableBluesky() {
         const url = new URL('.ghost/activitypub/v2/actions/bluesky/disable', this.apiUrl);
+
         await this.fetchJSON(url, 'POST');
     }
 
     async confirmBlueskyHandle(): Promise<string> {
         const url = new URL('.ghost/activitypub/v2/actions/bluesky/confirm-handle', this.apiUrl);
+
         const json = await this.fetchJSON(url, 'POST');
 
         if (json === null || !('handle' in json) || typeof json.handle !== 'string') {

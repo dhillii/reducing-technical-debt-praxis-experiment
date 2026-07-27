@@ -289,7 +289,7 @@ exports.stringify = function (value) {
         acc[idx] = char;
         return acc;
       }, {});
-      return jsonStringify(exports.canonicalize(stringValue, null, 'object'), 2).replace(/,(\n|$)/g, '$1');
+      return jsonStringify(stringValue);
     } else {
       return jsonStringify(value);
     }
@@ -305,7 +305,7 @@ exports.stringify = function (value) {
 };
 
 /**
- * Configuration object for JSON stringification.
+ * Configuration for JSON stringification.
  * @typedef {Object} JsonStringifyConfig
  * @property {number} spaces - Number of spaces per indentation level
  * @property {number} depth - Current recursion depth
@@ -374,7 +374,6 @@ function jsonStringify (object, spaces, depth) {
 
   let result = str;
   let itemCount = length;
-  
   for (const i in object) {
     if (!Object.prototype.hasOwnProperty.call(object, i)) {
       continue; // not my business
@@ -392,7 +391,7 @@ function jsonStringify (object, spaces, depth) {
 }
 
 /**
- * Canonicalization context object.
+ * Canonicalization context for recursive operations.
  * @typedef {Object} CanonicalizeContext
  * @property {Array} stack - Stack of seen values for circular reference detection
  * @property {string} typeHint - Type hint for the value
@@ -492,8 +491,7 @@ exports.canonicalize = function canonicalize (value, stack, typeHint) {
  * Process a single file entry during lookup.
  * @param {string} file - File path to process
  * @param {LookupFilesConfig} config - Lookup configuration
- * @param {string[]} files - Accumulated files array
- * @returns {void}
+ * @param {string[]} files - Accumulator array for found files
  */
 function processFileEntry (file, config, files) {
   file = join(config.path, file);
@@ -593,14 +591,13 @@ exports.getError = function (err) {
 /**
  * Stack trace filter configuration.
  * @typedef {Object} StackTraceFilterContext
- * @property {boolean} node - Whether running in Node environment
- * @property {boolean} browser - Whether running in browser environment
- * @property {string} slash - Path separator character
+ * @property {Object} is - Environment detection flags
+ * @property {string} slash - Path separator
  * @property {string} cwd - Current working directory
  */
 
 /**
- * Check if a line is from Mocha internals.
+ * Check if line is from Mocha internals.
  * @param {string} line - Stack trace line
  * @param {string} slash - Path separator
  * @returns {boolean}
@@ -613,7 +610,7 @@ function isMochaInternal (line, slash) {
 }
 
 /**
- * Check if a line is from Node internals.
+ * Check if line is from Node.js internals.
  * @param {string} line - Stack trace line
  * @returns {boolean}
  */

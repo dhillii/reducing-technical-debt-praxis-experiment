@@ -193,25 +193,8 @@ define([
         },
 
         /**
-         * Determines if the current index is at the end of the page.
-         * @private
-         */
-        _isAtPageEnd: function(index) {
-            return index >= this.models.length;
-        },
-
-        /**
-         * Triggers appropriate page navigation event based on pagination state.
-         * @private
-         */
-        _triggerPageNavigation: function(hasNextPage) {
-            return this.trigger(
-                hasNextPage ? 'page:next' : 'page:end'
-            );
-        },
-
-        /**
          * Navigates to the next item in the collection.
+         * Triggers page:next event if at the end of current page.
          */
         getNextItem: function(id) {
             // The collection is empty
@@ -219,37 +202,30 @@ define([
                 return false;
             }
 
-            const model  = this.get(id);
-            const index  = model ? this.indexOf(model) + 1 : 0;
+            const nextIndex = this._calculateNextIndex(id);
 
             // It is the last model on this page
-            if (this._isAtPageEnd(index)) {
-                return this._triggerPageNavigation(this.hasNextPage());
+            if (nextIndex >= this.models.length) {
+                return this.trigger(
+                    this.hasNextPage() ? 'page:next' : 'page:end'
+                );
             }
 
-            Radio.trigger(this.storeName, 'model:navigate', this.at(index));
+            Radio.trigger(this.storeName, 'model:navigate', this.at(nextIndex));
         },
 
         /**
-         * Determines if the current index is at the start of the page.
+         * Calculates the index of the next item.
          * @private
          */
-        _isAtPageStart: function(index) {
-            return index < 0;
-        },
-
-        /**
-         * Triggers appropriate page navigation event for previous page.
-         * @private
-         */
-        _triggerPreviousPageNavigation: function() {
-            return this.trigger(
-                this.hasPreviousPage() ? 'page:previous' : 'page:start'
-            );
+        _calculateNextIndex: function(id) {
+            const model = this.get(id);
+            return model ? this.indexOf(model) + 1 : 0;
         },
 
         /**
          * Navigates to the previous item in the collection.
+         * Triggers page:previous event if at the beginning of current page.
          */
         getPreviousItem: function(id) {
             // The collection is empty
@@ -257,35 +233,25 @@ define([
                 return false;
             }
 
-            const model = this.get(id);
-            const index = model ? this.indexOf(model) - 1 : this.models.length - 1;
+            const previousIndex = this._calculatePreviousIndex(id);
 
             // It is the first model on this page
-            if (this._isAtPageStart(index)) {
-                return this._triggerPreviousPageNavigation();
+            if (previousIndex < 0) {
+                return this.trigger(
+                    this.hasPreviousPage() ? 'page:previous' : 'page:start'
+                );
             }
 
-            Radio.trigger(this.storeName, 'model:navigate', this.at(index));
+            Radio.trigger(this.storeName, 'model:navigate', this.at(previousIndex));
         },
 
         /**
-         * Determines if a model should be navigated to after removal.
+         * Calculates the index of the previous item.
          * @private
          */
-        _shouldNavigateAfterRemoval: function(index) {
-            return this.at(index) !== undefined;
-        },
-
-        /**
-         * Handles navigation when no model exists at the current index.
-         * @private
-         */
-        _handleNoModelAtIndex: function(index) {
-            if (!this.at(index)) {
-                return this.hasPreviousPage() ? this.trigger('page:previous') : null;
-            }
-
-            Radio.trigger(this.storeName, 'model:navigate', this.at(index));
+        _calculatePreviousIndex: function(id) {
+            const model = this.get(id);
+            return model ? this.indexOf(model) - 1 : this.models.length - 1;
         },
 
         /**
@@ -294,47 +260,35 @@ define([
          * @type object Backbone model
          */
         _navigateOnRemove: function(model) {
-            const removedModel = this.get(model.id);
-            if (!removedModel) {
+            const retrievedModel = this.get(model.id);
+            if (!retrievedModel) {
                 return false;
             }
 
-            const coll  = this.fullCollection || this;
-            let index = this.indexOf(removedModel);
+            const targetCollection = this.fullCollection || this;
+            let index = this.indexOf(retrievedModel);
 
-            coll.remove(removedModel);
+            targetCollection.remove(retrievedModel);
             this.sortFullCollection();
 
+            index = this._adjustIndexAfterRemoval(index);
+
+            if (index < 0) {
+                return this.hasPreviousPage() ? this.trigger('page:previous') : null;
+            }
+
+            Radio.trigger(this.storeName, 'model:navigate', this.at(index));
+        },
+
+        /**
+         * Adjusts the index after a model removal to ensure it points to a valid model.
+         * @private
+         */
+        _adjustIndexAfterRemoval: function(index) {
             if (!this.at(index)) {
                 index--;
             }
-
-            this._handleNoModelAtIndex(index);
-        },
-
-        /**
-         * Determines if model should be added based on filter condition.
-         * @private
-         */
-        _passesFilterCondition: function(model) {
-            return model.matches(this.conditionCurrent || {trash: 0});
-        },
-
-        /**
-         * Updates or adds a model to the collection.
-         * @private
-         */
-        _updateOrAddModel: function(model) {
-            const coll     = this.fullCollection || this;
-            const colModel = coll.get(model.id);
-
-            if (colModel) {
-                return colModel.set(model.toJSON());
-            }
-
-            // Or add it to fullCollection and sort the collection again
-            coll.add(model, {at: 0});
-            this.sortFullCollection();
+            return index;
         },
 
         /**
@@ -364,11 +318,21 @@ define([
              * Remove a model from the collection if it doesn't meet
              * the current filter condition.
              */
-            if (!this._passesFilterCondition(model)) {
+            if (!model.matches(this.conditionCurrent || {trash: 0})) {
                 return this._navigateOnRemove(model);
             }
 
-            this._updateOrAddModel(model);
+            // If the model already exists, update it
+            const targetCollection = this.fullCollection || this;
+            const existingModel = targetCollection.get(model.id);
+
+            if (existingModel) {
+                return existingModel.set(model.toJSON());
+            }
+
+            // Or add it to fullCollection and sort the collection again
+            targetCollection.add(model, {at: 0});
+            this.sortFullCollection();
         },
 
         /**

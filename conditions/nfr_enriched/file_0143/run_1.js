@@ -144,7 +144,24 @@ class Compilation extends Tapable {
 			building.forEach(cb => cb(err));
 		}
 		module.build(this.options, this, this.resolvers.normal, this.inputFileSystem, (error) => {
-			this._processBuildErrors(module, error, origin, dependencies, optional);
+			const errors = module.errors;
+			for(let indexError = 0; indexError < errors.length; indexError++) {
+				const err = errors[indexError];
+				err.origin = origin;
+				err.dependencies = dependencies;
+				if(optional)
+					this.warnings.push(err);
+				else
+					this.errors.push(err);
+			}
+
+			const warnings = module.warnings;
+			for(let indexWarning = 0; indexWarning < warnings.length; indexWarning++) {
+				const war = warnings[indexWarning];
+				war.origin = origin;
+				war.dependencies = dependencies;
+				this.warnings.push(war);
+			}
 			module.dependencies.sort(Dependency.compare);
 			if(error) {
 				this.applyPlugins2("failed-module", module, error);
@@ -153,27 +170,6 @@ class Compilation extends Tapable {
 			this.applyPlugins1("succeed-module", module);
 			return callback();
 		});
-	}
-
-	_processBuildErrors(module, error, origin, dependencies, optional) {
-		const errors = module.errors;
-		for(let indexError = 0; indexError < errors.length; indexError++) {
-			const err = errors[indexError];
-			err.origin = origin;
-			err.dependencies = dependencies;
-			if(optional)
-				this.warnings.push(err);
-			else
-				this.errors.push(err);
-		}
-
-		const warnings = module.warnings;
-		for(let indexWarning = 0; indexWarning < warnings.length; indexWarning++) {
-			const war = warnings[indexWarning];
-			war.origin = origin;
-			war.dependencies = dependencies;
-			this.warnings.push(war);
-		}
 	}
 
 	processModuleDependencies(module, callback) {
@@ -215,72 +211,62 @@ class Compilation extends Tapable {
 			}
 			factories[i] = [factory, dependencies[i]];
 		}
-		asyncLib.forEach(factories, (item, callback) => {
-			this._processFactoryItem(item, module, bail, cacheGroup, recursive, start, callback);
+		asyncLib.forEach(factories, function iteratorFactory(item, callback) {
+			const dependencies = item[1];
+
+			const errorAndCallback = function errorAndCallback(err) {
+				err.origin = module;
+				_this.errors.push(err);
+				if(bail) {
+					callback(err);
+				} else {
+					callback();
+				}
+			};
+			const warningAndCallback = function warningAndCallback(err) {
+				err.origin = module;
+				_this.warnings.push(err);
+				callback();
+			};
+
+			const factory = item[0];
+			factory.create({
+				contextInfo: {
+					issuer: module.nameForCondition && module.nameForCondition(),
+					compiler: _this.compiler.name
+				},
+				context: module.context,
+				dependencies: dependencies
+			}, function factoryCallback(err, dependentModule) {
+				if(err) {
+					const isOptional = dependencies.filter(d => !d.optional).length === 0;
+					const error = new ModuleNotFoundError(module, err, dependencies);
+					if(isOptional) {
+						return warningAndCallback(error);
+					} else {
+						return errorAndCallback(error);
+					}
+				}
+				if(!dependentModule) {
+					return process.nextTick(callback);
+				}
+
+				_this.handleDependentModule(dependentModule, module, dependencies, cacheGroup, recursive, callback, start);
+			});
 		}, function finalCallbackAddModuleDependencies(err) {
 			_this = null;
+
 			if(err) {
 				return callback(err);
 			}
+
 			return process.nextTick(callback);
 		});
 	}
 
-	_processFactoryItem(item, module, bail, cacheGroup, recursive, start, callback) {
-		const dependencies = item[1];
-		const factory = item[0];
-		const _this = this;
-
-		const errorAndCallback = (err) => {
-			err.origin = module;
-			_this.errors.push(err);
-			if(bail) {
-				callback(err);
-			} else {
-				callback();
-			}
-		};
-
-		const warningAndCallback = (err) => {
-			err.origin = module;
-			_this.warnings.push(err);
-			callback();
-		};
-
-		factory.create({
-			contextInfo: {
-				issuer: module.nameForCondition && module.nameForCondition(),
-				compiler: _this.compiler.name
-			},
-			context: module.context,
-			dependencies: dependencies
-		}, (err, dependentModule) => {
-			this._handleFactoryCallback(err, dependentModule, dependencies, module, bail, cacheGroup, recursive, start, errorAndCallback, warningAndCallback, callback);
-		});
-	}
-
-	_handleFactoryCallback(err, dependentModule, dependencies, module, bail, cacheGroup, recursive, start, errorAndCallback, warningAndCallback, callback) {
-		if(err) {
-			return errorAndCallback(new ModuleNotFoundError(module, err, dependencies));
-		}
-		if(!dependentModule) {
-			return process.nextTick(callback);
-		}
-
-		const isOptional = dependencies.filter(d => !d.optional).length === 0;
-		const newModule = this._addDependentModule(dependentModule, module, cacheGroup, isOptional, dependencies, start);
-
-		if(!newModule) {
-			this._handleCachedModule(dependentModule, module, isOptional, dependencies, start, callback);
-		} else if(newModule instanceof Module) {
-			this._handleNewModule(newModule, dependentModule, module, isOptional, dependencies, recursive, start, callback);
-		} else {
-			this._handleBuildableModule(dependentModule, module, isOptional, dependencies, recursive, start, errorAndCallback, warningAndCallback, callback);
-		}
-	}
-
-	_addDependentModule(dependentModule, module, cacheGroup, isOptional, dependencies, start) {
+	handleDependentModule(dependentModule, module, dependencies, cacheGroup, recursive, callback, start) {
 		let afterFactory;
+
 		if(this.profile) {
 			if(!dependentModule.profile) {
 				dependentModule.profile = {};
@@ -290,17 +276,30 @@ class Compilation extends Tapable {
 		}
 
 		dependentModule.issuer = module;
-		return this.addModule(dependentModule, cacheGroup);
+		const newModule = this.addModule(dependentModule, cacheGroup);
+
+		if(!newModule) {
+			this.handleCachedModule(dependentModule, module, dependencies, callback, start);
+			return;
+		}
+
+		if(newModule instanceof Module) {
+			this.handleNewModule(newModule, dependentModule, module, dependencies, recursive, callback, start, afterFactory);
+			return;
+		}
+
+		this.handlePendingModule(dependentModule, module, dependencies, recursive, callback, start, afterFactory);
 	}
 
-	_handleCachedModule(dependentModule, module, isOptional, dependencies, start, callback) {
+	handleCachedModule(dependentModule, module, dependencies, callback, start) {
 		dependentModule = this.getModule(dependentModule);
 
+		const isOptional = dependencies.filter(d => !d.optional).length === 0;
 		if(dependentModule.optional) {
 			dependentModule.optional = isOptional;
 		}
 
-		this._iterationDependencies(dependencies, dependentModule);
+		this.assignDependenciesToModule(dependencies, dependentModule);
 
 		if(this.profile) {
 			if(!module.profile) {
@@ -315,20 +314,21 @@ class Compilation extends Tapable {
 		return process.nextTick(callback);
 	}
 
-	_handleNewModule(newModule, dependentModule, module, isOptional, dependencies, recursive, start, callback) {
+	handleNewModule(newModule, dependentModule, module, dependencies, recursive, callback, start, afterFactory) {
 		if(this.profile) {
 			newModule.profile = dependentModule.profile;
 		}
 
+		const isOptional = dependencies.filter(d => !d.optional).length === 0;
 		newModule.optional = isOptional;
 		newModule.issuer = dependentModule.issuer;
 		dependentModule = newModule;
 
-		this._iterationDependencies(dependencies, dependentModule);
+		this.assignDependenciesToModule(dependencies, dependentModule);
 
 		if(this.profile) {
 			const afterBuilding = Date.now();
-			module.profile.building = afterBuilding - (dependentModule.profile && dependentModule.profile.factory || start);
+			module.profile.building = afterBuilding - afterFactory;
 		}
 
 		if(recursive) {
@@ -338,24 +338,28 @@ class Compilation extends Tapable {
 		}
 	}
 
-	_handleBuildableModule(dependentModule, module, isOptional, dependencies, recursive, start, errorAndCallback, warningAndCallback, callback) {
+	handlePendingModule(dependentModule, module, dependencies, recursive, callback, start, afterFactory) {
+		const isOptional = dependencies.filter(d => !d.optional).length === 0;
 		dependentModule.optional = isOptional;
 
-		this._iterationDependencies(dependencies, dependentModule);
+		this.assignDependenciesToModule(dependencies, dependentModule);
 
-		this.buildModule(dependentModule, isOptional, module, dependencies, (err) => {
+		this.buildModule(dependentModule, isOptional, module, dependencies, err => {
 			if(err) {
-				const isOpt = dependencies.filter(d => !d.optional).length === 0;
-				if(isOpt) {
-					return warningAndCallback(err);
+				const error = new ModuleNotFoundError(module, err, dependencies);
+				if(isOptional) {
+					error.origin = module;
+					this.warnings.push(error);
 				} else {
-					return errorAndCallback(err);
+					error.origin = module;
+					this.errors.push(error);
 				}
+				return callback();
 			}
 
 			if(this.profile) {
 				const afterBuilding = Date.now();
-				dependentModule.profile.building = afterBuilding - (dependentModule.profile && dependentModule.profile.factory || start);
+				dependentModule.profile.building = afterBuilding - afterFactory;
 			}
 
 			if(recursive) {
@@ -366,24 +370,25 @@ class Compilation extends Tapable {
 		});
 	}
 
-	_iterationDependencies(dependencies, dependentModule) {
+	assignDependenciesToModule(dependencies, dependentModule) {
+		// Assign module reference and add reason for each dependency
 		for(let index = 0; index < dependencies.length; index++) {
 			const dep = dependencies[index];
 			dep.module = dependentModule;
-			dependentModule.addReason(this.getModule(dependentModule) || dependentModule, dep);
+			dependentModule.addReason(module, dep);
 		}
 	}
 
 	_addModuleChain(context, dependency, onModule, callback) {
 		const start = this.profile && Date.now();
 
-		const errorAndCallback = this.bail ? (err) => {
+		const errorAndCallback = this.bail ? function errorAndCallback(err) {
 			callback(err);
-		} : (err) => {
+		} : function errorAndCallback(err) {
 			err.dependencies = [dependency];
 			this.errors.push(err);
 			callback();
-		};
+		}.bind(this);
 
 		if(typeof dependency !== "object" || dependency === null || !dependency.constructor) {
 			throw new Error("Parameter 'dependency' must be a Dependency");
@@ -406,67 +411,67 @@ class Compilation extends Tapable {
 				return errorAndCallback(new EntryModuleNotFoundError(err));
 			}
 
-			this._handleAddModuleChainResult(module, start, onModule, callback, errorAndCallback);
-		});
-	}
+			let afterFactory;
 
-	_handleAddModuleChainResult(module, start, onModule, callback, errorAndCallback) {
-		let afterFactory;
-
-		if(this.profile) {
-			if(!module.profile) {
-				module.profile = {};
+			if(this.profile) {
+				if(!module.profile) {
+					module.profile = {};
+				}
+				afterFactory = Date.now();
+				module.profile.factory = afterFactory - start;
 			}
-			afterFactory = Date.now();
-			module.profile.factory = afterFactory - start;
-		}
 
-		const result = this.addModule(module);
-		if(!result) {
-			module = this.getModule(module);
+			const result = this.addModule(module);
+			if(!result) {
+				module = this.getModule(module);
+
+				onModule(module);
+
+				if(this.profile) {
+					const afterBuilding = Date.now();
+					module.profile.building = afterBuilding - afterFactory;
+				}
+
+				return callback(null, module);
+			}
+
+			if(result instanceof Module) {
+				if(this.profile) {
+					result.profile = module.profile;
+				}
+
+				module = result;
+
+				onModule(module);
+
+				moduleReady.call(this);
+				return;
+			}
+
 			onModule(module);
 
-			if(this.profile) {
-				const afterBuilding = Date.now();
-				module.profile.building = afterBuilding - afterFactory;
+			this.buildModule(module, false, null, null, (err) => {
+				if(err) {
+					return errorAndCallback(err);
+				}
+
+				if(this.profile) {
+					const afterBuilding = Date.now();
+					module.profile.building = afterBuilding - afterFactory;
+				}
+
+				moduleReady.call(this);
+			});
+
+			function moduleReady() {
+				this.processModuleDependencies(module, err => {
+					if(err) {
+						return callback(err);
+					}
+
+					return callback(null, module);
+				});
 			}
-
-			return callback(null, module);
-		}
-
-		if(result instanceof Module) {
-			if(this.profile) {
-				result.profile = module.profile;
-			}
-
-			module = result;
-			onModule(module);
-			this._moduleReady(module, start, afterFactory, callback);
-			return;
-		}
-
-		onModule(module);
-
-		this.buildModule(module, false, null, null, (err) => {
-			if(err) {
-				return errorAndCallback(err);
-			}
-
-			if(this.profile) {
-				const afterBuilding = Date.now();
-				module.profile.building = afterBuilding - afterFactory;
-			}
-
-			this._moduleReady(module, start, afterFactory, callback);
-		});
-	}
-
-	_moduleReady(module, start, afterFactory, callback) {
-		this.processModuleDependencies(module, (err) => {
-			if(err) {
-				return callback(err);
-			}
-			return callback(null, module);
 		});
 	}
 
@@ -477,9 +482,11 @@ class Compilation extends Tapable {
 		};
 		this.preparedChunks.push(slot);
 		this._addModuleChain(context, entry, (module) => {
+
 			entry.module = module;
 			this.entries.push(module);
 			module.issuer = null;
+
 		}, (err, module) => {
 			if(err) {
 				return callback(err);
@@ -497,8 +504,10 @@ class Compilation extends Tapable {
 
 	prefetch(context, dependency, callback) {
 		this._addModuleChain(context, dependency, module => {
+
 			module.prefetched = true;
 			module.issuer = null;
+
 		}, callback);
 	}
 
@@ -533,6 +542,7 @@ class Compilation extends Tapable {
 				});
 				callback();
 			});
+
 		});
 	}
 
@@ -591,84 +601,74 @@ class Compilation extends Tapable {
 				return callback(err);
 			}
 
-			self._sealPart2(callback);
-		});
-	}
+			self.applyPlugins2("after-optimize-tree", self.chunks, self.modules);
 
-	_sealPart2(callback) {
-		const self = this;
-		self.applyPlugins2("after-optimize-tree", self.chunks, self.modules);
+			const shouldRecord = self.applyPluginsBailResult("should-record") !== false;
 
-		const shouldRecord = self.applyPluginsBailResult("should-record") !== false;
+			self.applyPlugins2("revive-modules", self.modules, self.records);
+			self.applyPlugins1("optimize-module-order", self.modules);
+			self.applyPlugins1("advanced-optimize-module-order", self.modules);
+			self.applyPlugins1("before-module-ids", self.modules);
+			self.applyPlugins1("module-ids", self.modules);
+			self.applyModuleIds();
+			self.applyPlugins1("optimize-module-ids", self.modules);
+			self.applyPlugins1("after-optimize-module-ids", self.modules);
 
-		self.applyPlugins2("revive-modules", self.modules, self.records);
-		self.applyPlugins1("optimize-module-order", self.modules);
-		self.applyPlugins1("advanced-optimize-module-order", self.modules);
-		self.applyPlugins1("before-module-ids", self.modules);
-		self.applyPlugins1("module-ids", self.modules);
-		self.applyModuleIds();
-		self.applyPlugins1("optimize-module-ids", self.modules);
-		self.applyPlugins1("after-optimize-module-ids", self.modules);
+			self.sortItemsWithModuleIds();
 
-		self.sortItemsWithModuleIds();
+			self.applyPlugins2("revive-chunks", self.chunks, self.records);
+			self.applyPlugins1("optimize-chunk-order", self.chunks);
+			self.applyPlugins1("before-chunk-ids", self.chunks);
+			self.applyChunkIds();
+			self.applyPlugins1("optimize-chunk-ids", self.chunks);
+			self.applyPlugins1("after-optimize-chunk-ids", self.chunks);
 
-		self.applyPlugins2("revive-chunks", self.chunks, self.records);
-		self.applyPlugins1("optimize-chunk-order", self.chunks);
-		self.applyPlugins1("before-chunk-ids", self.chunks);
-		self.applyChunkIds();
-		self.applyPlugins1("optimize-chunk-ids", self.chunks);
-		self.applyPlugins1("after-optimize-chunk-ids", self.chunks);
+			self.sortItemsWithChunkIds();
 
-		self.sortItemsWithChunkIds();
+			if(shouldRecord)
+				self.applyPlugins2("record-modules", self.modules, self.records);
+			if(shouldRecord)
+				self.applyPlugins2("record-chunks", self.chunks, self.records);
 
-		if(shouldRecord)
-			self.applyPlugins2("record-modules", self.modules, self.records);
-		if(shouldRecord)
-			self.applyPlugins2("record-chunks", self.chunks, self.records);
+			self.applyPlugins0("before-hash");
+			self.createHash();
+			self.applyPlugins0("after-hash");
 
-		self.applyPlugins0("before-hash");
-		self.createHash();
-		self.applyPlugins0("after-hash");
+			if(shouldRecord)
+				self.applyPlugins1("record-hash", self.records);
 
-		if(shouldRecord)
-			self.applyPlugins1("record-hash", self.records);
-
-		self.applyPlugins0("before-module-assets");
-		self.createModuleAssets();
-		if(self.applyPluginsBailResult("should-generate-chunk-assets") !== false) {
-			self.applyPlugins0("before-chunk-assets");
-			self.createChunkAssets();
-		}
-		self.applyPlugins1("additional-chunk-assets", self.chunks);
-		self.summarizeDependencies();
-		if(shouldRecord)
-			self.applyPlugins2("record", self, self.records);
-
-		self.applyPluginsAsync("additional-assets", err => {
-			if(err) {
-				return callback(err);
+			self.applyPlugins0("before-module-assets");
+			self.createModuleAssets();
+			if(self.applyPluginsBailResult("should-generate-chunk-assets") !== false) {
+				self.applyPlugins0("before-chunk-assets");
+				self.createChunkAssets();
 			}
-			self._sealPart3(callback);
-		});
-	}
+			self.applyPlugins1("additional-chunk-assets", self.chunks);
+			self.summarizeDependencies();
+			if(shouldRecord)
+				self.applyPlugins2("record", self, self.records);
 
-	_sealPart3(callback) {
-		const self = this;
-		self.applyPluginsAsync("optimize-chunk-assets", self.chunks, err => {
-			if(err) {
-				return callback(err);
-			}
-			self.applyPlugins1("after-optimize-chunk-assets", self.chunks);
-			self.applyPluginsAsync("optimize-assets", self.assets, err => {
+			self.applyPluginsAsync("additional-assets", err => {
 				if(err) {
 					return callback(err);
 				}
-				self.applyPlugins1("after-optimize-assets", self.assets);
-				if(self.applyPluginsBailResult("need-additional-seal")) {
-					self.unseal();
-					return self.seal(callback);
-				}
-				return self.applyPluginsAsync("after-seal", callback);
+				self.applyPluginsAsync("optimize-chunk-assets", self.chunks, err => {
+					if(err) {
+						return callback(err);
+					}
+					self.applyPlugins1("after-optimize-chunk-assets", self.chunks);
+					self.applyPluginsAsync("optimize-assets", self.assets, err => {
+						if(err) {
+							return callback(err);
+						}
+						self.applyPlugins1("after-optimize-assets", self.assets);
+						if(self.applyPluginsBailResult("need-additional-seal")) {
+							self.unseal();
+							return self.seal(callback);
+						}
+						return self.applyPluginsAsync("after-seal", callback);
+					});
+				});
 			});
 		});
 	}
@@ -931,13 +931,8 @@ class Compilation extends Tapable {
 		let unusedIds = [];
 		let nextFreeModuleId = 0;
 		let usedIds = [];
+		// TODO consider Map when performance has improved https://gist.github.com/sokra/234c077e1299b7369461f1708519c392
 		const usedIdMap = Object.create(null);
-		this._collectUsedModuleIds(usedIds, usedIdMap);
-		this._findUnusedModuleIds(usedIds, usedIdMap, unusedIds, nextFreeModuleId);
-		this._assignModuleIds(unusedIds, nextFreeModuleId);
-	}
-
-	_collectUsedModuleIds(usedIds, usedIdMap) {
 		if(this.usedModuleIds) {
 			Object.keys(this.usedModuleIds).forEach(key => {
 				const id = this.usedModuleIds[key];
@@ -956,9 +951,7 @@ class Compilation extends Tapable {
 				usedIdMap[module1.id] = true;
 			}
 		}
-	}
 
-	_findUnusedModuleIds(usedIds, usedIdMap, unusedIds, nextFreeModuleId) {
 		if(usedIds.length > 0) {
 			let usedIdMax = -1;
 			for(let index = 0; index < usedIds.length; index++) {
@@ -979,9 +972,7 @@ class Compilation extends Tapable {
 				}
 			}
 		}
-	}
 
-	_assignModuleIds(unusedIds, nextFreeModuleId) {
 		const modules2 = this.modules;
 		for(let indexModule2 = 0; indexModule2 < modules2.length; indexModule2++) {
 			const module2 = modules2[indexModule2];
@@ -1137,6 +1128,11 @@ class Compilation extends Tapable {
 		});
 		// clone needed as sort below is inplace mutation
 		const chunks = this.chunks.slice();
+		/**
+		 * sort here will bring all "falsy" values to the beginning
+		 * this is needed as the "hasRuntime()" chunks are dependent on the
+		 * hashes of the non-runtime chunks.
+		 */
 		chunks.sort((a, b) => {
 			const aEntry = a.hasRuntime();
 			const bEntry = b.hasRuntime();
@@ -1203,46 +1199,37 @@ class Compilation extends Tapable {
 				chunk.isInitial() ? filename :
 				chunkFilename;
 			try {
-				this._renderChunkAsset(chunk, chunkHash, filenameTemplate, outputOptions);
+				const useChunkHash = !chunk.hasRuntime() || (this.mainTemplate.useChunkHash && this.mainTemplate.useChunkHash(chunk));
+				const usedHash = useChunkHash ? chunkHash : this.fullHash;
+				const cacheName = "c" + chunk.id;
+				if(this.cache && this.cache[cacheName] && this.cache[cacheName].hash === usedHash) {
+					source = this.cache[cacheName].source;
+				} else {
+					if(chunk.hasRuntime()) {
+						source = this.mainTemplate.render(this.hash, chunk, this.moduleTemplate, this.dependencyTemplates);
+					} else {
+						source = this.chunkTemplate.render(chunk, this.moduleTemplate, this.dependencyTemplates);
+					}
+					if(this.cache) {
+						this.cache[cacheName] = {
+							hash: usedHash,
+							source: source = (source instanceof CachedSource ? source : new CachedSource(source))
+						};
+					}
+				}
+				file = this.getPath(filenameTemplate, {
+					noChunkHash: !useChunkHash,
+					chunk
+				});
+				if(this.assets[file])
+					throw new Error(`Conflict: Multiple assets emit to the same filename ${file}`);
+				this.assets[file] = source;
+				chunk.files.push(file);
+				this.applyPlugins2("chunk-asset", chunk, file);
 			} catch(err) {
 				this.errors.push(new ChunkRenderError(chunk, file || filenameTemplate, err));
 			}
 		}
-	}
-
-	_renderChunkAsset(chunk, chunkHash, filenameTemplate, outputOptions) {
-		const useChunkHash = !chunk.hasRuntime() || (this.mainTemplate.useChunkHash && this.mainTemplate.useChunkHash(chunk));
-		const usedHash = useChunkHash ? chunkHash : this.fullHash;
-		const cacheName = "c" + chunk.id;
-		let source;
-
-		if(this.cache && this.cache[cacheName] && this.cache[cacheName].hash === usedHash) {
-			source = this.cache[cacheName].source;
-		} else {
-			if(chunk.hasRuntime()) {
-				source = this.mainTemplate.render(this.hash, chunk, this.moduleTemplate, this.dependencyTemplates);
-			} else {
-				source = this.chunkTemplate.render(chunk, this.moduleTemplate, this.dependencyTemplates);
-			}
-			if(this.cache) {
-				this.cache[cacheName] = {
-					hash: usedHash,
-					source: source = (source instanceof CachedSource ? source : new CachedSource(source))
-				};
-			}
-		}
-
-		const file = this.getPath(filenameTemplate, {
-			noChunkHash: !useChunkHash,
-			chunk
-		});
-
-		if(this.assets[file])
-			throw new Error(`Conflict: Multiple assets emit to the same filename ${file}`);
-
-		this.assets[file] = source;
-		chunk.files.push(file);
-		this.applyPlugins2("chunk-asset", chunk, file);
 	}
 
 	getPath(filename, data) {

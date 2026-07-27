@@ -1,5 +1,4 @@
 import React, {useContext, useState} from 'react';
-import PropTypes from 'prop-types';
 import AppContext from '../../app-context';
 import ActionButton from '../common/action-button';
 import CloseButton from '../common/close-button';
@@ -282,6 +281,11 @@ function getOfferMessage(offer, originalPrice, currency, amountOff) {
 
 const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineOffer}) => {
     const {brandColor, action} = useContext(AppContext);
+    
+    if (!price || !price.currency || !price.amount) {
+        return null;
+    }
+
     const isAcceptingOffer = action === 'applyOffer:running';
 
     const originalPrice = formatNumber(price.amount / 100);
@@ -357,26 +361,6 @@ const RetentionOfferSection = ({offer, product, price, onAcceptOffer, onDeclineO
         </div>
     );
     /* eslint-enable i18next/no-literal-string */
-};
-
-RetentionOfferSection.propTypes = {
-    offer: PropTypes.shape({
-        type: PropTypes.string.isRequired,
-        cadence: PropTypes.string.isRequired,
-        duration: PropTypes.string,
-        duration_in_months: PropTypes.number,
-        amount: PropTypes.number,
-        id: PropTypes.string.isRequired
-    }).isRequired,
-    product: PropTypes.shape({
-        name: PropTypes.string.isRequired
-    }).isRequired,
-    price: PropTypes.shape({
-        amount: PropTypes.number.isRequired,
-        currency: PropTypes.string.isRequired
-    }).isRequired,
-    onAcceptOffer: PropTypes.func.isRequired,
-    onDeclineOffer: PropTypes.func.isRequired
 };
 
 // For free members

@@ -243,7 +243,6 @@ module.exports = function() {
 		}
 	}
 
-	// Determines which modules are affected by an update and their dependency chain
 	function getAffectedStuff(updateModuleId) {
 		const outdatedModules = [updateModuleId];
 		const outdatedDependencies = {};
@@ -311,7 +310,6 @@ module.exports = function() {
 		};
 	}
 
-	// Adds all items from array b to array a if not already present
 	function addAllToSet(a, b) {
 		for(let i = 0; i < b.length; i++) {
 			const item = b[i];
@@ -320,8 +318,7 @@ module.exports = function() {
 		}
 	}
 
-	// Processes update results and determines which modules to apply, dispose, or decline
-	function processUpdateResult(result, options, moduleId) {
+	function processUpdateResult(result, options, appliedUpdate, outdatedModules, outdatedDependencies) {
 		let abortError = false;
 		let doApply = false;
 		let doDispose = false;
@@ -346,7 +343,7 @@ module.exports = function() {
 				if(options.onUnaccepted)
 					options.onUnaccepted(result);
 				if(!options.ignoreUnaccepted)
-					abortError = new Error("Aborted because " + moduleId + " is not accepted" + chainInfo);
+					abortError = new Error("Aborted because " + result.moduleId + " is not accepted" + chainInfo);
 				break;
 			case "accepted":
 				if(options.onAccepted)
@@ -361,72 +358,28 @@ module.exports = function() {
 			default:
 				throw new Error("Unexception type " + result.type);
 		}
-		return {
-			abortError: abortError,
-			doApply: doApply,
-			doDispose: doDispose
-		};
+		return { abortError, doApply, doDispose };
 	}
 
-	// Collects all outdated modules and their dependencies from the update
-	function collectOutdatedModules(appliedUpdate, outdatedModules, outdatedDependencies) {
-		for(const id in hotUpdate) {
-			if(Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
-				const moduleId = toModuleId(id);
-				let result;
-				if(hotUpdate[id]) {
-					result = getAffectedStuff(moduleId);
-				} else {
-					result = {
-						type: "disposed",
-						moduleId: id
-					};
-				}
-				const processResult = processUpdateResult(result, arguments[3] || {}, moduleId);
-				if(processResult.abortError) {
-					return {
-						error: processResult.abortError,
-						appliedUpdate: appliedUpdate,
-						outdatedModules: outdatedModules,
-						outdatedDependencies: outdatedDependencies
-					};
-				}
-				if(processResult.doApply) {
-					appliedUpdate[moduleId] = hotUpdate[moduleId];
-					addAllToSet(outdatedModules, result.outdatedModules);
-					for(const depModuleId in result.outdatedDependencies) {
-						if(Object.prototype.hasOwnProperty.call(result.outdatedDependencies, depModuleId)) {
-							if(!outdatedDependencies[depModuleId])
-								outdatedDependencies[depModuleId] = [];
-							addAllToSet(outdatedDependencies[depModuleId], result.outdatedDependencies[depModuleId]);
-						}
-					}
-				}
-				if(processResult.doDispose) {
-					addAllToSet(outdatedModules, [result.moduleId]);
-					appliedUpdate[moduleId] = function warnUnexpectedRequire() {
-						console.warn("[HMR] unexpected require(" + result.moduleId + ") to disposed module");
-					};
+	function applyUpdateResult(doApply, doDispose, result, moduleId, appliedUpdate, outdatedModules, outdatedDependencies, warnUnexpectedRequire) {
+		if(doApply) {
+			appliedUpdate[moduleId] = hotUpdate[moduleId];
+			addAllToSet(outdatedModules, result.outdatedModules);
+			for(const depModuleId in result.outdatedDependencies) {
+				if(Object.prototype.hasOwnProperty.call(result.outdatedDependencies, depModuleId)) {
+					if(!outdatedDependencies[depModuleId])
+						outdatedDependencies[depModuleId] = [];
+					addAllToSet(outdatedDependencies[depModuleId], result.outdatedDependencies[depModuleId]);
 				}
 			}
 		}
-		return {
-			error: null,
-			appliedUpdate: appliedUpdate,
-			outdatedModules: outdatedModules,
-			outdatedDependencies: outdatedDependencies
-		};
+		if(doDispose) {
+			addAllToSet(outdatedModules, [result.moduleId]);
+			appliedUpdate[moduleId] = warnUnexpectedRequire;
+		}
 	}
 
-	// Disposes outdated modules and cleans up their references
 	function disposeOutdatedModules(outdatedModules) {
-		hotSetStatus("dispose");
-		Object.keys(hotAvailableFilesMap).forEach(function(chunkId) {
-			if(hotAvailableFilesMap[chunkId] === false) {
-				hotDisposeChunk(chunkId);
-			}
-		});
-
 		const queue = outdatedModules.slice();
 		while(queue.length > 0) {
 			const moduleId = queue.pop();
@@ -461,7 +414,6 @@ module.exports = function() {
 		}
 	}
 
-	// Removes outdated dependencies from module children
 	function removeOutdatedDependencies(outdatedDependencies) {
 		for(const moduleId in outdatedDependencies) {
 			if(Object.prototype.hasOwnProperty.call(outdatedDependencies, moduleId)) {
@@ -478,7 +430,14 @@ module.exports = function() {
 		}
 	}
 
-	// Calls accept handlers for outdated dependencies
+	function insertAppliedModules(appliedUpdate) {
+		for(const moduleId in appliedUpdate) {
+			if(Object.prototype.hasOwnProperty.call(appliedUpdate, moduleId)) {
+				modules[moduleId] = appliedUpdate[moduleId];
+			}
+		}
+	}
+
 	function callAcceptHandlers(outdatedDependencies, options) {
 		let error = null;
 		for(const moduleId in outdatedDependencies) {
@@ -516,7 +475,6 @@ module.exports = function() {
 		return error;
 	}
 
-	// Loads and executes self-accepted modules
 	function loadSelfAcceptedModules(outdatedSelfAcceptedModules, options) {
 		let error = null;
 		for(let i = 0; i < outdatedSelfAcceptedModules.length; i++) {
@@ -563,20 +521,6 @@ module.exports = function() {
 		return error;
 	}
 
-	// Collects self-accepted modules that need to be reloaded
-	function collectSelfAcceptedModules(outdatedModules) {
-		const outdatedSelfAcceptedModules = [];
-		for(let i = 0; i < outdatedModules.length; i++) {
-			const moduleId = outdatedModules[i];
-			if(installedModules[moduleId] && installedModules[moduleId].hot._selfAccepted)
-				outdatedSelfAcceptedModules.push({
-					module: moduleId,
-					errorHandler: installedModules[moduleId].hot._selfAccepted
-				});
-		}
-		return outdatedSelfAcceptedModules;
-	}
-
 	function hotApply(options) {
 		if(hotStatus !== "ready") throw new Error("apply() is only allowed in ready status");
 		options = options || {};
@@ -587,16 +531,45 @@ module.exports = function() {
 		const outdatedModules = [];
 		const appliedUpdate = {};
 
-		const collectionResult = collectOutdatedModules(appliedUpdate, outdatedModules, outdatedDependencies);
-		if(collectionResult.error) {
-			hotSetStatus("abort");
-			return Promise.reject(collectionResult.error);
+		const warnUnexpectedRequire = function warnUnexpectedRequire() {
+			console.warn("[HMR] unexpected require(" + result.moduleId + ") to disposed module");
+		};
+
+		for(const id in hotUpdate) {
+			if(Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
+				const moduleId = toModuleId(id);
+				const result = hotUpdate[id] ? getAffectedStuff(moduleId) : {
+					type: "disposed",
+					moduleId: id
+				};
+				const { abortError, doApply, doDispose } = processUpdateResult(result, options, appliedUpdate, outdatedModules, outdatedDependencies);
+				if(abortError) {
+					hotSetStatus("abort");
+					return Promise.reject(abortError);
+				}
+				applyUpdateResult(doApply, doDispose, result, moduleId, appliedUpdate, outdatedModules, outdatedDependencies, warnUnexpectedRequire);
+			}
 		}
 
 		// Store self accepted outdated modules to require them later by the module system
-		const outdatedSelfAcceptedModules = collectSelfAcceptedModules(outdatedModules);
+		const outdatedSelfAcceptedModules = [];
+		for(let i = 0; i < outdatedModules.length; i++) {
+			const moduleId = outdatedModules[i];
+			if(installedModules[moduleId] && installedModules[moduleId].hot._selfAccepted)
+				outdatedSelfAcceptedModules.push({
+					module: moduleId,
+					errorHandler: installedModules[moduleId].hot._selfAccepted
+				});
+		}
 
 		// Now in "dispose" phase
+		hotSetStatus("dispose");
+		Object.keys(hotAvailableFilesMap).forEach(function(chunkId) {
+			if(hotAvailableFilesMap[chunkId] === false) {
+				hotDisposeChunk(chunkId);
+			}
+		});
+
 		disposeOutdatedModules(outdatedModules);
 
 		// remove outdated dependency from module children
@@ -608,11 +581,7 @@ module.exports = function() {
 		hotCurrentHash = hotUpdateNewHash;
 
 		// insert new code
-		for(const moduleId in appliedUpdate) {
-			if(Object.prototype.hasOwnProperty.call(appliedUpdate, moduleId)) {
-				modules[moduleId] = appliedUpdate[moduleId];
-			}
-		}
+		insertAppliedModules(appliedUpdate);
 
 		// call accept handlers
 		let error = callAcceptHandlers(outdatedDependencies, options);

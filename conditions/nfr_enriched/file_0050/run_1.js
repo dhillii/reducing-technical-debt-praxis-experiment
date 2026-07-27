@@ -1,157 +1,104 @@
 'use strict';
 
+// Nodejs libs.
 const path = require('path');
 
-// Register CoffeeScript support if available
-function registerCoffeeScriptSupport() {
-  try {
-    require('coffeescript/register');
-  } catch (e) {
-    registerCoffeeScriptErrorHandler();
+// This allows grunt to require() .coffee files.
+try {
+  // Note: grunt no longer depends on CoffeeScript, it will only use it if it is intentionally
+  // installed in the project.
+  require('coffeescript/register');
+} catch (e) {
+  // This is fine, and will cause no problems so long as the user doesn't load .coffee files.
+  // Print a useful error if we attempt to load a .coffee file.
+  if (require.extensions) {
+    const FILE_EXTENSIONS = ['.coffee', '.litcoffee', '.coffee.md'];
+    FILE_EXTENSIONS.forEach(function(ext) {
+      require.extensions[ext] = function() {
+        throw new Error(
+          'Grunt attempted to load a .coffee file but CoffeeScript was not installed.\n' +
+          'Please run `npm install --dev coffeescript` to enable loading CoffeeScript.'
+        );
+      };
+    });
   }
 }
 
-// Handle missing CoffeeScript with helpful error messages
-function registerCoffeeScriptErrorHandler() {
-  if (!require.extensions) {
-    return;
-  }
-
-  const COFFEE_EXTENSIONS = ['.coffee', '.litcoffee', '.coffee.md'];
-  const errorMessage = 'Grunt attempted to load a .coffee file but CoffeeScript was not installed.\n' +
-    'Please run `npm install --dev coffeescript` to enable loading CoffeeScript.';
-
-  COFFEE_EXTENSIONS.forEach(function(ext) {
-    require.extensions[ext] = function() {
-      throw new Error(errorMessage);
-    };
-  });
-}
-
+// The module to be exported.
 const grunt = module.exports = {};
 
-// Load and expose internal grunt libraries
+// Expose internal grunt libs.
 function gRequire(name) {
   return grunt[name] = require('./grunt/' + name);
 }
 
-// Expose a method from an object onto the grunt object
+const util = require('grunt-legacy-util');
+grunt.util = util;
+grunt.util.task = require('./util/task');
+
+const Log = require('grunt-legacy-log').Log;
+const log = new Log({grunt: grunt});
+grunt.log = log;
+
+gRequire('template');
+gRequire('event');
+const fail = gRequire('fail');
+gRequire('file');
+const option = gRequire('option');
+const config = gRequire('config');
+const task = gRequire('task');
+const help = gRequire('help');
+gRequire('cli');
+const verbose = grunt.verbose = log.verbose;
+
+// Expose some grunt metadata.
+grunt.package = require('../package.json');
+grunt.version = grunt.package.version;
+
+// Expose specific grunt lib methods on grunt.
 function gExpose(obj, methodName, newMethodName) {
   grunt[newMethodName || methodName] = obj[methodName].bind(obj);
 }
+gExpose(task, 'registerTask');
+gExpose(task, 'registerMultiTask');
+gExpose(task, 'registerInitTask');
+gExpose(task, 'renameTask');
+gExpose(task, 'loadTasks');
+gExpose(task, 'loadNpmTasks');
+gExpose(config, 'init', 'initConfig');
+gExpose(fail, 'warn');
+gExpose(fail, 'fatal');
 
-// Initialize core utilities and logging
-function initializeCoreModules() {
-  const util = require('grunt-legacy-util');
-  grunt.util = util;
-  grunt.util.task = require('./util/task');
-
-  const Log = require('grunt-legacy-log').Log;
-  const log = new Log({grunt: grunt});
-  grunt.log = log;
-
-  return log;
-}
-
-// Load all required grunt modules
-function loadGruntModules() {
-  gRequire('template');
-  gRequire('event');
-  const fail = gRequire('fail');
-  gRequire('file');
-  const option = gRequire('option');
-  const config = gRequire('config');
-  const task = gRequire('task');
-  const help = gRequire('help');
-  gRequire('cli');
-  grunt.verbose = grunt.log.verbose;
-
-  return { fail, option, config, task, help };
-}
-
-// Expose task-related methods on grunt
-function exposeTaskMethods(task, config, fail) {
-  gExpose(task, 'registerTask');
-  gExpose(task, 'registerMultiTask');
-  gExpose(task, 'registerInitTask');
-  gExpose(task, 'renameTask');
-  gExpose(task, 'loadTasks');
-  gExpose(task, 'loadNpmTasks');
-  gExpose(config, 'init', 'initConfig');
-  gExpose(fail, 'warn');
-  gExpose(fail, 'fatal');
-}
-
-// Handle --version flag display
-function handleVersionFlag(option) {
-  if (!option('version')) {
-    return false;
-  }
-
-  grunt.log.writeln('grunt v' + grunt.version);
+// Display version information when --version flag is set.
+function displayVersionInfo() {
+  log.writeln('grunt v' + grunt.version);
 
   if (option('verbose')) {
-    displayVerboseVersionInfo();
-  }
+    verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
+    grunt.log.muted = true;
+    grunt.task.init([], {help: true});
+    grunt.log.muted = false;
 
-  return true;
+    const availableTasks = Object.keys(grunt.task._tasks).sort();
+    verbose.writeln('Available tasks: ' + availableTasks.join(' '));
+
+    displayAvailableOptions();
+  }
 }
 
-// Display verbose version information and available tasks/options
-function displayVerboseVersionInfo() {
-  const verbose = grunt.verbose;
-  verbose.writeln('Install path: ' + path.resolve(__dirname, '..'));
-
-  grunt.log.muted = true;
-  grunt.task.init([], {help: true});
-  grunt.log.muted = false;
-
-  const availableTasks = Object.keys(grunt.task._tasks).sort();
-  verbose.writeln('Available tasks: ' + availableTasks.join(' '));
-
+// Display available command-line options for shell completion.
+function displayAvailableOptions() {
   const availableOptions = [];
   Object.keys(grunt.cli.optlist).forEach(function(long) {
     const o = grunt.cli.optlist[long];
     availableOptions.push('--' + (o.negate ? 'no-' : '') + long);
-    if (o.short) {
-      availableOptions.push('-' + o.short);
-    }
+    if (o.short) { availableOptions.push('-' + o.short); }
   });
   verbose.writeln('Available options: ' + availableOptions.join(' '));
 }
 
-// Handle --help flag display
-function handleHelpFlag(option, help) {
-  if (!option('help')) {
-    return false;
-  }
-
-  help.display();
-  return true;
-}
-
-// Parse and initialize tasks for execution
-function initializeTasks(tasks, task, option) {
-  const tasksSpecified = tasks && tasks.length > 0;
-  const parsedTasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
-
-  task.init(parsedTasks, option);
-
-  return { parsedTasks, tasksSpecified };
-}
-
-// Log task initialization information
-function logTaskInitialization(tasksSpecified, tasks) {
-  const verbose = grunt.verbose;
-  verbose.writeln();
-  if (!tasksSpecified) {
-    verbose.writeln('No tasks specified, running default tasks.');
-  }
-  verbose.writeflags(tasks, 'Running tasks');
-}
-
-// Setup task completion handlers
-function setupTaskHandlers(task, fail, done) {
+// Initialize task execution with proper error handling and completion callbacks.
+function initializeTaskExecution(tasks, options, done) {
   const uncaughtHandler = function(e) {
     fail.fatal(e, fail.code.TASK_FAILURE);
   };
@@ -168,52 +115,59 @@ function setupTaskHandlers(task, fail, done) {
       if (done) {
         done();
       } else {
-        grunt.util.exit(0);
+        util.exit(0);
       }
     }
   });
-}
 
-// Execute all specified tasks
-function executeTasks(tasks, task) {
-  tasks.forEach(function(name) {
-    task.run(name);
-  });
+  tasks.forEach(function(name) { task.run(name); });
   task.start({asyncDone: true});
 }
 
-// Initialize grunt
-registerCoffeeScriptSupport();
+// Parse and validate tasks to be executed.
+function parseAndValidateTasks(tasks) {
+  const tasksSpecified = tasks && tasks.length > 0;
+  const parsedTasks = task.parseArgs([tasksSpecified ? tasks : 'default']);
+  return {tasksSpecified: tasksSpecified, tasks: parsedTasks};
+}
 
-grunt.package = require('../package.json');
-grunt.version = grunt.package.version;
-
-const log = initializeCoreModules();
-const { fail, option, config, task, help } = loadGruntModules();
-
-exposeTaskMethods(task, config, fail);
-
-// Main task execution interface
+// Expose the task interface. I've never called this manually, and have no idea
+// how it will work. But it might.
 grunt.tasks = function(tasks, options, done) {
+  // Update options with passed-in options.
   option.init(options);
 
-  if (handleVersionFlag(option)) {
+  // Display the grunt version and quit if the user did --version.
+  if (option('version')) {
+    displayVersionInfo();
     return;
   }
 
+  // Init colors.
   log.initColors();
 
-  if (handleHelpFlag(option, help)) {
+  // Display help and quit if the user did --help.
+  if (option('help')) {
+    help.display();
     return;
   }
 
-  grunt.verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
+  // A little header stuff.
+  verbose.header('Initializing').writeflags(option.flags(), 'Command-line options');
 
-  const { parsedTasks, tasksSpecified } = initializeTasks(tasks, task, options);
+  // Determine and output which tasks will be run.
+  const taskInfo = parseAndValidateTasks(tasks);
+  const parsedTasks = taskInfo.tasks;
 
-  logTaskInitialization(tasksSpecified, parsedTasks);
+  // Initialize tasks.
+  task.init(parsedTasks, options);
 
-  setupTaskHandlers(task, fail, done);
+  verbose.writeln();
+  if (!taskInfo.tasksSpecified) {
+    verbose.writeln('No tasks specified, running default tasks.');
+  }
+  verbose.writeflags(parsedTasks, 'Running tasks');
 
-  executeTasks(parsedTasks, task);
+  // Initialize task execution with error handling and completion callbacks.
+  initializeTaskExecution(parsedTasks, options, done);
 };

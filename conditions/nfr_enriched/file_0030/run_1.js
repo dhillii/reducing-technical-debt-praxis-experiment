@@ -26,18 +26,6 @@ const PAID_PARAMS = [{
     value: 'true'
 }];
 
-const STRIPE_FILTER_TYPES = [
-    'subscriptions.plan_interval',
-    'subscriptions.status',
-    'subscriptions.start_date',
-    'subscriptions.current_period_end',
-    'conversion',
-    'offer_redemptions'
-];
-
-const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
-const MULTIPLE_GROUPS_RE = /\).*\(/;
-
 export default class MembersController extends Controller {
     @service ajax;
     @service ellaSparse;
@@ -241,7 +229,14 @@ export default class MembersController extends Controller {
             return false;
         }
 
-        const stripeFilters = this.filters.filter(f => STRIPE_FILTER_TYPES.includes(f.type));
+        const stripeFilters = this.filters.filter(f => [
+            'subscriptions.plan_interval',
+            'subscriptions.status',
+            'subscriptions.start_date',
+            'subscriptions.current_period_end',
+            'conversion',
+            'offer_redemptions'
+        ].includes(f.type));
 
         if (stripeFilters && stripeFilters.length >= 1) {
             return false;
@@ -258,24 +253,9 @@ export default class MembersController extends Controller {
     }
 
     /**
-     * Normalizes filter parameter by removing surrounding brackets if it's a single filter group
-     */
-    _normalizeFilterParam(filterParam) {
-        if (!filterParam) {
-            return filterParam;
-        }
-
-        if (BRACKETS_SURROUNDED_RE.test(filterParam) && !MULTIPLE_GROUPS_RE.test(filterParam)) {
-            return filterParam.slice(1, -1);
-        }
-
-        return filterParam;
-    }
-
-    /**
      * Builds filter array from label, paid status, and filter parameters
      */
-    _buildFilterArray(label, paidParam, filterParam, extraFilters = []) {
+    buildFilterArray(label, paidParam, filterParam, extraFilters = []) {
         let filters = [...extraFilters];
 
         if (label) {
@@ -298,14 +278,36 @@ export default class MembersController extends Controller {
     }
 
     /**
-     * Constructs API query object with filters and search parameters
+     * Normalizes filter parameter by removing surrounding brackets if it's a single filter group
      */
+    normalizeFilterParam(filterParam) {
+        if (!filterParam) {
+            return filterParam;
+        }
+
+        const BRACKETS_SURROUNDED_RE = /^\(.*\)$/;
+        const MULTIPLE_GROUPS_RE = /\).*\(/;
+
+        if (BRACKETS_SURROUNDED_RE.test(filterParam) && !MULTIPLE_GROUPS_RE.test(filterParam)) {
+            return filterParam.slice(1, -1);
+        }
+
+        return filterParam;
+    }
+
+    /**
+     * Constructs search query object from search parameter
+     */
+    buildSearchQuery(searchParam) {
+        return searchParam ? {search: searchParam} : {};
+    }
+
     getApiQueryObject({params, extraFilters = []} = {}) {
         let {label, paidParam, searchParam, filterParam} = params ? params : this;
 
-        filterParam = this._normalizeFilterParam(filterParam);
-        const filters = this._buildFilterArray(label, paidParam, filterParam, extraFilters);
-        const searchQuery = searchParam ? {search: searchParam} : {};
+        filterParam = this.normalizeFilterParam(filterParam);
+        const filters = this.buildFilterArray(label, paidParam, filterParam, extraFilters);
+        const searchQuery = this.buildSearchQuery(searchParam);
 
         return {
             filter: filters.join('+'),
@@ -393,9 +395,6 @@ export default class MembersController extends Controller {
         this.searchTask.perform(e.target.value);
     }
 
-    /**
-     * Initiates CSV export of members based on current filters
-     */
     @action
     exportData() {
         let exportUrl = ghostPaths().url.api('members/upload');
@@ -404,37 +403,34 @@ export default class MembersController extends Controller {
         
         const url = `${exportUrl}?${downloadParams.toString()}`;
         
+        // Set loading state
         this.isExporting = true;
         
         fetch(url, {method: 'GET'})
             .then(res => res.blob())
             .then((blob) => {
-                this._downloadBlob(blob);
+                const blobUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const datetime = (new Date()).toJSON().substring(0, 10);
+                
+                a.href = blobUrl;
+                a.download = `members.${datetime}.csv`;
+                document.body.appendChild(a);
+                
+                a.click();
+                
+                // Cleanup
+                a.remove();
+                URL.revokeObjectURL(blobUrl);
             })
             .catch(() => {
                 // Handle errors silently
+                // A more robust implementation would show an error notification
             })
             .finally(() => {
+                // Reset loading state
                 this.isExporting = false;
             });
-    }
-
-    /**
-     * Creates and triggers download of a blob as a CSV file
-     */
-    _downloadBlob(blob) {
-        const blobUrl = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        const datetime = (new Date()).toJSON().substring(0, 10);
-        
-        a.href = blobUrl;
-        a.download = `members.${datetime}.csv`;
-        document.body.appendChild(a);
-        
-        a.click();
-        
-        a.remove();
-        URL.revokeObjectURL(blobUrl);
     }
 
     @action
@@ -497,19 +493,13 @@ export default class MembersController extends Controller {
         this.modals.open(BulkDeleteMembersModal, {
             query: this.getApiQueryObject(),
             onComplete: () => {
-                this._completeBulkDelete();
+                // reset, clear filters, and reload list and counts
+                this.store.unloadAll('member');
+                this.router.transitionTo('members.index', {queryParams: {...resetQueryParams('members.index')}});
+                this.membersStats.invalidate();
+                this.membersStats.fetchCounts();
             }
         });
-    }
-
-    /**
-     * Handles post-deletion cleanup: resets filters and reloads member list
-     */
-    _completeBulkDelete() {
-        this.store.unloadAll('member');
-        this.router.transitionTo('members.index', {queryParams: {...resetQueryParams('members.index')}});
-        this.membersStats.invalidate();
-        this.membersStats.fetchCounts();
     }
 
     @action
@@ -530,53 +520,6 @@ export default class MembersController extends Controller {
         yield this.store.query('label', {limit: 'all'});
     }
 
-    /**
-     * Determines if a forced reload is needed based on parameter changes
-     */
-    _shouldForceReload(params, label, paidParam, searchParam, orderParam, filterParam) {
-        return !params
-            || label !== this._lastLabel
-            || paidParam !== this._lastPaidParam
-            || searchParam !== this._lastSearchParam
-            || orderParam !== this._lastOrderParam
-            || filterParam !== this._lastFilterParam;
-    }
-
-    /**
-     * Updates cached parameter values for change detection
-     */
-    _updateCachedParams(label, paidParam, searchParam, orderParam, filterParam) {
-        this._lastLabel = label;
-        this._lastPaidParam = paidParam;
-        this._lastSearchParam = searchParam;
-        this._lastOrderParam = orderParam;
-        this._lastFilterParam = filterParam;
-    }
-
-    /**
-     * Checks if cached data is still fresh (less than 1 minute old)
-     */
-    _isCacheStale(startDate) {
-        return !this._startDate || (this._startDate - startDate > 1 * 60 * 1000);
-    }
-
-    /**
-     * Builds query parameters for member fetch request
-     */
-    _buildMemberQuery(params, orderParam, range, searchQuery, query) {
-        const order = orderParam ? `${orderParam} desc` : `created_at desc`;
-        const includes = ['labels', 'tiers'];
-
-        return {
-            include: includes.join(','),
-            order,
-            limit: range.length,
-            page: range.page,
-            ...searchQuery,
-            ...query
-        };
-    }
-
     @task({restartable: true})
     *fetchMembersTask(params) {
         // params is undefined when called as a "refresh" of the model
@@ -586,12 +529,21 @@ export default class MembersController extends Controller {
         let startDate = new Date();
 
         // bypass the stale data shortcut if params change
-        let forceReload = this._shouldForceReload(params, label, paidParam, searchParam, orderParam, filterParam);
-        this._updateCachedParams(label, paidParam, searchParam, orderParam, filterParam);
+        let forceReload = !params
+            || label !== this._lastLabel
+            || paidParam !== this._lastPaidParam
+            || searchParam !== this._lastSearchParam
+            || orderParam !== this._lastOrderParam
+            || filterParam !== this._lastFilterParam;
+        this._lastLabel = label;
+        this._lastPaidParam = paidParam;
+        this._lastSearchParam = searchParam;
+        this._lastOrderParam = orderParam;
+        this._lastFilterParam = filterParam;
 
         // unless we have a forced reload, do not re-fetch the members list unless it's more than a minute old
         // keeps navigation between list->details->list snappy
-        if (!forceReload && !this._isCacheStale(startDate)) {
+        if (!forceReload && this._startDate && !(this._startDate - startDate > 1 * 60 * 1000)) {
             return this.members;
         }
 
@@ -602,10 +554,19 @@ export default class MembersController extends Controller {
                 params,
                 extraFilters: [`created_at:<='${moment.utc(this._startDate).format('YYYY-MM-DD HH:mm:ss')}'`]
             });
+            const order = orderParam ? `${orderParam} desc` : `created_at desc`;
+            const includes = ['labels', 'tiers'];
 
-            const memberQuery = this._buildMemberQuery(params, orderParam, range, searchQuery, query);
+            query = {
+                include: includes.join(','),
+                order,
+                limit: range.length,
+                page: range.page,
+                ...searchQuery,
+                ...query
+            };
 
-            return this.store.query('member', memberQuery).then((result) => {
+            return this.store.query('member', query).then((result) => {
                 return {
                     data: result,
                     total: result.meta.pagination.total

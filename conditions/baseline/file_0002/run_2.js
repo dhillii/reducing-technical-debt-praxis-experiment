@@ -60,21 +60,6 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         }
     }, [imagePreview]);
 
-    const handleImageUploadError = useCallback((error: unknown) => {
-        setImagePreview(null);
-        let errorMessage = 'Failed to upload image. Try again.';
-
-        if (error && typeof error === 'object' && 'statusCode' in error) {
-            const statusCode = (error as {statusCode: number}).statusCode;
-            if (statusCode === 413) {
-                errorMessage = 'Image size exceeds limit.';
-            } else if (statusCode === 415) {
-                errorMessage = 'The file type is not supported.';
-            }
-        }
-        toast.error(errorMessage);
-    }, []);
-
     // Sync external open prop with internal state
     useEffect(() => {
         if (props.open !== undefined) {
@@ -106,28 +91,28 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         try {
             setIsPosting(true);
 
-            const postData = {
-                content: trimmedContent,
-                imageUrl: uploadedImageUrl || undefined,
-                altText: altText || undefined
-            };
-
             if (replyTo) {
                 await replyMutation.mutateAsync({
                     inReplyTo: replyTo.object.id,
-                    ...postData
+                    content: trimmedContent,
+                    imageUrl: uploadedImageUrl || undefined,
+                    altText: altText || undefined
                 });
                 onReply?.();
             } else {
-                await noteMutation.mutateAsync(postData);
+                await noteMutation.mutateAsync({content: trimmedContent, imageUrl: uploadedImageUrl || undefined, altText: altText || undefined});
                 navigate('/notes');
             }
 
             setIsOpen(false);
-            onOpenChange?.(false);
+            if (onOpenChange) {
+                onOpenChange(false);
+            }
             toast.success(replyTo ? 'Reply posted' : 'Note posted');
         } catch {
-            onReplyError?.();
+            if (replyTo) {
+                onReplyError?.();
+            }
         } finally {
             setIsPosting(false);
         }
@@ -222,10 +207,24 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             const imageUrl = await uploadFile(file);
             setUploadedImageUrl(imageUrl);
         } catch (error) {
-            handleImageUploadError(error);
+            setImagePreview(null);
+            const errorMessage = getImageErrorMessage(error);
+            toast.error(errorMessage);
         } finally {
             setIsImageUploading(false);
         }
+    };
+
+    const getImageErrorMessage = (error: unknown): string => {
+        if (error && typeof error === 'object' && 'statusCode' in error) {
+            switch (error.statusCode) {
+                case 413:
+                    return 'Image size exceeds limit.';
+                case 415:
+                    return 'The file type is not supported.';
+            }
+        }
+        return 'Failed to upload image. Try again.';
     };
 
     const handleImageChange = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -279,7 +278,7 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
         };
     }, [imagePreview]);
 
-    const getPlaceholder = useCallback(() => {
+    const getPlaceholder = (): string => {
         if (!replyTo) {
             return 'What\'s new?';
         }
@@ -288,18 +287,20 @@ const NewNoteModal: React.FC<NewNoteModalProps> = ({children, replyTo, onReply, 
             return `Reply to ${getUsername(attributedTo as ActorProperties)}...`;
         }
         return 'What\'s new?';
-    }, [replyTo]);
-
-    const handleDialogOpenChange = useCallback((open: boolean) => {
-        if (open) {
-            resetModalState();
-        }
-        setIsOpen(open);
-        onOpenChange?.(open);
-    }, [resetModalState, onOpenChange]);
+    };
 
     return (
-        <Dialog open={getModalIsOpen()} onOpenChange={handleDialogOpenChange} {...(props.open !== undefined ? {} : props)}>
+        <Dialog open={getModalIsOpen()} onOpenChange={(open) => {
+            if (open) {
+                resetModalState();
+            }
+
+            setIsOpen(open);
+
+            if (onOpenChange) {
+                onOpenChange(open);
+            }
+        }} {...(props.open !== undefined ? {} : props)}>
             <DialogTrigger asChild>
                 {children}
             </DialogTrigger>

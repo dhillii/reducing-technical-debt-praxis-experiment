@@ -10,7 +10,7 @@ import {setupApplicationTest} from 'ember-mocha';
 import {setupMirage} from 'ember-cli-mirage/test-support';
 
 /**
- * Finds a button by text content
+ * Finds a button by its text content
  * @param {string} text
  * @param {NodeList} buttons
  * @returns {Node}
@@ -20,205 +20,106 @@ const findButton = (text, buttons) => {
 };
 
 /**
- * Verifies context menu button text content
+ * Checks if a container element has the data-selected attribute
+ * @param {Element} container
+ * @param {string} label
+ * @returns {void}
+ */
+const expectContainerSelected = (container, label) => {
+    expect(container.dataset.selected, label).to.exist;
+};
+
+/**
+ * Verifies context menu exists and returns its buttons
+ * @param {string} contextMenuSelector
+ * @returns {NodeList}
+ */
+const getContextMenuButtons = (contextMenuSelector) => {
+    const contextMenu = find(contextMenuSelector);
+    expect(contextMenu, 'context menu').to.exist;
+    return contextMenu.querySelectorAll('button');
+};
+
+/**
+ * Verifies button count and returns specific button by index
  * @param {NodeList} buttons
+ * @param {number} expectedCount
  * @param {number} index
+ * @returns {Element}
+ */
+const getButtonByIndex = (buttons, expectedCount, index) => {
+    expect(buttons.length, 'context menu buttons').to.equal(expectedCount);
+    return buttons[index];
+};
+
+/**
+ * Verifies button text content
+ * @param {Element} button
  * @param {string} expectedText
- * @param {string} description
+ * @param {string} label
+ * @returns {void}
  */
-const verifyContextMenuButton = (buttons, index, expectedText, description) => {
-    expect(buttons[index].innerText.trim(), description).to.contain(expectedText);
-};
-
-/**
- * Verifies all context menu buttons for editor role
- * @param {NodeList} buttons
- */
-const verifyEditorContextMenuButtons = (buttons) => {
-    expect(buttons.length, 'context menu buttons').to.equal(5);
-    verifyContextMenuButton(buttons, 0, 'Copy link to post', 'context menu button 1');
-    verifyContextMenuButton(buttons, 1, 'Unpublish', 'context menu button 2');
-    verifyContextMenuButton(buttons, 2, 'Feature', 'context menu button 3');
-    verifyContextMenuButton(buttons, 3, 'Add a tag', 'context menu button 4');
-    verifyContextMenuButton(buttons, 4, 'Duplicate', 'context menu button 5');
-};
-
-/**
- * Verifies all context menu buttons for admin role
- * @param {NodeList} buttons
- */
-const verifyAdminContextMenuButtons = (buttons) => {
-    expect(buttons.length, 'context menu buttons').to.equal(6);
-    verifyContextMenuButton(buttons, 0, 'Copy link to post', 'context menu button 1');
-    verifyContextMenuButton(buttons, 1, 'Unpublish', 'context menu button 2');
-    verifyContextMenuButton(buttons, 2, 'Feature', 'context menu button 3');
-    verifyContextMenuButton(buttons, 3, 'Add a tag', 'context menu button 4');
-    verifyContextMenuButton(buttons, 4, 'Duplicate', 'context menu button 5');
-    verifyContextMenuButton(buttons, 5, 'Delete', 'context menu button 6');
-};
-
-/**
- * Verifies draft post context menu buttons
- * @param {NodeList} buttons
- */
-const verifyDraftContextMenuButtons = (buttons) => {
-    expect(buttons.length, 'context menu buttons').to.equal(5);
-    verifyContextMenuButton(buttons, 0, 'Copy preview link', 'context menu button 1');
-    verifyContextMenuButton(buttons, 1, 'Feature', 'context menu button 2');
-    verifyContextMenuButton(buttons, 2, 'Add a tag', 'context menu button 3');
-    verifyContextMenuButton(buttons, 3, 'Duplicate', 'context menu button 4');
-    verifyContextMenuButton(buttons, 4, 'Delete', 'context menu button 5');
-};
-
-/**
- * Performs post duplication action
- * @param {Object} publishedPost
- * @param {Object} contextMenu
- */
-const duplicatePost = async (publishedPost, contextMenu) => {
-    const buttons = contextMenu.querySelectorAll('button');
-    await click(buttons[4]);
-};
-
-/**
- * Performs post link copy action
- * @param {Object} publishedPost
- * @param {Object} contextMenu
- */
-const copyPostLink = async (publishedPost, contextMenu) => {
-    const buttons = contextMenu.querySelectorAll('button');
-    await click(buttons[0]);
-};
-
-/**
- * Performs preview link copy action
- * @param {Object} draftPost
- * @param {Object} contextMenu
- */
-const copyPreviewLink = async (draftPost, contextMenu) => {
-    const buttons = contextMenu.querySelectorAll('button');
-    await click(buttons[0]);
+const expectButtonText = (button, expectedText, label) => {
+    expect(button.innerText.trim(), label).to.contain(expectedText);
 };
 
 /**
  * Selects multiple posts using ctrl/cmd+click
- * @param {Element} postThreeContainer
- * @param {Element} postFourContainer
+ * @param {Element} container
+ * @returns {Promise<void>}
  */
-const selectMultiplePosts = async (postThreeContainer, postFourContainer) => {
-    await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
-    await click(postFourContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+const selectMultiplePosts = async (container) => {
+    await click(container, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
 };
 
 /**
- * Verifies post selection state
- * @param {Element} postThreeContainer
- * @param {Element} postFourContainer
+ * Verifies multiple containers are selected
+ * @param {Element} containerOne
+ * @param {Element} containerTwo
+ * @returns {void}
  */
-const verifyPostsSelected = (postThreeContainer, postFourContainer) => {
-    expect(postFourContainer.dataset.selected, 'postFour selected').to.exist;
-    expect(postThreeContainer.dataset.selected, 'postThree selected').to.exist;
+const expectMultiplePostsSelected = (containerOne, containerTwo) => {
+    expectContainerSelected(containerOne, 'post one selected');
+    expectContainerSelected(containerTwo, 'post two selected');
 };
 
 /**
- * Performs feature action on selected posts
- * @param {Object} publishedPost
- * @param {Object} authorPost
- * @param {Object} contextMenu
+ * Triggers context menu and returns buttons
+ * @param {Element} container
+ * @returns {Promise<NodeList>}
  */
-const featurePosts = async (publishedPost, authorPost, contextMenu) => {
-    const buttons = contextMenu.querySelectorAll('button');
-    const featureButton = findButton('Feature', buttons);
-    expect(featureButton, 'feature button').to.exist;
-    await click(featureButton);
+const triggerContextMenuAndGetButtons = async (container) => {
+    await triggerEvent(container, 'contextmenu');
+    return getContextMenuButtons('.gh-posts-context-menu');
 };
 
 /**
- * Performs unfeature action on selected posts
- * @param {Object} publishedPost
- * @param {Object} authorPost
- * @param {Object} contextMenu
+ * Verifies context menu button texts for single post
+ * @param {NodeList} buttons
+ * @returns {void}
  */
-const unfeaturePosts = async (publishedPost, authorPost, contextMenu) => {
-    const buttons = contextMenu.querySelectorAll('button');
-    const featureButton = findButton('Unfeature', buttons);
-    expect(featureButton, 'unfeature button').to.exist;
-    await click(featureButton);
+const verifySinglePostContextMenuButtons = (buttons) => {
+    expect(buttons.length, 'context menu buttons').to.equal(6);
+    expectButtonText(buttons[0], 'Copy link to post', 'context menu button 1');
+    expectButtonText(buttons[1], 'Unpublish', 'context menu button 2');
+    expectButtonText(buttons[2], 'Feature', 'context menu button 3');
+    expectButtonText(buttons[3], 'Add a tag', 'context menu button 4');
+    expectButtonText(buttons[4], 'Duplicate', 'context menu button 5');
+    expectButtonText(buttons[5], 'Delete', 'context menu button 6');
 };
 
 /**
- * Performs add tag action on selected posts
- * @param {Object} contextMenu
+ * Verifies context menu button texts for draft post
+ * @param {NodeList} buttons
+ * @returns {void}
  */
-const addTagToPosts = async (contextMenu) => {
-    const buttons = contextMenu.querySelectorAll('button');
-    const addTagButton = findButton('Add a tag', buttons);
-    expect(addTagButton, 'add tag button').to.exist;
-    await click(addTagButton);
-};
-
-/**
- * Performs unpublish action on selected posts
- * @param {Object} contextMenu
- */
-const unpublishPosts = async (contextMenu) => {
-    const buttons = contextMenu.querySelectorAll('button');
-    const unpublishButton = findButton('Unpublish', buttons);
-    expect(unpublishButton, 'unpublish button').to.exist;
-    await click(unpublishButton);
-};
-
-/**
- * Performs unschedule action on selected posts
- * @param {Object} contextMenu
- */
-const unschedulePosts = async (contextMenu) => {
-    const buttons = contextMenu.querySelectorAll('button');
-    const unscheduleButton = findButton('Unschedule', buttons);
-    expect(unscheduleButton, 'unschedule button').to.exist;
-    await click(unscheduleButton);
-};
-
-/**
- * Performs delete action on selected posts
- * @param {Object} contextMenu
- */
-const deletePosts = async (contextMenu) => {
-    const buttons = contextMenu.querySelectorAll('button');
-    const deleteButton = findButton('Delete', buttons);
-    expect(deleteButton, 'delete button').to.exist;
-    await click(deleteButton);
-};
-
-/**
- * Verifies featured post indicators
- * @param {Element} postThreeContainer
- * @param {Element} postFourContainer
- */
-const verifyPostsFeatured = (postThreeContainer, postFourContainer) => {
-    expect(postThreeContainer.querySelector('.gh-featured-post'), 'postThree featured').to.exist;
-    expect(postFourContainer.querySelector('.gh-featured-post'), 'postFour featured').to.exist;
-};
-
-/**
- * Verifies featured post indicators are removed
- * @param {Element} postThreeContainer
- * @param {Element} postFourContainer
- */
-const verifyPostsUnfeatured = (postThreeContainer, postFourContainer) => {
-    expect(postThreeContainer.querySelector('.gh-featured-post'), 'postThree featured').to.not.exist;
-    expect(postFourContainer.querySelector('.gh-featured-post'), 'postFour featured').to.not.exist;
-};
-
-/**
- * Verifies post status display
- * @param {Element} postThreeContainer
- * @param {Element} postFourContainer
- * @param {string} expectedStatus
- */
-const verifyPostsStatus = (postThreeContainer, postFourContainer, expectedStatus) => {
-    expect(postThreeContainer.querySelector('.gh-content-entry-status').textContent, 'postThree status').to.contain(expectedStatus);
-    expect(postFourContainer.querySelector('.gh-content-entry-status').textContent, 'postFour status').to.contain(expectedStatus);
+const verifyDraftPostContextMenuButtons = (buttons) => {
+    expect(buttons.length, 'context menu buttons').to.equal(5);
+    expectButtonText(buttons[0], 'Copy preview link', 'context menu button 1');
+    expectButtonText(buttons[1], 'Feature', 'context menu button 2');
+    expectButtonText(buttons[2], 'Add a tag', 'context menu button 3');
+    expectButtonText(buttons[3], 'Duplicate', 'context menu button 4');
+    expectButtonText(buttons[4], 'Delete', 'context menu button 5');
 };
 
 // NOTE: With accommodations for faster loading of posts in the UI, the requests to fetch the posts have been split into separate requests based
@@ -372,7 +273,12 @@ describe('Acceptance: Posts / Pages', function () {
 
                     // Test that the context menu has the correct buttons
                     const buttons = contextMenu.querySelectorAll('button');
-                    verifyEditorContextMenuButtons(buttons);
+                    expect(buttons.length, 'context menu buttons').to.equal(5);
+                    expect(buttons[0].innerText.trim(), 'context menu button 1').to.contain('Copy link to post');
+                    expect(buttons[1].innerText.trim(), 'context menu button 2').to.contain('Unpublish');
+                    expect(buttons[2].innerText.trim(), 'context menu button 3').to.contain('Feature');
+                    expect(buttons[3].innerText.trim(), 'context menu button 4').to.contain('Add a tag');
+                    expect(buttons[4].innerText.trim(), 'context menu button 5').to.contain('Duplicate');
                 });
 
                 // Note: we cover the functionality of the context menu buttons in the 'as admin' section
@@ -570,17 +476,11 @@ describe('Acceptance: Posts / Pages', function () {
                         const post = find(`[data-test-post-id="${publishedPost.id}"]`);
                         expect(post, 'post').to.exist;
 
-                        await triggerEvent(post, 'contextmenu');
-
-                        let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-
-                        let buttons = contextMenu.querySelectorAll('button');
-
-                        expect(contextMenu, 'context menu').to.exist;
-                        verifyAdminContextMenuButtons(buttons);
+                        const buttons = await triggerContextMenuAndGetButtons(post);
+                        verifySinglePostContextMenuButtons(buttons);
 
                         // duplicate the post
-                        await duplicatePost(publishedPost, contextMenu);
+                        await click(buttons[4]);
 
                         const posts = findAll('[data-test-post-id]');
                         expect(posts.length, 'all posts count').to.equal(5);
@@ -597,17 +497,11 @@ describe('Acceptance: Posts / Pages', function () {
                         const post = find(`[data-test-post-id="${publishedPost.id}"]`);
                         expect(post, 'post').to.exist;
 
-                        await triggerEvent(post, 'contextmenu');
-
-                        let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-
-                        let buttons = contextMenu.querySelectorAll('button');
-
-                        expect(contextMenu, 'context menu').to.exist;
-                        verifyAdminContextMenuButtons(buttons);
+                        const buttons = await triggerContextMenuAndGetButtons(post);
+                        verifySinglePostContextMenuButtons(buttons);
 
                         // Copy the post link
-                        await copyPostLink(publishedPost, contextMenu);
+                        await click(buttons[0]);
 
                         // Check that the notification is displayed
                         expect(find('[data-test-text="notification-content"]')).to.contain.text('Post link copied');
@@ -626,17 +520,11 @@ describe('Acceptance: Posts / Pages', function () {
                         const post = find(`[data-test-post-id="${draftPost.id}"]`);
                         expect(post, 'post').to.exist;
 
-                        await triggerEvent(post, 'contextmenu');
-
-                        let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-
-                        let buttons = contextMenu.querySelectorAll('button');
-
-                        expect(contextMenu, 'context menu').to.exist;
-                        verifyDraftContextMenuButtons(buttons);
+                        const buttons = await triggerContextMenuAndGetButtons(post);
+                        verifyDraftPostContextMenuButtons(buttons);
 
                         // Copy the preview link
-                        await copyPreviewLink(draftPost, contextMenu);
+                        await click(buttons[0]);
 
                         // Check that the notification is displayed
                         expect(find('[data-test-text="notification-content"]')).to.contain.text('Preview link copied');
@@ -658,18 +546,17 @@ describe('Acceptance: Posts / Pages', function () {
                         const postThreeContainer = posts[2].parentElement; // draft post
                         const postFourContainer = posts[3].parentElement; // published post
 
-                        await selectMultiplePosts(postThreeContainer, postFourContainer);
-                        verifyPostsSelected(postThreeContainer, postFourContainer);
+                        await selectMultiplePosts(postThreeContainer);
+                        await selectMultiplePosts(postFourContainer);
 
-                        // NOTE: right clicks don't seem to work in these tests
-                        //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerEvent(postFourContainer, 'contextmenu');
+                        expectMultiplePostsSelected(postFourContainer, postThreeContainer);
 
-                        let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-                        expect(contextMenu, 'context menu').to.exist;
+                        const buttons = await triggerContextMenuAndGetButtons(postFourContainer);
 
                         // feature the post
-                        await featurePosts(publishedPost, authorPost, contextMenu);
+                        let featureButton = findButton('Feature', buttons);
+                        expect(featureButton, 'feature button').to.exist;
+                        await click(featureButton);
 
                         // API request is correct - note, we don't mock the actual model updates
                         let [lastRequest] = this.server.pretender.handledRequests.slice(-1);
@@ -677,16 +564,16 @@ describe('Acceptance: Posts / Pages', function () {
                         expect(JSON.parse(lastRequest.requestBody).bulk.action, 'feature request action').to.equal('feature');
 
                         // ensure ui shows these are now featured
-                        verifyPostsFeatured(postThreeContainer, postFourContainer);
+                        expect(postThreeContainer.querySelector('.gh-featured-post'), 'postFour featured').to.exist;
+                        expect(postFourContainer.querySelector('.gh-featured-post'), 'postFour featured').to.exist;
 
                         // unfeature the posts
-                        await triggerEvent(postFourContainer, 'contextmenu');
-
-                        contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-                        expect(contextMenu, 'context menu').to.exist;
+                        const unfeatureButtons = await triggerContextMenuAndGetButtons(postFourContainer);
 
                         // unfeature the posts
-                        await unfeaturePosts(publishedPost, authorPost, contextMenu);
+                        featureButton = findButton('Unfeature', unfeatureButtons);
+                        expect(featureButton, 'unfeature button').to.exist;
+                        await click(featureButton);
 
                         // API request is correct - note, we don't mock the actual model updates
                         [lastRequest] = this.server.pretender.handledRequests.slice(-1);
@@ -694,7 +581,8 @@ describe('Acceptance: Posts / Pages', function () {
                         expect(JSON.parse(lastRequest.requestBody).bulk.action, 'unfeature request action').to.equal('unfeature');
 
                         // ensure ui shows these are now unfeatured
-                        verifyPostsUnfeatured(postThreeContainer, postFourContainer);
+                        expect(postThreeContainer.querySelector('.gh-featured-post'), 'postFour featured').to.not.exist;
+                        expect(postFourContainer.querySelector('.gh-featured-post'), 'postFour featured').to.not.exist;
                     });
 
                     it('can add a tag', async function () {
@@ -707,18 +595,17 @@ describe('Acceptance: Posts / Pages', function () {
                         const postThreeContainer = posts[2].parentElement; // draft post
                         const postFourContainer = posts[3].parentElement; // published post
 
-                        await selectMultiplePosts(postThreeContainer, postFourContainer);
-                        verifyPostsSelected(postThreeContainer, postFourContainer);
+                        await selectMultiplePosts(postThreeContainer);
+                        await selectMultiplePosts(postFourContainer);
 
-                        // NOTE: right clicks don't seem to work in these tests
-                        //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerEvent(postFourContainer, 'contextmenu');
+                        expectMultiplePostsSelected(postFourContainer, postThreeContainer);
 
-                        let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-                        expect(contextMenu, 'context menu').to.exist;
+                        const buttons = await triggerContextMenuAndGetButtons(postFourContainer);
 
                         // add a tag to the posts
-                        await addTagToPosts(contextMenu);
+                        let addTagButton = findButton('Add a tag', buttons);
+                        expect(addTagButton, 'add tag button').to.exist;
+                        await click(addTagButton);
 
                         const addTagsModal = find('[data-test-modal="add-tags"]');
                         expect(addTagsModal, 'tag settings modal').to.exist;
@@ -748,7 +635,8 @@ describe('Acceptance: Posts / Pages', function () {
                         const postThreeContainer = posts[2].parentElement; // published post
                         const postFourContainer = posts[3].parentElement; // author post
 
-                        await selectMultiplePosts(postThreeContainer, postFourContainer);
+                        await selectMultiplePosts(postThreeContainer);
+                        await selectMultiplePosts(postFourContainer);
                         await triggerEvent(postFourContainer, 'contextmenu');
 
                         expect(find('[data-test-post-context-menu]'), 'context menu').to.exist;
@@ -765,7 +653,8 @@ describe('Acceptance: Posts / Pages', function () {
                         let postThreeContainer = posts[2].parentElement; // published post
                         let postFourContainer = posts[3].parentElement; // author post
 
-                        await selectMultiplePosts(postThreeContainer, postFourContainer);
+                        await selectMultiplePosts(postThreeContainer);
+                        await selectMultiplePosts(postFourContainer);
 
                         await triggerEvent(postFourContainer, 'contextmenu');
 
@@ -787,7 +676,7 @@ describe('Acceptance: Posts / Pages', function () {
 
                         // ensure modal matches the new state when accessed again
                         // NOTE: we only show the selected visibility/tiers state for single selections
-                        await click(postThreeContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await selectMultiplePosts(postThreeContainer);
                         postFourContainer = findAll('[data-test-post-id]')[3].parentElement; // published post
                         await triggerEvent(postFourContainer, 'contextmenu');
                         contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
@@ -856,18 +745,17 @@ describe('Acceptance: Posts / Pages', function () {
                         const postThreeContainer = posts[2].parentElement; // draft post
                         const postFourContainer = posts[3].parentElement; // published post
 
-                        await selectMultiplePosts(postThreeContainer, postFourContainer);
-                        verifyPostsSelected(postThreeContainer, postFourContainer);
+                        await selectMultiplePosts(postThreeContainer);
+                        await selectMultiplePosts(postFourContainer);
 
-                        // NOTE: right clicks don't seem to work in these tests
-                        //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerEvent(postFourContainer, 'contextmenu');
+                        expectMultiplePostsSelected(postFourContainer, postThreeContainer);
 
-                        let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-                        expect(contextMenu, 'context menu').to.exist;
+                        const buttons = await triggerContextMenuAndGetButtons(postFourContainer);
 
                         // unpublish the posts
-                        await unpublishPosts(contextMenu);
+                        let unpublishButton = findButton('Unpublish', buttons);
+                        expect(unpublishButton, 'unpublish button').to.exist;
+                        await click(unpublishButton);
 
                         // handle modal
                         const modal = find('[data-test-modal="unpublish-posts"]');
@@ -880,7 +768,8 @@ describe('Acceptance: Posts / Pages', function () {
                         expect(JSON.parse(lastRequest.requestBody).bulk.action, 'unpublish request action').to.equal('unpublish');
 
                         // ensure ui shows these are now unpublished
-                        verifyPostsStatus(postThreeContainer, postFourContainer, 'Draft');
+                        expect(postThreeContainer.querySelector('.gh-content-entry-status').textContent, 'postThree status').to.contain('Draft');
+                        expect(postFourContainer.querySelector('.gh-content-entry-status').textContent, 'postThree status').to.contain('Draft');
                     });
 
                     it('can unschedule', async function () {
@@ -892,19 +781,16 @@ describe('Acceptance: Posts / Pages', function () {
 
                         const postOneContainer = posts[0].parentElement; // scheduled post
 
-                        await click(postOneContainer, {metaKey: ctrlOrCmd === 'command', ctrlKey: ctrlOrCmd === 'ctrl'});
+                        await selectMultiplePosts(postOneContainer);
 
-                        expect(postOneContainer.dataset.selected, 'postOne selected').to.exist;
+                        expectContainerSelected(postOneContainer, 'postOne selected');
 
-                        // NOTE: right clicks don't seem to work in these tests
-                        //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerEvent(postOneContainer, 'contextmenu');
-
-                        let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-                        expect(contextMenu, 'context menu').to.exist;
+                        const buttons = await triggerContextMenuAndGetButtons(postOneContainer);
 
                         // unschedule the post
-                        await unschedulePosts(contextMenu);
+                        let unscheduleButton = findButton('Unschedule', buttons);
+                        expect(unscheduleButton, 'unschedule button').to.exist;
+                        await click(unscheduleButton);
 
                         // handle modal
                         const modal = find('[data-test-modal="unschedule-posts"]');
@@ -930,18 +816,17 @@ describe('Acceptance: Posts / Pages', function () {
                         const postThreeContainer = posts[2].parentElement; // draft post
                         const postFourContainer = posts[3].parentElement; // published post
 
-                        await selectMultiplePosts(postThreeContainer, postFourContainer);
-                        verifyPostsSelected(postThreeContainer, postFourContainer);
+                        await selectMultiplePosts(postThreeContainer);
+                        await selectMultiplePosts(postFourContainer);
 
-                        // NOTE: right clicks don't seem to work in these tests
-                        //  contextmenu is the event triggered - https://developer.mozilla.org/en-US/docs/Web/API/Element/contextmenu_event
-                        await triggerEvent(postFourContainer, 'contextmenu');
+                        expectMultiplePostsSelected(postFourContainer, postThreeContainer);
 
-                        let contextMenu = find('.gh-posts-context-menu'); // this is a <ul> element
-                        expect(contextMenu, 'context menu').to.exist;
+                        const buttons = await triggerContextMenuAndGetButtons(postFourContainer);
 
                         // delete the posts
-                        await deletePosts(contextMenu);
+                        let deleteButton = findButton('Delete', buttons);
+                        expect(deleteButton, 'delete button').to.exist;
+                        await click(deleteButton);
 
                         // handle modal
                         const modal = find('[data-test-modal="delete-posts"]');

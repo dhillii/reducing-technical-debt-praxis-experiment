@@ -143,10 +143,19 @@ define([
                 password: password
             }))
             .then(function(keys) {
-                self.keys.key    = keys.key;
-                self.keys.hexKey = keys.hexKey;
-                self._saveSession();
+                self._storeKeys(keys);
             });
+        },
+
+        /**
+         * Store derived keys in memory and session storage.
+         * @private
+         * @param {Object} keys - The derived keys object
+         */
+        _storeKeys: function(keys) {
+            this.keys.key    = keys.key;
+            this.keys.hexKey = keys.hexKey;
+            this._saveSession();
         },
 
         /**
@@ -219,8 +228,8 @@ define([
 
         /**
          * Check if collection can be encrypted.
-         *
-         * @param {Object} collection
+         * @private
+         * @param {Object} collection - The collection to check
          * @return {boolean}
          */
         _canEncryptCollection: function(collection) {
@@ -229,8 +238,8 @@ define([
 
         /**
          * Build encryption promises for collection.
-         *
-         * @param {Object} collection
+         * @private
+         * @param {Object} collection - The collection to encrypt
          * @return {Array}
          */
         _buildEncryptionPromises: function(collection) {
@@ -248,9 +257,9 @@ define([
 
         /**
          * Execute promise chain with error handling.
-         *
-         * @param {Array} promises
-         * @param {string} errorContext
+         * @private
+         * @param {Array} promises - Array of promise functions
+         * @param {string} errorContext - Context for error logging
          * @return {Promise}
          */
         _executePromiseChain: function(promises, errorContext) {
@@ -281,8 +290,8 @@ define([
 
         /**
          * Check if collection can be decrypted.
-         *
-         * @param {Object} collection
+         * @private
+         * @param {Object} collection - The collection to check
          * @return {boolean}
          */
         _canDecryptCollection: function(collection) {
@@ -290,19 +299,22 @@ define([
         },
 
         /**
-         * Handle missing PBKDF2 for decryption.
-         *
-         * @return {Promise}
+         * Validate decryption prerequisites.
+         * @private
+         * @return {boolean}
          */
-        _handleMissingPBKDF2: function() {
-            Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
-            return new Q();
+        _validateDecryptionKeys: function() {
+            if (!this.keys.key) {
+                Radio.trigger('encrypt', 'decrypt:error', 'PBKDF2 is empty');
+                return false;
+            }
+            return true;
         },
 
         /**
          * Build decryption promises for collection.
-         *
-         * @param {Object} collection
+         * @private
+         * @param {Object} collection - The collection to decrypt
          * @return {Array}
          */
         _buildDecryptionPromises: function(collection) {
@@ -331,8 +343,8 @@ define([
             }
 
             // PBKDF2 wasn't generated
-            if (!this.keys.key) {
-                return this._handleMissingPBKDF2();
+            if (!this._validateDecryptionKeys()) {
+                return new Q();
             }
 
             Radio.trigger('encrypt', 'decrypting:models', collection);
@@ -364,15 +376,14 @@ define([
         },
 
         /**
-         * Decrypt single key using legacy method.
-         *
-         * @param {string} key
-         * @param {Object} model
+         * Decrypt a single key using legacy method.
+         * @private
+         * @param {Object} model - The model to decrypt
+         * @param {string} key - The key to decrypt
          * @return {Promise}
          */
-        _decryptLegacyKey: function(key, model) {
+        _decryptSingleKeyLegacy: function(model, key) {
             const self = this;
-
             return new Q(self.sjcl.decryptLegacy({
                 configs : self.configs,
                 string  : model.get(key),
@@ -384,29 +395,17 @@ define([
         },
 
         /**
-         * Build legacy decryption promises for model keys.
-         *
-         * @param {Object} model
-         * @return {Array}
-         */
-        _buildLegacyDecryptionPromises: function(model) {
-            const promises = [];
-            const self = this;
-
-            _.each(model.encryptKeys, function(key) {
-                promises.push(self._decryptLegacyKey(key, model));
-            }, this);
-
-            return promises;
-        },
-
-        /**
          * Deprecated decryption.
          *
          * @return promise
          */
         _decryptModelKeys: function(model) {
-            const promises = this._buildLegacyDecryptionPromises(model);
+            const promises = [];
+            const self     = this;
+
+            _.each(model.encryptKeys, function(key) {
+                promises.push(self._decryptSingleKeyLegacy(model, key));
+            }, this);
 
             return Q.all(promises)
             .then(function() {

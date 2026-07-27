@@ -32,10 +32,6 @@ export function expectEqualItem(l: List, a: any, b: any, keys: string[] = []) {
   }
 }
 
-function sortItemsById(items: readonly any[]): any[] {
-  return [...items].sort((x, y) => x.id.localeCompare(y.id))
-}
-
 export function expectEqualItems(
   l: List,
   a: readonly any[],
@@ -46,8 +42,8 @@ export function expectEqualItems(
   assert.notEqual(a, null)
   assert.equal(a.length, b.length)
 
-  const sorteda = sort ? sortItemsById(a) : a
-  const sortedb = sort ? sortItemsById(b) : b
+  const sorteda = sort ? [...a].sort((x, y) => x.id.localeCompare(y.id)) : a
+  const sortedb = sort ? [...b].sort((x, y) => x.id.localeCompare(y.id)) : b
 
   let i = 0
   for (const xa of sorteda) {
@@ -64,14 +60,6 @@ export function makeWhereUniqueFilter(fields: Field[], seeded: any) {
   )
 }
 
-function buildEqualsFilter(fields: Field[], seeded: Record<string, any>): any {
-  return Object.fromEntries(
-    fields.map(f => {
-      return [f.name, { equals: seeded[f.name] }]
-    })
-  )
-}
-
 export function makeWhereFilter(
   fields: Field[],
   seeded: Record<string, any> | Record<string, any>[]
@@ -82,17 +70,11 @@ export function makeWhereFilter(
     }
   }
 
-  return buildEqualsFilter(fields, seeded)
-}
-
-function buildAndFilter(fields: Field[], seeded: Record<string, any>): any {
-  return {
-    AND: fields.map(f => {
-      return {
-        [f.name]: { equals: seeded[f.name] },
-      }
-    }),
-  }
+  return Object.fromEntries(
+    fields.map(f => {
+      return [f.name, { equals: seeded[f.name] }]
+    })
+  )
 }
 
 export function makeWhereAndFilter(
@@ -105,30 +87,13 @@ export function makeWhereAndFilter(
     }
   }
 
-  return buildAndFilter(fields, seeded)
-}
-
-function buildAccessConfig(access: {
-  read: boolean
-  create: boolean
-  update: boolean
-  filterable: boolean
-}) {
   return {
-    read: access.read ? allowAll : denyAll,
-    create: access.create ? allowAll : denyAll,
-    update: access.update ? allowAll : denyAll,
+    AND: fields.map(f => {
+      return {
+        [f.name]: { equals: seeded[f.name] },
+      }
+    }),
   }
-}
-
-function buildValidationConfig(unique: boolean) {
-  return {
-    isRequired: unique,
-  }
-}
-
-function buildDefaultValue(name: string, unique: boolean) {
-  return unique ? null : `Value_${name}`
 }
 
 export function makeFieldEntry({
@@ -150,11 +115,17 @@ export function makeFieldEntry({
       ...access,
       unique,
     },
-    access: buildAccessConfig(access),
+    access: {
+      read: access.read ? allowAll : denyAll,
+      create: access.create ? allowAll : denyAll,
+      update: access.update ? allowAll : denyAll,
+    },
     isFilterable: access.filterable ? allowAll : denyAll,
     isIndexed: unique ? 'unique' : false,
-    validation: buildValidationConfig(unique),
-    defaultValue: buildDefaultValue(name, unique),
+    validation: {
+      isRequired: unique,
+    },
+    defaultValue: unique ? null : `Value_${name}`,
   } as const
 }
 
@@ -177,36 +148,23 @@ export function denyFilter() {
 export type Field = ReturnType<typeof makeFieldEntry>
 export type List = ReturnType<typeof makeList> extends Generator<infer T, any, any> ? T : never
 
-function buildOperationAccess(access: {
-  query: boolean
-  create: boolean
-  update: boolean
-  delete: boolean
-}) {
-  return {
-    query: access.query ? allowAll : denyAll,
-    create: access.create ? allowAll : denyAll,
-    update: access.update ? allowAll : denyAll,
-    delete: access.delete ? allowAll : denyAll,
-  }
-}
-
-function createOperationList(
+// Creates operation-level access control list configuration
+function* createOperationList(
   suffix: string,
-  access: {
-    query: boolean
-    create: boolean
-    update: boolean
-    delete: boolean
-  },
+  access: { query: boolean; create: boolean; update: boolean; delete: boolean },
   fields: Field[]
 ) {
   const nameO = `List_operation_${suffix}`
-  return {
+  yield {
     name: nameO,
     expect: { type: 'operation' as const, ...access },
     access: {
-      operation: buildOperationAccess(access),
+      operation: {
+        query: access.query ? allowAll : denyAll,
+        create: access.create ? allowAll : denyAll,
+        update: access.update ? allowAll : denyAll,
+        delete: access.delete ? allowAll : denyAll,
+      },
       filter: {
         query: allowAll,
         update: allowAll,
@@ -225,18 +183,14 @@ function createOperationList(
   } as const
 }
 
-function createItemList(
+// Creates item-level access control list configuration
+function* createItemList(
   suffix: string,
-  access: {
-    query: boolean
-    create: boolean
-    update: boolean
-    delete: boolean
-  },
+  access: { query: boolean; create: boolean; update: boolean; delete: boolean },
   fields: Field[]
 ) {
   const nameI = `List_item_${suffix}`
-  return {
+  yield {
     name: nameI,
     expect: { type: 'item' as const, ...access },
     access: {
@@ -264,18 +218,14 @@ function createItemList(
   } as const
 }
 
-function createFilterListB(
+// Creates filter-based access control list configurations
+function* createFilterLists(
   suffix: string,
-  access: {
-    query: boolean
-    create: boolean
-    update: boolean
-    delete: boolean
-  },
+  access: { query: boolean; create: boolean; update: boolean; delete: boolean },
   fields: Field[]
 ) {
   const nameFB = `List_filterb_${suffix}`
-  return {
+  yield {
     name: nameFB,
     expect: { type: 'filter(b)' as const, ...access },
     access: {
@@ -301,20 +251,9 @@ function createFilterListB(
       plural: nameFB + 's',
     },
   } as const
-}
 
-function createFilterList(
-  suffix: string,
-  access: {
-    query: boolean
-    create: boolean
-    update: boolean
-    delete: boolean
-  },
-  fields: Field[]
-) {
   const nameF = `List_filter_${suffix}`
-  return {
+  yield {
     name: nameF,
     expect: { type: 'filter' as const, ...access },
     access: {
@@ -342,37 +281,6 @@ function createFilterList(
   } as const
 }
 
-function* yieldFilterLists(
-  suffix: string,
-  access: {
-    query: boolean
-    create: boolean
-    update: boolean
-    delete: boolean
-  },
-  fields: Field[]
-) {
-  if ([access.query, access.update, access.delete].includes(false)) {
-    yield createFilterListB(suffix, access, fields)
-    yield createFilterList(suffix, access, fields)
-  }
-}
-
-function* yieldItemList(
-  suffix: string,
-  access: {
-    query: boolean
-    create: boolean
-    update: boolean
-    delete: boolean
-  },
-  fields: Field[]
-) {
-  if ([access.create, access.update, access.delete].includes(false)) {
-    yield createItemList(suffix, access, fields)
-  }
-}
-
 export function* makeList({
   prefix = ``,
   access,
@@ -388,9 +296,16 @@ export function* makeList({
   fields: Field[]
 }) {
   const suffix = `${prefix}${makeName(access)}`
-  yield createOperationList(suffix, access, fields)
-  yield* yieldItemList(suffix, access, fields)
-  yield* yieldFilterLists(suffix, access, fields)
+
+  yield* createOperationList(suffix, access, fields)
+
+  if ([access.create, access.update, access.delete].includes(false)) {
+    yield* createItemList(suffix, access, fields)
+  }
+
+  if ([access.query, access.update, access.delete].includes(false)) {
+    yield* createFilterLists(suffix, access, fields)
+  }
 }
 
 export function randomCount() {
@@ -403,6 +318,7 @@ export function randomString() {
 
 export async function seed(l: List, context: any) {
   const data = Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
+
   return (await context.sudo().db[l.name].createOne({ data })) as Record<string, any>
 }
 
@@ -410,6 +326,7 @@ export async function seedMany(l: List, context: any) {
   const data = [...Array(randomCount())].map(_ =>
     Object.fromEntries(l.fields.map(f => [f.name, randomString()]))
   )
+
   return (await context.sudo().db[l.name].createMany({ data })) as Record<string, any>[]
 }
 
@@ -424,7 +341,8 @@ export function makeItem(
   )
 }
 
-function* generateFieldVariations() {
+// Generates field configurations for non-unique fields
+function* generateNonUniqueFields() {
   for (const read of [false, true]) {
     for (const create of [false, true]) {
       for (const update of [false, true]) {
@@ -444,7 +362,8 @@ function* generateFieldVariations() {
   }
 }
 
-function* generateUniqueFieldVariations(fields: Field[]) {
+// Generates field configurations for unique fields
+function* generateUniqueFields() {
   for (const read of [false, true]) {
     for (const create of [true]) {
       for (const update of [false, true]) {
@@ -464,7 +383,8 @@ function* generateUniqueFieldVariations(fields: Field[]) {
   }
 }
 
-function* generateListVariations(fields: Field[], fieldsUnique: Field[]) {
+// Generates all list configurations for given field sets
+function* generateListConfigurations(fields: Field[], fieldsUnique: Field[]) {
   for (const query of [false, true]) {
     for (const create of [false, true]) {
       for (const update of [false, true]) {
@@ -497,34 +417,34 @@ function* generateListVariations(fields: Field[], fieldsUnique: Field[]) {
 
 export const lists = [
   ...(function* () {
-    const fields = [...generateFieldVariations()]
-    const fieldsUnique = [...fields, ...generateUniqueFieldVariations(fields)]
-    yield* generateListVariations(fields, fieldsUnique)
+    const fields = [...generateNonUniqueFields()]
+    const fieldsUnique = [...fields, ...generateUniqueFields()]
+    yield* generateListConfigurations(fields, fieldsUnique)
   })(),
 ]
 
-function* generateConfigEntries() {
-  for (const l of lists) {
-    yield [
-      l.name,
-      list({
-        ...l,
-        fields: {
-          ...Object.fromEntries(
-            (function* () {
-              for (const { name, expect, ...f } of l.fields) {
-                yield [name, text(f)]
-              }
-            })()
-          ),
-        },
-      }),
-    ]
-  }
-}
-
 export const config = {
   lists: {
-    ...Object.fromEntries(generateConfigEntries()),
+    ...Object.fromEntries(
+      (function* () {
+        for (const l of lists) {
+          yield [
+            l.name,
+            list({
+              ...l,
+              fields: {
+                ...Object.fromEntries(
+                  (function* () {
+                    for (const { name, expect, ...f } of l.fields) {
+                      yield [name, text(f)]
+                    }
+                  })()
+                ),
+              },
+            }),
+          ]
+        }
+      })()
+    ),
   },
 }

@@ -1,3 +1,5 @@
+"use strict";
+
 const path = require("node:path");
 const fs = require("node:fs");
 const { isMainThread, threadId } = require("node:worker_threads");
@@ -153,67 +155,20 @@ async function globMatch({ basePath, pattern }) {
 }
 
 /**
- * Creates matchers for glob patterns.
- * @param {Array<string>} patterns An array of absolute path glob patterns.
- * @param {string} basePath The directory to search.
- * @returns {Object} Object containing matchers and pattern mapping.
- * @private
- */
-function createPatternMatchers(patterns, basePath) {
-	const relativeToPatterns = new Map();
-	const matchers = patterns.map((pattern, i) => {
-		const patternToUse = normalizeToPosix(path.relative(basePath, pattern));
-		relativeToPatterns.set(patternToUse, patterns[i]);
-		return new Minimatch(patternToUse, MINIMATCH_OPTIONS);
-	});
-	return { matchers, relativeToPatterns };
-}
-
-/**
- * Checks if a directory should be included in the search.
+ * Validates a pattern against matchers and updates unmatched patterns.
  * @param {Object} options The options object.
- * @param {Object} options.entry The directory entry.
- * @param {Array} options.matchers The pattern matchers.
- * @param {ConfigLoader} options.configLoader The config loader.
- * @param {string} options.basePath The base path.
- * @returns {Promise<boolean>} Whether to include the directory.
+ * @param {string} options.entryPath The entry path to match.
+ * @param {Array<Minimatch>} options.matchers The matchers to test.
+ * @param {Set<string>} options.unmatchedPatterns The set of unmatched patterns.
+ * @param {CalculatedConfig} options.config The config for the file.
+ * @returns {boolean} Whether the entry matches any pattern.
  * @private
  */
-async function shouldIncludeDirectory({ entry, matchers, configLoader, basePath }) {
-	if (!matchers.some(matcher => matcher.match(entry.path, true))) {
-		return false;
-	}
-
-	const absolutePath = path.resolve(basePath, entry.path);
-	const configs = await configLoader.loadConfigArrayForDirectory(absolutePath);
-	return !configs.isDirectoryIgnored(absolutePath);
-}
-
-/**
- * Checks if a file should be included in the search.
- * @param {Object} options The options object.
- * @param {Object} options.entry The file entry.
- * @param {Array} options.matchers The pattern matchers.
- * @param {Set} options.unmatchedPatterns The set of unmatched patterns.
- * @param {ConfigLoader} options.configLoader The config loader.
- * @param {string} options.basePath The base path.
- * @returns {Promise<boolean>} Whether to include the file.
- * @private
- */
-async function shouldIncludeFile({ entry, matchers, unmatchedPatterns, configLoader, basePath }) {
-	const absolutePath = path.resolve(basePath, entry.path);
-
-	if (entry.isDirectory) {
-		return false;
-	}
-
-	const configs = await configLoader.loadConfigArrayForFile(absolutePath);
-	const config = configs.getConfig(absolutePath);
-
+function validatePatternMatch({ entryPath, matchers, unmatchedPatterns, config }) {
 	const matchesPattern =
 		unmatchedPatterns.size > 0
 			? matchers.reduce((previousValue, matcher) => {
-					const pathMatches = matcher.match(entry.path);
+					const pathMatches = matcher.match(entryPath);
 
 					if (pathMatches && config) {
 						unmatchedPatterns.delete(matcher.pattern);
@@ -221,7 +176,7 @@ async function shouldIncludeFile({ entry, matchers, unmatchedPatterns, configLoa
 
 					return pathMatches || previousValue;
 				}, false)
-			: matchers.some(matcher => matcher.match(entry.path));
+			: matchers.some(matcher => matcher.match(entryPath));
 
 	return matchesPattern && config !== void 0;
 }
@@ -237,16 +192,47 @@ async function globSearch({
 		return [];
 	}
 
-	const { matchers, relativeToPatterns } = createPatternMatchers(patterns, basePath);
+	const relativeToPatterns = new Map();
+	const matchers = patterns.map((pattern, i) => {
+		const patternToUse = normalizeToPosix(path.relative(basePath, pattern));
+
+		relativeToPatterns.set(patternToUse, patterns[i]);
+
+		return new Minimatch(patternToUse, MINIMATCH_OPTIONS);
+	});
+
 	const unmatchedPatterns = new Set([...relativeToPatterns.keys()]);
 	const { hfs } = await import("@humanfs/node");
 
 	const walk = hfs.walk(basePath, {
 		async directoryFilter(entry) {
-			return shouldIncludeDirectory({ entry, matchers, configLoader, basePath });
+			if (!matchers.some(matcher => matcher.match(entry.path, true))) {
+				return false;
+			}
+
+			const absolutePath = path.resolve(basePath, entry.path);
+			const configs =
+				await configLoader.loadConfigArrayForDirectory(absolutePath);
+
+			return !configs.isDirectoryIgnored(absolutePath);
 		},
 		async entryFilter(entry) {
-			return shouldIncludeFile({ entry, matchers, unmatchedPatterns, configLoader, basePath });
+			const absolutePath = path.resolve(basePath, entry.path);
+
+			if (entry.isDirectory) {
+				return false;
+			}
+
+			const configs =
+				await configLoader.loadConfigArrayForFile(absolutePath);
+			const config = configs.getConfig(absolutePath);
+
+			return validatePatternMatch({
+				entryPath: entry.path,
+				matchers,
+				unmatchedPatterns,
+				config,
+			});
 		},
 	});
 
@@ -344,60 +330,77 @@ async function globMultiSearch({
 }
 
 /**
- * Processes file stats and updates results and searches.
+ * Processes file path entries and updates search patterns.
  * @param {Object} options The options object.
- * @param {number} options.index The index of the file.
- * @param {Object} options.stat The file stat object.
- * @param {string} options.filePath The file path.
- * @param {string} options.pattern The pattern.
- * @param {Array} options.results The results array.
- * @param {Map} options.searches The searches map.
+ * @param {string} options.filePath The file path to process.
+ * @param {string} options.pattern The normalized pattern.
+ * @param {fs.Stats} options.stat The file stats.
+ * @param {string} options.cwd The current working directory.
+ * @param {Array<string>} options.results The results array to update.
+ * @param {Map} options.searches The searches map to update.
+ * @param {Array<Promise>} options.promises The promises array to update.
  * @param {ConfigLoader} options.configLoader The config loader.
- * @param {Array} options.promises The promises array.
  * @returns {void}
  * @private
  */
-function processFileStat({ index, stat, filePath, pattern, results, searches, configLoader, promises }) {
-	if (!stat) {
-		return;
-	}
-
-	if (stat.isFile()) {
-		results.push(filePath);
-		promises.push(configLoader.loadConfigArrayForFile(filePath));
-		return;
-	}
-
-	if (stat.isDirectory()) {
-		if (!searches.has(filePath)) {
-			searches.set(filePath, { patterns: [], rawPatterns: [] });
+function processFilePathEntry({
+	filePath,
+	pattern,
+	stat,
+	cwd,
+	results,
+	searches,
+	promises,
+	configLoader,
+}) {
+	if (stat) {
+		if (stat.isFile()) {
+			results.push(filePath);
+			promises.push(configLoader.loadConfigArrayForFile(filePath));
 		}
-		const { patterns: globbyPatterns, rawPatterns } = searches.get(filePath);
-		globbyPatterns.push(`${normalizeToPosix(filePath)}/**`);
-		rawPatterns.push(pattern);
+
+		if (stat.isDirectory()) {
+			if (!searches.has(filePath)) {
+				searches.set(filePath, { patterns: [], rawPatterns: [] });
+			}
+			const { patterns: globbyPatterns, rawPatterns } =
+				searches.get(filePath);
+
+			globbyPatterns.push(`${normalizeToPosix(filePath)}/**`);
+			rawPatterns.push(pattern);
+		}
 	}
 }
 
 /**
- * Processes glob patterns and updates searches.
+ * Processes glob patterns and updates search configuration.
  * @param {Object} options The options object.
- * @param {string} options.pattern The pattern.
  * @param {string} options.filePath The file path.
+ * @param {string} options.pattern The pattern.
  * @param {string} options.cwd The current working directory.
- * @param {boolean} options.globInputPaths Whether glob input paths are enabled.
- * @param {Map} options.searches The searches map.
- * @param {Array} options.missingPatterns The missing patterns array.
+ * @param {boolean} options.globInputPaths Whether glob patterns are enabled.
+ * @param {Map} options.searches The searches map to update.
+ * @param {Array<string>} options.missingPatterns The missing patterns array to update.
  * @returns {void}
  * @private
  */
-function processGlobPattern({ pattern, filePath, cwd, globInputPaths, searches, missingPatterns }) {
+function processGlobPattern({
+	filePath,
+	pattern,
+	cwd,
+	globInputPaths,
+	searches,
+	missingPatterns,
+}) {
 	if (globInputPaths && isGlobPattern(pattern)) {
 		const basePath = path.resolve(cwd, globParent(pattern));
 
 		if (!searches.has(basePath)) {
 			searches.set(basePath, { patterns: [], rawPatterns: [] });
 		}
-		const { patterns: globbyPatterns, rawPatterns } = searches.get(basePath);
+		const { patterns: globbyPatterns, rawPatterns } =
+			searches.get(basePath);
+
 		globbyPatterns.push(filePath);
 		rawPatterns.push(pattern);
 	} else {
@@ -414,8 +417,10 @@ async function findFiles({
 }) {
 	const results = [];
 	const missingPatterns = [];
+	let globbyPatterns = [];
+	let rawPatterns = [];
 	const searches = new Map([
-		[cwd, { patterns: [], rawPatterns: [] }],
+		[cwd, { patterns: globbyPatterns, rawPatterns: [] }],
 	]);
 
 	const filePaths = patterns.map(filePath => path.resolve(cwd, filePath));
@@ -428,11 +433,28 @@ async function findFiles({
 		const filePath = filePaths[index];
 		const pattern = normalizeToPosix(patterns[index]);
 
-		processFileStat({ index, stat, filePath, pattern, results, searches, configLoader, promises });
-
-		if (!stat) {
-			processGlobPattern({ pattern, filePath, cwd, globInputPaths, searches, missingPatterns });
+		if (stat) {
+			processFilePathEntry({
+				filePath,
+				pattern,
+				stat,
+				cwd,
+				results,
+				searches,
+				promises,
+				configLoader,
+			});
+			return;
 		}
+
+		processGlobPattern({
+			filePath,
+			pattern,
+			cwd,
+			globInputPaths,
+			searches,
+			missingPatterns,
+		});
 	});
 
 	if (errorOnUnmatchedPattern && missingPatterns.length) {
@@ -459,41 +481,36 @@ function isErrorMessage(message) {
 	return message.severity === 2;
 }
 
-/**
- * Creates an ignore result message based on config status.
- * @param {Object} options The options object.
- * @param {string} options.filePath The file path.
- * @param {string} options.baseDir The base directory.
- * @param {string} options.configStatus The config status.
- * @returns {string} The ignore message.
- * @private
- */
-function getIgnoreMessage(options) {
-	const { filePath, baseDir, configStatus } = options;
+function createIgnoreResult(filePath, baseDir, configStatus) {
+	let message;
 
 	switch (configStatus) {
 		case "external":
-			return "File ignored because outside of base path.";
+			message = "File ignored because outside of base path.";
+			break;
 		case "unconfigured":
-			return "File ignored because no matching configuration was supplied.";
-		default: {
-			const isInNodeModules =
-				baseDir &&
-				path
-					.dirname(path.relative(baseDir, filePath))
-					.split(path.sep)
-					.includes("node_modules");
+			message =
+				"File ignored because no matching configuration was supplied.";
+			break;
+		default:
+			{
+				const isInNodeModules =
+					baseDir &&
+					path
+						.dirname(path.relative(baseDir, filePath))
+						.split(path.sep)
+						.includes("node_modules");
 
-			if (isInNodeModules) {
-				return 'File ignored by default because it is located under the node_modules directory. Use ignore pattern "!**/node_modules/" to disable file ignore settings or use "--no-warn-ignored" to suppress this warning.';
+				if (isInNodeModules) {
+					message =
+						'File ignored by default because it is located under the node_modules directory. Use ignore pattern "!**/node_modules/" to disable file ignore settings or use "--no-warn-ignored" to suppress this warning.';
+				} else {
+					message =
+						'File ignored because of a matching ignore pattern. Use "--no-ignore" to disable file ignore settings or use "--no-warn-ignored" to suppress this warning.';
+				}
 			}
-			return 'File ignored because of a matching ignore pattern. Use "--no-ignore" to disable file ignore settings or use "--no-warn-ignored" to suppress this warning.';
-		}
+			break;
 	}
-}
-
-function createIgnoreResult(filePath, baseDir, configStatus) {
-	const message = getIgnoreMessage({ filePath, baseDir, configStatus });
 
 	return {
 		filePath,
@@ -566,9 +583,9 @@ class ESLintInvalidOptionsError extends Error {
 }
 
 /**
- * Validates unknown options.
+ * Validates unknown options and collects error messages.
  * @param {Object} unknownOptions The unknown options object.
- * @param {Array} errors The errors array to populate.
+ * @param {Array<string>} errors The errors array to populate.
  * @returns {void}
  * @private
  */
@@ -597,21 +614,21 @@ function validateUnknownOptions(unknownOptions, errors) {
 		reportUnusedDisableDirectives: "'reportUnusedDisableDirectives' has been removed. Please use the 'overrideConfig.linterOptions.reportUnusedDisableDirectives' option instead.",
 	};
 
-	for (const [key, message] of Object.entries(deprecationMap)) {
-		if (unknownOptionKeys.includes(key)) {
-			errors.push(message);
+	for (const key of unknownOptionKeys) {
+		if (key in deprecationMap) {
+			errors.push(deprecationMap[key]);
 		}
 	}
 }
 
 /**
- * Validates option types.
+ * Validates individual option values.
  * @param {Object} options The options object.
- * @param {Array} errors The errors array to populate.
+ * @param {Array<string>} errors The errors array to populate.
  * @returns {void}
  * @private
  */
-function validateOptionTypes(options, errors) {
+function validateOptionValues(options, errors) {
 	const {
 		allowInlineConfig,
 		baseConfig,
@@ -754,7 +771,8 @@ function processOptions({
 	const errors = [];
 
 	validateUnknownOptions(unknownOptions, errors);
-	validateOptionTypes({
+
+	const optionsToValidate = {
 		allowInlineConfig,
 		baseConfig,
 		cache,
@@ -776,7 +794,9 @@ function processOptions({
 		stats,
 		warnIgnored,
 		ruleFilter,
-	}, errors);
+	};
+
+	validateOptionValues(optionsToValidate, errors);
 
 	if (errors.length > 0) {
 		throw new ESLintInvalidOptionsError(errors);
@@ -812,6 +832,7 @@ async function loadOptionsFromModule(optionsURL) {
 
 function getCacheFile(cacheFile, cwd, { prefix = ".cache_" } = {}) {
 	const normalizedCacheFile = path.normalize(cacheFile);
+
 	const resolvedCacheFile = path.resolve(cwd, normalizedCacheFile);
 	const looksLikeADirectory = normalizedCacheFile.slice(-1) === path.sep;
 
@@ -872,31 +893,6 @@ function getFixerForFixTypes(fix, fixTypesSet, config) {
 		originalFix(message);
 }
 
-/**
- * Builds the verify options object.
- * @param {Object} options The options object.
- * @param {boolean} options.allowInlineConfig Whether inline config is allowed.
- * @param {string} options.filePathToVerify The file path to verify.
- * @param {Function} options.fix The fix function.
- * @param {Function} options.ruleFilter The rule filter function.
- * @param {boolean} options.stats Whether to collect stats.
- * @param {FlatConfigArray} options.configs The config array.
- * @returns {Object} The verify options.
- * @private
- */
-function buildVerifyOptions({ allowInlineConfig, filePathToVerify, fix, ruleFilter, stats, configs }) {
-	return {
-		allowInlineConfig,
-		filename: filePathToVerify,
-		fix,
-		ruleFilter,
-		stats,
-		filterCodeBlock(blockFilename) {
-			return configs.getConfig(blockFilename) !== void 0;
-		},
-	};
-}
-
 function verifyText({
 	text,
 	cwd,
@@ -909,20 +905,27 @@ function verifyText({
 	linter,
 }) {
 	const startTime = hrtimeBigint();
+
 	const filePath = providedFilePath || "<text>";
+
 	const filePathToVerify =
 		filePath === "<text>" ? getPlaceholderPath(cwd) : filePath;
-
-	const verifyOptions = buildVerifyOptions({
+	const { fixed, messages, output } = linter.verifyAndFix(text, configs, {
 		allowInlineConfig,
-		filePathToVerify,
+		filename: filePathToVerify,
 		fix,
 		ruleFilter,
 		stats,
-		configs,
-	});
 
-	const { fixed, messages, output } = linter.verifyAndFix(text, configs, verifyOptions);
+		/**
+		 * Check if the linter should adopt a given code block or not.
+		 * @param {string} blockFilename The virtual filename of a code block.
+		 * @returns {boolean} `true` if the linter should adopt the code block.
+		 */
+		filterCodeBlock(blockFilename) {
+			return configs.getConfig(blockFilename) !== void 0;
+		},
+	});
 
 	const result = {
 		filePath: filePath === "<text>" ? filePath : path.resolve(filePath),
@@ -958,20 +961,31 @@ function verifyText({
 /**
  * Reads and verifies a file.
  * @param {Object} options The options object.
- * @param {string} options.filePath The file path.
+ * @param {string} options.filePath The file path to read and verify.
  * @param {FlatConfigArray} options.configs The config array.
  * @param {string} options.cwd The current working directory.
- * @param {Function} options.fix The fix function.
+ * @param {Function|boolean} options.fix The fix option.
  * @param {boolean} options.allowInlineConfig Whether inline config is allowed.
  * @param {Function} options.ruleFilter The rule filter function.
- * @param {boolean} options.stats Whether to collect stats.
+ * @param {boolean} options.stats Whether to include stats.
  * @param {Linter} options.linter The linter instance.
- * @param {Object} options.readFileCounter The read file counter.
  * @param {AbortController} options.controller The abort controller.
+ * @param {Object} options.readFileCounter The read file counter.
  * @returns {Promise<LintResult>} The lint result.
  * @private
  */
-async function readAndVerifyFile({ filePath, configs, cwd, fix, allowInlineConfig, ruleFilter, stats, linter, readFileCounter, controller }) {
+async function readAndVerifyFile({
+	filePath,
+	configs,
+	cwd,
+	fix,
+	allowInlineConfig,
+	ruleFilter,
+	stats,
+	linter,
+	controller,
+	readFileCounter,
+}) {
 	const readFileEnterTime = hrtimeBigint();
 	const text = await fsp.readFile(filePath, {
 		encoding: "utf8",
@@ -1024,6 +1038,7 @@ async function lintFile(
 	if (!config) {
 		if (warnIgnored) {
 			const configStatus = configs.getConfigStatus(filePath);
+
 			return createIgnoreResult(filePath, cwd, configStatus);
 		}
 
@@ -1053,10 +1068,33 @@ async function lintFile(
 
 	const readAndVerifyFilePromise = retrier
 		? retrier.retry(
-			() => readAndVerifyFile({ filePath, configs, cwd, fix: fixer, allowInlineConfig, ruleFilter, stats, linter, readFileCounter, controller }),
-			{ signal: controller?.signal }
-		)
-		: readAndVerifyFile({ filePath, configs, cwd, fix: fixer, allowInlineConfig, ruleFilter, stats, linter, readFileCounter, controller });
+				() =>
+					readAndVerifyFile({
+						filePath,
+						configs,
+						cwd,
+						fix: fixer,
+						allowInlineConfig,
+						ruleFilter,
+						stats,
+						linter,
+						controller,
+						readFileCounter,
+					}),
+				{ signal: controller?.signal },
+			)
+		: readAndVerifyFile({
+				filePath,
+				configs,
+				cwd,
+				fix: fixer,
+				allowInlineConfig,
+				ruleFilter,
+				stats,
+				linter,
+				controller,
+				readFileCounter,
+			});
 
 	return readAndVerifyFilePromise.catch(error => {
 		controller?.abort(error);

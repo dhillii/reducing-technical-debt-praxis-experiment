@@ -1,4 +1,3 @@
-```javascript
 /**
  * @fileoverview Tests for FlatConfigArray
  * @author Nicholas C. Zakas
@@ -170,11 +169,11 @@ function createFlatConfigArray(configs) {
 }
 
 /**
- * Prepares expected result with default language options.
- * @param {Object} result The expected merged result of the configs.
+ * Sets default language options if not provided.
+ * @param {Object} result The result object to update.
  * @returns {void}
  */
-function prepareExpectedResult(result) {
+function setDefaultLanguageOptions(result) {
 	if (!result.language) {
 		result.language = jslang;
 	}
@@ -202,7 +201,7 @@ async function assertMergedResult(values, result) {
 
 	const config = configs.getConfig("foo.js");
 
-	prepareExpectedResult(result);
+	setDefaultLanguageOptions(result);
 
 	assert.deepStrictEqual(config, result);
 }

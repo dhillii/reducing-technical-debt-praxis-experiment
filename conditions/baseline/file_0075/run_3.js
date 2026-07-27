@@ -35,9 +35,7 @@ function createTestSuite(name, testFn) {
 	describe(name, testFn);
 }
 
-function testGetTokens() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testGetTokens(store) {
 	it("should retrieve all tokens for root node", () => {
 		check(store.getTokens(Program), [
 			"var",
@@ -146,9 +144,7 @@ function testGetTokens() {
 	});
 }
 
-function testGetTokensBefore() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testGetTokensBefore(store) {
 	it("should retrieve zero tokens before a node", () => {
 		check(store.getTokensBefore(BinaryExpression, 0), []);
 	});
@@ -256,9 +252,7 @@ function testGetTokensBefore() {
 	});
 }
 
-function testGetTokenBefore() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testGetTokenBefore(store) {
 	it("should retrieve one token before a node", () => {
 		assert.strictEqual(
 			store.getTokenBefore(BinaryExpression).value,
@@ -392,9 +386,7 @@ function testGetTokenBefore() {
 	});
 }
 
-function testGetTokensAfter() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testGetTokensAfter(store) {
 	it("should retrieve zero tokens after a node", () => {
 		check(store.getTokensAfter(VariableDeclarator.id, 0), []);
 	});
@@ -519,9 +511,7 @@ function testGetTokensAfter() {
 	});
 }
 
-function testGetTokenAfter() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testGetTokenAfter(store) {
 	it("should retrieve one token after a node", () => {
 		assert.strictEqual(
 			store.getTokenAfter(VariableDeclarator.id).value,
@@ -663,9 +653,7 @@ function testGetTokenAfter() {
 	});
 }
 
-function testGetFirstTokens() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testGetFirstTokens(store) {
 	it("should retrieve zero tokens from a node's token stream", () => {
 		check(store.getFirstTokens(BinaryExpression, 0), []);
 	});
@@ -773,9 +761,7 @@ function testGetFirstTokens() {
 	});
 }
 
-function testGetFirstToken() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testGetFirstToken(store) {
 	it("should retrieve the first token of a node's token stream", () => {
 		assert.strictEqual(
 			store.getFirstToken(BinaryExpression).value,
@@ -947,9 +933,7 @@ function testGetFirstToken() {
 	});
 }
 
-function testGetLastTokens() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testGetLastTokens(store) {
 	it("should retrieve zero tokens from the end of a node's token stream", () => {
 		check(store.getLastTokens(BinaryExpression, 0), []);
 	});
@@ -1057,9 +1041,7 @@ function testGetLastTokens() {
 	});
 }
 
-function testGetLastToken() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testGetLastToken(store) {
 	it("should retrieve the last token of a node's token stream", () => {
 		assert.strictEqual(store.getLastToken(BinaryExpression).value, "b");
 		assert.strictEqual(
@@ -1230,9 +1212,7 @@ function testGetLastToken() {
 	});
 }
 
-function testGetFirstTokensBetween() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testGetFirstTokensBetween(store) {
 	it("should retrieve zero tokens between adjacent nodes", () => {
 		check(
 			store.getFirstTokensBetween(BinaryExpression, CallExpression),
@@ -1318,9 +1298,7 @@ function testGetFirstTokensBetween() {
 	});
 }
 
-function testGetFirstTokenBetween() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testGetFirstTokenBetween(store) {
 	it("should return null between adjacent nodes", () => {
 		assert.strictEqual(
 			store.getFirstTokenBetween(BinaryExpression, CallExpression),
@@ -1425,9 +1403,7 @@ function testGetFirstTokenBetween() {
 	});
 }
 
-function testGetLastTokensBetween() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testGetLastTokensBetween(store) {
 	it("should retrieve zero tokens between adjacent nodes", () => {
 		check(
 			store.getLastTokensBetween(BinaryExpression, CallExpression),
@@ -1513,9 +1489,7 @@ function testGetLastTokensBetween() {
 	});
 }
 
-function testGetLastTokenBetween() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testGetLastTokenBetween(store) {
 	it("should return null between adjacent nodes", () => {
 		assert.strictEqual(
 			store.getLastTokenBetween(BinaryExpression, CallExpression),
@@ -1620,9 +1594,7 @@ function testGetLastTokenBetween() {
 	});
 }
 
-function testGetTokensBetween() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testGetTokensBetween(store) {
 	it("should retrieve zero tokens between adjacent nodes", () => {
 		check(store.getTokensBetween(BinaryExpression, CallExpression), []);
 	});
@@ -1659,9 +1631,7 @@ function testGetTokensBetween() {
 	});
 }
 
-function testGetTokenByRangeStart() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testGetTokenByRangeStart(store) {
 	it("should return identifier token", () => {
 		const result = store.getTokenByRangeStart(9);
 
@@ -1699,7 +1669,7 @@ function testGetTokenByRangeStart() {
 	});
 }
 
-function testGetFirstTokenAndGetTokenAfter() {
+function testGetFirstTokenAndGetTokenAfter(store) {
 	it("should retrieve all tokens and comments in the node", () => {
 		const code = "(function(a, /*b,*/ c){})";
 		const ast = espree.parse(code, DEFAULT_CONFIG);
@@ -1759,7 +1729,7 @@ function testGetFirstTokenAndGetTokenAfter() {
 	});
 }
 
-function testGetLastTokenAndGetTokenBefore() {
+function testGetLastTokenAndGetTokenBefore(store) {
 	it("should retrieve all tokens and comments in the node", () => {
 		const code = "(function(a, /*b,*/ c){})";
 		const ast = espree.parse(code, DEFAULT_CONFIG);
@@ -1819,9 +1789,7 @@ function testGetLastTokenAndGetTokenBefore() {
 	});
 }
 
-function testCommentsExistBetween() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testCommentsExistBetween(store) {
 	it("should retrieve false if comments don't exist", () => {
 		assert.isFalse(
 			store.commentsExistBetween(AST.tokens[0], AST.tokens[1]),
@@ -1835,9 +1803,7 @@ function testCommentsExistBetween() {
 	});
 }
 
-function testGetCommentsBefore() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testGetCommentsBefore(store) {
 	it("should retrieve comments before a node", () => {
 		assert.strictEqual(
 			store.getCommentsBefore(VariableDeclaration)[0].value,
@@ -1877,9 +1843,7 @@ function testGetCommentsBefore() {
 	});
 }
 
-function testGetCommentsAfter() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testGetCommentsAfter(store) {
 	it("should retrieve comments after a node", () => {
 		assert.strictEqual(
 			store.getCommentsAfter(VariableDeclarator.id)[0].value,
@@ -1919,9 +1883,7 @@ function testGetCommentsAfter() {
 	});
 }
 
-function testGetCommentsInside() {
-	const store = new TokenStore(TOKENS, COMMENTS);
-
+function testGetCommentsInside(store) {
 	it("should retrieve comments inside a node", () => {
 		check(store.getCommentsInside(Program), [
 			"A",
@@ -1947,25 +1909,89 @@ function testGetCommentsInside() {
 }
 
 describe("TokenStore", () => {
-	describe("when calling getTokens", testGetTokens);
-	describe("when calling getTokensBefore", testGetTokensBefore);
-	describe("when calling getTokenBefore", testGetTokenBefore);
-	describe("when calling getTokensAfter", testGetTokensAfter);
-	describe("when calling getTokenAfter", testGetTokenAfter);
-	describe("when calling getFirstTokens", testGetFirstTokens);
-	describe("when calling getFirstToken", testGetFirstToken);
-	describe("when calling getLastTokens", testGetLastTokens);
-	describe("when calling getLastToken", testGetLastToken);
-	describe("when calling getFirstTokensBetween", testGetFirstTokensBetween);
-	describe("when calling getFirstTokenBetween", testGetFirstTokenBetween);
-	describe("when calling getLastTokensBetween", testGetLastTokensBetween);
-	describe("when calling getLastTokenBetween", testGetLastTokenBetween);
-	describe("when calling getTokensBetween", testGetTokensBetween);
-	describe("when calling getTokenByRangeStart", testGetTokenByRangeStart);
-	describe("when calling getFirstToken & getTokenAfter", testGetFirstTokenAndGetTokenAfter);
-	describe("when calling getLastToken & getTokenBefore", testGetLastTokenAndGetTokenBefore);
-	describe("when calling commentsExistBetween", testCommentsExistBetween);
-	describe("getCommentsBefore", testGetCommentsBefore);
-	describe("getCommentsAfter", testGetCommentsAfter);
-	describe("getCommentsInside", testGetCommentsInside);
+	const store = new TokenStore(TOKENS, COMMENTS);
+
+	describe("when calling getTokens", () => {
+		testGetTokens(store);
+	});
+
+	describe("when calling getTokensBefore", () => {
+		testGetTokensBefore(store);
+	});
+
+	describe("when calling getTokenBefore", () => {
+		testGetTokenBefore(store);
+	});
+
+	describe("when calling getTokensAfter", () => {
+		testGetTokensAfter(store);
+	});
+
+	describe("when calling getTokenAfter", () => {
+		testGetTokenAfter(store);
+	});
+
+	describe("when calling getFirstTokens", () => {
+		testGetFirstTokens(store);
+	});
+
+	describe("when calling getFirstToken", () => {
+		testGetFirstToken(store);
+	});
+
+	describe("when calling getLastTokens", () => {
+		testGetLastTokens(store);
+	});
+
+	describe("when calling getLastToken", () => {
+		testGetLastToken(store);
+	});
+
+	describe("when calling getFirstTokensBetween", () => {
+		testGetFirstTokensBetween(store);
+	});
+
+	describe("when calling getFirstTokenBetween", () => {
+		testGetFirstTokenBetween(store);
+	});
+
+	describe("when calling getLastTokensBetween", () => {
+		testGetLastTokensBetween(store);
+	});
+
+	describe("when calling getLastTokenBetween", () => {
+		testGetLastTokenBetween(store);
+	});
+
+	describe("when calling getTokensBetween", () => {
+		testGetTokensBetween(store);
+	});
+
+	describe("when calling getTokenByRangeStart", () => {
+		testGetTokenByRangeStart(store);
+	});
+
+	describe("when calling getFirstToken & getTokenAfter", () => {
+		testGetFirstTokenAndGetTokenAfter(store);
+	});
+
+	describe("when calling getLastToken & getTokenBefore", () => {
+		testGetLastTokenAndGetTokenBefore(store);
+	});
+
+	describe("when calling commentsExistBetween", () => {
+		testCommentsExistBetween(store);
+	});
+
+	describe("getCommentsBefore", () => {
+		testGetCommentsBefore(store);
+	});
+
+	describe("getCommentsAfter", () => {
+		testGetCommentsAfter(store);
+	});
+
+	describe("getCommentsInside", () => {
+		testGetCommentsInside(store);
+	});
 });

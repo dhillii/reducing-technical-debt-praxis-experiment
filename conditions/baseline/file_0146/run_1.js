@@ -17,10 +17,13 @@ class Stats {
 	}
 
 	static filterWarnings(warnings, warningsFilter) {
+		// we dont have anything to filter so all warnings can be shown
 		if(!warningsFilter) {
 			return warnings;
 		}
 
+		// create a chain of filters
+		// if they return "true" a warning should be surpressed
 		const normalizedWarningsFilters = [].concat(warningsFilter).map(filter => {
 			if(typeof filter === "string") {
 				return warning => warning.indexOf(filter) > -1;
@@ -49,6 +52,7 @@ class Stats {
 		return this.compilation.errors.length > 0;
 	}
 
+	// remove a prefixed "!" that can be specified to reverse sort order
 	normalizeFieldKey(field) {
 		if(field[0] === "!") {
 			return field.substr(1);
@@ -56,6 +60,7 @@ class Stats {
 		return field;
 	}
 
+	// if a field is prefixed by a "!" reverse sort order
 	sortOrderRegular(field) {
 		if(field[0] === "!") {
 			return false;
@@ -136,16 +141,14 @@ class Stats {
 
 			const fieldKey = this.normalizeFieldKey(field);
 			const sortIsRegular = this.sortOrderRegular(field);
+			const aVal = sortIsRegular ? a : b;
+			const bVal = sortIsRegular ? b : a;
 
-			return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
+			return sortByFieldAndOrder(fieldKey, aVal, bVal);
 		};
 
-		const formatError = (e) => {
+		const buildErrorText = (e, requestShortener) => {
 			let text = "";
-			if(typeof e === "string")
-				e = {
-					message: e
-				};
 			if(e.chunk) {
 				text += `chunk ${e.chunk.name || e.chunk.id}${e.chunk.hasRuntime() ? " [entry]" : e.chunk.isInitial() ? " [initial]" : ""}\n`;
 			}
@@ -156,11 +159,37 @@ class Stats {
 				text += `${e.module.readableIdentifier(requestShortener)}\n`;
 			}
 			text += e.message;
+			return text;
+		};
+
+		const addErrorDetails = (text, e, showErrorDetails, showModuleTrace, requestShortener) => {
 			if(showErrorDetails && e.details) text += `\n${e.details}`;
 			if(showErrorDetails && e.missing) text += e.missing.map(item => `\n[${item}]`).join("");
 			if(showModuleTrace && e.dependencies && e.origin) {
-				text += this.formatErrorTrace(e, requestShortener);
+				text += `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
+				e.dependencies.forEach(dep => {
+					if(!dep.loc) return;
+					if(typeof dep.loc === "string") return;
+					const locInfo = formatLocation(dep.loc);
+					if(!locInfo) return;
+					text += ` ${locInfo}`;
+				});
+				let current = e.origin;
+				while(current.issuer) {
+					current = current.issuer;
+					text += `\n @ ${current.readableIdentifier(requestShortener)}`;
+				}
 			}
+			return text;
+		};
+
+		const formatError = (e) => {
+			if(typeof e === "string")
+				e = {
+					message: e
+				};
+			let text = buildErrorText(e, requestShortener);
+			text = addErrorDetails(text, e, showErrorDetails, showModuleTrace, requestShortener);
 			return text;
 		};
 
@@ -169,6 +198,8 @@ class Stats {
 			warnings: Stats.filterWarnings(compilation.warnings.map(formatError), warningsFilter)
 		};
 
+		//We just hint other renderers since actually omitting
+		//errors/warnings from the JSON would be kind of weird.
 		Object.defineProperty(obj, "_showWarnings", {
 			value: showWarnings,
 			enumerable: false
@@ -195,127 +226,59 @@ class Stats {
 			});
 		}
 		if(showAssets) {
-			this.processAssets(obj, compilation, showPerformance, showCachedAssets, sortAssets);
+			const assetsByFile = {};
+			obj.assetsByChunkName = {};
+			obj.assets = Object.keys(compilation.assets).map(asset => {
+				const obj = {
+					name: asset,
+					size: compilation.assets[asset].size(),
+					chunks: [],
+					chunkNames: [],
+					emitted: compilation.assets[asset].emitted
+				};
+
+				if(showPerformance) {
+					obj.isOverSizeLimit = compilation.assets[asset].isOverSizeLimit;
+				}
+
+				assetsByFile[asset] = obj;
+				return obj;
+			}).filter(asset => showCachedAssets || asset.emitted);
+
+			compilation.chunks.forEach(chunk => {
+				chunk.files.forEach(asset => {
+					if(assetsByFile[asset]) {
+						chunk.ids.forEach(id => {
+							assetsByFile[asset].chunks.push(id);
+						});
+						if(chunk.name) {
+							assetsByFile[asset].chunkNames.push(chunk.name);
+							if(obj.assetsByChunkName[chunk.name])
+								obj.assetsByChunkName[chunk.name] = [].concat(obj.assetsByChunkName[chunk.name]).concat([asset]);
+							else
+								obj.assetsByChunkName[chunk.name] = asset;
+						}
+					}
+				});
+			});
+			obj.assets.sort(sortByField(sortAssets));
 		}
 
 		if(showEntrypoints) {
-			this.processEntrypoints(obj, compilation, showPerformance);
-		}
-
-		const fnModule = this.createModuleFormatter(requestShortener, showReasons, showUsedExports, showProvidedExports, showDepth, showSource);
-
-		if(showChunks) {
-			this.processChunks(obj, compilation, showChunkModules, showChunkOrigins, createModuleFilter, fnModule, sortModules, sortChunks);
-		}
-		if(showModules) {
-			this.processModules(obj, compilation, createModuleFilter, fnModule, sortModules);
-		}
-		if(showChildren) {
-			obj.children = compilation.children.map((child, idx) => {
-				const childOptions = Stats.getChildOptions(options, idx);
-				const obj = new Stats(child).toJson(childOptions, forToString);
-				delete obj.hash;
-				delete obj.version;
-				obj.name = child.name;
-				return obj;
-			});
-		}
-
-		return obj;
-	}
-
-	formatErrorTrace(e, requestShortener) {
-		let text = `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
-		e.dependencies.forEach(dep => {
-			if(!dep.loc) return;
-			if(typeof dep.loc === "string") return;
-			const locInfo = formatLocation(dep.loc);
-			if(!locInfo) return;
-			text += ` ${locInfo}`;
-		});
-		let current = e.origin;
-		while(current.issuer) {
-			current = current.issuer;
-			text += `\n @ ${current.readableIdentifier(requestShortener)}`;
-		}
-		return text;
-	}
-
-	processAssets(obj, compilation, showPerformance, showCachedAssets, sortAssets) {
-		const assetsByFile = {};
-		obj.assetsByChunkName = {};
-		obj.assets = Object.keys(compilation.assets).map(asset => {
-			const obj = {
-				name: asset,
-				size: compilation.assets[asset].size(),
-				chunks: [],
-				chunkNames: [],
-				emitted: compilation.assets[asset].emitted
-			};
-
-			if(showPerformance) {
-				obj.isOverSizeLimit = compilation.assets[asset].isOverSizeLimit;
-			}
-
-			assetsByFile[asset] = obj;
-			return obj;
-		}).filter(asset => showCachedAssets || asset.emitted);
-
-		compilation.chunks.forEach(chunk => {
-			chunk.files.forEach(asset => {
-				if(assetsByFile[asset]) {
-					chunk.ids.forEach(id => {
-						assetsByFile[asset].chunks.push(id);
-					});
-					if(chunk.name) {
-						assetsByFile[asset].chunkNames.push(chunk.name);
-						if(obj.assetsByChunkName[chunk.name])
-							obj.assetsByChunkName[chunk.name] = [].concat(obj.assetsByChunkName[chunk.name]).concat([asset]);
-						else
-							obj.assetsByChunkName[chunk.name] = asset;
-					}
-				}
-			});
-		});
-		obj.assets.sort((a, b) => {
-			const sortByField = (field) => (a, b) => {
-				if(!field) {
-					return 0;
-				}
-
-				const fieldKey = this.normalizeFieldKey(field);
-				const sortIsRegular = this.sortOrderRegular(field);
-
-				const sortByFieldAndOrder = (fieldKey, a, b) => {
-					if(a[fieldKey] === null && b[fieldKey] === null) return 0;
-					if(a[fieldKey] === null) return 1;
-					if(b[fieldKey] === null) return -1;
-					if(a[fieldKey] === b[fieldKey]) return 0;
-					return a[fieldKey] < b[fieldKey] ? -1 : 1;
+			obj.entrypoints = {};
+			Object.keys(compilation.entrypoints).forEach(name => {
+				const ep = compilation.entrypoints[name];
+				obj.entrypoints[name] = {
+					chunks: ep.chunks.map(c => c.id),
+					assets: ep.chunks.reduce((array, c) => array.concat(c.files || []), [])
 				};
+				if(showPerformance) {
+					obj.entrypoints[name].isOverSizeLimit = ep.isOverSizeLimit;
+				}
+			});
+		}
 
-				return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
-			};
-			return sortByField(sortAssets)(a, b);
-		});
-	}
-
-	processEntrypoints(obj, compilation, showPerformance) {
-		obj.entrypoints = {};
-		Object.keys(compilation.entrypoints).forEach(name => {
-			const ep = compilation.entrypoints[name];
-			obj.entrypoints[name] = {
-				chunks: ep.chunks.map(c => c.id),
-				assets: ep.chunks.reduce((array, c) => array.concat(c.files || []), [])
-			};
-			if(showPerformance) {
-				obj.entrypoints[name].isOverSizeLimit = ep.isOverSizeLimit;
-			}
-		});
-	}
-
-	createModuleFormatter(requestShortener, showReasons, showUsedExports, showProvidedExports, showDepth, showSource) {
-		return (module) => {
+		function fnModule(module) {
 			const obj = {
 				id: module.id,
 				identifier: module.identifier(),
@@ -365,157 +328,67 @@ class Stats {
 				obj.source = module._source.source();
 			}
 			return obj;
-		};
-	}
-
-	processChunks(obj, compilation, showChunkModules, showChunkOrigins, createModuleFilter, fnModule, sortModules, sortChunks) {
-		obj.chunks = compilation.chunks.map(chunk => {
-			const obj = {
-				id: chunk.id,
-				rendered: chunk.rendered,
-				initial: chunk.isInitial(),
-				entry: chunk.hasRuntime(),
-				recorded: chunk.recorded,
-				extraAsync: !!chunk.extraAsync,
-				size: chunk.modules.reduce((size, module) => size + module.size(), 0),
-				names: chunk.name ? [chunk.name] : [],
-				files: chunk.files.slice(),
-				hash: chunk.renderedHash,
-				parents: chunk.parents.map(c => c.id)
-			};
-			if(showChunkModules) {
-				obj.modules = chunk.modules
-					.slice()
-					.sort((a, b) => {
-						const sortByField = (field) => (a, b) => {
-							if(!field) {
-								return 0;
-							}
-
-							const fieldKey = this.normalizeFieldKey(field);
-							const sortIsRegular = this.sortOrderRegular(field);
-
-							const sortByFieldAndOrder = (fieldKey, a, b) => {
-								if(a[fieldKey] === null && b[fieldKey] === null) return 0;
-								if(a[fieldKey] === null) return 1;
-								if(b[fieldKey] === null) return -1;
-								if(a[fieldKey] === b[fieldKey]) return 0;
-								return a[fieldKey] < b[fieldKey] ? -1 : 1;
-							};
-
-							return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
-						};
-						return sortByField("depth")(a, b);
-					})
-					.filter(createModuleFilter())
-					.map(fnModule);
-				obj.filteredModules = chunk.modules.length - obj.modules.length;
-				obj.modules.sort((a, b) => {
-					const sortByField = (field) => (a, b) => {
-						if(!field) {
-							return 0;
-						}
-
-						const fieldKey = this.normalizeFieldKey(field);
-						const sortIsRegular = this.sortOrderRegular(field);
-
-						const sortByFieldAndOrder = (fieldKey, a, b) => {
-							if(a[fieldKey] === null && b[fieldKey] === null) return 0;
-							if(a[fieldKey] === null) return 1;
-							if(b[fieldKey] === null) return -1;
-							if(a[fieldKey] === b[fieldKey]) return 0;
-							return a[fieldKey] < b[fieldKey] ? -1 : 1;
-						};
-
-						return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
-					};
-					return sortByField(sortModules)(a, b);
-				});
-			}
-			if(showChunkOrigins) {
-				obj.origins = chunk.origins.map(origin => ({
-					moduleId: origin.module ? origin.module.id : undefined,
-					module: origin.module ? origin.module.identifier() : "",
-					moduleIdentifier: origin.module ? origin.module.identifier() : "",
-					moduleName: origin.module ? origin.module.readableIdentifier(requestShortener) : "",
-					loc: formatLocation(origin.loc),
-					name: origin.name,
-					reasons: origin.reasons || []
-				}));
-			}
-			return obj;
-		});
-		obj.chunks.sort((a, b) => {
-			const sortByField = (field) => (a, b) => {
-				if(!field) {
-					return 0;
+		}
+		if(showChunks) {
+			obj.chunks = compilation.chunks.map(chunk => {
+				const obj = {
+					id: chunk.id,
+					rendered: chunk.rendered,
+					initial: chunk.isInitial(),
+					entry: chunk.hasRuntime(),
+					recorded: chunk.recorded,
+					extraAsync: !!chunk.extraAsync,
+					size: chunk.modules.reduce((size, module) => size + module.size(), 0),
+					names: chunk.name ? [chunk.name] : [],
+					files: chunk.files.slice(),
+					hash: chunk.renderedHash,
+					parents: chunk.parents.map(c => c.id)
+				};
+				if(showChunkModules) {
+					obj.modules = chunk.modules
+						.slice()
+						.sort(sortByField("depth"))
+						.filter(createModuleFilter())
+						.map(fnModule);
+					obj.filteredModules = chunk.modules.length - obj.modules.length;
+					obj.modules.sort(sortByField(sortModules));
 				}
-
-				const fieldKey = this.normalizeFieldKey(field);
-				const sortIsRegular = this.sortOrderRegular(field);
-
-				const sortByFieldAndOrder = (fieldKey, a, b) => {
-					if(a[fieldKey] === null && b[fieldKey] === null) return 0;
-					if(a[fieldKey] === null) return 1;
-					if(b[fieldKey] === null) return -1;
-					if(a[fieldKey] === b[fieldKey]) return 0;
-					return a[fieldKey] < b[fieldKey] ? -1 : 1;
-				};
-
-				return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
-			};
-			return sortByField(sortChunks)(a, b);
-		});
-	}
-
-	processModules(obj, compilation, createModuleFilter, fnModule, sortModules) {
-		obj.modules = compilation.modules
-			.slice()
-			.sort((a, b) => {
-				const sortByField = (field) => (a, b) => {
-					if(!field) {
-						return 0;
-					}
-
-					const fieldKey = this.normalizeFieldKey(field);
-					const sortIsRegular = this.sortOrderRegular(field);
-
-					const sortByFieldAndOrder = (fieldKey, a, b) => {
-						if(a[fieldKey] === null && b[fieldKey] === null) return 0;
-						if(a[fieldKey] === null) return 1;
-						if(b[fieldKey] === null) return -1;
-						if(a[fieldKey] === b[fieldKey]) return 0;
-						return a[fieldKey] < b[fieldKey] ? -1 : 1;
-					};
-
-					return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
-				};
-				return sortByField("depth")(a, b);
-			})
-			.filter(createModuleFilter())
-			.map(fnModule);
-		obj.filteredModules = compilation.modules.length - obj.modules.length;
-		obj.modules.sort((a, b) => {
-			const sortByField = (field) => (a, b) => {
-				if(!field) {
-					return 0;
+				if(showChunkOrigins) {
+					obj.origins = chunk.origins.map(origin => ({
+						moduleId: origin.module ? origin.module.id : undefined,
+						module: origin.module ? origin.module.identifier() : "",
+						moduleIdentifier: origin.module ? origin.module.identifier() : "",
+						moduleName: origin.module ? origin.module.readableIdentifier(requestShortener) : "",
+						loc: formatLocation(origin.loc),
+						name: origin.name,
+						reasons: origin.reasons || []
+					}));
 				}
+				return obj;
+			});
+			obj.chunks.sort(sortByField(sortChunks));
+		}
+		if(showModules) {
+			obj.modules = compilation.modules
+				.slice()
+				.sort(sortByField("depth"))
+				.filter(createModuleFilter())
+				.map(fnModule);
+			obj.filteredModules = compilation.modules.length - obj.modules.length;
+			obj.modules.sort(sortByField(sortModules));
+		}
+		if(showChildren) {
+			obj.children = compilation.children.map((child, idx) => {
+				const childOptions = Stats.getChildOptions(options, idx);
+				const obj = new Stats(child).toJson(childOptions, forToString);
+				delete obj.hash;
+				delete obj.version;
+				obj.name = child.name;
+				return obj;
+			});
+		}
 
-				const fieldKey = this.normalizeFieldKey(field);
-				const sortIsRegular = this.sortOrderRegular(field);
-
-				const sortByFieldAndOrder = (fieldKey, a, b) => {
-					if(a[fieldKey] === null && b[fieldKey] === null) return 0;
-					if(a[fieldKey] === null) return 1;
-					if(b[fieldKey] === null) return -1;
-					if(a[fieldKey] === b[fieldKey]) return 0;
-					return a[fieldKey] < b[fieldKey] ? -1 : 1;
-				};
-
-				return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
-			};
-			return sortByField(sortModules)(a, b);
-		});
+		return obj;
 	}
 
 	toString(options) {
@@ -964,6 +837,8 @@ class Stats {
 	}
 
 	static presetToOptions(name) {
+		//Accepted values: none, errors-only, minimal, normal, verbose
+		//Any other falsy value will behave as 'none', truthy values as 'normal'
 		const pn = (typeof name === "string") && name.toLowerCase() || name;
 		if(pn === "none" || !pn) {
 			return {
@@ -996,6 +871,7 @@ class Stats {
 				entrypoints: pn === "verbose",
 				chunks: pn !== "errors-only",
 				chunkModules: pn === "verbose",
+				//warnings: pn !== "errors-only",
 				errorDetails: pn !== "errors-only" && pn !== "minimal",
 				reasons: pn === "verbose",
 				depth: pn === "verbose",
@@ -1021,7 +897,7 @@ class Stats {
 		if(!innerOptions)
 			return options;
 		const childOptions = Object.assign({}, options);
-		delete childOptions.children;
+		delete childOptions.children; // do not inherit children
 		return Object.assign(childOptions, innerOptions);
 	}
 }

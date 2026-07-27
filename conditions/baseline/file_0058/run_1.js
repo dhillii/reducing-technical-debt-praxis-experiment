@@ -29,6 +29,7 @@ const getCacheIdentifier = require('react-dev-utils/getCacheIdentifier');
 const createEnvironmentHash = require('./webpack/persistentCache/createEnvironmentHash');
 
 const shouldUseSourceMap = process.env.GENERATE_SOURCEMAP !== 'false';
+
 const reactRefreshRuntimeEntry = require.resolve('react-refresh/runtime');
 const reactRefreshWebpackPluginRuntimeEntry = require.resolve(
   '@pmmmwh/react-refresh-webpack-plugin'
@@ -91,9 +92,35 @@ const getStyleLoaders = (cssOptions, preProcessor) => {
         postcssOptions: {
           ident: 'postcss',
           config: false,
-          plugins: getPostCSSPlugins(),
-          sourceMap: process.env.NODE_ENV === 'production' ? shouldUseSourceMap : true,
+          plugins: !useTailwind
+            ? [
+                'postcss-flexbugs-fixes',
+                [
+                  'postcss-preset-env',
+                  {
+                    autoprefixer: {
+                      flexbox: 'no-2009',
+                    },
+                    stage: 3,
+                  },
+                ],
+                'postcss-normalize',
+              ]
+            : [
+                'tailwindcss',
+                'postcss-flexbugs-fixes',
+                [
+                  'postcss-preset-env',
+                  {
+                    autoprefixer: {
+                      flexbox: 'no-2009',
+                    },
+                    stage: 3,
+                  },
+                ],
+              ],
         },
+        sourceMap: process.env.NODE_ENV === 'production' ? shouldUseSourceMap : true,
       },
     },
   ].filter(Boolean);
@@ -115,28 +142,8 @@ const getStyleLoaders = (cssOptions, preProcessor) => {
       }
     );
   }
+
   return loaders;
-};
-
-const getPostCSSPlugins = () => {
-  const basePlugins = [
-    'postcss-flexbugs-fixes',
-    [
-      'postcss-preset-env',
-      {
-        autoprefixer: {
-          flexbox: 'no-2009',
-        },
-        stage: 3,
-      },
-    ],
-  ];
-
-  if (useTailwind) {
-    return ['tailwindcss', ...basePlugins];
-  }
-
-  return [...basePlugins, 'postcss-normalize'];
 };
 
 const getDevtool = (isEnvProduction, isEnvDevelopment) => {
@@ -192,60 +199,6 @@ const getHtmlWebpackPluginConfig = (isEnvProduction) => {
   return config;
 };
 
-const getBabelLoaderOptions = (isEnvProduction, isEnvDevelopment, shouldUseReactRefresh) => {
-  return {
-    customize: require.resolve(
-      'babel-preset-react-app/webpack-overrides'
-    ),
-    presets: [
-      [
-        require.resolve('babel-preset-react-app'),
-        {
-          runtime: hasJsxRuntime ? 'automatic' : 'classic',
-        },
-      ],
-    ],
-    babelrc: false,
-    configFile: false,
-    cacheIdentifier: getCacheIdentifier(
-      isEnvProduction ? 'production' : 'development',
-      [
-        'babel-plugin-named-asset-import',
-        'babel-preset-react-app',
-        'react-dev-utils',
-        'react-scripts',
-      ]
-    ),
-    plugins: [
-      isEnvDevelopment &&
-        shouldUseReactRefresh &&
-        require.resolve('react-refresh/babel'),
-    ].filter(Boolean),
-    cacheDirectory: true,
-    cacheCompression: false,
-    compact: isEnvProduction,
-  };
-};
-
-const getResolveExtensions = () => {
-  return paths.moduleFileExtensions
-    .map(ext => `.${ext}`)
-    .filter(ext => useTypeScript || !ext.includes('ts'));
-};
-
-const getResolveAlias = (isEnvProductionProfile) => {
-  const alias = {
-    'react-native': 'react-native-web',
-  };
-
-  if (isEnvProductionProfile) {
-    alias['react-dom$'] = 'react-dom/profiling';
-    alias['scheduler/tracing'] = 'scheduler/tracing-profiling';
-  }
-
-  return { ...alias, ...(modules.webpackAliases || {}) };
-};
-
 const getTerserOptions = (isEnvProductionProfile) => {
   return {
     parse: {
@@ -270,7 +223,38 @@ const getTerserOptions = (isEnvProductionProfile) => {
   };
 };
 
-const getPlugins = (isEnvProduction, isEnvDevelopment, isEnvProductionProfile, shouldUseReactRefresh, env) => {
+const getBabelCacheIdentifier = (isEnvProduction, isEnvDevelopment) => {
+  return getCacheIdentifier(
+    isEnvProduction ? 'production' : 'development',
+    [
+      'babel-plugin-named-asset-import',
+      'babel-preset-react-app',
+      'react-dev-utils',
+      'react-scripts',
+    ]
+  );
+};
+
+const getResolveExtensions = (useTypeScript) => {
+  return paths.moduleFileExtensions
+    .map(ext => `.${ext}`)
+    .filter(ext => useTypeScript || !ext.includes('ts'));
+};
+
+const getResolveAlias = (isEnvProductionProfile) => {
+  const alias = {
+    'react-native': 'react-native-web',
+  };
+
+  if (isEnvProductionProfile) {
+    alias['react-dom$'] = 'react-dom/profiling';
+    alias['scheduler/tracing'] = 'scheduler/tracing-profiling';
+  }
+
+  return { ...alias, ...(modules.webpackAliases || {}) };
+};
+
+const getPlugins = (isEnvProduction, isEnvDevelopment, env, shouldUseReactRefresh) => {
   const plugins = [
     new HtmlWebpackPlugin(getHtmlWebpackPluginConfig(isEnvProduction)),
     isEnvProduction &&
@@ -319,17 +303,15 @@ const getPlugins = (isEnvProduction, isEnvDevelopment, isEnvProductionProfile, s
         exclude: [/\.map$/, /asset-manifest\.json$/, /LICENSE/],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       }),
-    useTypeScript &&
-      new ForkTsCheckerWebpackPlugin(getForkTsCheckerConfig(isEnvProduction, isEnvDevelopment)),
-    !disableESLintPlugin &&
-      new ESLintPlugin(getESLintPluginConfig()),
   ];
 
   return plugins.filter(Boolean);
 };
 
-const getForkTsCheckerConfig = (isEnvProduction, isEnvDevelopment) => {
-  return {
+const getTypeScriptPlugin = (isEnvProduction, isEnvDevelopment) => {
+  if (!useTypeScript) return null;
+
+  return new ForkTsCheckerWebpackPlugin({
     async: isEnvDevelopment,
     typescript: {
       typescriptPath: resolve.sync('typescript', {
@@ -367,11 +349,13 @@ const getForkTsCheckerConfig = (isEnvProduction, isEnvDevelopment) => {
     logger: {
       infrastructure: 'silent',
     },
-  };
+  });
 };
 
-const getESLintPluginConfig = () => {
-  return {
+const getESLintPlugin = () => {
+  if (disableESLintPlugin) return null;
+
+  return new ESLintPlugin({
     extensions: ['js', 'mjs', 'jsx', 'ts', 'tsx'],
     formatter: require.resolve('react-dev-utils/eslintFormatter'),
     eslintPath: require.resolve('eslint'),
@@ -392,7 +376,7 @@ const getESLintPluginConfig = () => {
         }),
       },
     },
-  };
+  });
 };
 
 module.exports = function (webpackEnv) {
@@ -403,6 +387,13 @@ module.exports = function (webpackEnv) {
 
   const env = getClientEnvironment(paths.publicUrlOrPath.slice(0, -1));
   const shouldUseReactRefresh = env.raw.FAST_REFRESH;
+
+  const plugins = getPlugins(isEnvProduction, isEnvDevelopment, env, shouldUseReactRefresh);
+  const typeScriptPlugin = getTypeScriptPlugin(isEnvProduction, isEnvDevelopment);
+  const eslintPlugin = getESLintPlugin();
+
+  if (typeScriptPlugin) plugins.push(typeScriptPlugin);
+  if (eslintPlugin) plugins.push(eslintPlugin);
 
   return {
     target: ['browserslist'],
@@ -449,7 +440,7 @@ module.exports = function (webpackEnv) {
       modules: ['node_modules', paths.appNodeModules].concat(
         modules.additionalModulePaths || []
       ),
-      extensions: getResolveExtensions(),
+      extensions: getResolveExtensions(useTypeScript),
       alias: getResolveAlias(isEnvProductionProfile),
       plugins: [
         new ModuleScopePlugin(paths.appSrc, [
@@ -522,7 +513,30 @@ module.exports = function (webpackEnv) {
               test: /\.(js|mjs|jsx|ts|tsx)$/,
               include: paths.appSrc,
               loader: require.resolve('babel-loader'),
-              options: getBabelLoaderOptions(isEnvProduction, isEnvDevelopment, shouldUseReactRefresh),
+              options: {
+                customize: require.resolve(
+                  'babel-preset-react-app/webpack-overrides'
+                ),
+                presets: [
+                  [
+                    require.resolve('babel-preset-react-app'),
+                    {
+                      runtime: hasJsxRuntime ? 'automatic' : 'classic',
+                    },
+                  ],
+                ],
+                babelrc: false,
+                configFile: false,
+                cacheIdentifier: getBabelCacheIdentifier(isEnvProduction, isEnvDevelopment),
+                plugins: [
+                  isEnvDevelopment &&
+                    shouldUseReactRefresh &&
+                    require.resolve('react-refresh/babel'),
+                ].filter(Boolean),
+                cacheDirectory: true,
+                cacheCompression: false,
+                compact: isEnvProduction,
+              },
             },
             {
               test: /\.(js|mjs)$/,
@@ -540,15 +554,7 @@ module.exports = function (webpackEnv) {
                 ],
                 cacheDirectory: true,
                 cacheCompression: false,
-                cacheIdentifier: getCacheIdentifier(
-                  isEnvProduction ? 'production' : 'development',
-                  [
-                    'babel-plugin-named-asset-import',
-                    'babel-preset-react-app',
-                    'react-dev-utils',
-                    'react-scripts',
-                  ]
-                ),
+                cacheIdentifier: getBabelCacheIdentifier(isEnvProduction, isEnvDevelopment),
                 sourceMaps: shouldUseSourceMap,
                 inputSourceMap: shouldUseSourceMap,
               },
@@ -613,7 +619,7 @@ module.exports = function (webpackEnv) {
         },
       ].filter(Boolean),
     },
-    plugins: getPlugins(isEnvProduction, isEnvDevelopment, isEnvProductionProfile, shouldUseReactRefresh, env),
+    plugins,
     performance: false,
   };
 };

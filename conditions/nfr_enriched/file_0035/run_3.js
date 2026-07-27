@@ -11,9 +11,9 @@ import {setupMirage} from 'ember-cli-mirage/test-support';
 
 /**
  * Finds a button element by its text content
- * @param {string} text - The button text to search for
- * @param {NodeList} buttons - Collection of button elements to search
- * @returns {Node|undefined} The matching button element or undefined
+ * @param {string} text
+ * @param {NodeList} buttons
+ * @returns {Node}
  */
 const findButton = (text, buttons) => {
     return Array.from(buttons).find(button => button.innerText.trim() === text);
@@ -21,22 +21,12 @@ const findButton = (text, buttons) => {
 
 /**
  * Checks if an element has a data attribute set
- * @param {Element} element - The element to check
- * @param {string} attributeName - The data attribute name (without 'data-' prefix)
- * @returns {boolean} True if the attribute exists
+ * @param {Element} element
+ * @param {string} dataAttribute
+ * @returns {boolean}
  */
-const hasDataAttribute = (element, attributeName) => {
-    return element.dataset[attributeName] !== undefined;
-};
-
-/**
- * Gets a data attribute value from an element
- * @param {Element} element - The element to query
- * @param {string} attributeName - The data attribute name (without 'data-' prefix)
- * @returns {string|undefined} The attribute value or undefined
- */
-const getDataAttribute = (element, attributeName) => {
-    return element.dataset[attributeName];
+const hasDataAttribute = (element, dataAttribute) => {
+    return element.dataset[dataAttribute] !== undefined;
 };
 
 // NOTE: With accommodations for faster loading of posts in the UI, the requests to fetch the posts have been split into separate requests based

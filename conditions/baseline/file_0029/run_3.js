@@ -140,10 +140,9 @@ export default class Analytics extends Component {
     get feedbackChartData() {
         const values = [this.post.count.positive_feedback, this.post.count.negative_feedback];
         const labels = ['More like this', 'Less like this'];
-        const postId = this.post.id;
         const links = [
-            {filterParam: `(feedback.post_id:'${postId}'+feedback.score:1)`},
-            {filterParam: `(feedback.post_id:'${postId}'+feedback.score:0)`}
+            {filterParam: '(feedback.post_id:\'' + this.post.id + '\'+feedback.score:1)'},
+            {filterParam: '(feedback.post_id:\'' + this.post.id + '\'+feedback.score:0)'}
         ];
         const colors = ['#F080B2', '#8452f633'];
         return {values, labels, links, colors};
@@ -289,9 +288,7 @@ export default class Analytics extends Component {
             return link;
         });
 
-        const postId = this.post.id;
-        const currentLinkStr = currentLink.toString();
-        const filter = `post_id:'${postId}'+to:'${currentLinkStr}'`;
+        const filter = `post_id:'${this.post.id}'+to:'${currentLink}'`;
         let bulkUpdateUrl = this.ghostPaths.url.api(`links/bulk`) + `?filter=${encodeURIComponent(filter)}`;
         yield this.ajax.put(bulkUpdateUrl, {
             data: {
@@ -303,7 +300,7 @@ export default class Analytics extends Component {
         });
 
         // Refresh links data
-        const linksFilter = `post_id:'${postId}'`;
+        const linksFilter = `post_id:'${this.post.id}'`;
         let statsUrl = this.ghostPaths.url.api(`links/`) + `?filter=${encodeURIComponent(linksFilter)}`;
         let result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
@@ -328,8 +325,7 @@ export default class Analytics extends Component {
 
     @task
     *_fetchLinks() {
-        const postId = this.post.id;
-        const filter = `post_id:'${postId}'`;
+        const filter = `post_id:'${this.post.id}'`;
         let statsUrl = this.ghostPaths.url.api(`links/`) + `?filter=${encodeURIComponent(filter)}`;
         let result = yield this.ajax.request(statsUrl);
         this.updateLinkData(result.links);
@@ -344,8 +340,7 @@ export default class Analytics extends Component {
 
     @task
     *_fetchMentions() {
-        const postId = this.post.id;
-        const filter = `resource_id:'${postId}'+resource_type:post`;
+        const filter = `resource_id:'${this.post.id}'+resource_type:post`;
         this.mentions = yield this.store.query('mention', {limit: 5, order: 'created_at desc', filter});
     }
 
@@ -383,6 +378,11 @@ export default class Analytics extends Component {
         return true;
     }
 
+    buildClassSelector(element) {
+        const classNames = Array.from(element.classList).map(className => `.${className}`).join('');
+        return classNames;
+    }
+
     @action
     applyClasses(element) {
         if (!this.shouldAnimate ||
@@ -395,13 +395,12 @@ export default class Analytics extends Component {
             return;
         }
 
-        const classSelectors = Array.from(element.classList).map(className => `.${className}`).join('');
-        const newNumberSelector = `${classSelectors} .new-number span`;
-        const oldNumberSelector = `${classSelectors} .old-number span`;
+        const classSelector = this.buildClassSelector(element);
 
         anime({
-            targets: newNumberSelector,
+            targets: classSelector + ' .new-number span',
             translateY: [10,0],
+            // translateZ: 0,
             opacity: [0,1],
             easing: 'easeOutElastic',
             elasticity: 650,
@@ -410,7 +409,7 @@ export default class Analytics extends Component {
         });
 
         anime({
-            targets: oldNumberSelector,
+            targets: classSelector + ' .old-number span',
             translateY: [0,-10],
             opacity: [1,0],
             easing: 'easeOutExpo',

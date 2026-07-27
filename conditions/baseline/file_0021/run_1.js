@@ -30,14 +30,6 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
         };
         return fetch(url, options);
     }
-
-    function handleJsonResponse(res) {
-        if (res.ok) {
-            return res.json();
-        }
-        throw new Error('Failed to fetch data');
-    }
-
     const api = {};
 
     api.site = {
@@ -49,7 +41,13 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(handleJsonResponse);
+            }).then(function (res) {
+                if (res.ok) {
+                    return res.json();
+                } else {
+                    throw new Error('Failed to fetch site data');
+                }
+            });
         },
 
         newsletters() {
@@ -60,7 +58,13 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(handleJsonResponse);
+            }).then(function (res) {
+                if (res.ok) {
+                    return res.json();
+                } else {
+                    throw new Error('Failed to fetch site data');
+                }
+            });
         },
 
         tiers() {
@@ -71,7 +75,13 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(handleJsonResponse);
+            }).then(function (res) {
+                if (res.ok) {
+                    return res.json();
+                } else {
+                    throw new Error('Failed to fetch site data');
+                }
+            });
         },
 
         settings() {
@@ -82,7 +92,13 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(handleJsonResponse);
+            }).then(function (res) {
+                if (res.ok) {
+                    return res.json();
+                } else {
+                    throw new Error('Failed to fetch site data');
+                }
+            });
         },
 
         offer({offerId}) {
@@ -93,7 +109,13 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(handleJsonResponse);
+            }).then(function (res) {
+                if (res.ok) {
+                    return res.json();
+                } else {
+                    throw new Error('Failed to fetch offer data');
+                }
+            });
         },
 
         recommendations({limit = 100} = {limit: 100}) {
@@ -104,14 +126,20 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 headers: {
                     'Content-Type': 'application/json'
                 }
-            }).then(handleJsonResponse);
+            }).then(function (res) {
+                if (res.ok) {
+                    return res.json();
+                } else {
+                    throw new Error('Failed to fetch recommendations');
+                }
+            });
         }
     };
 
     api.feedback = {
         async add({uuid, key, postId, score}) {
             let url = endpointFor({type: 'members', resource: 'feedback'});
-            if (uuid && key) {
+            if (uuid && key) { // only necessary if not logged in, and both are required if so
                 url = url + `?uuid=${uuid}&key=${key}`;
             }
             const body = {
@@ -134,8 +162,8 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             if (res.ok) {
                 return res.json();
             } else {
-                const error = await HumanReadableError.fromApiResponse(res);
-                throw error || new Error('Failed to save feedback');
+                const humanError = await HumanReadableError.fromApiResponse(res);
+                throw humanError ?? new Error('Failed to save feedback');
             }
         }
     };
@@ -260,6 +288,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 requestSrc: 'portal',
                 redirect,
                 integrityToken,
+                // we don't actually use a phone #, this is from a hidden field to prevent bot activity
                 honeypot: phonenumber,
                 token,
                 autoRedirect,
@@ -348,7 +377,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             });
         },
 
-        newsletters({uuid, key}) {
+        async newsletters({uuid, key}) {
             let url = endpointFor({type: 'members', resource: `member/newsletters`});
             url = url + `?uuid=${uuid}&key=${key}`;
             return makeRequest({
@@ -362,7 +391,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             });
         },
 
-        updateNewsletters({uuid, newsletters, key, enableCommentNotifications}) {
+        async updateNewsletters({uuid, newsletters, key, enableCommentNotifications}) {
             let url = endpointFor({type: 'members', resource: `member/newsletters`});
             url = url + `?uuid=${uuid}&key=${key}`;
             const body = {

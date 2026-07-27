@@ -54,10 +54,10 @@ function validate_(
 }
 
 export function controller(
-  config: Readonly<FieldControllerConfig<{
+  config: FieldControllerConfig<{
     validation: Validation
     defaultValue: number | null | 'autoincrement'
-  }>>
+  }>
 ): FieldController<Value, number | null, SimpleFieldTypeInfo<'Int'>['inputs']['where']> & {
   validation: Validation
   hasAutoIncrementDefault: boolean
@@ -92,7 +92,7 @@ export function controller(
     hasAutoIncrementDefault: config.fieldMeta.defaultValue === 'autoincrement',
     validate: (value, opts) => validate(value, opts) === undefined,
     filter: {
-      Filter(props: Readonly<FieldProps<typeof controller>['filter']['Filter']>) {
+      Filter(props) {
         const {
           autoFocus,
           context,
@@ -197,12 +197,12 @@ export function controller(
 }
 
 export function Field({
-  field,
-  value,
-  onChange,
-  autoFocus,
-  forceValidation,
-  isRequired,
+  readonly field,
+  readonly value,
+  readonly onChange,
+  readonly autoFocus,
+  readonly forceValidation,
+  readonly isRequired,
 }: Readonly<FieldProps<typeof controller>>) {
   const [isDirty, setDirty] = useState(false)
   const isReadOnly = !onChange || field.hasAutoIncrementDefault

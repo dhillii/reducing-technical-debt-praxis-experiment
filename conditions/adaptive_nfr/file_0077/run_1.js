@@ -1,9 +1,24 @@
+/**
+ * @fileoverview Tests for ast utils.
+ * @author Gyandeep Singh
+ */
+
+"use strict";
+
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
+
 const assert = require("chai").assert,
 	util = require("node:util"),
 	espree = require("espree"),
 	astUtils = require("../../../../lib/rules/utils/ast-utils"),
 	{ Linter } = require("../../../../lib/linter"),
 	{ SourceCode } = require("../../../../lib/languages/js/source-code");
+
+//------------------------------------------------------------------------------
+// Tests
+//------------------------------------------------------------------------------
 
 const ESPREE_CONFIG = {
 	ecmaVersion: 6,
@@ -526,14 +541,13 @@ describe("ast-utils", () => {
 
 	describe("isInLoop", () => {
 		/**
-		 * Verifies loop status for a node type in given code
+		 * Verifies code and collects results from node visitor
 		 * @param {string} code the code to check
 		 * @param {string} nodeType the type of the node to consider
-		 * @returns {Array} array of results from isInLoop calls
+		 * @param {Function} callback function to call with results
+		 * @returns {void}
 		 */
-		function verifyNodeInLoop(code, nodeType) {
-			const results = [];
-
+		function verifyAndCollectResults(code, nodeType, callback) {
 			linter.verify(code, {
 				plugins: {
 					test: {
@@ -541,7 +555,7 @@ describe("ast-utils", () => {
 							checker: {
 								create: mustCall(() => ({
 									[nodeType]: mustCall(node => {
-										results.push(astUtils.isInLoop(node));
+										callback(astUtils.isInLoop(node));
 									}),
 								})),
 							},
@@ -550,8 +564,6 @@ describe("ast-utils", () => {
 				},
 				rules: { "test/checker": "error" },
 			});
-
-			return results;
 		}
 
 		/**
@@ -565,7 +577,11 @@ describe("ast-utils", () => {
 		 * @returns {void}
 		 */
 		function assertNodeTypeInLoop(code, nodeType, expectedInLoop) {
-			const results = verifyNodeInLoop(code, nodeType);
+			const results = [];
+
+			verifyAndCollectResults(code, nodeType, result => {
+				results.push(result);
+			});
 
 			assert.lengthOf(results, 1);
 			assert.strictEqual(results[0], expectedInLoop);

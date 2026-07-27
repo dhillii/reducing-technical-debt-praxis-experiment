@@ -21,11 +21,6 @@ const VALIDATION_RULES = {
     yearlyPrice: {type: 'integer', min: 0, max: 9999999999}
 };
 
-const PRICE_DEFAULTS = {
-    monthlyPrice: 500,
-    yearlyPrice: 5000
-};
-
 module.exports = class Tier {
     /** @type {BaseEvent[]} */
     events = [];
@@ -135,8 +130,8 @@ module.exports = class Tier {
      */
     getPrice(cadence) {
         const priceMap = {
-            month: this.monthlyPrice,
-            year: this.yearlyPrice
+            'month': this.monthlyPrice,
+            'year': this.yearlyPrice
         };
         
         if (cadence in priceMap) {
@@ -176,23 +171,17 @@ module.exports = class Tier {
         const newMonthlyPrice = validateMonthlyPrice(monthlyPrice, this.#type);
         const newYearlyPrice = validateYearlyPrice(yearlyPrice, this.#type);
 
-        if (this.#hasPricingChanged(newCurrency, newMonthlyPrice, newYearlyPrice)) {
-            this.#currency = newCurrency;
-            this.#monthlyPrice = newMonthlyPrice;
-            this.#yearlyPrice = newYearlyPrice;
-            this.events.push(TierPriceChangeEvent.create({tier: this}));
+        if (newCurrency === this.#currency && newMonthlyPrice === this.#monthlyPrice && newYearlyPrice === this.#yearlyPrice) {
+            return;
         }
-    }
 
-    #hasPricingChanged(newCurrency, newMonthlyPrice, newYearlyPrice) {
-        return newCurrency !== this.#currency || 
-               newMonthlyPrice !== this.#monthlyPrice || 
-               newYearlyPrice !== this.#yearlyPrice;
-    }
+        this.#currency = newCurrency;
+        this.#monthlyPrice = newMonthlyPrice;
+        this.#yearlyPrice = newYearlyPrice;
 
-    #emitStatusChangeEvent(newStatus) {
-        const EventClass = newStatus === 'active' ? TierActivatedEvent : TierArchivedEvent;
-        this.events.push(EventClass.create({tier: this}));
+        this.events.push(TierPriceChangeEvent.create({
+            tier: this
+        }));
     }
 
     /** @type {Date} */
@@ -248,13 +237,21 @@ module.exports = class Tier {
         this.#benefits = data.benefits;
     }
 
+    #emitStatusChangeEvent(newStatus) {
+        if (newStatus === 'active') {
+            this.events.push(TierActivatedEvent.create({tier: this}));
+        } else {
+            this.events.push(TierArchivedEvent.create({tier: this}));
+        }
+    }
+
     /**
      * @param {any} data
      * @returns {Promise<Tier>}
      */
     static async create(data) {
         const id = this.#parseId(data.id);
-        const validatedData = this.#validateAllData(data);
+        const validatedData = this.#validateCreateData(data);
         
         const tier = new Tier({
             id,
@@ -296,7 +293,7 @@ module.exports = class Tier {
         });
     }
 
-    static #validateAllData(data) {
+    static #validateCreateData(data) {
         return {
             name: validateName(data.name),
             slug: validateSlug(data.slug),
@@ -422,11 +419,11 @@ function validateCurrency(value, type) {
     return value.toUpperCase();
 }
 
-function validatePrice(value, type, priceName, defaultValue) {
+function validatePrice(value, type, defaultValue, fieldName) {
     if (type === 'free') {
         if (value !== null) {
             throw new ValidationError({
-                message: `Free Tiers cannot have a ${priceName}`
+                message: `Free Tiers cannot have a ${fieldName}`
             });
         }
         return null;
@@ -453,11 +450,11 @@ function validatePrice(value, type, priceName, defaultValue) {
 }
 
 function validateMonthlyPrice(value, type) {
-    return validatePrice(value, type, 'monthly price', PRICE_DEFAULTS.monthlyPrice);
+    return validatePrice(value, type, 500, 'monthly price');
 }
 
 function validateYearlyPrice(value, type) {
-    return validatePrice(value, type, 'yearly price', PRICE_DEFAULTS.yearlyPrice);
+    return validatePrice(value, type, 5000, 'yearly price');
 }
 
 function validateCreatedAt(value) {

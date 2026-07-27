@@ -40,23 +40,10 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
     }
 
     /** @param {Response} res - The response object */
-    async function handleTextResponse(res) {
-        if (!res.ok || res.status === 204) {
-            return null;
+    async function handleJsonResponseWithHumanError(res, fallbackMessage) {
+        if (res.ok) {
+            return res.json();
         }
-        return res.text();
-    }
-
-    /** @param {Response} res - The response object */
-    async function handleJsonOrNullResponse(res) {
-        if (!res.ok || res.status === 204) {
-            return null;
-        }
-        return res.json();
-    }
-
-    /** @param {Response} res - The response object */
-    async function handleHumanReadableError(res, fallbackMessage) {
         const humanError = await HumanReadableError.fromApiResponse(res);
         if (humanError) {
             throw humanError;
@@ -64,56 +51,101 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
         throw new Error(fallbackMessage);
     }
 
-    const siteReadStrategies = {
-        site: () => ({resource: 'site', errorMessage: 'Failed to fetch site data'}),
-        newsletters: () => ({resource: 'newsletters', params: {limit: 100}, errorMessage: 'Failed to fetch site data'}),
-        tiers: () => ({resource: 'tiers', params: {limit: 100, include: 'monthly_price,yearly_price,benefits'}, errorMessage: 'Failed to fetch site data'}),
-        settings: () => ({resource: 'settings', errorMessage: 'Failed to fetch site data'}),
-        offer: (offerId) => ({resource: `offers/${offerId}`, errorMessage: 'Failed to fetch offer data'}),
-        recommendations: (limit = 100) => ({resource: 'recommendations', params: {limit}, errorMessage: 'Failed to fetch recommendations'})
-    };
+    /** @param {Response} res - The response object */
+    async function handleTextResponseWithHumanError(res, fallbackMessage) {
+        if (res.ok) {
+            return res.text();
+        }
+        const humanError = await HumanReadableError.fromApiResponse(res);
+        if (humanError) {
+            throw humanError;
+        }
+        throw new Error(fallbackMessage);
+    }
 
-    /** @param {string} strategyKey - The strategy key */
-    /** @param {*} args - Arguments for the strategy */
-    async function makeSiteRequest(strategyKey, args) {
-        const strategy = siteReadStrategies[strategyKey];
-        const {resource, params = {}, errorMessage} = strategy(args);
-        const url = contentEndpointFor({resource, params});
-        const res = await makeRequest({
-            url,
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
-        return handleJsonResponse(res, errorMessage);
+    /** @param {Response} res - The response object */
+    function handleNullableJsonResponse(res) {
+        if (!res.ok || res.status === 204) {
+            return null;
+        }
+        return res.json();
+    }
+
+    /** @param {Response} res - The response object */
+    function handleNullableTextResponse(res) {
+        if (!res.ok || res.status === 204) {
+            return null;
+        }
+        return res.text();
     }
 
     const api = {};
 
     api.site = {
         read() {
-            return makeSiteRequest('site');
+            const url = endpointFor({type: 'members', resource: 'site'});
+            return makeRequest({
+                url,
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }).then(res => handleJsonResponse(res, 'Failed to fetch site data'));
         },
 
         newsletters() {
-            return makeSiteRequest('newsletters');
+            const url = contentEndpointFor({resource: 'newsletters', params: {limit: 100}});
+            return makeRequest({
+                url,
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }).then(res => handleJsonResponse(res, 'Failed to fetch site data'));
         },
 
         tiers() {
-            return makeSiteRequest('tiers');
+            const url = contentEndpointFor({resource: 'tiers', params: {limit: 100, include: 'monthly_price,yearly_price,benefits'}});
+            return makeRequest({
+                url,
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }).then(res => handleJsonResponse(res, 'Failed to fetch site data'));
         },
 
         settings() {
-            return makeSiteRequest('settings');
+            const url = contentEndpointFor({resource: 'settings'});
+            return makeRequest({
+                url,
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }).then(res => handleJsonResponse(res, 'Failed to fetch site data'));
         },
 
         offer({offerId}) {
-            return makeSiteRequest('offer', offerId);
+            const url = contentEndpointFor({resource: `offers/${offerId}`});
+            return makeRequest({
+                url,
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }).then(res => handleJsonResponse(res, 'Failed to fetch offer data'));
         },
 
         recommendations({limit = 100} = {limit: 100}) {
-            return makeSiteRequest('recommendations', limit);
+            const url = contentEndpointFor({resource: 'recommendations', params: {limit}});
+            return makeRequest({
+                url,
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }).then(res => handleJsonResponse(res, 'Failed to fetch recommendations'));
         }
     };
 
@@ -140,11 +172,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 credentials: 'same-origin',
                 body: JSON.stringify(body)
             });
-            if (res.ok) {
-                return res.json();
-            } else {
-                throw (await HumanReadableError.fromApiResponse(res)) ?? new Error('Failed to save feedback');
-            }
+            return handleJsonResponseWithHumanError(res, 'Failed to save feedback');
         }
     };
 
@@ -166,7 +194,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             return makeRequest({
                 url,
                 credentials: 'same-origin'
-            }).then(handleTextResponse);
+            }).then(res => handleNullableTextResponse(res));
         },
 
         sessionData() {
@@ -174,7 +202,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             return makeRequest({
                 url,
                 credentials: 'same-origin'
-            }).then(handleJsonOrNullResponse);
+            }).then(res => handleNullableJsonResponse(res));
         },
 
         update({name, subscribed, newsletters, enableCommentNotifications}) {
@@ -225,11 +253,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 method: 'GET'
             });
 
-            if (res.ok) {
-                return res.text();
-            } else {
-                await handleHumanReadableError(res, 'Failed to start a members session');
-            }
+            return handleTextResponseWithHumanError(res, 'Failed to start a members session');
         },
 
         /**
@@ -279,13 +303,16 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                     try {
                         return await res.json();
                     } catch (e) {
-                        // fall through to response used pre-OTC
+                        return {};
                     }
                 }
                 return {};
-            } else {
-                await handleHumanReadableError(res, 'Failed to send magic link email');
             }
+            const humanError = await HumanReadableError.fromApiResponse(res);
+            if (humanError) {
+                throw humanError;
+            }
+            throw new Error('Failed to send magic link email');
         },
 
         async verifyOTC({otc, otcRef, redirect, integrityToken}) {
@@ -306,11 +333,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
                 body: JSON.stringify(body)
             });
 
-            if (res.ok) {
-                return await res.json();
-            } else {
-                await handleHumanReadableError(res, 'Failed to verify code');
-            }
+            return handleJsonResponseWithHumanError(res, 'Failed to verify code');
         },
 
         signout(all = false) {
@@ -340,7 +363,7 @@ function setupGhostApi({siteUrl = window.location.origin, apiUrl, apiKey}) {
             return makeRequest({
                 url,
                 credentials: 'same-origin'
-            }).then(handleJsonOrNullResponse);
+            }).then(res => handleNullableJsonResponse(res));
         },
 
         async updateNewsletters({uuid, newsletters, key, enableCommentNotifications}) {

@@ -83,7 +83,7 @@ function handleSuccess() {
 }
 
 /**
- * Prints warnings to console, limited to first 5.
+ * Prints warnings to console.
  */
 function printWarnings(warnings) {
   const formatted = formatWebpackMessages({
@@ -125,18 +125,7 @@ function handleWarnings(warnings) {
 }
 
 /**
- * Logs errors to console.
- */
-function logErrors(errors) {
-  if (typeof console !== 'undefined' && typeof console.error === 'function') {
-    for (let i = 0; i < errors.length; i++) {
-      console.error(stripAnsi(errors[i]));
-    }
-  }
-}
-
-/**
- * Handles compilation with errors.
+ * Handles compilation errors.
  */
 function handleErrors(errors) {
   clearOutdatedErrors();
@@ -150,7 +139,12 @@ function handleErrors(errors) {
   });
 
   ErrorOverlay.reportBuildError(formatted.errors[0]);
-  logErrors(formatted.errors);
+
+  if (typeof console !== 'undefined' && typeof console.error === 'function') {
+    for (let i = 0; i < formatted.errors.length; i++) {
+      console.error(stripAnsi(formatted.errors[i]));
+    }
+  }
 }
 
 /**
@@ -170,26 +164,21 @@ function handleAvailableHash(hash) {
 }
 
 /**
- * Reloads the page when content changes.
- */
-function handleContentChanged() {
-  window.location.reload();
-}
-
-/**
- * Message type handlers mapped to their corresponding functions.
+ * Message type handlers dispatched by type.
  */
 const messageHandlers = {
   hash: handleAvailableHash,
   'still-ok': handleSuccess,
   ok: handleSuccess,
-  'content-changed': handleContentChanged,
+  'content-changed': function () {
+    window.location.reload();
+  },
   warnings: handleWarnings,
   errors: handleErrors,
 };
 
 /**
- * Processes incoming messages from the WebSocket connection.
+ * Processes incoming WebSocket message.
  */
 function processMessage(message) {
   const handler = messageHandlers[message.type];
@@ -212,14 +201,14 @@ function isUpdateAvailable() {
 }
 
 /**
- * Checks if hot module replacement can apply updates.
+ * Checks if hot module updates can be applied.
  */
 function canApplyUpdates() {
   return module.hot.status() === 'idle';
 }
 
 /**
- * Checks if hot module replacement can accept errors.
+ * Checks if errors can be accepted during hot reload.
  */
 function canAcceptErrors() {
   const hasReactRefresh = process.env.FAST_REFRESH;
@@ -239,30 +228,11 @@ function needsForcedReload(err, updatedModules) {
  */
 function shouldReloadDueToErrors(err, updatedModules) {
   const haveErrors = err || hadRuntimeError;
-  const forcedReloadNeeded = needsForcedReload(err, updatedModules);
-  return (haveErrors && !canAcceptErrors()) || forcedReloadNeeded;
+  return (haveErrors && !canAcceptErrors()) || needsForcedReload(err, updatedModules);
 }
 
 /**
- * Handles the result of applying hot module updates.
- */
-function handleApplyUpdates(err, updatedModules, onHotUpdateSuccess) {
-  if (shouldReloadDueToErrors(err, updatedModules)) {
-    window.location.reload();
-    return;
-  }
-
-  if (typeof onHotUpdateSuccess === 'function') {
-    onHotUpdateSuccess();
-  }
-
-  if (isUpdateAvailable()) {
-    tryApplyUpdates(onHotUpdateSuccess);
-  }
-}
-
-/**
- * Attempts to apply hot module updates or falls back to hard reload.
+ * Applies hot module updates or falls back to hard reload.
  */
 function tryApplyUpdates(onHotUpdateSuccess) {
   if (!module.hot) {
@@ -274,17 +244,30 @@ function tryApplyUpdates(onHotUpdateSuccess) {
     return;
   }
 
-  const result = module.hot.check(/* autoApply */ true, function (err, updatedModules) {
-    handleApplyUpdates(err, updatedModules, onHotUpdateSuccess);
-  });
+  function handleApplyUpdates(err, updatedModules) {
+    if (shouldReloadDueToErrors(err, updatedModules)) {
+      window.location.reload();
+      return;
+    }
+
+    if (typeof onHotUpdateSuccess === 'function') {
+      onHotUpdateSuccess();
+    }
+
+    if (isUpdateAvailable()) {
+      tryApplyUpdates();
+    }
+  }
+
+  const result = module.hot.check(/* autoApply */ true, handleApplyUpdates);
 
   if (result && result.then) {
     result.then(
       function (updatedModules) {
-        handleApplyUpdates(null, updatedModules, onHotUpdateSuccess);
+        handleApplyUpdates(null, updatedModules);
       },
       function (err) {
-        handleApplyUpdates(err, null, onHotUpdateSuccess);
+        handleApplyUpdates(err, null);
       }
     );
   }

@@ -28,9 +28,9 @@ const PAID_PARAMS = [{
 
 /**
  * Builds filter array based on label, paid status, and filter parameters
- * @param {string} label - The label slug to filter by
- * @param {string} paidParam - The paid status parameter ('true', 'false', or null)
- * @param {string} filterParam - The NQL filter string
+ * @param {string} label - Member label filter
+ * @param {string|null} paidParam - Paid status filter ('true', 'false', or null)
+ * @param {string} filterParam - Custom filter parameter string
  * @returns {string[]} Array of filter strings
  */
 function buildFilters(label, paidParam, filterParam) {
@@ -53,7 +53,7 @@ function buildFilters(label, paidParam, filterParam) {
 
 /**
  * Normalizes filter parameter by removing surrounding brackets if applicable
- * @param {string} filterParam - The filter parameter to normalize
+ * @param {string} filterParam - Filter parameter to normalize
  * @returns {string} Normalized filter parameter
  */
 function normalizeFilterParam(filterParam) {
@@ -72,20 +72,17 @@ function normalizeFilterParam(filterParam) {
 }
 
 /**
- * Checks if a filter type is restricted for bulk deletion
- * @param {string} filterType - The filter type to check
- * @returns {boolean} True if the filter type is restricted
+ * Builds query object for API requests
+ * @param {string} filterString - Joined filter string
+ * @param {string} searchParam - Search parameter
+ * @returns {object} Query object with filter and optional search
  */
-function isRestrictedStripeFilter(filterType) {
-    const restrictedTypes = [
-        'subscriptions.plan_interval',
-        'subscriptions.status',
-        'subscriptions.start_date',
-        'subscriptions.current_period_end',
-        'conversion',
-        'offer_redemptions'
-    ];
-    return restrictedTypes.includes(filterType);
+function buildQueryObject(filterString, searchParam) {
+    const query = {filter: filterString};
+    if (searchParam) {
+        query.search = searchParam;
+    }
+    return query;
 }
 
 export default class MembersController extends Controller {
@@ -249,7 +246,7 @@ export default class MembersController extends Controller {
             if (filter.properties?.getColumns) {
                 return filter.properties?.getColumns(filter).map((c) => {
                     return {
-                        label: filter.properties.columnLabel,
+                        label: filter.properties.columnLabel, // default value if not provided
                         ...c,
                         name: filter.type
                     };
@@ -291,9 +288,20 @@ export default class MembersController extends Controller {
             return false;
         }
 
-        const stripeFilters = this.filters.filter(f => isRestrictedStripeFilter(f.type));
+        const stripeFilters = this.filters.filter(f => [
+            'subscriptions.plan_interval',
+            'subscriptions.status',
+            'subscriptions.start_date',
+            'subscriptions.current_period_end',
+            'conversion',
+            'offer_redemptions'
+        ].includes(f.type));
 
-        return stripeFilters.length === 0;
+        if (stripeFilters && stripeFilters.length >= 1) {
+            return false;
+        }
+
+        return true;
     }
 
     includeTierQuery() {
@@ -308,11 +316,9 @@ export default class MembersController extends Controller {
 
         filterParam = normalizeFilterParam(filterParam);
 
-        let filters = [...extraFilters, ...buildFilters(label, paidParam, filterParam)];
+        let filters = extraFilters.concat(buildFilters(label, paidParam, filterParam));
 
-        let searchQuery = searchParam ? {search: searchParam} : {};
-
-        return {...{filter: filters.join('+')}, ...searchQuery};
+        return buildQueryObject(filters.join('+'), searchParam);
     }
 
     // Actions -----------------------------------------------------------------
@@ -557,12 +563,14 @@ export default class MembersController extends Controller {
             const order = orderParam ? `${orderParam} desc` : `created_at desc`;
             const includes = ['labels', 'tiers'];
 
-            query = {...{
+            query = {
                 include: includes.join(','),
                 order,
                 limit: range.length,
-                page: range.page
-            }, ...searchQuery, ...query};
+                page: range.page,
+                ...searchQuery,
+                ...query
+            };
 
             return this.store.query('member', query).then((result) => {
                 return {

@@ -48,6 +48,168 @@ exports.toCollectionName = function(name, pluralize) {
   return name;
 };
 
+/**
+ * Checks if two values are of primitive types
+ * @param {any} a
+ * @param {any} b
+ * @return {Boolean}
+ * @api private
+ */
+function _deepEqualPrimitives(a, b) {
+  if (typeof a !== 'object' && typeof b !== 'object') {
+    return a === b;
+  }
+  return false;
+}
+
+/**
+ * Checks if two dates are equal
+ * @param {any} a
+ * @param {any} b
+ * @return {Boolean}
+ * @api private
+ */
+function _deepEqualDates(a, b) {
+  if (a instanceof Date && b instanceof Date) {
+    return a.getTime() === b.getTime();
+  }
+  return false;
+}
+
+/**
+ * Checks if two BSON types are equal
+ * @param {any} a
+ * @param {any} b
+ * @return {Boolean}
+ * @api private
+ */
+function _deepEqualBsonTypes(a, b) {
+  if ((isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
+      (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128'))) {
+    return a.toString() === b.toString();
+  }
+  return false;
+}
+
+/**
+ * Checks if two RegExp objects are equal
+ * @param {any} a
+ * @param {any} b
+ * @return {Boolean}
+ * @api private
+ */
+function _deepEqualRegExp(a, b) {
+  if (a instanceof RegExp && b instanceof RegExp) {
+    return a.source === b.source &&
+        a.ignoreCase === b.ignoreCase &&
+        a.multiline === b.multiline &&
+        a.global === b.global;
+  }
+  return false;
+}
+
+/**
+ * Checks if two Map objects are equal
+ * @param {any} a
+ * @param {any} b
+ * @return {Boolean}
+ * @api private
+ */
+function _deepEqualMaps(a, b) {
+  if (a instanceof Map && b instanceof Map) {
+    return exports.deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
+      exports.deepEqual(Array.from(a.values()), Array.from(b.values()));
+  }
+  return false;
+}
+
+/**
+ * Checks if two Number objects are equal
+ * @param {any} a
+ * @param {any} b
+ * @return {Boolean}
+ * @api private
+ */
+function _deepEqualNumbers(a, b) {
+  if (a instanceof Number && b instanceof Number) {
+    return a.valueOf() === b.valueOf();
+  }
+  return false;
+}
+
+/**
+ * Checks if two arrays are equal
+ * @param {any} a
+ * @param {any} b
+ * @return {Boolean}
+ * @api private
+ */
+function _deepEqualArrays(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) {
+    return false;
+  }
+  const len = a.length;
+  if (len !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < len; ++i) {
+    if (!exports.deepEqual(a[i], b[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Normalizes objects for deep equality comparison
+ * @param {any} obj
+ * @return {any}
+ * @api private
+ */
+function _normalizeObjectForComparison(obj) {
+  if (obj.$__ != null) {
+    return obj._doc;
+  }
+  if (isMongooseObject(obj)) {
+    return obj.toObject();
+  }
+  return obj;
+}
+
+/**
+ * Compares object keys and values
+ * @param {Object} a
+ * @param {Object} b
+ * @param {Array} ka
+ * @return {Boolean}
+ * @api private
+ */
+function _deepEqualObjectKeys(a, b, ka) {
+  const kb = Object.keys(b);
+  const kaLength = ka.length;
+
+  if (kaLength !== kb.length) {
+    return false;
+  }
+
+  ka.sort();
+  kb.sort();
+
+  for (let i = kaLength - 1; i >= 0; i--) {
+    if (ka[i] !== kb[i]) {
+      return false;
+    }
+  }
+
+  for (const key of ka) {
+    if (!exports.deepEqual(a[key], b[key])) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 /*!
  * Determines if `a` and `b` are deep equal.
  *
@@ -64,24 +226,20 @@ exports.deepEqual = function deepEqual(a, b) {
     return true;
   }
 
-  if (typeof a !== 'object' && typeof b !== 'object') {
-    return a === b;
+  if (_deepEqualPrimitives(a, b)) {
+    return true;
   }
 
-  if (a instanceof Date && b instanceof Date) {
-    return a.getTime() === b.getTime();
+  if (_deepEqualDates(a, b)) {
+    return true;
   }
 
-  if ((isBsonType(a, 'ObjectID') && isBsonType(b, 'ObjectID')) ||
-      (isBsonType(a, 'Decimal128') && isBsonType(b, 'Decimal128'))) {
-    return a.toString() === b.toString();
+  if (_deepEqualBsonTypes(a, b)) {
+    return true;
   }
 
-  if (a instanceof RegExp && b instanceof RegExp) {
-    return a.source === b.source &&
-        a.ignoreCase === b.ignoreCase &&
-        a.multiline === b.multiline &&
-        a.global === b.global;
+  if (_deepEqualRegExp(a, b)) {
+    return true;
   }
 
   if (a == null || b == null) {
@@ -92,75 +250,27 @@ exports.deepEqual = function deepEqual(a, b) {
     return false;
   }
 
-  if (a instanceof Map && b instanceof Map) {
-    return deepEqual(Array.from(a.keys()), Array.from(b.keys())) &&
-      deepEqual(Array.from(a.values()), Array.from(b.values()));
+  if (_deepEqualMaps(a, b)) {
+    return true;
   }
 
-  // Handle MongooseNumbers
-  if (a instanceof Number && b instanceof Number) {
-    return a.valueOf() === b.valueOf();
+  if (_deepEqualNumbers(a, b)) {
+    return true;
   }
 
   if (Buffer.isBuffer(a)) {
     return exports.buffer.areEqual(a, b);
   }
 
-  if (Array.isArray(a) && Array.isArray(b)) {
-    const len = a.length;
-    if (len !== b.length) {
-      return false;
-    }
-    for (let i = 0; i < len; ++i) {
-      if (!deepEqual(a[i], b[i])) {
-        return false;
-      }
-    }
+  if (_deepEqualArrays(a, b)) {
     return true;
   }
 
-  if (a.$__ != null) {
-    a = a._doc;
-  } else if (isMongooseObject(a)) {
-    a = a.toObject();
-  }
-
-  if (b.$__ != null) {
-    b = b._doc;
-  } else if (isMongooseObject(b)) {
-    b = b.toObject();
-  }
+  a = _normalizeObjectForComparison(a);
+  b = _normalizeObjectForComparison(b);
 
   const ka = Object.keys(a);
-  const kb = Object.keys(b);
-  const kaLength = ka.length;
-
-  // having the same number of owned properties (keys incorporates
-  // hasOwnProperty)
-  if (kaLength !== kb.length) {
-    return false;
-  }
-
-  // the same set of keys (although not necessarily the same order),
-  ka.sort();
-  kb.sort();
-
-  // ~~~cheap key test
-  for (let i = kaLength - 1; i >= 0; i--) {
-    if (ka[i] !== kb[i]) {
-      return false;
-    }
-  }
-
-  // equivalent values for every corresponding key, and
-  // ~~~possibly expensive deep test
-  for (const key of ka) {
-    if (!deepEqual(a[key], b[key])) {
-      return false;
-    }
-  }
-
-  return true;
+  return _deepEqualObjectKeys(a, b, ka);
 };
 
 /*!
@@ -239,24 +349,28 @@ exports.random = function() {
 };
 
 /**
- * MergeContext encapsulates merge operation parameters
- * @private
+ * Merge options object
+ * @typedef {Object} MergeOptions
+ * @property {Object} [omit] Keys to omit
+ * @property {Object} [omitNested] Nested paths to omit
+ * @property {Boolean} [overwrite] Whether to overwrite existing values
+ * @property {Boolean} [isDiscriminatorSchemaMerge] Whether this is a discriminator schema merge
+ * @api private
  */
-function MergeContext(options, path) {
-  this.options = options || {};
-  this.path = path || '';
-  this.omitNested = this.options.omitNested || {};
-}
 
 /**
- * Checks if a key should be skipped during merge
- * @private
+ * Checks if merge should skip a key
+ * @param {Object} options
+ * @param {String} key
+ * @param {String} path
+ * @return {Boolean}
+ * @api private
  */
-function shouldSkipKey(key, context, options) {
+function _shouldSkipMergeKey(options, key, path) {
   if (options.omit && options.omit[key]) {
     return true;
   }
-  if (context.omitNested[context.path]) {
+  if (options.omitNested && options.omitNested[path]) {
     return true;
   }
   if (specialProperties.has(key)) {
@@ -266,35 +380,71 @@ function shouldSkipKey(key, context, options) {
 }
 
 /**
- * Checks if merge should skip schema type mismatches
- * @private
+ * Checks if discriminator schema merge should skip nested merge
+ * @param {Object} fromVal
+ * @param {Object} toVal
+ * @return {Boolean}
+ * @api private
  */
-function shouldSkipSchemaMismatch(fromValue, toValue, isDiscriminatorMerge) {
-  if (!isDiscriminatorMerge) {
-    return false;
-  }
-  return (fromValue.$isSingleNested && toValue.$isMongooseDocumentArray) ||
-         (fromValue.$isMongooseDocumentArray && toValue.$isSingleNested);
+function _shouldSkipDiscriminatorMerge(fromVal, toVal) {
+  return (fromVal.$isSingleNested && toVal.$isMongooseDocumentArray) ||
+         (fromVal.$isMongooseDocumentArray && toVal.$isSingleNested);
 }
 
 /**
- * Handles schema merging for nested objects
- * @private
+ * Handles schema merge for nested objects
+ * @param {Object} toVal
+ * @param {Object} fromVal
+ * @param {Boolean} isDiscriminatorMerge
+ * @api private
  */
-function mergeSchemaValue(to, from, key, isDiscriminatorMerge) {
-  if (from.instanceOfSchema) {
-    if (to.instanceOfSchema) {
-      schemaMerge(to, from.clone(), isDiscriminatorMerge);
-    } else {
-      to[key] = from.clone();
+function _mergeNestedSchema(toVal, fromVal, isDiscriminatorMerge) {
+  if (toVal.instanceOfSchema) {
+    schemaMerge(toVal, fromVal.clone(), isDiscriminatorMerge);
+  } else {
+    toVal = fromVal.clone();
+  }
+}
+
+/**
+ * Handles ObjectId merge for nested objects
+ * @param {Object} toVal
+ * @param {Object} fromVal
+ * @return {Object}
+ * @api private
+ */
+function _mergeObjectId(toVal, fromVal) {
+  return new ObjectId(fromVal);
+}
+
+/**
+ * Processes nested object merge
+ * @param {Object} to
+ * @param {Object} from
+ * @param {Object} options
+ * @param {String} key
+ * @param {String} path
+ * @api private
+ */
+function _processNestedMerge(to, from, options, key, path) {
+  if (!exports.isObject(to[key])) {
+    to[key] = {};
+  }
+  if (from[key] != null) {
+    if (options.isDiscriminatorSchemaMerge &&
+        _shouldSkipDiscriminatorMerge(from[key], to[key])) {
+      return;
     }
-    return true;
+    if (from[key].instanceOfSchema) {
+      _mergeNestedSchema(to[key], from[key], options.isDiscriminatorSchemaMerge);
+      return;
+    }
+    if (from[key] instanceof ObjectId) {
+      to[key] = _mergeObjectId(to[key], from[key]);
+      return;
+    }
   }
-  if (from instanceof ObjectId) {
-    to[key] = new ObjectId(from);
-    return true;
-  }
-  return false;
+  exports.merge(to[key], from[key], options, path ? path + '.' + key : key);
 }
 
 /*!
@@ -302,41 +452,31 @@ function mergeSchemaValue(to, from, key, isDiscriminatorMerge) {
  *
  * @param {Object} to
  * @param {Object} from
- * @param {Object} options
+ * @param {MergeOptions} options
  * @param {String} path
  * @api private
  */
 
 exports.merge = function merge(to, from, options, path) {
-  const context = new MergeContext(options, path);
+  options = options || {};
+
   const keys = Object.keys(from);
   let i = 0;
   const len = keys.length;
+  let key;
+
+  path = path || '';
 
   while (i < len) {
-    const key = keys[i++];
-    
-    if (shouldSkipKey(key, context, context.options)) {
+    key = keys[i++];
+    if (_shouldSkipMergeKey(options, key, path)) {
       continue;
     }
-    
     if (to[key] == null) {
       to[key] = from[key];
     } else if (exports.isObject(from[key])) {
-      if (!exports.isObject(to[key])) {
-        to[key] = {};
-      }
-      if (from[key] != null) {
-        if (shouldSkipSchemaMismatch(from[key], to[key], context.options.isDiscriminatorSchemaMerge)) {
-          continue;
-        }
-        if (mergeSchemaValue(to, from[key], key, context.options.isDiscriminatorSchemaMerge)) {
-          continue;
-        }
-      }
-      const nextPath = context.path ? context.path + '.' + key : key;
-      merge(to[key], from[key], context.options, nextPath);
-    } else if (context.options.overwrite) {
+      _processNestedMerge(to, from, options, key, path);
+    } else if (options.overwrite) {
       to[key] = from[key];
     }
   }
@@ -526,38 +666,33 @@ exports.expires = function expires(object) {
 };
 
 /**
- * PopulateConfig encapsulates populate operation parameters
- * @private
+ * Populate configuration object
+ * @typedef {Object} PopulateConfig
+ * @property {String} path
+ * @property {String|Object} [select]
+ * @property {String|Function} [model]
+ * @property {Object} [match]
+ * @property {Object} [options]
+ * @property {Array|Object} [populate]
+ * @property {Boolean} [justOne]
+ * @property {Boolean} [count]
+ * @api private
  */
-function PopulateConfig(path, select, model, match, options, subPopulate, justOne, count) {
-  this.path = path;
-  this.select = select;
-  this.model = model;
-  this.match = match;
-  this.options = options;
-  this.populate = subPopulate;
-  this.justOne = justOne;
-  this.count = count;
-}
 
 /**
- * Builds populate object from various argument patterns
- * @private
+ * Builds populate configuration from arguments
+ * @param {String} path
+ * @param {String|Object} select
+ * @param {String|Function|Object} model
+ * @param {Object} match
+ * @param {Object} options
+ * @param {Array|Object} subPopulate
+ * @param {Boolean} justOne
+ * @param {Boolean} count
+ * @return {PopulateConfig}
+ * @api private
  */
-function buildPopulateObject(path, select, model, match, options, subPopulate, justOne, count) {
-  if (arguments.length === 1) {
-    if (path instanceof PopulateOptions) {
-      return path;
-    }
-    if (Array.isArray(path)) {
-      return path;
-    }
-    if (exports.isObject(path)) {
-      return Object.assign({}, path);
-    }
-    return { path: path };
-  }
-  
+function _buildPopulateConfig(path, select, model, match, options, subPopulate, justOne, count) {
   if (typeof model === 'object') {
     return {
       path: path,
@@ -566,7 +701,6 @@ function buildPopulateObject(path, select, model, match, options, subPopulate, j
       options: match
     };
   }
-  
   return {
     path: path,
     select: select,
@@ -580,10 +714,12 @@ function buildPopulateObject(path, select, model, match, options, subPopulate, j
 }
 
 /**
- * Splits space-separated paths into individual populate objects
- * @private
+ * Processes single populate path
+ * @param {String} path
+ * @return {Array}
+ * @api private
  */
-function makeSingles(arr) {
+function _makeSingles(arr) {
   const ret = [];
   arr.forEach(function(obj) {
     if (/[\s]/.test(obj.path)) {
@@ -605,16 +741,25 @@ function makeSingles(arr) {
  */
 
 exports.populate = function populate(path, select, model, match, options, subPopulate, justOne, count) {
-  let obj = buildPopulateObject(path, select, model, match, options, subPopulate, justOne, count);
-  
+  // might have passed an object specifying all arguments
+  let obj = null;
   if (arguments.length === 1) {
     if (path instanceof PopulateOptions) {
       return [path];
     }
+
     if (Array.isArray(path)) {
-      const singles = makeSingles(path);
+      const singles = _makeSingles(path);
       return singles.map(o => exports.populate(o)[0]);
     }
+
+    if (exports.isObject(path)) {
+      obj = Object.assign({}, path);
+    } else {
+      obj = { path: path };
+    }
+  } else {
+    obj = _buildPopulateConfig(path, select, model, match, options, subPopulate, justOne, count);
   }
 
   if (typeof obj.path !== 'string') {
@@ -893,37 +1038,54 @@ exports.decorate = function(destination, source) {
 };
 
 /**
- * ToObjectOptions encapsulates toObject transformation parameters
- * @private
+ * Clone options object
+ * @typedef {Object} CloneOptions
+ * @property {Boolean} [transform]
+ * @property {Boolean} [virtuals]
+ * @property {Boolean} [depopulate]
+ * @property {Boolean} [getters]
+ * @property {Boolean} [flattenDecimals]
+ * @api private
  */
-function ToObjectOptions() {
-  this.transform = false;
-  this.virtuals = false;
-  this.depopulate = true;
-  this.getters = false;
-  this.flattenDecimals = false;
+
+const DEFAULT_CLONE_OPTIONS = {
+  transform: false,
+  virtuals: false,
+  depopulate: true,
+  getters: false,
+  flattenDecimals: false
+};
+
+/**
+ * Processes value for merge clone
+ * @param {any} val
+ * @param {CloneOptions} options
+ * @return {any}
+ * @api private
+ */
+function _processValueForMergeClone(val, options) {
+  if (val != null && val.valueOf && !(val instanceof Date)) {
+    return val.valueOf();
+  }
+  return val;
 }
 
 /**
- * Processes a value during mergeClone operation
- * @private
+ * Handles object merge clone
+ * @param {Object} to
+ * @param {any} val
+ * @param {CloneOptions} options
+ * @api private
  */
-function processMergeCloneValue(to, key, val, options) {
-  if (val != null && val.valueOf && !(val instanceof Date)) {
-    val = val.valueOf();
+function _handleObjectMergeClone(to, val, options) {
+  let obj = val;
+  if (isMongooseObject(val) && !val.isMongooseBuffer) {
+    obj = obj.toObject(DEFAULT_CLONE_OPTIONS);
   }
-  if (exports.isObject(val)) {
-    let obj = val;
-    if (isMongooseObject(val) && !val.isMongooseBuffer) {
-      obj = obj.toObject(options);
-    }
-    if (val.isMongooseBuffer) {
-      obj = Buffer.from(obj);
-    }
-    exports.mergeClone(to[key], obj);
-  } else {
-    to[key] = exports.clone(val, { flattenDecimals: false });
+  if (val.isMongooseBuffer) {
+    obj = Buffer.from(obj);
   }
+  exports.mergeClone(to, obj);
 }
 
 /**
@@ -935,25 +1097,28 @@ function processMergeCloneValue(to, key, val, options) {
  */
 
 exports.mergeClone = function(to, fromObj) {
-  const toObjectOpts = new ToObjectOptions();
-  
   if (isMongooseObject(fromObj)) {
-    fromObj = fromObj.toObject(toObjectOpts);
+    fromObj = fromObj.toObject(DEFAULT_CLONE_OPTIONS);
   }
-  
   const keys = Object.keys(fromObj);
   const len = keys.length;
   let i = 0;
+  let key;
 
   while (i < len) {
-    const key = keys[i++];
+    key = keys[i++];
     if (specialProperties.has(key)) {
       continue;
     }
     if (typeof to[key] === 'undefined') {
-      to[key] = exports.clone(fromObj[key], toObjectOpts);
+      to[key] = exports.clone(fromObj[key], DEFAULT_CLONE_OPTIONS);
     } else {
-      processMergeCloneValue(to, key, fromObj[key], toObjectOpts);
+      let val = _processValueForMergeClone(fromObj[key], DEFAULT_CLONE_OPTIONS);
+      if (exports.isObject(val)) {
+        _handleObjectMergeClone(to[key], val, DEFAULT_CLONE_OPTIONS);
+      } else {
+        to[key] = exports.clone(val, { flattenDecimals: false });
+      }
     }
   }
 };

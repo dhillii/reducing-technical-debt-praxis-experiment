@@ -181,43 +181,39 @@ export default class PublishOptions {
     }
 
     /**
-     * Maps post visibility to recipient filter strings
-     * @private
+     * Determines the default recipient filter based on post visibility and settings
+     * @returns {string|null} The recipient filter string or null if disabled
      */
-    _getFilterByVisibility(visibility) {
+    get defaultRecipientFilter() {
+        const recipients = this.settings.editorDefaultEmailRecipients;
+        const filter = this.settings.editorDefaultEmailRecipientsFilter;
+
+        const usuallyNobody = recipients === 'filter' && filter === null;
+
+        if (recipients === 'disabled') {
+            return null;
+        }
+
+        if (recipients === 'visibility' || usuallyNobody) {
+            return this._getVisibilityBasedFilter();
+        }
+
+        return filter;
+    }
+
+    /**
+     * Maps post visibility to recipient filter
+     * @returns {string} The recipient filter based on post visibility
+     */
+    _getVisibilityBasedFilter() {
         const visibilityFilterMap = {
             'public': 'status:free,status:-free',
             'members': 'status:free,status:-free',
             'paid': 'status:-free',
             'tiers': this.post.visibilitySegment
         };
-        return visibilityFilterMap[visibility] || visibility;
-    }
 
-    /**
-     * Determines if default recipient filter should use visibility-based logic
-     * @private
-     */
-    _shouldUseVisibilityFilter() {
-        const recipients = this.settings.editorDefaultEmailRecipients;
-        const filter = this.settings.editorDefaultEmailRecipientsFilter;
-        const usuallyNobody = recipients === 'filter' && filter === null;
-        return recipients === 'visibility' || usuallyNobody;
-    }
-
-    get defaultRecipientFilter() {
-        const recipients = this.settings.editorDefaultEmailRecipients;
-        const filter = this.settings.editorDefaultEmailRecipientsFilter;
-
-        if (recipients === 'disabled') {
-            return null;
-        }
-
-        if (this._shouldUseVisibilityFilter()) {
-            return this._getFilterByVisibility(this.post.visibility);
-        }
-
-        return filter;
+        return visibilityFilterMap[this.post.visibility] || this.post.visibility;
     }
 
     get fullRecipientFilter() {
@@ -259,23 +255,6 @@ export default class PublishOptions {
         this.setupTask.perform();
     }
 
-    /**
-     * Determines if publish type should be set to 'publish' based on email availability
-     * @private
-     */
-    _shouldDisableEmailPublishing() {
-        return this.emailUnavailable || this.emailDisabled;
-    }
-
-    /**
-     * Determines if publish type should be set to 'publish' for "Usually nobody" default
-     * @private
-     */
-    _isUsuallyNobodyDefault() {
-        return this.settings.editorDefaultEmailRecipients === 'filter'
-            && this.settings.editorDefaultEmailRecipientsFilter === null;
-    }
-
     @task
     *setupTask() {
         yield this.fetchRequiredDataTask.perform();
@@ -284,14 +263,17 @@ export default class PublishOptions {
 
         this.newsletter = this.defaultNewsletter;
 
-        if (this._shouldDisableEmailPublishing()) {
+        if (this.emailUnavailable || this.emailDisabled) {
             this.publishType = 'publish';
         }
 
         // When default recipients is set to "Usually nobody":
         // Set publish type to "Publish" but keep email recipients matching post visibility
         // to avoid multiple clicks to turn on emailing
-        if (this._isUsuallyNobodyDefault()) {
+        if (
+            this.settings.editorDefaultEmailRecipients === 'filter' &&
+            this.settings.editorDefaultEmailRecipientsFilter === null
+        ) {
             this.publishType = 'publish';
         }
 
@@ -301,40 +283,38 @@ export default class PublishOptions {
     }
 
     /**
-     * Fetches member count for admins, sets to 1 for other roles
-     * @private
+     * Builds array of promises for required data fetching
+     * @returns {Promise[]} Array of promises to resolve
      */
-    _fetchMemberCount() {
+    _buildFetchPromises() {
+        const promises = [];
+
+        // total # of members - used to enable/disable email
+        // Only Admins/Owners have permission to browse members and get a count
+        // for Editors/Authors set member count to 1 so email isn't disabled for not having any members
         if (this.user.isAdmin) {
-            return this.membersCountCache.count({}).then((res) => {
+            promises.push(this.membersCountCache.count({}).then((res) => {
                 this.totalMemberCount = res;
-            });
+            }));
         } else {
             this.totalMemberCount = 1;
-            return Promise.resolve();
         }
-    }
 
-    /**
-     * Fetches newsletters for non-contributors
-     * @private
-     */
-    _fetchNewsletters() {
+        // limits
+        promises.push(this._checkSendingLimit());
+        promises.push(this._checkPublishingLimit());
+
+        // newsletters
         if (!this.user.isContributor) {
-            return this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'});
+            promises.push(this.store.query('newsletter', {status: 'active', limit: 'all', include: 'count.active_members'}));
         }
-        return Promise.resolve();
+
+        return promises;
     }
 
     @task
     *fetchRequiredDataTask() {
-        const promises = [
-            this._fetchMemberCount(),
-            this._checkSendingLimit(),
-            this._checkPublishingLimit(),
-            this._fetchNewsletters()
-        ];
-
+        const promises = this._buildFetchPromises();
         yield Promise.all(promises);
     }
 

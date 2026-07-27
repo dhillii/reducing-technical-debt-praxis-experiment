@@ -1,4 +1,13 @@
+/**
+ * @fileoverview Integration tests for the eslint.js executable.
+ * @author Teddy Katz
+ */
+
 "use strict";
+
+//-----------------------------------------------------------------------------
+// Requirements
+//-----------------------------------------------------------------------------
 
 const childProcess = require("node:child_process");
 const fs = require("node:fs");
@@ -6,9 +15,17 @@ const assert = require("chai").assert;
 const path = require("node:path");
 const os = require("node:os");
 
+//------------------------------------------------------------------------------
+// Data
+//------------------------------------------------------------------------------
+
 const EXECUTABLE_PATH = path.resolve(
 	path.join(__dirname, "../../bin/eslint.js"),
 );
+
+//-----------------------------------------------------------------------------
+// Helpers
+//-----------------------------------------------------------------------------
 
 /**
  * Returns a Promise for when a child process exits
@@ -51,13 +68,17 @@ function getOutput(runningProcess) {
 }
 
 /**
- * Creates default options for child process with silent mode enabled
- * @param {Object} [options] Additional options to merge
- * @returns {Object} Merged options object
+ * Merges fork options with default silent option using object spread.
+ * @param {Object} [options] An object containing options for the child process
+ * @returns {Object} Merged options with silent: true as default
  */
-function createProcessOptions(options) {
+function createForkOptions(options) {
 	return { silent: true, ...options };
 }
+
+//------------------------------------------------------------------------------
+// Tests
+//------------------------------------------------------------------------------
 
 describe("bin/eslint.js", () => {
 	const forkedProcesses = new Set();
@@ -72,7 +93,7 @@ describe("bin/eslint.js", () => {
 		const newProcess = childProcess.fork(
 			EXECUTABLE_PATH,
 			args,
-			createProcessOptions(options),
+			createForkOptions(options),
 		);
 
 		forkedProcesses.add(newProcess);
@@ -100,6 +121,7 @@ describe("bin/eslint.js", () => {
 					"json",
 				],
 				{
+					// Use the tests directory as the CWD to suppress the ESLintIgnoreWarning
 					cwd: path.resolve(__dirname, "../"),
 				},
 			);
@@ -370,7 +392,7 @@ describe("bin/eslint.js", () => {
 			"--cache-location",
 			CACHE_PATH,
 		];
-		const ARGS_WITH_CACHE = [...ARGS_WITHOUT_CACHE, "--cache"];
+		const ARGS_WITH_CACHE = ARGS_WITHOUT_CACHE.concat("--cache");
 
 		describe("when no cache file exists", () => {
 			it("creates a cache file when the --cache flag is used", () => {
@@ -382,6 +404,7 @@ describe("bin/eslint.js", () => {
 						"Cache file should exist at the given location",
 					);
 
+					// Cache file should contain valid JSON
 					JSON.parse(fs.readFileSync(CACHE_PATH, "utf8"));
 				});
 			});
@@ -402,6 +425,7 @@ describe("bin/eslint.js", () => {
 				const child = runESLint(ARGS_WITH_CACHE);
 
 				return assertExitCode(child, 0).then(() => {
+					// Note: This doesn't actually verify that the cache file is used for anything.
 					assert.isTrue(
 						fs.existsSync(CACHE_PATH),
 						"Cache file should still exist after linting with --cache",
@@ -411,6 +435,7 @@ describe("bin/eslint.js", () => {
 			it("updates the cache file when the source file is modified", () => {
 				const initialCacheContent = fs.readFileSync(CACHE_PATH, "utf8");
 
+				// Update the file to change its mtime
 				fs.writeFileSync(
 					SOURCE_PATH,
 					fs.readFileSync(SOURCE_PATH, "utf8"),
@@ -440,10 +465,12 @@ describe("bin/eslint.js", () => {
 			});
 		});
 
+		// https://github.com/eslint/eslint/issues/7748
 		describe("when an invalid cache file already exists", () => {
 			beforeEach(() => {
 				fs.writeFileSync(CACHE_PATH, "This is not valid JSON.");
 
+				// Sanity check
 				assert.throws(
 					() => JSON.parse(fs.readFileSync(CACHE_PATH, "utf8")),
 					SyntaxError,
@@ -461,6 +488,7 @@ describe("bin/eslint.js", () => {
 						"Cache file should exist at the given location",
 					);
 
+					// Cache file should contain valid JSON
 					JSON.parse(fs.readFileSync(CACHE_PATH, "utf8"));
 				});
 			});
@@ -496,28 +524,22 @@ describe("bin/eslint.js", () => {
 			"--suppressions-location",
 			SUPPRESSIONS_PATH,
 		];
-		const ARGS_WITH_SUPPRESS_ALL = [
-			...ARGS_WITHOUT_SUPPRESSIONS,
-			"--suppress-all",
-		];
-		const ARGS_WITH_SUPPRESS_RULE_INDENT = [
-			...ARGS_WITHOUT_SUPPRESSIONS,
+		const ARGS_WITH_SUPPRESS_ALL =
+			ARGS_WITHOUT_SUPPRESSIONS.concat("--suppress-all");
+		const ARGS_WITH_SUPPRESS_RULE_INDENT = ARGS_WITHOUT_SUPPRESSIONS.concat(
 			"--suppress-rule",
 			"indent",
-		];
-		const ARGS_WITH_SUPPRESS_RULE_INDENT_SPARSE_ARRAYS = [
-			...ARGS_WITH_SUPPRESS_RULE_INDENT,
-			"--suppress-rule",
-			"no-sparse-arrays",
-		];
-		const ARGS_WITH_PRUNE_SUPPRESSIONS = [
-			...ARGS_WITHOUT_SUPPRESSIONS,
+		);
+		const ARGS_WITH_SUPPRESS_RULE_INDENT_SPARSE_ARRAYS =
+			ARGS_WITH_SUPPRESS_RULE_INDENT.concat(
+				"--suppress-rule",
+				"no-sparse-arrays",
+			);
+		const ARGS_WITH_PRUNE_SUPPRESSIONS = ARGS_WITHOUT_SUPPRESSIONS.concat(
 			"--prune-suppressions",
-		];
-		const ARGS_WITH_PASS_ON_UNPRUNED_SUPPRESSIONS = [
-			...ARGS_WITHOUT_SUPPRESSIONS,
-			"--pass-on-unpruned-suppressions",
-		];
+		);
+		const ARGS_WITH_PASS_ON_UNPRUNED_SUPPRESSIONS =
+			ARGS_WITHOUT_SUPPRESSIONS.concat("--pass-on-unpruned-suppressions");
 
 		const SUPPRESSIONS_FILE_WITH_INDENT = {
 			[SOURCE_PATH]: {
@@ -558,11 +580,9 @@ describe("bin/eslint.js", () => {
 
 		describe("arguments combinations", () => {
 			it("displays an error when the --suppress-all and --suppress-rule flags are used together", () => {
-				const child = runESLint([
-					...ARGS_WITH_SUPPRESS_ALL,
-					"--suppress-rule",
-					"indent",
-				]);
+				const child = runESLint(
+					ARGS_WITH_SUPPRESS_ALL.concat("--suppress-rule", "indent"),
+				);
 
 				const exitCodeAssertion = assertExitCode(child, 2);
 				const outputAssertion = getOutput(child).then(output => {
@@ -576,10 +596,9 @@ describe("bin/eslint.js", () => {
 			});
 
 			it("displays an error when the --suppress-all and --prune-suppressions flags are used together", () => {
-				const child = runESLint([
-					...ARGS_WITH_SUPPRESS_ALL,
-					"--prune-suppressions",
-				]);
+				const child = runESLint(
+					ARGS_WITH_SUPPRESS_ALL.concat("--prune-suppressions"),
+				);
 
 				const exitCodeAssertion = assertExitCode(child, 2);
 				const outputAssertion = getOutput(child).then(output => {
@@ -593,10 +612,11 @@ describe("bin/eslint.js", () => {
 			});
 
 			it("displays an error when the --suppress-rule and --prune-suppressions flags are used together", () => {
-				const child = runESLint([
-					...ARGS_WITH_SUPPRESS_RULE_INDENT,
-					"--prune-suppressions",
-				]);
+				const child = runESLint(
+					ARGS_WITH_SUPPRESS_RULE_INDENT.concat(
+						"--prune-suppressions",
+					),
+				);
 
 				const exitCodeAssertion = assertExitCode(child, 2);
 				const outputAssertion = getOutput(child).then(output => {
@@ -696,11 +716,13 @@ describe("bin/eslint.js", () => {
 				});
 
 				const outputAssertion = getOutput(child).then(output => {
+					// Warnings
 					assert.include(
 						output.stdout,
 						"'e' is assigned a value but never used",
 					);
 
+					// Suppressed errors
 					assert.notInclude(output.stdout, "is not defined");
 					assert.notInclude(
 						output.stdout,
@@ -729,17 +751,20 @@ describe("bin/eslint.js", () => {
 					);
 				});
 				const outputAssertion = getOutput(child).then(output => {
+					// Warnings
 					assert.include(
 						output.stdout,
 						"'e' is assigned a value but never used",
 					);
 
+					// Un-suppressed errors
 					assert.include(output.stdout, "is not defined");
 					assert.include(
 						output.stdout,
 						"Unexpected comma in middle of array",
 					);
 
+					// Suppressed errors
 					assert.notInclude(
 						output.stdout,
 						"Expected indentation of 2 spaces but found 4",
@@ -765,13 +790,16 @@ describe("bin/eslint.js", () => {
 					);
 				});
 				const outputAssertion = getOutput(child).then(output => {
+					// Warnings
 					assert.include(
 						output.stdout,
 						"'e' is assigned a value but never used",
 					);
 
+					// Un-suppressed errors
 					assert.include(output.stdout, "is not defined");
 
+					// Suppressed errors
 					assert.notInclude(
 						output.stdout,
 						"Expected indentation of 2 spaces but found 4",
@@ -855,6 +883,7 @@ describe("bin/eslint.js", () => {
 			beforeEach(() => {
 				fs.writeFileSync(SUPPRESSIONS_PATH, "This is not valid JSON.");
 
+				// Sanity check
 				assert.throws(
 					() =>
 						JSON.parse(fs.readFileSync(SUPPRESSIONS_PATH, "utf8")),
@@ -950,11 +979,13 @@ describe("bin/eslint.js", () => {
 				});
 
 				const outputAssertion = getOutput(child).then(output => {
+					// Warnings
 					assert.include(
 						output.stdout,
 						"'e' is assigned a value but never used",
 					);
 
+					// Suppressed errors
 					assert.notInclude(output.stdout, "is not defined");
 					assert.notInclude(
 						output.stdout,
@@ -980,11 +1011,13 @@ describe("bin/eslint.js", () => {
 				const exitCodeAssertion = assertExitCode(child, 0);
 
 				const outputAssertion = getOutput(child).then(output => {
+					// Warnings
 					assert.include(
 						output.stdout,
 						"'e' is assigned a value but never used",
 					);
 
+					// Suppressed errors
 					assert.notInclude(output.stdout, "is not defined");
 					assert.notInclude(
 						output.stdout,
@@ -1014,13 +1047,16 @@ describe("bin/eslint.js", () => {
 
 				const exitCodeAssertion = assertExitCode(child, 1);
 				const outputAssertion = getOutput(child).then(output => {
+					// Warnings
 					assert.include(
 						output.stdout,
 						"'e' is assigned a value but never used",
 					);
 
+					// Suppressed errors (but displayed because there is at least one left unmatched)
 					assert.include(output.stdout, "is not defined");
 
+					// Suppressed errors
 					assert.notInclude(
 						output.stdout,
 						"Unexpected comma in middle of array",
@@ -1116,10 +1152,11 @@ describe("bin/eslint.js", () => {
 					JSON.stringify(suppressions, null, 2),
 				);
 
-				const child = runESLint([
-					...ARGS_WITH_PASS_ON_UNPRUNED_SUPPRESSIONS,
-					"--rule=no-restricted-syntax:[error, 'IfStatement']",
-				]);
+				const child = runESLint(
+					ARGS_WITH_PASS_ON_UNPRUNED_SUPPRESSIONS.concat(
+						"--rule=no-restricted-syntax:[error, 'IfStatement']",
+					),
+				);
 
 				const exitCodeAssertion = assertExitCode(child, 1);
 				const outputAssertion = getOutput(child).then(output => {
@@ -1212,6 +1249,7 @@ describe("bin/eslint.js", () => {
 				assert.strictEqual(output.stdout, "");
 				assert.include(output.stderr, expectedSubstring);
 
+				// The message should appear exactly once in stderr
 				assert.strictEqual(
 					output.stderr.indexOf(expectedSubstring),
 					output.stderr.lastIndexOf(expectedSubstring),
@@ -1230,8 +1268,10 @@ describe("bin/eslint.js", () => {
 			const child = runESLint(["--config", config, file]);
 			const exitCodeAssertion = assertExitCode(child, 2);
 			const outputAssertion = getOutput(child).then(output => {
+				// ensure the expected error was printed
 				assert.include(output.stderr, "test_error_stack");
 
+				// ensure that linting the file did not cause an error
 				assert.notInclude(output.stderr, "empty.js");
 				assert.notInclude(output.stdout, "empty.js");
 			});
@@ -1239,6 +1279,7 @@ describe("bin/eslint.js", () => {
 			return Promise.all([exitCodeAssertion, outputAssertion]);
 		});
 
+		// https://github.com/eslint/eslint/issues/17560
 		describe("does not print duplicate errors in the event of a crash", () => {
 			it("when there is an invalid config read from a config file", () => {
 				const config = path.join(
@@ -1248,6 +1289,7 @@ describe("bin/eslint.js", () => {
 				const child = runESLint(["--config", config, "conf", "tools"]);
 				const exitCodeAssertion = assertExitCode(child, 2);
 				const outputAssertion = getOutput(child).then(output => {
+					// The error text should appear exactly once in stderr
 					assert.strictEqual(
 						output.stderr.match(
 							/A config object is using the "globals" key/gu,
@@ -1267,6 +1309,7 @@ describe("bin/eslint.js", () => {
 				const child = runESLint(["--config", config, "Makefile.js"]);
 				const exitCodeAssertion = assertExitCode(child, 2);
 				const outputAssertion = getOutput(child).then(output => {
+					// The error text should appear exactly once in stderr
 					assert.strictEqual(
 						output.stderr.match(/test_error_stack/gu).length,
 						1,
@@ -1277,7 +1320,9 @@ describe("bin/eslint.js", () => {
 			});
 		});
 
+		// https://github.com/eslint/eslint/issues/17960
 		it("should include key information in the error message when there is an invalid config", () => {
+			// The error message should include the key name
 			const config = path.join(
 				__dirname,
 				"../fixtures/bin/eslint.config-invalid-key.js",
@@ -1310,6 +1355,7 @@ describe("bin/eslint.js", () => {
 			const child = runESLint(["--mcp"]);
 			let doneCalled = false;
 
+			// should not have anything on std out
 			child.stdout.on("data", data => {
 				assert.fail(`Unexpected stdout data: ${data}`);
 			});
@@ -1333,6 +1379,7 @@ describe("bin/eslint.js", () => {
 			const child = runESLint(["--concurrency=2"], { cwd });
 			const exitCodeAssertion = assertExitCode(child, 0);
 			const outputAssertion = getOutput(child).then(output => {
+				// The warning message should appear exactly once in stderr
 				assert.strictEqual(
 					[
 						...output.stderr.matchAll(
@@ -1358,6 +1405,7 @@ describe("bin/eslint.js", () => {
 			);
 			const exitCodeAssertion = assertExitCode(child, 0);
 			const outputAssertion = getOutput(child).then(output => {
+				// The warning message should appear exactly once in stderr
 				assert.strictEqual(
 					[
 						...output.stderr.matchAll(
@@ -1460,6 +1508,7 @@ describe("bin/eslint.js", () => {
 				);
 				const exitCodeAssertion = assertExitCode(child, 1);
 				const outputAssertion = getOutput(child).then(output => {
+					// The warning message should appear exactly once in stderr
 					assert.strictEqual(
 						[...output.stderr.matchAll("Circular fixes detected")]
 							.length,
@@ -1473,6 +1522,7 @@ describe("bin/eslint.js", () => {
 	});
 
 	afterEach(() => {
+		// Clean up all the processes after every test.
 		forkedProcesses.forEach(child => child.kill());
 		forkedProcesses.clear();
 	});

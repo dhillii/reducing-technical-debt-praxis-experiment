@@ -136,7 +136,7 @@ module.exports = {
       return this.uploadFileAndPersist(fileData, { user });
     };
 
-    return Promise.all(
+    return await Promise.all(
       fileArray.map((file, idx) => doUpload(file, fileInfoArray[idx] || {}))
     );
   },
@@ -220,11 +220,13 @@ module.exports = {
     const { fileInfo } = data;
     const fileData = await this.enhanceFile(file, fileInfo);
 
+    // keep a constant hash
     _.assign(fileData, {
       hash: dbFile.hash,
       ext: dbFile.ext,
     });
 
+    // execute delete function of the provider
     if (dbFile.provider === config.provider) {
       await strapi.plugins.upload.provider.delete(dbFile);
 
@@ -239,6 +241,7 @@ module.exports = {
 
     await strapi.plugins.upload.provider.upload(fileData);
 
+    // clear old formats
     _.set(fileData, 'formats', {});
 
     const thumbnailFile = await generateThumbnail(fileData);
@@ -326,6 +329,7 @@ module.exports = {
   async remove(file) {
     const config = strapi.plugins.upload.config;
 
+    // execute delete function of the provider
     if (file.provider === config.provider) {
       await strapi.plugins.upload.provider.delete(file);
 

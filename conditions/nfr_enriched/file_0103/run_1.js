@@ -5,17 +5,17 @@ Lawnchair.adapter('indexed-db', (function(){
   // NB: Causes onupgradeneeded to be fired, which erases the old database!
   const STORE_VERSION = 3;
 
-  // Retrieves the IndexedDB implementation for the current browser
+  // Retrieves the IndexedDB implementation, checking vendor prefixes
   const getIDB = function() {
       return window.indexedDB || window.webkitIndexedDB || window.mozIndexedDB || window.oIndexedDB || window.msIndexedDB;
   };
 
-  // Retrieves the IDBTransaction implementation for the current browser
+  // Retrieves the IDBTransaction implementation, checking vendor prefixes
   const getIDBTransaction = function() {
       return window.IDBTransaction || window.webkitIDBTransaction || window.mozIDBTransaction || window.oIDBTransaction || window.msIDBTransaction;
   };
 
-  // Retrieves the IDBKeyRange implementation for the current browser
+  // Retrieves the IDBKeyRange implementation, checking vendor prefixes
   const getIDBKeyRange = function() {
       return window.IDBKeyRange || window.webkitIDBKeyRange || window.mozIDBKeyRange || window.oIDBKeyRange || window.msIDBKeyRange;
   };
@@ -37,7 +37,7 @@ Lawnchair.adapter('indexed-db', (function(){
       });
   };
 
-  // Handles successful database opening
+  // Handles successful database open
   const handleDatabaseSuccess = function(event, self, callback) {
       self.db = event.target.result;
       self.store = true;
@@ -51,68 +51,56 @@ Lawnchair.adapter('indexed-db', (function(){
       }
   };
 
-  // Processes a single object for saving
-  const processSaveObject = function(obj, self) {
-      if (!obj.key) {
-          obj.key = self.uuid();
-      }
-      return obj;
+  // Ensures objects have keys and returns the array
+  const ensureObjectKeys = function(objs, self) {
+      return objs.map(function(o) {
+          if (!o.key) {
+              o.key = self.uuid();
+          }
+          return o;
+      });
   };
 
-  // Executes the actual save operation on the object store
-  const executeSave = function(objs, self, callback) {
-      const win = function() {
-          if (callback) {
-              self.lambda(callback).call(self, self.isArray(objs) ? objs : objs[0]);
-          }
-      };
-
-      const trans = self.db.transaction(self.record, READ_WRITE);
-      const store = trans.objectStore(self.record);
-
+  // Stores objects in the database
+  const storeObjects = function(store, objs) {
       for (let i = 0; i < objs.length; i++) {
           const obj = objs[i];
           store.put(obj, obj.key);
       }
-
-      store.transaction.oncomplete = win;
-      store.transaction.onabort = fail;
   };
 
-  // Handles successful single key retrieval
-  const handleGetSuccess = function(event, key, callback, self) {
-      const result = event.target.result;
-      if (callback) {
-          if (result) {
-              result.key = key;
+  // Handles single key retrieval
+  const retrieveSingleKey = function(self, key, callback) {
+      const win = function(e) {
+          const result = e.target.result;
+          if (callback) {
+              if (result) {
+                  result.key = key;
+              }
+              self.lambda(callback).call(self, result);
           }
-          self.lambda(callback).call(self, result);
-      }
-  };
+      };
 
-  // Retrieves a single key from the database
-  const getSingleKey = function(key, callback, self) {
       const req = self.db.transaction(self.record).objectStore(self.record).get(key);
 
       req.onsuccess = function(event) {
           req.onsuccess = req.onerror = null;
-          handleGetSuccess(event, key, callback, self);
+          win(event);
       };
-
       req.onerror = function(event) {
           req.onsuccess = req.onerror = null;
           fail(event);
       };
   };
 
-  // Retrieves multiple keys from the database
-  const getMultipleKeys = function(keys, callback, self) {
+  // Handles multiple key retrieval
+  const retrieveMultipleKeys = function(self, keys, callback) {
       const results = [];
       let done = keys.length;
 
-      const getOne = function(index) {
-          self.get(keys[index], function(obj) {
-              results[index] = obj;
+      const getOne = function(i) {
+          self.get(keys[i], function(obj) {
+              results[i] = obj;
               if ((--done) > 0) {
                   return;
               }
@@ -127,107 +115,16 @@ Lawnchair.adapter('indexed-db', (function(){
       }
   };
 
-  // Handles cursor success for exists check
-  const handleExistsCursorSuccess = function(event, callback, self) {
-      const result = event.target.result;
-      const undef = undefined;
-      self.lambda(callback).call(self, result !== null && result !== undef);
-  };
-
-  // Executes exists check on the database
-  const executeExistsCheck = function(key, callback, self) {
-      const req = self.db.transaction(self.record).objectStore(self.record).openCursor(getIDBKeyRange().only(key));
-
-      req.onsuccess = function(event) {
-          req.onsuccess = req.onerror = null;
-          handleExistsCursorSuccess(event, callback, self);
-      };
-
-      req.onerror = function(event) {
-          req.onsuccess = req.onerror = null;
-          fail(event);
-      };
-  };
-
-  // Processes cursor results for all() operation
-  const processCursorForAll = function(cursor, results) {
-      if (cursor) {
-          results.push(cursor.value);
-          cursor['continue']();
-          return false;
-      }
-      return true;
-  };
-
-  // Executes all() operation on the database
-  const executeAll = function(callback, self) {
-      const objectStore = self.db.transaction(self.record).objectStore(self.record);
-      const results = [];
-
-      objectStore.openCursor().onsuccess = function(event) {
-          const cursor = event.target.result;
-          const isDone = processCursorForAll(cursor, results);
-          if (isDone && callback) {
-              callback.call(self, results);
-          }
-      };
-  };
-
-  // Processes cursor results for keys() operation
-  const processCursorForKeys = function(cursor, results) {
-      if (cursor) {
-          results.push(cursor.key);
-          cursor['continue']();
-          return false;
-      }
-      return true;
-  };
-
-  // Executes keys() operation on the database
-  const executeKeys = function(callback, self) {
-      const objectStore = self.db.transaction(self.record).objectStore(self.record);
-      const results = [];
-
-      objectStore.openCursor().onsuccess = function(event) {
-          const cursor = event.target.result;
-          const isDone = processCursorForKeys(cursor, results);
-          if (isDone && callback) {
-              callback.call(self, results);
-          }
-      };
-  };
-
-  // Normalizes input to array format for deletion
-  const normalizeKeysForDeletion = function(keyOrArray) {
-      return this.isArray(keyOrArray) ? keyOrArray : [keyOrArray];
-  };
-
-  // Extracts the actual key from an object or primitive
-  const extractKey = function(item) {
-      return item.key ? item.key : item;
-  };
-
-  // Executes remove operation on the database
-  const executeRemove = function(keysToDelete, callback, self) {
-      const win = function() {
-          if (callback) {
-              self.lambda(callback).call(self);
-          }
-      };
-
-      const objectStore = self.db.transaction(self.record, READ_WRITE).objectStore(self.record);
-
-      for (let i = 0; i < keysToDelete.length; i++) {
-          const key = extractKey(keysToDelete[i]);
+  // Deletes objects from the database
+  const deleteObjects = function(objectStore, toDelete) {
+      for (let i = 0; i < toDelete.length; i++) {
+          const key = toDelete[i].key ? toDelete[i].key : toDelete[i];
           objectStore['delete'](key);
       }
-
-      objectStore.transaction.oncomplete = win;
-      objectStore.transaction.onabort = fail;
   };
 
-  // Executes nuke operation on the database
-  const executeNuke = function(callback, self) {
+  // Clears the object store with error handling
+  const clearObjectStore = function(self, callback) {
       const win = callback ? function() { self.lambda(callback).call(self); } : function(){};
 
       try {
@@ -268,22 +165,35 @@ Lawnchair.adapter('indexed-db', (function(){
         request.onsuccess = function(event) {
             handleDatabaseSuccess(event, self, cb);
         };
+
+        return this;
     },
 
     save: function(obj, callback) {
+        const self = this;
         if (!this.store) {
             this.waiting.push(function() {
                 this.save(obj, callback);
             });
-            return;
+            return this;
         }
 
-        const self = this;
-        const objs = (this.isArray(obj) ? obj : [obj]).map(function(o) {
-            return processSaveObject(o, self);
-        });
+        const objs = (this.isArray(obj) ? obj : [obj]);
+        ensureObjectKeys(objs, self);
 
-        executeSave(objs, this, callback);
+        const win = function() {
+            if (callback) {
+                self.lambda(callback).call(self, self.isArray(obj) ? objs : objs[0]);
+            }
+        };
+
+        const trans = this.db.transaction(this.record, READ_WRITE);
+        const store = trans.objectStore(this.record);
+
+        storeObjects(store, objs);
+        store.transaction.oncomplete = win;
+        store.transaction.onabort = fail;
+
         return this;
     },
 
@@ -296,15 +206,15 @@ Lawnchair.adapter('indexed-db', (function(){
             this.waiting.push(function() {
                 this.get(key, callback);
             });
-            return;
+            return this;
         }
 
         const self = this;
 
         if (!this.isArray(key)) {
-            getSingleKey(key, callback, this);
+            retrieveSingleKey(self, key, callback);
         } else {
-            getMultipleKeys(key, callback, this);
+            retrieveMultipleKeys(self, key, callback);
         }
 
         return this;
@@ -315,10 +225,23 @@ Lawnchair.adapter('indexed-db', (function(){
             this.waiting.push(function() {
                 this.exists(key, callback);
             });
-            return;
+            return this;
         }
 
-        executeExistsCheck(key, callback, this);
+        const self = this;
+        const req = this.db.transaction(self.record).objectStore(this.record).openCursor(getIDBKeyRange().only(key));
+
+        req.onsuccess = function(event) {
+            req.onsuccess = req.onerror = null;
+            const undef = undefined;
+            self.lambda(callback).call(self, event.target.result !== null &&
+                                             event.target.result !== undef);
+        };
+        req.onerror = function(event) {
+            req.onsuccess = req.onerror = null;
+            fail(event);
+        };
+
         return this;
     },
 
@@ -327,11 +250,26 @@ Lawnchair.adapter('indexed-db', (function(){
             this.waiting.push(function() {
                 this.all(callback);
             });
-            return;
+            return this;
         }
 
         const cb = this.fn(this.name, callback) || undefined;
-        executeAll(cb, this);
+        const self = this;
+        const objectStore = this.db.transaction(this.record).objectStore(this.record);
+        const toReturn = [];
+
+        objectStore.openCursor().onsuccess = function(event) {
+            const cursor = event.target.result;
+            if (cursor) {
+                toReturn.push(cursor.value);
+                cursor['continue']();
+            } else {
+                if (cb) {
+                    cb.call(self, toReturn);
+                }
+            }
+        };
+
         return this;
     },
 
@@ -340,11 +278,26 @@ Lawnchair.adapter('indexed-db', (function(){
             this.waiting.push(function() {
                 this.keys(callback);
             });
-            return;
+            return this;
         }
 
         const cb = this.fn(this.name, callback) || undefined;
-        executeKeys(cb, this);
+        const self = this;
+        const objectStore = this.db.transaction(this.record).objectStore(this.record);
+        const toReturn = [];
+
+        objectStore.openCursor().onsuccess = function(event) {
+            const cursor = event.target.result;
+            if (cursor) {
+                toReturn.push(cursor.key);
+                cursor['continue']();
+            } else {
+                if (cb) {
+                    cb.call(self, toReturn);
+                }
+            }
+        };
+
         return this;
     },
 
@@ -353,11 +306,24 @@ Lawnchair.adapter('indexed-db', (function(){
             this.waiting.push(function() {
                 this.remove(keyOrArray, callback);
             });
-            return;
+            return this;
         }
 
-        const keysToDelete = normalizeKeysForDeletion.call(this, keyOrArray);
-        executeRemove(keysToDelete, callback, this);
+        const self = this;
+        const toDelete = this.isArray(keyOrArray) ? keyOrArray : [keyOrArray];
+
+        const win = function() {
+            if (callback) {
+                self.lambda(callback).call(self);
+            }
+        };
+
+        const objectStore = this.db.transaction(this.record, READ_WRITE).objectStore(this.record);
+        deleteObjects(objectStore, toDelete);
+
+        objectStore.transaction.oncomplete = win;
+        objectStore.transaction.onabort = fail;
+
         return this;
     },
 
@@ -366,10 +332,10 @@ Lawnchair.adapter('indexed-db', (function(){
             this.waiting.push(function() {
                 this.nuke(callback);
             });
-            return;
+            return this;
         }
 
-        executeNuke(callback, this);
+        clearObjectStore(this, callback);
         return this;
     }
   };

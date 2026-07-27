@@ -138,7 +138,7 @@ module.exports = function() {
 		return hot;
 	}
 
-	let hotStatusHandlers = [];
+	const hotStatusHandlers = [];
 	let hotStatus = "idle";
 
 	function hotSetStatus(newStatus) {
@@ -150,9 +150,9 @@ module.exports = function() {
 	// while downloading
 	let hotWaitingFiles = 0;
 	let hotChunksLoading = 0;
-	let hotWaitingFilesMap = {};
-	let hotRequestedFilesMap = {};
-	let hotAvailableFilesMap = {};
+	const hotWaitingFilesMap = {};
+	const hotRequestedFilesMap = {};
+	const hotAvailableFilesMap = {};
 	let hotDeferred;
 
 	// The update info
@@ -243,7 +243,6 @@ module.exports = function() {
 		}
 	}
 
-	// Determines which modules are affected by an update and their dependency chain
 	function getAffectedStuff(updateModuleId) {
 		const outdatedModules = [updateModuleId];
 		const outdatedDependencies = {};
@@ -311,7 +310,6 @@ module.exports = function() {
 		};
 	}
 
-	// Adds all items from array b to array a if not already present
 	function addAllToSet(a, b) {
 		for(let i = 0; i < b.length; i++) {
 			const item = b[i];
@@ -320,7 +318,6 @@ module.exports = function() {
 		}
 	}
 
-	// Processes update results and determines which modules to apply, dispose, or decline
 	function processUpdateResult(result, options, appliedUpdate, outdatedModules, outdatedDependencies) {
 		let abortError = false;
 		let doApply = false;
@@ -361,27 +358,29 @@ module.exports = function() {
 			default:
 				throw new Error("Unexception type " + result.type);
 		}
-		return {
-			abortError: abortError,
-			doApply: doApply,
-			doDispose: doDispose
-		};
+		return { abortError, doApply, doDispose };
 	}
 
-	// Applies accepted updates to the appliedUpdate map and outdated tracking structures
-	function applyAcceptedUpdate(result, appliedUpdate, outdatedModules, outdatedDependencies) {
-		appliedUpdate[result.moduleId] = result.moduleId;
-		addAllToSet(outdatedModules, result.outdatedModules);
-		for(const moduleId in result.outdatedDependencies) {
-			if(Object.prototype.hasOwnProperty.call(result.outdatedDependencies, moduleId)) {
-				if(!outdatedDependencies[moduleId])
-					outdatedDependencies[moduleId] = [];
-				addAllToSet(outdatedDependencies[moduleId], result.outdatedDependencies[moduleId]);
+	function applyUpdateResult(doApply, doDispose, result, moduleId, appliedUpdate, outdatedModules, outdatedDependencies) {
+		if(doApply) {
+			appliedUpdate[moduleId] = hotUpdate[moduleId];
+			addAllToSet(outdatedModules, result.outdatedModules);
+			for(const depModuleId in result.outdatedDependencies) {
+				if(Object.prototype.hasOwnProperty.call(result.outdatedDependencies, depModuleId)) {
+					if(!outdatedDependencies[depModuleId])
+						outdatedDependencies[depModuleId] = [];
+					addAllToSet(outdatedDependencies[depModuleId], result.outdatedDependencies[depModuleId]);
+				}
 			}
+		}
+		if(doDispose) {
+			addAllToSet(outdatedModules, [result.moduleId]);
+			appliedUpdate[moduleId] = function warnUnexpectedRequire() {
+				console.warn("[HMR] unexpected require(" + result.moduleId + ") to disposed module");
+			};
 		}
 	}
 
-	// Disposes modules and removes them from the module cache
 	function disposeOutdatedModules(outdatedModules) {
 		const queue = outdatedModules.slice();
 		while(queue.length > 0) {
@@ -417,7 +416,6 @@ module.exports = function() {
 		}
 	}
 
-	// Removes outdated dependencies from module children
 	function removeOutdatedDependencies(outdatedDependencies) {
 		for(const moduleId in outdatedDependencies) {
 			if(Object.prototype.hasOwnProperty.call(outdatedDependencies, moduleId)) {
@@ -434,8 +432,7 @@ module.exports = function() {
 		}
 	}
 
-	// Inserts new module code into the modules map
-	function insertAppliedUpdates(appliedUpdate) {
+	function insertAppliedModules(appliedUpdate) {
 		for(const moduleId in appliedUpdate) {
 			if(Object.prototype.hasOwnProperty.call(appliedUpdate, moduleId)) {
 				modules[moduleId] = appliedUpdate[moduleId];
@@ -443,7 +440,6 @@ module.exports = function() {
 		}
 	}
 
-	// Calls accept handlers for outdated dependencies
 	function callAcceptHandlers(outdatedDependencies, options) {
 		let error = null;
 		for(const moduleId in outdatedDependencies) {
@@ -481,7 +477,6 @@ module.exports = function() {
 		return error;
 	}
 
-	// Loads and executes self-accepted modules
 	function loadSelfAcceptedModules(outdatedSelfAcceptedModules, options) {
 		let error = null;
 		for(let i = 0; i < outdatedSelfAcceptedModules.length; i++) {
@@ -538,10 +533,6 @@ module.exports = function() {
 		const outdatedModules = [];
 		const appliedUpdate = {};
 
-		const warnUnexpectedRequire = function warnUnexpectedRequire() {
-			console.warn("[HMR] unexpected require(" + result.moduleId + ") to disposed module");
-		};
-
 		for(const id in hotUpdate) {
 			if(Object.prototype.hasOwnProperty.call(hotUpdate, id)) {
 				const moduleId = toModuleId(id);
@@ -554,19 +545,12 @@ module.exports = function() {
 						moduleId: id
 					};
 				}
-				const processResult = processUpdateResult(result, options, appliedUpdate, outdatedModules, outdatedDependencies);
-				if(processResult.abortError) {
+				const { abortError, doApply, doDispose } = processUpdateResult(result, options, appliedUpdate, outdatedModules, outdatedDependencies);
+				if(abortError) {
 					hotSetStatus("abort");
-					return Promise.reject(processResult.abortError);
+					return Promise.reject(abortError);
 				}
-				if(processResult.doApply) {
-					appliedUpdate[moduleId] = hotUpdate[moduleId];
-					applyAcceptedUpdate(result, appliedUpdate, outdatedModules, outdatedDependencies);
-				}
-				if(processResult.doDispose) {
-					addAllToSet(outdatedModules, [result.moduleId]);
-					appliedUpdate[moduleId] = warnUnexpectedRequire;
-				}
+				applyUpdateResult(doApply, doDispose, result, moduleId, appliedUpdate, outdatedModules, outdatedDependencies);
 			}
 		}
 
@@ -600,7 +584,7 @@ module.exports = function() {
 		hotCurrentHash = hotUpdateNewHash;
 
 		// insert new code
-		insertAppliedUpdates(appliedUpdate);
+		insertAppliedModules(appliedUpdate);
 
 		// call accept handlers
 		let error = callAcceptHandlers(outdatedDependencies, options);

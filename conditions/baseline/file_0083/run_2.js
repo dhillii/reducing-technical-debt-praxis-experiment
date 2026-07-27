@@ -107,7 +107,7 @@ function DeleteButton({
           <Text>
             Are you sure you want to delete{' '}
             <strong style={{ fontWeight: 600 }}>{itemLabel}</strong>
-            ? This action cannot be undone.
+            {' '}? This action cannot be undone.
           </Text>
         </AlertDialog>
       </DialogTrigger>
@@ -424,8 +424,8 @@ function ItemPage({ listKey }: ItemPageProps) {
               ) : (
                 <ItemNotFound>
                   <Text>
-                    The item with ID{' '}
-                    <strong>"{itemId}"</strong> doesn't exist, or you don't have access to it.
+                    The item with ID <strong>"{itemId}"</strong> doesn't exist, or you don't have
+                    access to it.
                   </Text>
                 </ItemNotFound>
               ))}

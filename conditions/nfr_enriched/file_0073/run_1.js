@@ -917,7 +917,7 @@ describe("FlatConfigArray", () => {
 			});
 		});
 
-		describe("Undefined configs", () => {
+		describe("Undefined config handling", () => {
 			it("should throw an error when undefined original config is normalized", () => {
 				const configs = new FlatConfigArray([void 0]);
 
@@ -989,7 +989,7 @@ describe("FlatConfigArray", () => {
 			});
 		});
 
-		describe("Null configs", () => {
+		describe("Null config handling", () => {
 			it("should throw an error when null original config is normalized", () => {
 				const configs = new FlatConfigArray([null]);
 

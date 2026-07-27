@@ -21,7 +21,7 @@ module.exports = function(yargs, argv, convertOptions) {
 	}
 
 	let configFileLoaded = false;
-	const configFiles = [];
+	let configFiles = [];
 	const extensions = Object.keys(interpret.extensions).sort(function(a, b) {
 		return a === ".js" ? -1 : b === ".js" ? 1 : a.length - b.length;
 	});
@@ -58,7 +58,7 @@ module.exports = function(yargs, argv, convertOptions) {
 		};
 
 		const configArgList = Array.isArray(argv.config) ? argv.config : [argv.config];
-		configFiles.push(...configArgList.map(mapConfigArg));
+		configFiles = configArgList.map(mapConfigArg);
 	} else {
 		for(i = 0; i < defaultConfigFiles.length; i++) {
 			const webpackConfig = defaultConfigFiles[i].path;
@@ -458,7 +458,7 @@ module.exports = function(yargs, argv, convertOptions) {
 
 		ifArg("provide", function(value) {
 			ensureArray(options, "plugins");
-			let idx = value.indexOf("=");
+			const idx = value.indexOf("=");
 			let name;
 			if(idx >= 0) {
 				name = value.substr(0, idx);

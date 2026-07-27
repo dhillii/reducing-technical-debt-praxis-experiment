@@ -94,9 +94,8 @@ function printInstructions(appName, urls, useYarn) {
   console.log();
   console.log('Note that the development build is not optimized.');
   const buildCommand = useYarn ? 'yarn' : 'npm run';
-  console.log(
-    `To create a production build, use ${chalk.cyan(`${buildCommand} build`)}.`
-  );
+  const buildMessage = `To create a production build, use ${chalk.cyan(`${buildCommand} build`)}.`;
+  console.log(buildMessage);
   console.log();
 }
 
@@ -199,10 +198,10 @@ function createCompiler({
           keywordsText +
           ' to learn more about each warning.'
       );
-      const eslintDisable = chalk.cyan('// eslint-disable-next-line');
+      const eslintDisableText = chalk.cyan('// eslint-disable-next-line');
       console.log(
         'To ignore, add ' +
-          eslintDisable +
+          eslintDisableText +
           ' to the line before.\n'
       );
     }
@@ -265,13 +264,12 @@ function resolveLoopback(proxy) {
 function onProxyError(proxy) {
   return (err, req, res) => {
     const host = req.headers && req.headers.host;
-    const proxyErrorPrefix = chalk.red('Proxy error:');
+    const errorPrefix = chalk.red('Proxy error:');
     const requestUrl = chalk.cyan(req.url);
     const hostText = chalk.cyan(host);
     const proxyText = chalk.cyan(proxy);
-    
     console.log(
-      proxyErrorPrefix +
+      errorPrefix +
         ' Could not proxy request ' +
         requestUrl +
         ' from ' +
@@ -280,7 +278,6 @@ function onProxyError(proxy) {
         proxyText +
         '.'
     );
-    
     const errorCode = chalk.cyan(err.code);
     console.log(
       'See https://nodejs.org/api/errors.html#errors_common_system_errors for more information (' +
@@ -434,13 +431,12 @@ function choosePort(host, defaultPort) {
       }),
     err => {
       const hostText = chalk.bold(host);
-      const errorMessage = err.message || err;
-      throw new Error(
+      const errorMessage =
         chalk.red(`Could not find an open port at ${hostText}.`) +
-          '\n' +
-          ('Network error message: ' + errorMessage) +
-          '\n'
-      );
+        '\n' +
+        ('Network error message: ' + err.message || err) +
+        '\n';
+      throw new Error(errorMessage);
     }
   );
 }

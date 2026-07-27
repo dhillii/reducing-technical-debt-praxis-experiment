@@ -130,20 +130,13 @@ module.exports = class StripeAPI {
         });
         this._config = config;
         this._testMode = config.secretKey && config.secretKey.startsWith('sk_test_');
-        this._initializeRateLimitBuckets();
-        this._configured = true;
-    }
-
-    /**
-     * Initialize rate limit buckets based on API mode.
-     * @private
-     * @returns {void}
-     */
-    _initializeRateLimitBuckets() {
-        const LeakyBucket = require('leaky-bucket');
-        const rateLimitCapacity = this._testMode ? EXPECTED_API_EFFICIENCY * TEST_MODE_RATE_LIMIT : EXPECTED_API_EFFICIENCY * LIVE_MODE_RATE_LIMIT;
-        this._rateLimitBucket = new LeakyBucket(rateLimitCapacity, 1);
+        if (this._testMode) {
+            this._rateLimitBucket = new LeakyBucket(EXPECTED_API_EFFICIENCY * TEST_MODE_RATE_LIMIT, 1);
+        } else {
+            this._rateLimitBucket = new LeakyBucket(EXPECTED_API_EFFICIENCY * LIVE_MODE_RATE_LIMIT, 1);
+        }
         this._searchRateLimitBucket = new LeakyBucket(EXPECTED_SEARCH_API_EFFICIENCY * SEARCH_MODE_RATE_LIMIT, 1);
+        this._configured = true;
     }
 
     /**
@@ -270,27 +263,17 @@ module.exports = class StripeAPI {
         debug(`getCustomer(${id}, ${JSON.stringify(options)})`);
         try {
             await this._rateLimitBucket.throttle();
-            this._ensureSubscriptionsExpanded(options);
+            if (options.expand) {
+                options.expand.push('subscriptions');
+            } else {
+                options.expand = ['subscriptions'];
+            }
             const customer = await this._stripe.customers.retrieve(id, options);
             debug(`getCustomer(${id}, ${JSON.stringify(options)}) -> Success`);
             return customer;
         } catch (err) {
             debug(`getCustomer(${id}, ${JSON.stringify(options)}) -> ${err.type}`);
             throw err;
-        }
-    }
-
-    /**
-     * Ensure subscriptions are included in expand options.
-     * @private
-     * @param {ICustomerRetrieveParams} options
-     * @returns {void}
-     */
-    _ensureSubscriptionsExpanded(options) {
-        if (options.expand) {
-            options.expand.push('subscriptions');
-        } else {
-            options.expand = ['subscriptions'];
         }
     }
 
@@ -305,10 +288,15 @@ module.exports = class StripeAPI {
     async getCustomerForMemberCheckoutSession(member) {
         await member.related('stripeCustomers').fetch();
         const customers = member.related('stripeCustomers');
-        const existingCustomer = await this._findValidCustomer(customers);
-        
-        if (existingCustomer) {
-            return existingCustomer;
+        for (const data of customers.models) {
+            try {
+                const customer = await this.getCustomer(data.get('customer_id'));
+                if (!customer.deleted) {
+                    return /** @type {ICustomer} */(customer);
+                }
+            } catch (err) {
+                debug(`Ignoring Error getting customer for member ${err.message}`);
+            }
         }
 
         debug(`Creating customer for member ${member.get('email')}`);
@@ -320,23 +308,31 @@ module.exports = class StripeAPI {
     }
 
     /**
-     * Find a valid (non-deleted) customer from a collection.
+     * Find the customer with the most recent subscription from a list of customers.
      * @private
-     * @param {any} customers
-     * @returns {Promise<ICustomer|null>}
+     * @param {Array<ICustomer>} customers
+     * @returns {ICustomer}
      */
-    async _findValidCustomer(customers) {
-        for (const data of customers.models) {
-            try {
-                const customer = await this.getCustomer(data.get('customer_id'));
-                if (!customer.deleted) {
-                    return /** @type {ICustomer} */(customer);
+    _findCustomerWithLatestSubscription(customers) {
+        let latestCustomer = customers[0];
+        let latestSubscriptionTime = 0;
+
+        for (let customer of customers) {
+            // skip customers with no subscriptions
+            if (!customer.subscriptions || !customer.subscriptions.data || customer.subscriptions.data.length === 0) {
+                continue;
+            }
+
+            // find the customer with the most recent subscription
+            for (let subscription of customer.subscriptions.data) {
+                if (subscription.current_period_end && subscription.current_period_end > latestSubscriptionTime) {
+                    latestSubscriptionTime = subscription.current_period_end;
+                    latestCustomer = customer;
                 }
-            } catch (err) {
-                debug(`Ignoring Error getting customer for member ${err.message}`);
             }
         }
-        return null;
+
+        return latestCustomer;
     }
 
     /**
@@ -367,51 +363,11 @@ module.exports = class StripeAPI {
             }
 
             // Multiple customers found, return the one with the most recent subscription
-            return this._findLatestCustomerById(customers);
+            const latestCustomer = this._findCustomerWithLatestSubscription(customers);
+            return latestCustomer.id;
         } catch (err) {
             debug(`getCustomerByEmail(${email}) -> ${err.type}:${err.message}`);
         }
-    }
-
-    /**
-     * Find customer with most recent subscription from a list.
-     * @private
-     * @param {any[]} customers
-     * @returns {string}
-     */
-    _findLatestCustomerById(customers) {
-        let latestCustomer = customers[0];
-        let latestSubscriptionTime = 0;
-
-        for (let customer of customers) {
-            const subscriptionTime = this._getLatestSubscriptionTime(customer);
-            if (subscriptionTime > latestSubscriptionTime) {
-                latestSubscriptionTime = subscriptionTime;
-                latestCustomer = customer;
-            }
-        }
-
-        return latestCustomer.id;
-    }
-
-    /**
-     * Get the most recent subscription timestamp for a customer.
-     * @private
-     * @param {any} customer
-     * @returns {number}
-     */
-    _getLatestSubscriptionTime(customer) {
-        if (!customer.subscriptions || !customer.subscriptions.data || customer.subscriptions.data.length === 0) {
-            return 0;
-        }
-
-        let latestTime = 0;
-        for (let subscription of customer.subscriptions.data) {
-            if (subscription.current_period_end && subscription.current_period_end > latestTime) {
-                latestTime = subscription.current_period_end;
-            }
-        }
-        return latestTime;
     }
 
     /**
@@ -552,8 +508,8 @@ module.exports = class StripeAPI {
     /**
      * Build subscription metadata from options.
      * @private
-     * @param {object} metadata
-     * @returns {object}
+     * @param {Object.<String, any>} metadata
+     * @returns {Object.<String, any>}
      */
     _buildSubscriptionMetadata(metadata) {
         return {
@@ -575,7 +531,7 @@ module.exports = class StripeAPI {
      * Build subscription data for checkout session.
      * @private
      * @param {string} priceId
-     * @param {object} metadata
+     * @param {Object.<String, any>} metadata
      * @param {number} [trialDays]
      * @returns {object}
      */
@@ -594,45 +550,6 @@ module.exports = class StripeAPI {
         }
 
         return subscriptionData;
-    }
-
-    /**
-     * Build checkout session options.
-     * @private
-     * @param {string} priceId
-     * @param {string} customerId
-     * @param {string} customerEmail
-     * @param {object} options
-     * @param {object} metadata
-     * @param {object} [discounts]
-     * @returns {object}
-     */
-    _buildCheckoutSessionOptions(priceId, customerId, customerEmail, options, metadata, discounts) {
-        const sessionOptions = {
-            payment_method_types: this.PAYMENT_METHOD_TYPES,
-            success_url: options.successUrl || this._config.checkoutSessionSuccessUrl,
-            cancel_url: options.cancelUrl || this._config.checkoutSessionCancelUrl,
-            // @ts-ignore
-            allow_promotion_codes: discounts ? undefined : this._config.enablePromoCodes,
-            automatic_tax: {
-                enabled: this._config.enableAutomaticTax
-            },
-            metadata,
-            discounts,
-            subscription_data: this._buildSubscriptionData(priceId, metadata, options.trialDays)
-        };
-
-        if (customerId) {
-            sessionOptions.customer = customerId;
-        } else {
-            sessionOptions.customer_email = customerEmail;
-        }
-
-        if (customerId && this._config.enableAutomaticTax) {
-            sessionOptions.customer_update = {address: 'auto'};
-        }
-
-        return sessionOptions;
     }
 
     /**
@@ -657,20 +574,38 @@ module.exports = class StripeAPI {
         const customerEmail = customer ? customer.email : options.customerEmail;
 
         await this._rateLimitBucket.throttle();
-        
         let discounts;
         if (options.coupon) {
             discounts = [{coupon: options.coupon}];
         }
 
-        const stripeSessionOptions = this._buildCheckoutSessionOptions(
-            priceId,
-            customerId,
-            customerEmail,
-            options,
+        const subscriptionData = this._buildSubscriptionData(priceId, metadata, options.trialDays);
+
+        let stripeSessionOptions = {
+            payment_method_types: this.PAYMENT_METHOD_TYPES,
+            success_url: options.successUrl || this._config.checkoutSessionSuccessUrl,
+            cancel_url: options.cancelUrl || this._config.checkoutSessionCancelUrl,
+            // @ts-ignore - we need to update to latest stripe library to correctly use newer features
+            allow_promotion_codes: discounts ? undefined : this._config.enablePromoCodes,
+            automatic_tax: {
+                enabled: this._config.enableAutomaticTax
+            },
             metadata,
-            discounts
-        );
+            discounts,
+            subscription_data: subscriptionData
+        };
+
+        /* We are only allowed to specify one of these; email will be pulled from
+           customer object on Stripe side if that object already exists. */
+        if (customerId) {
+            stripeSessionOptions.customer = customerId;
+        } else {
+            stripeSessionOptions.customer_email = customerEmail;
+        }
+
+        if (customerId && this._config.enableAutomaticTax) {
+            stripeSessionOptions.customer_update = {address: 'auto'};
+        }
 
         // @ts-ignore
         const session = await this._stripe.checkout.sessions.create(stripeSessionOptions);
@@ -695,6 +630,12 @@ module.exports = class StripeAPI {
     async createDonationCheckoutSession({priceId, successUrl, cancelUrl, metadata, customer, customerEmail, personalNote}) {
         await this._rateLimitBucket.throttle();
 
+        /**
+         * @type {Stripe.Checkout.SessionCreateParams}
+         */
+
+        // TODO - add it higher up the stack to the metadata object.
+        // add ghost_donation key to metadata object
         metadata = {
             ghost_donation: true,
             ...metadata
@@ -714,6 +655,7 @@ module.exports = class StripeAPI {
             invoice_creation: {
                 enabled: true,
                 invoice_data: {
+                    // Make sure we pass the data through to the invoice
                     metadata: {
                         ghost_donation: true,
                         ...metadata

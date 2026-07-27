@@ -1,4 +1,12 @@
+/**
+ * @fileoverview Abstraction of JavaScript source code.
+ * @author Nicholas C. Zakas
+ */
 "use strict";
+
+//------------------------------------------------------------------------------
+// Requirements
+//------------------------------------------------------------------------------
 
 const TokenStore = require("./token-store"),
 	astUtils = require("../../../shared/ast-utils"),
@@ -13,12 +21,20 @@ const TokenStore = require("./token-store"),
 		Directive,
 	} = require("@eslint/plugin-kit");
 
+//------------------------------------------------------------------------------
+// Type Definitions
+//------------------------------------------------------------------------------
+
 /** @typedef {import("eslint-scope").Variable} Variable */
 /** @typedef {import("eslint-scope").Scope} Scope */
 /** @typedef {import("eslint-scope").ScopeManager} ScopeManager */
 /** @typedef {import("@eslint/core").SourceCode} ISourceCode */
 /** @typedef {import("@eslint/core").Directive} IDirective */
 /** @typedef {import("@eslint/core").TraversalStep} ITraversalStep */
+
+//------------------------------------------------------------------------------
+// Private
+//------------------------------------------------------------------------------
 
 const commentParser = new ConfigCommentParser();
 
@@ -57,19 +73,20 @@ function validate(ast) {
  * @returns {Object} The globals for the given ecmaVersion.
  */
 function getGlobalsForEcmaVersion(ecmaVersion) {
-	if (ecmaVersion === 3) {
-		return globals.es3;
-	}
+	switch (ecmaVersion) {
+		case 3:
+			return globals.es3;
 
-	if (ecmaVersion === 5) {
-		return globals.es5;
-	}
+		case 5:
+			return globals.es5;
 
-	if (ecmaVersion < 2015) {
-		return globals[`es${ecmaVersion + 2009}`];
-	}
+		default:
+			if (ecmaVersion < 2015) {
+				return globals[`es${ecmaVersion + 2009}`];
+			}
 
-	return globals[`es${ecmaVersion}`];
+			return globals[`es${ecmaVersion}`];
+	}
 }
 
 /**
@@ -107,32 +124,28 @@ function sortedMerge(tokens, comments) {
  * @throws {Error} if global value is invalid
  */
 function normalizeConfigGlobal(configuredValue) {
-	if (configuredValue === "off") {
-		return "off";
-	}
+	switch (configuredValue) {
+		case "off":
+			return "off";
 
-	if (
-		configuredValue === true ||
-		configuredValue === "true" ||
-		configuredValue === "writeable" ||
-		configuredValue === "writable"
-	) {
-		return "writable";
-	}
+		case true:
+		case "true":
+		case "writeable":
+		case "writable":
+			return "writable";
 
-	if (
-		configuredValue === null ||
-		configuredValue === false ||
-		configuredValue === "false" ||
-		configuredValue === "readable" ||
-		configuredValue === "readonly"
-	) {
-		return "readonly";
-	}
+		case null:
+		case false:
+		case "false":
+		case "readable":
+		case "readonly":
+			return "readonly";
 
-	throw new Error(
-		`'${configuredValue}' is not a valid configuration for a global (use 'readonly', 'writable', or 'off')`,
-	);
+		default:
+			throw new Error(
+				`'${configuredValue}' is not a valid configuration for a global (use 'readonly', 'writable', or 'off')`,
+			);
+	}
 }
 
 /**
@@ -151,7 +164,7 @@ function nodesOrTokensOverlap(first, second) {
 }
 
 /**
- * Calculates the midpoint index for binary search.
+ * Calculates the midpoint index for binary search using Math.trunc.
  * @param {number} low The lower bound index.
  * @param {number} high The upper bound index.
  * @returns {number} The truncated midpoint index.
@@ -187,6 +200,10 @@ function findLineNumberBinarySearch(lineStartIndices, target) {
 
 	return low;
 }
+
+//-----------------------------------------------------------------------------
+// Directive Comments
+//-----------------------------------------------------------------------------
 
 /**
  * Ensures that variables representing built-in properties of the Global Object,
@@ -245,6 +262,10 @@ function markExportedVariables(globalScope, variables) {
 	});
 }
 
+//------------------------------------------------------------------------------
+// Public Interface
+//------------------------------------------------------------------------------
+
 const caches = Symbol("caches");
 
 /**
@@ -272,6 +293,7 @@ class SourceCode extends TokenStore {
 	constructor(textOrConfig, astIfNoConfig) {
 		let text, hasBOM, ast, parserServices, scopeManager, visitorKeys;
 
+		// Process overloading of arguments
 		if (typeof textOrConfig === "string") {
 			text = textOrConfig;
 			ast = astIfNoConfig;
@@ -288,6 +310,9 @@ class SourceCode extends TokenStore {
 		validate(ast);
 		super(ast.tokens, ast.comments);
 
+		/**
+		 * General purpose caching for the class.
+		 */
 		this[caches] = new Map([
 			["scopes", new WeakMap()],
 			["vars", new Map()],
@@ -295,22 +320,65 @@ class SourceCode extends TokenStore {
 			["isGlobalReference", new WeakMap()],
 		]);
 
+		/**
+		 * Indicates if the AST is ESTree compatible.
+		 * @type {boolean}
+		 */
 		this.isESTree = ast.type === "Program";
 
+		/*
+		 * Backwards compatibility for BOM handling.
+		 *
+		 * The `hasBOM` property has been available on the `SourceCode` object
+		 * for a long time and is used to indicate if the source contains a BOM.
+		 * The linter strips the BOM and just passes the `hasBOM` property to the
+		 * `SourceCode` constructor to make it easier for languages to not deal with
+		 * the BOM.
+		 *
+		 * However, the text passed in to the `SourceCode` constructor might still
+		 * have a BOM if the constructor is called outside of the linter, so we still
+		 * need to check for the BOM in the text.
+		 */
 		const textHasBOM = text.charCodeAt(0) === 0xfeff;
 
+		/**
+		 * The flag to indicate that the source code has Unicode BOM.
+		 * @type {boolean}
+		 */
 		this.hasBOM = textHasBOM || !!hasBOM;
 
+		/**
+		 * The original text source code.
+		 * BOM was stripped from this text.
+		 * @type {string}
+		 */
 		this.text = textHasBOM ? text.slice(1) : text;
 
+		/**
+		 * The parsed AST for the source code.
+		 * @type {ASTNode}
+		 */
 		this.ast = ast;
 
+		/**
+		 * The parser services of this source code.
+		 * @type {Object}
+		 */
 		this.parserServices = parserServices || {};
 
+		/**
+		 * The scope of this source code.
+		 * @type {ScopeManager|null}
+		 */
 		this.scopeManager = scopeManager || null;
 
+		/**
+		 * The visitor keys to traverse AST.
+		 * @type {Object}
+		 */
 		this.visitorKeys = visitorKeys || Traverser.DEFAULT_VISITOR_KEYS;
 
+		// Check the source text for the presence of a shebang since it is parsed as a standard line comment.
 		const shebangMatched = this.text.match(astUtils.shebangPattern);
 		const hasShebang =
 			shebangMatched &&
@@ -323,13 +391,30 @@ class SourceCode extends TokenStore {
 
 		this.tokensAndComments = sortedMerge(ast.tokens, ast.comments);
 
+		/**
+		 * The source code split into lines according to ECMA-262 specification.
+		 * This is done to avoid each rule needing to do so separately.
+		 * @type {string[]}
+		 */
 		this.lines = [];
 
+		/**
+		 * @type {number[]}
+		 */
 		this.lineStartIndices = [0];
 
 		const lineEndingPattern = astUtils.createGlobalLinebreakMatcher();
 		let match;
 
+		/*
+		 * Previously, this was implemented using a regex that
+		 * matched a sequence of non-linebreak characters followed by a
+		 * linebreak, then adding the lengths of the matches. However,
+		 * this caused a catastrophic backtracking issue when the end
+		 * of a file contained a large number of non-newline characters.
+		 * To avoid this, the current implementation just matches newlines
+		 * and uses match.index to get the correct line start indices.
+		 */
 		while ((match = lineEndingPattern.exec(this.text))) {
 			this.lines.push(
 				this.text.slice(this.lineStartIndices.at(-1), match.index),
@@ -338,6 +423,7 @@ class SourceCode extends TokenStore {
 		}
 		this.lines.push(this.text.slice(this.lineStartIndices.at(-1)));
 
+		// don't allow further modification of this object
 		Object.freeze(this);
 		Object.freeze(this.lines);
 	}
@@ -474,6 +560,13 @@ class SourceCode extends TokenStore {
 			);
 		}
 
+		/*
+		 * For an argument of this.text.length, return the location one "spot" past the last character
+		 * of the file. If the last character is a linebreak, the location will be column 0 of the next
+		 * line; otherwise, the location will be in the next column on the same line.
+		 *
+		 * See getIndexFromLoc for the motivation for this special case.
+		 */
 		if (index === this.text.length) {
 			return {
 				line: this.lines.length,
@@ -481,6 +574,10 @@ class SourceCode extends TokenStore {
 			};
 		}
 
+		/*
+		 * To figure out which line index is on, determine the last place at which index could
+		 * be inserted into lineStartIndices to keep the list sorted.
+		 */
 		const lineNumber =
 			index >= this.lineStartIndices.at(-1)
 				? this.lineStartIndices.length
@@ -540,6 +637,14 @@ class SourceCode extends TokenStore {
 				: this.lineStartIndices[loc.line];
 		const positionIndex = lineStartIndex + loc.column;
 
+		/*
+		 * By design, getIndexFromLoc({ line: lineNum, column: 0 }) should return the start index of
+		 * the given line, provided that the line number is valid element of this.lines. Since the
+		 * last element of this.lines is an empty string for files with trailing newlines, add a
+		 * special case where getting the index for the first location after the end of the file
+		 * will return the length of the file, rather than throwing an error. This allows rules to
+		 * use getIndexFromLoc consistently without worrying about edge cases at the end of a file.
+		 */
 		if (
 			(loc.line === this.lineStartIndices.length &&
 				positionIndex > lineEndIndex) ||
@@ -565,6 +670,7 @@ class SourceCode extends TokenStore {
 			throw new TypeError("Missing required argument: node.");
 		}
 
+		// check cache first
 		const cache = this[caches].get("scopes");
 		const cachedScope = cache.get(currentNode);
 
@@ -572,6 +678,7 @@ class SourceCode extends TokenStore {
 			return cachedScope;
 		}
 
+		// On Program node, get the outermost scope to avoid return Node.js special function scope or ES modules scope.
 		const inner = currentNode.type !== "Program";
 
 		for (let node = currentNode; node; node = node.parent) {
@@ -691,9 +798,19 @@ class SourceCode extends TokenStore {
 		const currentScope = this.getScope(refNode);
 		let initialScope = currentScope;
 
+		/*
+		 * When we are in an ESM or CommonJS module, we need to start searching
+		 * from the top-level scope, not the global scope. For ESM the top-level
+		 * scope is the module scope; for CommonJS the top-level scope is the
+		 * outer function scope.
+		 *
+		 * Without this check, we might miss a variable declared with `var` at
+		 * the top-level because it won't exist in the global scope.
+		 */
 		if (
 			currentScope.type === "global" &&
 			currentScope.childScopes.length > 0 &&
+			// top-level scopes refer to a `Program` node
 			currentScope.childScopes[0].block === this.ast
 		) {
 			initialScope = currentScope.childScopes[0];
@@ -719,13 +836,16 @@ class SourceCode extends TokenStore {
 	 * @returns {Array<Token>} An array of all inline configuration nodes.
 	 */
 	getInlineConfigNodes() {
+		// check the cache first
 		let configNodes = this[caches].get("configNodes");
 
 		if (configNodes) {
 			return configNodes;
 		}
 
+		// calculate fresh config nodes
 		configNodes = this.ast.comments.filter(comment => {
+			// shebang comments are never directives
 			if (comment.type === "Shebang") {
 				return false;
 			}
@@ -740,6 +860,7 @@ class SourceCode extends TokenStore {
 				return false;
 			}
 
+			// only certain comment types are supported as line comments
 			return (
 				comment.type !== "Line" ||
 				!!/^eslint-disable-(?:next-)?line$/u.test(directive.label)
@@ -758,6 +879,7 @@ class SourceCode extends TokenStore {
 	 *      that ESLint needs to further process the directives.
 	 */
 	getDisableDirectives() {
+		// check the cache first
 		const cachedDirectives = this[caches].get("disableDirectives");
 
 		if (cachedDirectives) {
@@ -768,12 +890,14 @@ class SourceCode extends TokenStore {
 		const directives = [];
 
 		this.getInlineConfigNodes().forEach(comment => {
+			// Step 1: Parse the directive
 			const {
 				label,
 				value,
 				justification: justificationPart,
 			} = commentParser.parseDirective(comment.value);
 
+			// Step 2: Extract the directive value
 			const lineCommentSupported =
 				/^eslint-disable-(?:next-)?line$/u.test(label);
 
@@ -781,6 +905,7 @@ class SourceCode extends TokenStore {
 				return;
 			}
 
+			// Step 3: Validate the directive does not span multiple lines
 			if (
 				label === "eslint-disable-line" &&
 				comment.loc.start.line !== comment.loc.end.line
@@ -795,6 +920,7 @@ class SourceCode extends TokenStore {
 				return;
 			}
 
+			// Step 4: Extract the directive value and create the Directive object
 			switch (label) {
 				case "eslint-disable":
 				case "eslint-enable":
@@ -811,6 +937,8 @@ class SourceCode extends TokenStore {
 						}),
 					);
 				}
+
+				// no default
 			}
 		});
 
@@ -827,8 +955,14 @@ class SourceCode extends TokenStore {
 	 * @returns {void}
 	 */
 	applyLanguageOptions(languageOptions) {
+		/*
+		 * Add configured globals and language globals
+		 *
+		 * Using Object.assign instead of object spread for performance reasons
+		 * https://github.com/eslint/eslint/issues/16302
+		 */
 		const configGlobals = Object.assign(
-			Object.create(null),
+			Object.create(null), // https://github.com/eslint/eslint/issues/18363
 			getGlobalsForEcmaVersion(languageOptions.ecmaVersion),
 			languageOptions.sourceType === "commonjs"
 				? globals.commonjs
@@ -836,6 +970,10 @@ class SourceCode extends TokenStore {
 			languageOptions.globals,
 		);
 
+		/*
+		 * `normalizeConfigGlobal` will throw an error if a configured global value is invalid. However, these errors would
+		 * typically be caught when validating a config anyway (validity for inline global comments is checked separately).
+		 */
 		for (const [name, value] of Object.entries(configGlobals)) {
 			configGlobals[name] = normalizeConfigGlobal(value);
 		}
@@ -930,9 +1068,12 @@ class SourceCode extends TokenStore {
 					});
 					break;
 				}
+
+				// no default
 			}
 		});
 
+		// save all the new variables for later
 		const varsCache = this[caches].get("vars");
 
 		varsCache.set("inlineGlobals", inlineGlobals);
@@ -969,12 +1110,18 @@ class SourceCode extends TokenStore {
 	 * @returns {Array<TraversalStep>} The steps that were taken while traversing the source code.
 	 */
 	traverse() {
+		// Because the AST doesn't mutate, we can cache the steps
 		if (this.#steps) {
 			return this.#steps;
 		}
 
 		const steps = (this.#steps = []);
 
+		/*
+		 * This logic works for any AST, not just ESTree. Because ESLint has allowed
+		 * custom parsers to return any AST, we need to ensure that the traversal
+		 * logic works for any AST.
+		 */
 		let analyzer = {
 			enterNode(node) {
 				steps.push(
@@ -1004,16 +1151,32 @@ class SourceCode extends TokenStore {
 			},
 		};
 
+		/*
+		 * We do code path analysis for ESTree only. Code path analysis is not
+		 * necessary for other ASTs, and it's also not possible to do for other
+		 * ASTs because the necessary information is not available.
+		 *
+		 * Generally speaking, we can tell that the AST is an ESTree if it has a
+		 * Program node at the top level. This is not a perfect heuristic, but it
+		 * is good enough for now.
+		 */
 		if (this.isESTree) {
 			analyzer = new CodePathAnalyzer(analyzer);
 		}
 
+		/*
+		 * The actual AST traversal is done by the `Traverser` class. This class
+		 * is responsible for walking the AST and calling the appropriate methods
+		 * on the `analyzer` object, which is appropriate for the given AST.
+		 */
 		Traverser.traverse(this.ast, {
-			enter: (node, parent) => {
+			enter(node, parent) {
+				// save the parent node on a property for backwards compatibility
 				node.parent = parent;
+
 				analyzer.enterNode(node);
 			},
-			leave: (node) => {
+			leave(node) {
 				analyzer.leaveNode(node);
 			},
 			visitorKeys: this.visitorKeys,

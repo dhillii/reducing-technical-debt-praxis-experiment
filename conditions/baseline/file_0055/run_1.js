@@ -94,9 +94,8 @@ function printInstructions(appName, urls, useYarn) {
   console.log();
   console.log('Note that the development build is not optimized.');
   const buildCommand = useYarn ? 'yarn' : 'npm run';
-  console.log(
-    `To create a production build, use ${chalk.cyan(`${buildCommand} build`)}.`
-  );
+  const buildMessage = `To create a production build, use ${chalk.cyan(`${buildCommand} build`)}.`;
+  console.log(buildMessage);
   console.log();
 }
 
@@ -199,10 +198,10 @@ function createCompiler({
           keywordsText +
           ' to learn more about each warning.'
       );
-      const eslintDisable = chalk.cyan('// eslint-disable-next-line');
+      const eslintDisableText = chalk.cyan('// eslint-disable-next-line');
       console.log(
         'To ignore, add ' +
-          eslintDisable +
+          eslintDisableText +
           ' to the line before.\n'
       );
     }
@@ -267,20 +266,19 @@ function onProxyError(proxy) {
     const host = req.headers && req.headers.host;
     const proxyErrorPrefix = chalk.red('Proxy error:');
     const requestUrl = chalk.cyan(req.url);
-    const hostText = chalk.cyan(host);
-    const proxyText = chalk.cyan(proxy);
-    const errorCode = chalk.cyan(err.code);
-    
+    const hostCyan = chalk.cyan(host);
+    const proxyCyan = chalk.cyan(proxy);
     console.log(
       proxyErrorPrefix +
         ' Could not proxy request ' +
         requestUrl +
         ' from ' +
-        hostText +
+        hostCyan +
         ' to ' +
-        proxyText +
+        proxyCyan +
         '.'
     );
+    const errorCode = chalk.cyan(err.code);
     console.log(
       'See https://nodejs.org/api/errors.html#errors_common_system_errors for more information (' +
         errorCode +
@@ -432,12 +430,13 @@ function choosePort(host, defaultPort) {
         }
       }),
     err => {
-      const hostText = chalk.bold(host);
-      const networkError = err.message || err;
+      const hostBold = chalk.bold(host);
+      const errorMessage = chalk.red(`Could not find an open port at ${hostBold}.`);
+      const networkError = 'Network error message: ' + (err.message || err);
       throw new Error(
-        chalk.red(`Could not find an open port at ${hostText}.`) +
+        errorMessage +
           '\n' +
-          ('Network error message: ' + networkError) +
+          networkError +
           '\n'
       );
     }

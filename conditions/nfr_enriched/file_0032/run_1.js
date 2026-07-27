@@ -12,6 +12,7 @@ import {inject as service} from '@ember/service';
 
 const BLANK_LEXICAL = '{"root":{"children":[{"children":[],"direction":null,"format":"","indent":0,"type":"paragraph","version":1}],"direction":null,"format":"","indent":0,"type":"root","version":1}}';
 
+// ember-cli-shims doesn't export these so we must get them manually
 const {Comparable} = Ember;
 
 function statusCompare(postA, postB) {
@@ -22,11 +23,11 @@ function statusCompare(postA, postB) {
         return 0;
     }
 
-    if (!status1) {
+    if (!status1 && status2) {
         return -1;
     }
 
-    if (!status2) {
+    if (!status2 && status1) {
         return 1;
     }
 
@@ -49,11 +50,11 @@ function publishedAtCompare(postA, postB) {
         return 0;
     }
 
-    if (!published1) {
+    if (!published1 && published2) {
         return -1;
     }
 
-    if (!published2) {
+    if (!published2 && published1) {
         return 1;
     }
 
@@ -251,11 +252,16 @@ export default Model.extend(Comparable, ValidationEngine, {
             return 'status:-free';
         }
         if (this.visibility === 'tiers' && this.tiers) {
-            return this.tiers.map((tier) => {
-                return `tier:${tier.slug}`;
-            }).join(',');
+            return this._getTiersVisibilitySegment();
         }
         return this.visibility;
+    },
+
+    _getTiersVisibilitySegment() {
+        let filter = this.tiers.map((tier) => {
+            return `tier:${tier.slug}`;
+        }).join(',');
+        return filter;
     },
 
     fullRecipientFilter: computed('newsletter.recipientFilter', 'emailSegment', function () {
@@ -313,13 +319,13 @@ export default Model.extend(Comparable, ValidationEngine, {
         }
 
         if (publishedAtBlogDate && publishedAtBlogTime) {
-            return this._getPublishedAtBlogTZFromStrings(publishedAtUTC, publishedAtBlogDate, publishedAtBlogTime, blogTimezone);
+            return this._getPublishedAtBlogTZFromStrings(publishedAtBlogDate, publishedAtBlogTime, publishedAtUTC, blogTimezone);
         }
 
         return moment.tz(this.publishedAtUTC, blogTimezone);
     },
 
-    _getPublishedAtBlogTZFromStrings(publishedAtUTC, publishedAtBlogDate, publishedAtBlogTime, blogTimezone) {
+    _getPublishedAtBlogTZFromStrings(publishedAtBlogDate, publishedAtBlogTime, publishedAtUTC, blogTimezone) {
         let publishedAtBlog = moment.tz(`${publishedAtBlogDate} ${publishedAtBlogTime}`, blogTimezone);
 
         if (publishedAtUTC && publishedAtBlog.diff(publishedAtUTC.clone().startOf('minutes')) === 0) {

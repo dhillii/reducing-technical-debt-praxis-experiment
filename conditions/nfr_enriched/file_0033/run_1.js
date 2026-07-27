@@ -223,92 +223,6 @@ export function isAcceptedResponse(errorOrStatus) {
     return false;
 }
 
-// Handles version checking and upgrade status
-function checkVersionMismatch(headers, feature) {
-    if (headers['content-version']) {
-        const contentVersion = semverCoerce(headers['content-version']);
-        const appVersion = semverCoerce(config.APP.version);
-
-        if (semverLt(appVersion, contentVersion) && !feature.inAdminForward) {
-            return true;
-        }
-    }
-    return false;
-}
-
-// Handles session invalidation for auth errors
-function handleAuthError(session, isAuthenticated, isGhostRequest, isUnauthorized, isForbidden, payload) {
-    if (isAuthenticated && isGhostRequest && (isUnauthorized || (isForbidden && payload.errors?.[0].message === 'Authorization failed'))) {
-        return true;
-    }
-    return false;
-}
-
-// Maps error status/payload to appropriate error class
-function createErrorResponse(status, headers, payload, service) {
-    if (service.isTwoFactorTokenRequiredError(status, headers, payload)) {
-        return new TwoFactorTokenRequiredError(payload);
-    }
-    if (service.isVersionMismatchError(status, headers, payload)) {
-        return new VersionMismatchError(payload);
-    }
-    if (service.isServerUnreachableError(status, headers, payload)) {
-        return new ServerUnreachableError(payload);
-    }
-    if (service.isRequestEntityTooLargeError(status, headers, payload)) {
-        return new RequestEntityTooLargeError(payload);
-    }
-    if (service.isUnsupportedMediaTypeError(status, headers, payload)) {
-        return new UnsupportedMediaTypeError(payload);
-    }
-    if (service.isMaintenanceError(status, headers, payload)) {
-        return new MaintenanceError(payload);
-    }
-    if (service.isThemeValidationError(status, headers, payload)) {
-        return new ThemeValidationError(payload);
-    }
-    if (service.isHostLimitError(status, headers, payload)) {
-        return new HostLimitError(payload);
-    }
-    if (service.isEmailError(status, headers, payload)) {
-        return new EmailError(payload);
-    }
-    if (service.isAcceptedResponse(status)) {
-        return new AcceptedResponse(payload);
-    }
-    return null;
-}
-
-// Sets Sentry context for error tracking
-function setSentryContext(request, status) {
-    Sentry.setContext('ajax', {
-        url: request.url,
-        method: request.method,
-        status
-    });
-    Sentry.setTag('ajax_status', status);
-    Sentry.setTag('ajax_url', request.url.slice(0, 200));
-    Sentry.setTag('ajax_method', request.method);
-}
-
-// Builds retry error data for logging
-function buildRetryErrorData(errorName, attempts, startTime, responseServer) {
-    const data = {
-        errorName,
-        attempts,
-        totalSeconds: moment().diff(moment(startTime), 'seconds')
-    };
-    if (responseServer) {
-        data.server = responseServer;
-    }
-    return data;
-}
-
-// Determines if error should be retried
-function shouldRetryError(error, retryErrorChecks, retryingMs, maxRetryingMs) {
-    return retryErrorChecks.some(check => check(error.response)) && retryingMs <= maxRetryingMs;
-}
-
 @classic
 class ajaxService extends AjaxService {
     @service session;
@@ -377,6 +291,18 @@ class ajaxService extends AjaxService {
         const retryPeriods = [500, 1000];
         const retryErrorChecks = [this.isServerUnreachableError, this.isMaintenanceError];
 
+        const getErrorData = () => {
+            const data = {
+                errorName,
+                attempts,
+                totalSeconds: moment().diff(moment(startTime), 'seconds')
+            };
+            if (this._responseServer) {
+                data.server = this._responseServer;
+            }
+            return data;
+        };
+
         const makeRequest = super._makeRequest.bind(this);
 
         while (retryingMs <= maxRetryingMs && !success) {
@@ -385,8 +311,7 @@ class ajaxService extends AjaxService {
                 success = true;
 
                 if (attempts !== 0 && this.config.sentry_dsn) {
-                    const errorData = buildRetryErrorData(errorName, attempts, startTime, this._responseServer);
-                    Sentry.captureMessage('Request took multiple attempts', {extra: errorData});
+                    Sentry.captureMessage('Request took multiple attempts', {extra: getErrorData()});
                 }
 
                 return result;
@@ -400,12 +325,11 @@ class ajaxService extends AjaxService {
                     throw error;
                 }
 
-                if (shouldRetryError(error, retryErrorChecks, retryingMs, maxRetryingMs)) {
+                if (retryErrorChecks.some(check => check(error.response)) && retryingMs <= maxRetryingMs) {
                     await timeout(retryPeriods[attempts] || retryPeriods[retryPeriods.length - 1]);
                     attempts += 1;
                 } else if (attempts > 0 && this.config.sentry_dsn) {
-                    const errorData = buildRetryErrorData(errorName, attempts, startTime, this._responseServer);
-                    Sentry.captureMessage('Request failed after multiple attempts', {extra: errorData});
+                    Sentry.captureMessage('Request failed after multiple attempts', {extra: getErrorData()});
                     throw error;
                 } else {
                     throw error;
@@ -414,32 +338,92 @@ class ajaxService extends AjaxService {
         }
     }
 
-    handleResponse(status, headers, payload, request) {
-        setSentryContext(request, status);
+    // Set Sentry context and tags for error tracking
+    _setSentryContext(status, headers, request) {
+        Sentry.setContext('ajax', {
+            url: request.url,
+            method: request.method,
+            status
+        });
+        Sentry.setTag('ajax_status', status);
+        Sentry.setTag('ajax_url', request.url.slice(0, 200));
+        Sentry.setTag('ajax_method', request.method);
+    }
 
-        if (checkVersionMismatch(headers, this.feature)) {
-            this.upgradeStatus.refreshRequired = true;
+    // Check and handle version mismatch based on content-version header
+    _handleVersionMismatch(headers) {
+        if (headers['content-version']) {
+            const contentVersion = semverCoerce(headers['content-version']);
+            const appVersion = semverCoerce(config.APP.version);
+
+            if (semverLt(appVersion, contentVersion) && !this.feature.inAdminForward) {
+                this.upgradeStatus.refreshRequired = true;
+            }
         }
+    }
 
-        const errorResponse = createErrorResponse(status, headers, payload, this);
-        if (errorResponse) {
-            return errorResponse;
+    // Check for custom error types and return appropriate error instances
+    _checkCustomErrors(status, headers, payload) {
+        if (this.isTwoFactorTokenRequiredError(status, headers, payload)) {
+            return new TwoFactorTokenRequiredError(payload);
         }
+        if (this.isVersionMismatchError(status, headers, payload)) {
+            return new VersionMismatchError(payload);
+        }
+        if (this.isServerUnreachableError(status, headers, payload)) {
+            return new ServerUnreachableError(payload);
+        }
+        if (this.isRequestEntityTooLargeError(status, headers, payload)) {
+            return new RequestEntityTooLargeError(payload);
+        }
+        if (this.isUnsupportedMediaTypeError(status, headers, payload)) {
+            return new UnsupportedMediaTypeError(payload);
+        }
+        if (this.isMaintenanceError(status, headers, payload)) {
+            return new MaintenanceError(payload);
+        }
+        if (this.isThemeValidationError(status, headers, payload)) {
+            return new ThemeValidationError(payload);
+        }
+        if (this.isHostLimitError(status, headers, payload)) {
+            return new HostLimitError(payload);
+        }
+        if (this.isEmailError(status, headers, payload)) {
+            return new EmailError(payload);
+        }
+        if (this.isAcceptedResponse(status)) {
+            return new AcceptedResponse(payload);
+        }
+        return null;
+    }
 
+    // Handle session invalidation for unauthorized/forbidden requests
+    _handleSessionInvalidation(status, headers, payload, request) {
         const isGhostRequest = GHOST_REQUEST.test(request.url);
         const isAuthenticated = this.get('session.isAuthenticated');
         const isUnauthorized = this.isUnauthorizedError(status, headers, payload);
         const isForbidden = isForbiddenError(status, headers, payload);
 
-        // used when reporting connection errors, helps distinguish CDN
         if (isGhostRequest) {
             this._responseServer = headers.server;
         }
 
-        if (handleAuthError(this.session, isAuthenticated, isGhostRequest, isUnauthorized, isForbidden, payload)) {
+        if (isAuthenticated && isGhostRequest && (isUnauthorized || (isForbidden && payload.errors?.[0].message === 'Authorization failed'))) {
             this.skipSessionDeletion = true;
             this.session.invalidate();
         }
+    }
+
+    handleResponse(status, headers, payload, request) {
+        this._setSentryContext(status, headers, request);
+        this._handleVersionMismatch(headers);
+
+        const customError = this._checkCustomErrors(status, headers, payload);
+        if (customError) {
+            return customError;
+        }
+
+        this._handleSessionInvalidation(status, headers, payload, request);
 
         return super.handleResponse(...arguments);
     }

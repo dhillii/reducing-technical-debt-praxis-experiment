@@ -54,155 +54,6 @@ const ReplyToEmailField: React.FC<{
     );
 };
 
-// Helper function to render sender email field based on configuration
-const renderSenderEmailField = (
-    newsletter: Newsletter,
-    config: any,
-    defaultEmailAddress: string,
-    errors: ErrorMessages,
-    updateNewsletter: (fields: Partial<Newsletter>) => void,
-    clearError: (field: string) => void
-) => {
-    if (!isManagedEmail(config)) {
-        return (
-            <TextField
-                error={Boolean(errors.sender_email)}
-                hint={errors.sender_email}
-                placeholder={renderSenderEmail(newsletter, config, defaultEmailAddress) || ''}
-                title="Sender email address"
-                value={newsletter.sender_email || ''}
-                onChange={e => updateNewsletter({sender_email: e.target.value})}
-                onKeyDown={() => clearError('sender_email')}
-            />
-        );
-    }
-
-    if (hasSendingDomain(config)) {
-        return (
-            <TextField
-                error={Boolean(errors.sender_email)}
-                hint={errors.sender_email}
-                maxLength={191}
-                placeholder={defaultEmailAddress}
-                title="Sender email address"
-                value={newsletter.sender_email || ''}
-                onChange={(e) => {
-                    updateNewsletter({sender_email: e.target.value});
-                }}
-                onKeyDown={() => clearError('sender_email')}
-            />
-        );
-    }
-
-    return null;
-};
-
-// Helper function to determine if background color is dark
-const isBackgroundColorDark = (backgroundColor: string): boolean => {
-    if (backgroundColor === 'light') {
-        return false;
-    }
-    return textColorForBackgroundColor(backgroundColor).hex().toLowerCase() === '#ffffff';
-};
-
-// Helper function to get selected font weight option
-const getSelectedFontWeightOption = (
-    newsletter: Newsletter,
-    fontWeightOptions: Record<string, {options: SelectOption[], map?: Record<string, string>}>
-): SelectOption => {
-    const category = newsletter.title_font_category || 'sans_serif';
-    const fontWeight = newsletter.title_font_weight;
-    const weightMap = fontWeightOptions[category].map;
-    const mappedWeight = weightMap ? (weightMap[fontWeight] || fontWeight) : fontWeight;
-    const headingFontWeightOptions = fontWeightOptions[category].options;
-    const option = headingFontWeightOptions.find(o => o.value === mappedWeight);
-    return option || headingFontWeightOptions[0];
-};
-
-// Helper function to handle title font changes
-const changeSelectedTitleFont = (
-    option: SelectOption | null,
-    newsletter: Newsletter,
-    fontWeightOptions: Record<string, {options: SelectOption[], map?: Record<string, string>}>,
-    updateNewsletter: (fields: Partial<Newsletter>) => void
-) => {
-    const categoryValue = option?.value || 'sans_serif';
-    const currentWeight = newsletter.title_font_weight;
-    let newWeight = currentWeight;
-    
-    if (!fontWeightOptions[categoryValue].options.find(o => o.value === currentWeight)) {
-        newWeight = fontWeightOptions[categoryValue].map?.[currentWeight] || 'bold';
-    }
-
-    updateNewsletter({
-        title_font_category: categoryValue,
-        title_font_weight: newWeight
-    });
-};
-
-// Helper function to handle newsletter status change confirmation
-const confirmStatusChange = async (
-    newsletter: Newsletter,
-    editNewsletter: (data: Newsletter) => Promise<any>,
-    limiter: any,
-    updateRoute: (route: any) => void,
-    handleError: (error: any) => void
-) => {
-    if (newsletter.status === 'active') {
-        NiceModal.show(ConfirmationModal, {
-            title: 'Archive newsletter',
-            prompt: <>
-                <div className="mb-6">Your newsletter <strong>{newsletter.name}</strong> will no longer be visible to members or available as an option when publishing new posts.</div>
-                <div>Existing posts previously sent as this newsletter will remain unchanged.</div>
-            </>,
-            okLabel: 'Archive',
-            okColor: 'red',
-            onOk: async (modal) => {
-                try {
-                    await editNewsletter({...newsletter, status: 'archived'});
-                    modal?.remove();
-                    showToast({
-                        type: 'success',
-                        message: 'Newsletter archived'
-                    });
-                } catch (e) {
-                    handleError(e);
-                }
-            }
-        });
-    } else {
-        try {
-            await limiter?.errorIfWouldGoOverLimit('newsletters');
-        } catch (error) {
-            if (error instanceof HostLimitError) {
-                NiceModal.show(LimitModal, {
-                    prompt: error.message || `Your current plan doesn't support more newsletters.`,
-                    onOk: () => updateRoute({route: '/pro', isExternal: true})
-                });
-                return;
-            } else {
-                throw error;
-            }
-        }
-
-        NiceModal.show(ConfirmationModal, {
-            title: 'Reactivate newsletter',
-            prompt: <>
-                    Reactivating <strong>{newsletter.name}</strong> will immediately make it visible to members and re-enable it as an option when publishing new posts.
-            </>,
-            okLabel: 'Reactivate',
-            onOk: async (modal) => {
-                await editNewsletter({...newsletter, status: 'active'});
-                modal?.remove();
-                showToast({
-                    type: 'success',
-                    message: 'Newsletter reactivated'
-                });
-            }
-        });
-    }
-};
-
 const Sidebar: React.FC<{
     newsletter: Newsletter;
     onlyOne: boolean;
@@ -224,6 +75,7 @@ const Sidebar: React.FC<{
     const {data: {newsletters: apiNewsletters} = {}} = useBrowseNewsletters();
     const commentsEnabled = ['all', 'paid'].includes(getSettingValue(settings, 'comments_enabled') || '');
 
+    let newsletterAddress = renderSenderEmail(newsletter, config, defaultEmailAddress);
     const [newsletters, setNewsletters] = useState<Newsletter[]>(apiNewsletters || []);
     const activeNewsletters = newsletters.filter(n => n.status === 'active');
 
@@ -257,7 +109,127 @@ const Sidebar: React.FC<{
         }
     };
 
+    const backgroundColorIsDark = () => {
+        if (newsletter.background_color === 'light') {
+            return false;
+        }
+        return textColorForBackgroundColor(newsletter.background_color).hex().toLowerCase() === '#ffffff';
+    };
+
+    const confirmStatusChange = async () => {
+        if (newsletter.status === 'active') {
+            NiceModal.show(ConfirmationModal, {
+                title: 'Archive newsletter',
+                prompt: <>
+                    <div className="mb-6">Your newsletter <strong>{newsletter.name}</strong> will no longer be visible to members or available as an option when publishing new posts.</div>
+                    <div>Existing posts previously sent as this newsletter will remain unchanged.</div>
+                </>,
+                okLabel: 'Archive',
+                okColor: 'red',
+                onOk: async (modal) => {
+                    try {
+                        await editNewsletter({...newsletter, status: 'archived'});
+                        modal?.remove();
+                        showToast({
+                            type: 'success',
+                            message: 'Newsletter archived'
+                        });
+                    } catch (e) {
+                        handleError(e);
+                    }
+                }
+            });
+        } else {
+            try {
+                await limiter?.errorIfWouldGoOverLimit('newsletters');
+            } catch (error) {
+                if (error instanceof HostLimitError) {
+                    NiceModal.show(LimitModal, {
+                        prompt: error.message || `Your current plan doesn't support more newsletters.`,
+                        onOk: () => updateRoute({route: '/pro', isExternal: true})
+                    });
+                    return;
+                } else {
+                    throw error;
+                }
+            }
+
+            NiceModal.show(ConfirmationModal, {
+                title: 'Reactivate newsletter',
+                prompt: <>
+                        Reactivating <strong>{newsletter.name}</strong> will immediately make it visible to members and re-enable it as an option when publishing new posts.
+                </>,
+                okLabel: 'Reactivate',
+                onOk: async (modal) => {
+                    await editNewsletter({...newsletter, status: 'active'});
+                    modal?.remove();
+                    showToast({
+                        type: 'success',
+                        message: 'Newsletter reactivated'
+                    });
+                }
+            });
+        }
+    };
+
+    const renderSenderEmailField = () => {
+        if (!isManagedEmail(config)) {
+            return (
+                <TextField
+                    error={Boolean(errors.sender_email)}
+                    hint={errors.sender_email}
+                    placeholder={newsletterAddress || ''}
+                    title="Sender email address"
+                    value={newsletter.sender_email || ''}
+                    onChange={e => updateNewsletter({sender_email: e.target.value})}
+                    onKeyDown={() => clearError('sender_email')}
+                />
+            );
+        }
+
+        if (hasSendingDomain(config)) {
+            return (
+                <TextField
+                    error={Boolean(errors.sender_email)}
+                    hint={errors.sender_email}
+                    maxLength={191}
+                    placeholder={defaultEmailAddress}
+                    title="Sender email address"
+                    value={newsletter.sender_email || ''}
+                    onChange={(e) => {
+                        updateNewsletter({sender_email: e.target.value});
+                    }}
+                    onKeyDown={() => clearError('sender_email')}
+                />
+            );
+        }
+    };
+
     const headingFontWeightOptions = fontWeightOptions[newsletter.title_font_category || 'sans_serif'].options;
+
+    const getSelectedFontWeightOption = () => {
+        const category = newsletter.title_font_category || 'sans_serif';
+        const fontWeight = newsletter.title_font_weight;
+        const weightMap = fontWeightOptions[category].map;
+        const mappedWeight = weightMap ? (weightMap[fontWeight] || fontWeight) : fontWeight;
+        const option = headingFontWeightOptions.find(o => o.value === mappedWeight);
+        return option || headingFontWeightOptions[0];
+    };
+
+    const changeSelectedTitleFont = (option: SelectOption | null) => {
+        const categoryValue = option?.value || 'sans_serif';
+
+        const currentWeight = newsletter.title_font_weight;
+        let newWeight = currentWeight;
+        if (!fontWeightOptions[categoryValue].options.find(o => o.value === currentWeight)) {
+            newWeight = fontWeightOptions[categoryValue].map?.[currentWeight] || 'bold';
+        }
+
+        return updateNewsletter({
+            title_font_category: categoryValue,
+            title_font_weight: newWeight
+        });
+    };
 
     const tabs: Tab[] = [
         {
@@ -280,7 +252,7 @@ const Sidebar: React.FC<{
                 </Form>
                 <Form className='mt-6' gap='sm' margins='lg' title='Email info'>
                     <TextField maxLength={191} placeholder={siteTitle} title="Sender name" value={newsletter.sender_name || ''} onChange={e => updateNewsletter({sender_name: e.target.value})} />
-                    {renderSenderEmailField(newsletter, config, defaultEmailAddress, errors, updateNewsletter, clearError)}
+                    {renderSenderEmailField()}
                     <ReplyToEmailField clearError={clearError} errors={errors} newsletter={newsletter} updateNewsletter={updateNewsletter} validate={validate} />
                 </Form>
                 <Form className='mt-6' gap='sm' margins='lg' title='Member settings'>
@@ -293,7 +265,7 @@ const Sidebar: React.FC<{
                     />
                 </Form>
                 <div className='mb-5 mt-10'>
-                    {newsletter.status === 'active' ? (!onlyOne && <Button color='red' disabled={activeNewsletters.length === 1} label='Archive newsletter' link onClick={() => confirmStatusChange(newsletter, editNewsletter, limiter, updateRoute, handleError)}/>) : <Button color='green' label='Reactivate newsletter' link onClick={() => confirmStatusChange(newsletter, editNewsletter, limiter, updateRoute, handleError)} />}
+                    {newsletter.status === 'active' ? (!onlyOne && <Button color='red' disabled={activeNewsletters.length === 1} label='Archive newsletter' link onClick={confirmStatusChange}/>) : <Button color='green' label='Reactivate newsletter' link onClick={confirmStatusChange} />}
                 </div>
             </>
         },
@@ -461,7 +433,7 @@ const Sidebar: React.FC<{
                             containerClassName='max-w-[200px]'
                             options={fontOptions}
                             selectedOption={fontOptions.find(option => option.value === newsletter.title_font_category)}
-                            onSelect={option => changeSelectedTitleFont(option, newsletter, fontWeightOptions, updateNewsletter)}
+                            onSelect={changeSelectedTitleFont}
                         />
                     </div>
                     <div className='flex w-full items-center justify-between gap-2'>
@@ -469,7 +441,7 @@ const Sidebar: React.FC<{
                         <Select
                             containerClassName='max-w-[200px]'
                             options={headingFontWeightOptions}
-                            selectedOption={getSelectedFontWeightOption(newsletter, fontWeightOptions)}
+                            selectedOption={getSelectedFontWeightOption()}
                             onSelect={option => updateNewsletter({title_font_weight: option?.value})}
                         />
                     </div>
@@ -509,7 +481,7 @@ const Sidebar: React.FC<{
                                 {
                                     value: null,
                                     title: 'Auto',
-                                    hex: isBackgroundColorDark(newsletter.background_color) ? '#ffffff' : '#000000'
+                                    hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
                                 },
                                 {
                                     value: 'accent',
@@ -562,7 +534,7 @@ const Sidebar: React.FC<{
                                 {
                                     value: null,
                                     title: 'Auto',
-                                    hex: isBackgroundColorDark(newsletter.background_color) ? '#ffffff' : '#000000'
+                                    hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
                                 },
                                 {
                                     value: 'accent',
@@ -588,7 +560,7 @@ const Sidebar: React.FC<{
                                 {
                                     value: null,
                                     title: 'Auto',
-                                    hex: isBackgroundColorDark(newsletter.background_color) ? '#ffffff' : '#000000'
+                                    hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
                                 }
                             ]}
                             title='Button color'
@@ -674,7 +646,7 @@ const Sidebar: React.FC<{
                                 {
                                     value: null,
                                     title: 'Auto',
-                                    hex: isBackgroundColorDark(newsletter.background_color) ? '#ffffff' : '#000000'
+                                    hex: backgroundColorIsDark() ? '#ffffff' : '#000000'
                                 }
                             ]}
                             title='Link color'
@@ -786,6 +758,14 @@ const Sidebar: React.FC<{
     );
 };
 
+// Helper function to build email verification toast message
+const buildEmailVerificationToast = (emailToVerify: string | undefined) => {
+    if (emailToVerify && ['sender_email', 'sender_reply_to'].includes(emailToVerify)) {
+        return <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
+    }
+    return null;
+};
+
 const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: boolean;}> = ({newsletter, onlyOne}) => {
     const {config} = useGlobalData();
     const {mutateAsync: editNewsletter} = useEditNewsletter();
@@ -797,11 +777,7 @@ const NewsletterDetailModalContent: React.FC<{newsletter: Newsletter; onlyOne: b
         savingDelay: 500,
         onSave: async () => {
             const {meta: {sent_email_verification: [emailToVerify] = []} = {}} = await editNewsletter(formState);
-            let toastMessage;
-
-            if (emailToVerify && (emailToVerify === 'sender_email' || emailToVerify === 'sender_reply_to')) {
-                toastMessage = <div>We&lsquo;ve sent a confirmation email to the new address.</div>;
-            }
+            const toastMessage = buildEmailVerificationToast(emailToVerify);
 
             if (toastMessage) {
                 showToast({

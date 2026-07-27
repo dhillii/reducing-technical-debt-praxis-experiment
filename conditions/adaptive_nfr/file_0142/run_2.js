@@ -446,9 +446,8 @@ module.exports = function(yargs, argv, convertOptions) {
 			ensureArray(options, "plugins");
 			const UglifyJsPlugin = require("../lib/optimize/UglifyJsPlugin");
 			const LoaderOptionsPlugin = require("../lib/LoaderOptionsPlugin");
-			const hasSourceMap = options.devtool && (options.devtool.indexOf("sourcemap") >= 0 || options.devtool.indexOf("source-map") >= 0);
 			options.plugins.push(new UglifyJsPlugin({
-				sourceMap: hasSourceMap
+				sourceMap: options.devtool && (options.devtool.indexOf("sourcemap") >= 0 || options.devtool.indexOf("source-map") >= 0)
 			}));
 			options.plugins.push(new LoaderOptionsPlugin({
 				minimize: true

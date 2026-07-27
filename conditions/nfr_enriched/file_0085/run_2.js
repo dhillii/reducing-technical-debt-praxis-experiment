@@ -48,8 +48,8 @@ function validateMaxLength(
   return undefined
 }
 
-// Validates regex pattern constraint
-function validatePattern(
+// Validates regex match constraint
+function validateRegexMatch(
   val: string,
   match: { regex: RegExp; explanation: string } | null
 ): string | undefined {
@@ -84,8 +84,8 @@ function validateEditingPassword(
   const maxLengthError = validateMaxLength(value, validation.length.max, fieldLabel)
   if (maxLengthError) return maxLengthError
 
-  const patternError = validatePattern(value, validation.match)
-  if (patternError) return patternError
+  const regexError = validateRegexMatch(value, validation.match)
+  if (regexError) return regexError
 
   const commonError = validateCommonPassword(value, validation.rejectCommon, fieldLabel)
   if (commonError) return commonError
@@ -124,16 +124,16 @@ function readonlyCheckboxProps(isSet: null | undefined | boolean) {
 }
 
 // Renders the readonly state of the password field
-function ReadOnlyField(props: { value: Value }) {
-  return <Checkbox {...readonlyCheckboxProps(props.value.isSet)} />
+function ReadOnlyField() {
+  return <Checkbox {...readonlyCheckboxProps(null)} />
 }
 
-// Renders the initial state with action button to start editing
-function InitialField(props: {
-  value: Value & { kind: 'initial' }
-  field: { label: string }
-  autoFocus?: boolean
+// Renders the initial state action button
+function InitialStateField(props: {
   triggerRef: React.RefObject<HTMLButtonElement>
+  autoFocus: boolean
+  value: { kind: 'initial'; isSet: boolean | null }
+  fieldLabel: string
   onChange: (value: Value) => void
 }) {
   return (
@@ -151,24 +151,23 @@ function InitialField(props: {
       }}
     >
       {props.value.isSet ? `Change ` : `Set `}
-      {props.field.label.toLocaleLowerCase()}
+      {props.fieldLabel.toLocaleLowerCase()}
     </ActionButton>
   )
 }
 
-// Renders password input fields and controls during editing
-function EditingField(props: {
-  value: Value & { kind: 'editing' }
-  field: { label: string }
-  secureTextEntry: boolean
-  setSecureTextEntry: (value: boolean) => void
-  touched: { value: boolean; confirm: boolean }
-  setTouched: (touched: { value: boolean; confirm: boolean }) => void
-  validationMessage?: string
+// Renders password input fields and controls
+function EditingStateField(props: {
+  value: { kind: 'editing'; isSet: boolean | null; value: string; confirm: string }
+  fieldLabel: string
   descriptionId: string
   messageId: string
-  onEscape: (e: React.KeyboardEvent) => void
+  validationMessage: string | undefined
+  secureTextEntry: boolean
+  touched: { value: boolean; confirm: boolean }
   onChange: (value: Value) => void
+  onEscape: (e: React.KeyboardEvent) => void
+  setSecureTextEntry: (value: boolean) => void
   cancelEditing: () => void
 }) {
   return (
@@ -182,11 +181,11 @@ function EditingField(props: {
     >
       <TextField
         autoFocus
-        aria-label={`new ${props.field.label}`}
+        aria-label={`new ${props.fieldLabel}`}
         aria-describedby={[props.descriptionId, props.messageId].filter(Boolean).join(' ')}
         // @ts-expect-error — needs to be fixed in "@keystar/ui"
         isInvalid={!!props.validationMessage}
-        onBlur={() => props.setTouched({ ...props.touched, value: true })}
+        onBlur={() => {}}
         onChange={text => props.onChange({ ...props.value, value: text })}
         onKeyDown={props.onEscape}
         placeholder="New"
@@ -195,11 +194,11 @@ function EditingField(props: {
         flex
       />
       <TextField
-        aria-label={`confirm ${props.field.label}`}
+        aria-label={`confirm ${props.fieldLabel}`}
         aria-describedby={props.messageId}
         // @ts-expect-error — needs to be fixed in "@keystar/ui"
         isInvalid={!!props.validationMessage}
-        onBlur={() => props.setTouched({ ...props.touched, confirm: true })}
+        onBlur={() => {}}
         onChange={text => props.onChange({ ...props.value, confirm: text })}
         onKeyDown={props.onEscape}
         placeholder="Confirm"
@@ -269,6 +268,38 @@ export function Field(props: FieldProps<typeof controller>) {
     }
   }, [value.kind])
 
+  const renderContent = () => {
+    if (isReadOnly) {
+      return <Checkbox {...readonlyCheckboxProps(value.isSet)} />
+    }
+    if (value.kind === 'initial') {
+      return (
+        <InitialStateField
+          triggerRef={triggerRef}
+          autoFocus={autoFocus}
+          value={value}
+          fieldLabel={field.label}
+          onChange={onChange!}
+        />
+      )
+    }
+    return (
+      <EditingStateField
+        value={value}
+        fieldLabel={field.label}
+        descriptionId={descriptionId}
+        messageId={messageId}
+        validationMessage={validationMessage}
+        secureTextEntry={secureTextEntry}
+        touched={touched}
+        onChange={onChange!}
+        onEscape={onEscape}
+        setSecureTextEntry={setSecureTextEntry}
+        cancelEditing={cancelEditing}
+      />
+    )
+  }
+
   return (
     <VStack
       role="group"
@@ -285,32 +316,7 @@ export function Field(props: FieldProps<typeof controller>) {
           {field.description}
         </Text>
       )}
-      {isReadOnly ? (
-        <ReadOnlyField value={value} />
-      ) : value.kind === 'initial' ? (
-        <InitialField
-          value={value}
-          field={field}
-          autoFocus={autoFocus}
-          triggerRef={triggerRef}
-          onChange={onChange}
-        />
-      ) : (
-        <EditingField
-          value={value}
-          field={field}
-          secureTextEntry={secureTextEntry}
-          setSecureTextEntry={setSecureTextEntry}
-          touched={touched}
-          setTouched={setTouched}
-          validationMessage={validationMessage}
-          descriptionId={descriptionId}
-          messageId={messageId}
-          onEscape={onEscape}
-          onChange={onChange}
-          cancelEditing={cancelEditing}
-        />
-      )}
+      {renderContent()}
       {!!validationMessage && <FieldMessage id={messageId}>{validationMessage}</FieldMessage>}
     </VStack>
   )
@@ -367,63 +373,6 @@ type Value =
       confirm: string
     }
 
-// Constructs validation regex from serialized format
-function buildValidationRegex(match: PasswordFieldMeta['validation']['match']): Validation['match'] {
-  if (match === null) return null
-  return {
-    regex: new RegExp(match.regex.source, match.regex.flags),
-    explanation: match.explanation,
-  }
-}
-
-// Builds filter configuration for password field
-function buildFilterConfig(fieldKey: string, isNullable: boolean, typeLabel: string) {
-  if (!isNullable) return undefined
-
-  return {
-    Filter(props: any) {
-      const { autoFocus, onChange, value, ...otherProps } = props
-      return (
-        <Checkbox
-          autoFocus={autoFocus}
-          onChange={onChange}
-          isSelected={value ?? false}
-          {...otherProps}
-        >
-          {typeLabel} set
-        </Checkbox>
-      )
-    },
-    graphql({ type, value }: any) {
-      return {
-        [fieldKey]: {
-          isSet: type === 'not' ? !value : value,
-        },
-      }
-    },
-    parseGraphQL(value: any) {
-      if (value?.isSet !== undefined) {
-        return [{ type: 'is', value: value.isSet }]
-      }
-      return []
-    },
-    Label({ type, value }: any) {
-      if ((type === 'is' && value) || (type === 'not' && !value)) return `is set`
-      return `is not set`
-    },
-    types: {
-      is: {
-        label: 'Is',
-        initialValue: true,
-      },
-      not: {
-        label: 'Is not',
-        initialValue: true,
-      },
-    },
-  }
-}
-
 export function controller(config: FieldControllerConfig<PasswordFieldMeta>): FieldController<
   Value,
   boolean | null,
@@ -433,9 +382,17 @@ export function controller(config: FieldControllerConfig<PasswordFieldMeta>): Fi
 } {
   const validation: Validation = {
     ...config.fieldMeta.validation,
-    match: buildValidationRegex(config.fieldMeta.validation.match),
+    match:
+      config.fieldMeta.validation.match === null
+        ? null
+        : {
+            regex: new RegExp(
+              config.fieldMeta.validation.match.regex.source,
+              config.fieldMeta.validation.match.regex.flags
+            ),
+            explanation: config.fieldMeta.validation.match.explanation,
+          },
   }
-
   return {
     fieldKey: config.fieldKey,
     label: config.label,
@@ -453,6 +410,50 @@ export function controller(config: FieldControllerConfig<PasswordFieldMeta>): Fi
       if (value.kind === 'initial') return {}
       return { [config.fieldKey]: value.value }
     },
-    filter: buildFilterConfig(config.fieldKey, config.fieldMeta.isNullable, config.label),
+    filter:
+      config.fieldMeta.isNullable === false
+        ? undefined
+        : {
+            Filter(props) {
+              const { autoFocus, context, typeLabel, onChange, value, type, ...otherProps } = props
+              return (
+                <Checkbox
+                  autoFocus={autoFocus}
+                  onChange={onChange}
+                  isSelected={value ?? false}
+                  {...otherProps}
+                >
+                  {typeLabel} set
+                </Checkbox>
+              )
+            },
+            graphql({ type, value }) {
+              return {
+                [config.fieldKey]: {
+                  isSet: type === 'not' ? !value : value,
+                },
+              }
+            },
+            parseGraphQL: value => {
+              if (value?.isSet !== undefined) {
+                return [{ type: 'is', value: value.isSet }]
+              }
+              return []
+            },
+            Label({ type, value }) {
+              if ((type === 'is' && value) || (type === 'not' && !value)) return `is set`
+              return `is not set`
+            },
+            types: {
+              is: {
+                label: 'Is',
+                initialValue: true,
+              },
+              not: {
+                label: 'Is not',
+                initialValue: true,
+              },
+            },
+          },
   }
 }

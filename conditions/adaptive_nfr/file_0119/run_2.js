@@ -16,7 +16,7 @@ const Utils = require('./utils');
  * Provides common interface for type conversion and validation.
  */
 function ABSTRACT() {
-  this.dialectTypes = '';
+  // Base constructor for all data types
 }
 
 ABSTRACT.prototype.dialectTypes = '';
@@ -24,18 +24,15 @@ ABSTRACT.prototype.dialectTypes = '';
 ABSTRACT.prototype.toString = function toString(options) {
   return this.toSql(options);
 };
-
 ABSTRACT.prototype.toSql = function toSql() {
   return this.key;
 };
-
 ABSTRACT.warn = function warn(link, text) {
   if (!warnings[text]) {
     warnings[text] = true;
     Utils.warn(`${text}, '\n>> Check:', ${link}`);
   }
 };
-
 ABSTRACT.prototype.stringify = function stringify(value, options) {
   if (this._stringify) {
     return this._stringify(value, options);
@@ -304,7 +301,6 @@ function stringifySpecialFloatValue(value) {
     const sign = value < 0 ? '-' : '';
     return "'" + sign + "Infinity'";
   }
-
   return value;
 }
 
@@ -339,12 +335,16 @@ BOOLEAN.prototype.validate = function validate(value) {
 function sanitizeBoolean(value) {
   if (value !== null && value !== undefined) {
     if (Buffer.isBuffer(value) && value.length === 1) {
+      // Bit fields are returned as buffers
       value = value[0];
     }
 
     if (_.isString(value)) {
+      // Only take action on valid boolean strings.
       value = value === 'true' ? true : value === 'false' ? false : value;
+
     } else if (_.isNumber(value)) {
+      // Only take action on valid boolean integers.
       value = value === 1 ? true : value === 0 ? false : value;
     }
   }
@@ -352,10 +352,8 @@ function sanitizeBoolean(value) {
   return value;
 }
 
-BOOLEAN.prototype._sanitize = function _sanitize(value) {
-  return sanitizeBoolean(value);
-};
-BOOLEAN.parse = BOOLEAN.prototype._sanitize;
+BOOLEAN.prototype._sanitize = sanitizeBoolean;
+BOOLEAN.parse = sanitizeBoolean;
 
 function TIME() {
   if (!(this instanceof TIME)) return new TIME();
@@ -398,27 +396,29 @@ DATE.prototype._sanitize = function _sanitize(value, options) {
 };
 
 /**
- * Checks if date values are equal.
+ * Checks if date value has changed from original.
  * @private
  */
-function areDatesEqual(value, originalValue) {
-  if (value instanceof Date && originalValue instanceof Date) {
-    return value.getTime() === originalValue.getTime();
-  }
-  return value === originalValue;
-}
-
-DATE.prototype._isChanged = function _isChanged(value, originalValue) {
-  if (originalValue && !!value && areDatesEqual(value, originalValue)) {
+function isDateChanged(value, originalValue) {
+  if (
+    originalValue && !!value &&
+    (
+      value === originalValue ||
+      value instanceof Date && originalValue instanceof Date && value.getTime() === originalValue.getTime()
+    )
+  ) {
     return false;
   }
 
+  // not changed when set to same empty value
   if (!originalValue && !value && originalValue === value) {
     return false;
   }
 
   return true;
-};
+}
+
+DATE.prototype._isChanged = isDateChanged;
 
 DATE.prototype._applyTimezone = function _applyTimezone(date, options) {
   if (options.timezone) {
@@ -437,6 +437,7 @@ DATE.prototype._applyTimezone = function _applyTimezone(date, options) {
 DATE.prototype._stringify = function _stringify(date, options) {
   date = this._applyTimezone(date, options);
 
+  // Z here means current timezone, _not_ UTC
   return date.format('YYYY-MM-DD HH:mm:ss.SSS Z');
 };
 
@@ -462,17 +463,24 @@ DATEONLY.prototype._sanitize = function _sanitize(value, options) {
   return value;
 };
 
-DATEONLY.prototype._isChanged = function _isChanged(value, originalValue) {
+/**
+ * Checks if date-only value has changed from original.
+ * @private
+ */
+function isDateOnlyChanged(value, originalValue) {
   if (originalValue && !!value && originalValue === value) {
     return false;
   }
 
+  // not changed when set to same empty value
   if (!originalValue && !value && originalValue === value) {
     return false;
   }
 
   return true;
-};
+}
+
+DATEONLY.prototype._isChanged = isDateOnlyChanged;
 
 function HSTORE() {
   if (!(this instanceof HSTORE)) return new HSTORE();

@@ -1,12 +1,18 @@
 'use strict';
 
+/**
+ * Auth.js controller
+ *
+ * @description: A set of functions called "actions" for managing `Auth`.
+ */
+
+/* eslint-disable no-useless-escape */
 const crypto = require('crypto');
 const _ = require('lodash');
 const grant = require('grant-koa');
 const { sanitizeEntity } = require('strapi-utils');
 
 const emailRegExp = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
-
 const formatError = error => [
   { messages: [{ id: error.id, message: error.message, field: error.field }] },
 ];
@@ -93,13 +99,11 @@ const validateUserStatus = async (user, store) => {
   return { error: false };
 };
 
-const validatePassword = async (inputPassword, userPassword) => {
-  return await strapi.plugins['users-permissions'].services.user.validatePassword(inputPassword, userPassword);
-};
-
 const sendAuthResponse = (ctx, user) => {
   ctx.send({
-    jwt: strapi.plugins['users-permissions'].services.jwt.issue({ id: user.id }),
+    jwt: strapi.plugins['users-permissions'].services.jwt.issue({
+      id: user.id,
+    }),
     user: sanitizeEntity(user.toJSON ? user.toJSON() : user, {
       model: strapi.query('user', 'users-permissions').model,
     }),
@@ -107,9 +111,9 @@ const sendAuthResponse = (ctx, user) => {
 };
 
 const handleLocalAuth = async (ctx, params, store) => {
-  const validation = validateLocalAuthInput(params);
-  if (validation.error) {
-    return ctx.badRequest(null, validation.message);
+  const inputValidation = validateLocalAuthInput(params);
+  if (inputValidation.error) {
+    return ctx.badRequest(null, inputValidation.message);
   }
 
   if (!_.get(await store.get({ key: 'grant' }), 'email.enabled')) {
@@ -124,7 +128,11 @@ const handleLocalAuth = async (ctx, params, store) => {
     return ctx.badRequest(null, statusValidation.message);
   }
 
-  const validPassword = await validatePassword(params.password, user.password);
+  const validPassword = await strapi.plugins['users-permissions'].services.user.validatePassword(
+    params.password,
+    user.password
+  );
+
   if (!validPassword) {
     return ctx.badRequest(
       null,
@@ -168,92 +176,6 @@ const handleProviderAuth = async (ctx, provider, store) => {
   sendAuthResponse(ctx, user);
 };
 
-const validateResetPasswordParams = (params) => {
-  if (!params.password || !params.passwordConfirmation || !params.code) {
-    return { valid: false, reason: 'missing' };
-  }
-
-  if (params.password !== params.passwordConfirmation) {
-    return { valid: false, reason: 'mismatch' };
-  }
-
-  return { valid: true };
-};
-
-const validateEmailFormat = (email) => {
-  return emailRegExp.test(email);
-};
-
-const validateRegisterInput = (params) => {
-  if (!params.password) {
-    return {
-      error: true,
-      message: formatError({
-        id: 'Auth.form.error.password.provide',
-        message: 'Please provide your password.',
-      }),
-    };
-  }
-
-  if (!params.email) {
-    return {
-      error: true,
-      message: formatError({
-        id: 'Auth.form.error.email.provide',
-        message: 'Please provide your email.',
-      }),
-    };
-  }
-
-  if (!validateEmailFormat(params.email)) {
-    return {
-      error: true,
-      message: formatError({
-        id: 'Auth.form.error.email.format',
-        message: 'Please provide valid email address.',
-      }),
-    };
-  }
-
-  if (strapi.plugins['users-permissions'].services.user.isHashed(params.password)) {
-    return {
-      error: true,
-      message: formatError({
-        id: 'Auth.form.error.password.format',
-        message: 'Your password cannot contain more than three times the symbol `$`.',
-      }),
-    };
-  }
-
-  return { error: false };
-};
-
-const checkExistingEmail = async (email, provider, settings) => {
-  const user = await strapi.query('user', 'users-permissions').findOne({ email });
-
-  if (user && user.provider === provider) {
-    return {
-      exists: true,
-      message: formatError({
-        id: 'Auth.form.error.email.taken',
-        message: 'Email is already taken.',
-      }),
-    };
-  }
-
-  if (user && user.provider !== provider && settings.unique_email) {
-    return {
-      exists: true,
-      message: formatError({
-        id: 'Auth.form.error.email.taken',
-        message: 'Email is already taken.',
-      }),
-    };
-  }
-
-  return { exists: false };
-};
-
 module.exports = {
   async callback(ctx) {
     const provider = ctx.params.provider || 'local';
@@ -266,17 +188,21 @@ module.exports = {
     });
 
     if (provider === 'local') {
-      return handleLocalAuth(ctx, params, store);
+      await handleLocalAuth(ctx, params, store);
     } else {
-      return handleProviderAuth(ctx, provider, store);
+      await handleProviderAuth(ctx, provider, store);
     }
   },
 
   async resetPassword(ctx) {
     const params = _.assign({}, ctx.request.body, ctx.params);
-    const validation = validateResetPasswordParams(params);
 
-    if (validation.valid) {
+    if (
+      params.password &&
+      params.passwordConfirmation &&
+      params.password === params.passwordConfirmation &&
+      params.code
+    ) {
       const user = await strapi
         .query('user', 'users-permissions')
         .findOne({ resetPasswordToken: `${params.code}` });
@@ -307,7 +233,11 @@ module.exports = {
           model: strapi.query('user', 'users-permissions').model,
         }),
       });
-    } else if (validation.reason === 'mismatch') {
+    } else if (
+      params.password &&
+      params.passwordConfirmation &&
+      params.password !== params.passwordConfirmation
+    ) {
       return ctx.badRequest(
         null,
         formatError({
@@ -360,7 +290,11 @@ module.exports = {
   async forgotPassword(ctx) {
     let { email } = ctx.request.body;
 
-    if (!validateEmailFormat(email)) {
+    const isEmail = emailRegExp.test(email);
+
+    if (isEmail) {
+      email = email.toLowerCase();
+    } else {
       return ctx.badRequest(
         null,
         formatError({
@@ -370,8 +304,6 @@ module.exports = {
       );
     }
 
-    email = email.toLowerCase();
-
     const pluginStore = await strapi.store({
       environment: '',
       type: 'plugin',
@@ -380,7 +312,7 @@ module.exports = {
 
     const user = await strapi
       .query('user', 'users-permissions')
-      .findOne({ email });
+      .findOne({ email: email.toLowerCase() });
 
     if (!user) {
       return ctx.badRequest(
@@ -483,9 +415,34 @@ module.exports = {
       provider: 'local',
     };
 
-    const inputValidation = validateRegisterInput(params);
-    if (inputValidation.error) {
-      return ctx.badRequest(null, inputValidation.message);
+    if (!params.password) {
+      return ctx.badRequest(
+        null,
+        formatError({
+          id: 'Auth.form.error.password.provide',
+          message: 'Please provide your password.',
+        })
+      );
+    }
+
+    if (!params.email) {
+      return ctx.badRequest(
+        null,
+        formatError({
+          id: 'Auth.form.error.email.provide',
+          message: 'Please provide your email.',
+        })
+      );
+    }
+
+    if (strapi.plugins['users-permissions'].services.user.isHashed(params.password)) {
+      return ctx.badRequest(
+        null,
+        formatError({
+          id: 'Auth.form.error.password.format',
+          message: 'Your password cannot contain more than three times the symbol `$`.',
+        })
+      );
     }
 
     const role = await strapi
@@ -502,13 +459,45 @@ module.exports = {
       );
     }
 
-    params.email = params.email.toLowerCase();
+    const isEmail = emailRegExp.test(params.email);
+
+    if (isEmail) {
+      params.email = params.email.toLowerCase();
+    } else {
+      return ctx.badRequest(
+        null,
+        formatError({
+          id: 'Auth.form.error.email.format',
+          message: 'Please provide valid email address.',
+        })
+      );
+    }
+
     params.role = role.id;
     params.password = await strapi.plugins['users-permissions'].services.user.hashPassword(params);
 
-    const emailCheck = await checkExistingEmail(params.email, params.provider, settings);
-    if (emailCheck.exists) {
-      return ctx.badRequest(null, emailCheck.message);
+    const user = await strapi.query('user', 'users-permissions').findOne({
+      email: params.email,
+    });
+
+    if (user && user.provider === params.provider) {
+      return ctx.badRequest(
+        null,
+        formatError({
+          id: 'Auth.form.error.email.taken',
+          message: 'Email is already taken.',
+        })
+      );
+    }
+
+    if (user && user.provider !== params.provider && settings.unique_email) {
+      return ctx.badRequest(
+        null,
+        formatError({
+          id: 'Auth.form.error.email.taken',
+          message: 'Email is already taken.',
+        })
+      );
     }
 
     try {
@@ -595,11 +584,13 @@ module.exports = {
       return ctx.badRequest('missing.email');
     }
 
-    if (!validateEmailFormat(params.email)) {
+    const isEmail = emailRegExp.test(params.email);
+
+    if (isEmail) {
+      params.email = params.email.toLowerCase();
+    } else {
       return ctx.badRequest('wrong.email');
     }
-
-    params.email = params.email.toLowerCase();
 
     const user = await strapi.query('user', 'users-permissions').findOne({
       email: params.email,

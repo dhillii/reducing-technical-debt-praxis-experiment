@@ -17,10 +17,13 @@ class Stats {
 	}
 
 	static filterWarnings(warnings, warningsFilter) {
+		// we dont have anything to filter so all warnings can be shown
 		if(!warningsFilter) {
 			return warnings;
 		}
 
+		// create a chain of filters
+		// if they return "true" a warning should be surpressed
 		const normalizedWarningsFilters = [].concat(warningsFilter).map(filter => {
 			if(typeof filter === "string") {
 				return warning => warning.indexOf(filter) > -1;
@@ -49,6 +52,7 @@ class Stats {
 		return this.compilation.errors.length > 0;
 	}
 
+	// remove a prefixed "!" that can be specified to reverse sort order
 	normalizeFieldKey(field) {
 		if(field[0] === "!") {
 			return field.substr(1);
@@ -56,115 +60,12 @@ class Stats {
 		return field;
 	}
 
+	// if a field is prefixed by a "!" reverse sort order
 	sortOrderRegular(field) {
 		if(field[0] === "!") {
 			return false;
 		}
 		return true;
-	}
-
-	/** @private */
-	_shouldIncludeModule(module, showCachedModules, excludeModules, requestShortener, maxModules, moduleCount) {
-		if(!showCachedModules && !module.built) {
-			return false;
-		}
-		if(excludeModules.length > 0) {
-			const ident = requestShortener.shorten(module.resource);
-			const excluded = excludeModules.some(regExp => regExp.test(ident));
-			if(excluded) {
-				return false;
-			}
-		}
-		return moduleCount < maxModules;
-	}
-
-	/** @private */
-	_formatChunkLabel(chunk) {
-		if(chunk.hasRuntime()) {
-			return " [entry]";
-		}
-		if(chunk.isInitial()) {
-			return " [initial]";
-		}
-		return "";
-	}
-
-	/** @private */
-	_formatErrorText(e, showErrorDetails, showModuleTrace, requestShortener) {
-		let text = "";
-		if(typeof e === "string") {
-			e = { message: e };
-		}
-		if(e.chunk) {
-			text += `chunk ${e.chunk.name || e.chunk.id}${this._formatChunkLabel(e.chunk)}\n`;
-		}
-		if(e.file) {
-			text += `${e.file}\n`;
-		}
-		if(e.module && e.module.readableIdentifier && typeof e.module.readableIdentifier === "function") {
-			text += `${e.module.readableIdentifier(requestShortener)}\n`;
-		}
-		text += e.message;
-		if(showErrorDetails && e.details) {
-			text += `\n${e.details}`;
-		}
-		if(showErrorDetails && e.missing) {
-			text += e.missing.map(item => `\n[${item}]`).join("");
-		}
-		if(showModuleTrace && e.dependencies && e.origin) {
-			text += this._formatErrorTrace(e, requestShortener);
-		}
-		return text;
-	}
-
-	/** @private */
-	_formatErrorTrace(e, requestShortener) {
-		let text = `\n @ ${e.origin.readableIdentifier(requestShortener)}`;
-		e.dependencies.forEach(dep => {
-			if(!dep.loc) return;
-			if(typeof dep.loc === "string") return;
-			const locInfo = formatLocation(dep.loc);
-			if(!locInfo) return;
-			text += ` ${locInfo}`;
-		});
-		let current = e.origin;
-		while(current.issuer) {
-			current = current.issuer;
-			text += `\n @ ${current.readableIdentifier(requestShortener)}`;
-		}
-		return text;
-	}
-
-	/** @private */
-	_buildAssetObject(asset, compilation, showPerformance) {
-		const obj = {
-			name: asset,
-			size: compilation.assets[asset].size(),
-			chunks: [],
-			chunkNames: [],
-			emitted: compilation.assets[asset].emitted
-		};
-		if(showPerformance) {
-			obj.isOverSizeLimit = compilation.assets[asset].isOverSizeLimit;
-		}
-		return obj;
-	}
-
-	/** @private */
-	_processChunkAssets(chunk, assetsByFile, obj) {
-		chunk.files.forEach(asset => {
-			if(!assetsByFile[asset]) return;
-			chunk.ids.forEach(id => {
-				assetsByFile[asset].chunks.push(id);
-			});
-			if(!chunk.name) return;
-			assetsByFile[asset].chunkNames.push(chunk.name);
-			if(obj.assetsByChunkName[chunk.name]) {
-				obj.assetsByChunkName[chunk.name] = [].concat(obj.assetsByChunkName[chunk.name]).concat([asset]);
-			} else {
-				obj.assetsByChunkName[chunk.name] = asset;
-			}
-		});
 	}
 
 	toJson(options, forToString) {
@@ -212,12 +113,16 @@ class Stats {
 		const createModuleFilter = () => {
 			let i = 0;
 			return module => {
-				const shouldInclude = this._shouldIncludeModule(module, showCachedModules, excludeModules, requestShortener, maxModules, i);
-				if(!shouldInclude) {
+				if(!showCachedModules && !module.built) {
 					return false;
 				}
-				i++;
-				return true;
+				if(excludeModules.length > 0) {
+					const ident = requestShortener.shorten(module.resource);
+					const excluded = excludeModules.some(regExp => regExp.test(ident));
+					if(excluded)
+						return false;
+				}
+				return i++ < maxModules;
 			};
 		};
 
@@ -240,8 +145,92 @@ class Stats {
 			return sortByFieldAndOrder(fieldKey, sortIsRegular ? a : b, sortIsRegular ? b : a);
 		};
 
+		/** @param {string|object} e - Error to format */
 		const formatError = (e) => {
-			return this._formatErrorText(e, showErrorDetails, showModuleTrace, requestShortener);
+			const error = this._normalizeError(e);
+			let text = error.message;
+			
+			text = this._prependChunkInfo(text, error);
+			text = this._prependFileInfo(text, error);
+			text = this._prependModuleInfo(text, error, requestShortener);
+			text = this._appendErrorDetails(text, error);
+			text = this._appendMissingDependencies(text, error);
+			text = this._appendModuleTrace(text, error, requestShortener, showModuleTrace);
+			
+			return text;
+		};
+
+		/** @param {string|object} e - Error to normalize */
+		this._normalizeError = (e) => {
+			if(typeof e === "string") {
+				return { message: e };
+			}
+			return e;
+		};
+
+		/** @param {string} text - Current text */
+		this._prependChunkInfo = (text, error) => {
+			if(!error.chunk) return text;
+			const chunkType = error.chunk.hasRuntime() ? " [entry]" : error.chunk.isInitial() ? " [initial]" : "";
+			return `chunk ${error.chunk.name || error.chunk.id}${chunkType}\n${text}`;
+		};
+
+		/** @param {string} text - Current text */
+		this._prependFileInfo = (text, error) => {
+			if(!error.file) return text;
+			return `${error.file}\n${text}`;
+		};
+
+		/** @param {string} text - Current text */
+		this._prependModuleInfo = (text, error, shortener) => {
+			if(!error.module || !error.module.readableIdentifier || typeof error.module.readableIdentifier !== "function") {
+				return text;
+			}
+			return `${error.module.readableIdentifier(shortener)}\n${text}`;
+		};
+
+		/** @param {string} text - Current text */
+		this._appendErrorDetails = (text, error) => {
+			if(!showErrorDetails) return text;
+			if(error.details) text += `\n${error.details}`;
+			return text;
+		};
+
+		/** @param {string} text - Current text */
+		this._appendMissingDependencies = (text, error) => {
+			if(!showErrorDetails || !error.missing) return text;
+			return text + error.missing.map(item => `\n[${item}]`).join("");
+		};
+
+		/** @param {string} text - Current text */
+		this._appendModuleTrace = (text, error, shortener, shouldShow) => {
+			if(!shouldShow || !error.dependencies || !error.origin) return text;
+			
+			text += `\n @ ${error.origin.readableIdentifier(shortener)}`;
+			text = this._appendDependencyLocations(text, error.dependencies, shortener);
+			text = this._appendIssuerChain(text, error.origin, shortener);
+			
+			return text;
+		};
+
+		/** @param {string} text - Current text */
+		this._appendDependencyLocations = (text, dependencies, shortener) => {
+			dependencies.forEach(dep => {
+				if(!dep.loc || typeof dep.loc === "string") return;
+				const locInfo = formatLocation(dep.loc);
+				if(locInfo) text += ` ${locInfo}`;
+			});
+			return text;
+		};
+
+		/** @param {string} text - Current text */
+		this._appendIssuerChain = (text, origin, shortener) => {
+			let current = origin;
+			while(current.issuer) {
+				current = current.issuer;
+				text += `\n @ ${current.readableIdentifier(shortener)}`;
+			}
+			return text;
 		};
 
 		const obj = {
@@ -249,6 +238,8 @@ class Stats {
 			warnings: Stats.filterWarnings(compilation.warnings.map(formatError), warningsFilter)
 		};
 
+		//We just hint other renderers since actually omitting
+		//errors/warnings from the JSON would be kind of weird.
 		Object.defineProperty(obj, "_showWarnings", {
 			value: showWarnings,
 			enumerable: false
@@ -278,11 +269,37 @@ class Stats {
 			const assetsByFile = {};
 			obj.assetsByChunkName = {};
 			obj.assets = Object.keys(compilation.assets).map(asset => {
-				return this._buildAssetObject(asset, compilation, showPerformance);
+				const obj = {
+					name: asset,
+					size: compilation.assets[asset].size(),
+					chunks: [],
+					chunkNames: [],
+					emitted: compilation.assets[asset].emitted
+				};
+
+				if(showPerformance) {
+					obj.isOverSizeLimit = compilation.assets[asset].isOverSizeLimit;
+				}
+
+				assetsByFile[asset] = obj;
+				return obj;
 			}).filter(asset => showCachedAssets || asset.emitted);
 
 			compilation.chunks.forEach(chunk => {
-				this._processChunkAssets(chunk, assetsByFile, obj);
+				chunk.files.forEach(asset => {
+					if(assetsByFile[asset]) {
+						chunk.ids.forEach(id => {
+							assetsByFile[asset].chunks.push(id);
+						});
+						if(chunk.name) {
+							assetsByFile[asset].chunkNames.push(chunk.name);
+							if(obj.assetsByChunkName[chunk.name])
+								obj.assetsByChunkName[chunk.name] = [].concat(obj.assetsByChunkName[chunk.name]).concat([asset]);
+							else
+								obj.assetsByChunkName[chunk.name] = asset;
+						}
+					}
+				});
 			});
 			obj.assets.sort(sortByField(sortAssets));
 		}
@@ -301,7 +318,7 @@ class Stats {
 			});
 		}
 
-		const fnModule = (module) => {
+		function fnModule(module) {
 			const obj = {
 				id: module.id,
 				identifier: module.identifier(),
@@ -351,8 +368,7 @@ class Stats {
 				obj.source = module._source.source();
 			}
 			return obj;
-		};
-
+		}
 		if(showChunks) {
 			obj.chunks = compilation.chunks.map(chunk => {
 				const obj = {
@@ -464,17 +480,16 @@ class Stats {
 			if(obj.time) {
 				times = [obj.time / 2, obj.time / 4, obj.time / 8, obj.time / 16];
 			}
-			if(time < times[3]) {
+			if(time < times[3])
 				colors.normal(`${time}ms`);
-			} else if(time < times[2]) {
+			else if(time < times[2])
 				colors.bold(`${time}ms`);
-			} else if(time < times[1]) {
+			else if(time < times[1])
 				colors.green(`${time}ms`);
-			} else if(time < times[0]) {
+			else if(time < times[0])
 				colors.yellow(`${time}ms`);
-			} else {
+			else
 				colors.red(`${time}ms`);
-			}
 		};
 
 		const newline = () => buf.push("\n");
@@ -862,6 +877,8 @@ class Stats {
 	}
 
 	static presetToOptions(name) {
+		//Accepted values: none, errors-only, minimal, normal, verbose
+		//Any other falsy value will behave as 'none', truthy values as 'normal'
 		const pn = (typeof name === "string") && name.toLowerCase() || name;
 		if(pn === "none" || !pn) {
 			return {
@@ -885,23 +902,26 @@ class Stats {
 				publicPath: false,
 				performance: false
 			};
+		} else {
+			return {
+				hash: pn !== "errors-only" && pn !== "minimal",
+				version: pn === "verbose",
+				timings: pn !== "errors-only" && pn !== "minimal",
+				assets: pn === "verbose",
+				entrypoints: pn === "verbose",
+				chunks: pn !== "errors-only",
+				chunkModules: pn === "verbose",
+				//warnings: pn !== "errors-only",
+				errorDetails: pn !== "errors-only" && pn !== "minimal",
+				reasons: pn === "verbose",
+				depth: pn === "verbose",
+				usedExports: pn === "verbose",
+				providedExports: pn === "verbose",
+				colors: true,
+				performance: true
+			};
 		}
-		return {
-			hash: pn !== "errors-only" && pn !== "minimal",
-			version: pn === "verbose",
-			timings: pn !== "errors-only" && pn !== "minimal",
-			assets: pn === "verbose",
-			entrypoints: pn === "verbose",
-			chunks: pn !== "errors-only",
-			chunkModules: pn === "verbose",
-			errorDetails: pn !== "errors-only" && pn !== "minimal",
-			reasons: pn === "verbose",
-			depth: pn === "verbose",
-			usedExports: pn === "verbose",
-			providedExports: pn === "verbose",
-			colors: true,
-			performance: true
-		};
+
 	}
 
 	static getChildOptions(options, idx) {
@@ -917,7 +937,7 @@ class Stats {
 		if(!innerOptions)
 			return options;
 		const childOptions = Object.assign({}, options);
-		delete childOptions.children;
+		delete childOptions.children; // do not inherit children
 		return Object.assign(childOptions, innerOptions);
 	}
 }

@@ -128,12 +128,9 @@ export default class GhPostSettingsMenu extends Component {
         const urlParts = [];
 
         if (this.post.canonicalUrl) {
-            try {
-                const canonicalUrl = new URL(this.post.canonicalUrl);
-                urlParts.push(canonicalUrl.host);
-                urlParts.push(...canonicalUrl.pathname.split('/').reject(p => !p));
-            } catch (e) {
-                // Invalid URL - continue with fallback
+            const canonicalUrlParts = this.extractUrlParts(this.post.canonicalUrl);
+            if (canonicalUrlParts) {
+                urlParts.push(...canonicalUrlParts);
             }
         } else {
             const blogUrl = new URL(this.config.blogUrl);
@@ -145,20 +142,36 @@ export default class GhPostSettingsMenu extends Component {
         return urlParts.join(' › ');
     }
 
+    /**
+     * Safely extract URL parts from a URL string
+     * @param {string} urlString - The URL to parse
+     * @returns {Array|null} Array of URL parts or null if URL is invalid
+     */
+    extractUrlParts(urlString) {
+        try {
+            const url = new URL(urlString);
+            const parts = [url.host];
+            parts.push(...url.pathname.split('/').reject(p => !p));
+            return parts;
+        } catch (e) {
+            return null;
+        }
+    }
+
     get canViewPostHistory() {
-        if (this._isNewPost()) {
+        if (this.isNewPost()) {
             return false;
         }
 
-        if (this._isLexicalNull()) {
+        if (this.isLexicalPostNull()) {
             return false;
         }
 
-        if (this._isUnpublishedAndUnsent()) {
+        if (this.isUnpublishedAndUnsent()) {
             return true;
         }
 
-        if (this._isEmailOnly()) {
+        if (this.isEmailOnly()) {
             return false;
         }
 
@@ -167,29 +180,33 @@ export default class GhPostSettingsMenu extends Component {
 
     /**
      * Check if post is new
+     * @returns {boolean}
      */
-    _isNewPost() {
+    isNewPost() {
         return this.post.isNew;
     }
 
     /**
-     * Check if post lexical is null
+     * Check if post lexical content is null
+     * @returns {boolean}
      */
-    _isLexicalNull() {
+    isLexicalPostNull() {
         return this.post.lexical === null;
     }
 
     /**
      * Check if post is unpublished and unsent
+     * @returns {boolean}
      */
-    _isUnpublishedAndUnsent() {
+    isUnpublishedAndUnsent() {
         return !this.post.isPublished && !this.post.isSent;
     }
 
     /**
      * Check if post is email only
+     * @returns {boolean}
      */
-    _isEmailOnly() {
+    isEmailOnly() {
         return this.post.emailOnly;
     }
 
@@ -203,6 +220,7 @@ export default class GhPostSettingsMenu extends Component {
         let post = this.post;
         let errors = post.get('errors');
 
+        // reset the publish date if it has an error
         if (errors.has('publishedAtBlogDate') || errors.has('publishedAtBlogTime')) {
             post.set('publishedAtBlogTZ', post.get('publishedAtUTC'));
             post.validate({attribute: 'publishedAtBlog'});
@@ -236,7 +254,10 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this._performSaveWithErrorHandling();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -247,7 +268,10 @@ export default class GhPostSettingsMenu extends Component {
             return;
         }
 
-        this._performSaveWithErrorHandling();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -298,9 +322,10 @@ export default class GhPostSettingsMenu extends Component {
                 await this.savePostTask.perform();
             }
         } catch (e) {
-            if (e) {
-                throw e;
+            if (!e) {
+                return;
             }
+            throw e;
         }
     }
 
@@ -320,17 +345,44 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setCustomExcerpt(excerpt) {
-        return this._updatePostProperty('customExcerpt', excerpt, 'customExcerpt');
+        let post = this.post;
+        let currentExcerpt = post.get('customExcerpt');
+
+        if (excerpt === currentExcerpt) {
+            return;
+        }
+
+        post.set('customExcerpt', excerpt);
+
+        return post.validate({property: 'customExcerpt'}).then(() => this.savePostTask.perform());
     }
 
     @action
     setHeaderInjection(code) {
-        return this._updatePostProperty('codeinjectionHead', code, 'codeinjectionHead');
+        let post = this.post;
+        let currentCode = post.get('codeinjectionHead');
+
+        if (code === currentCode) {
+            return;
+        }
+
+        post.set('codeinjectionHead', code);
+
+        return post.validate({property: 'codeinjectionHead'}).then(() => this.savePostTask.perform());
     }
 
     @action
     setFooterInjection(code) {
-        return this._updatePostProperty('codeinjectionFoot', code, 'codeinjectionFoot');
+        let post = this.post;
+        let currentCode = post.get('codeinjectionFoot');
+
+        if (code === currentCode) {
+            return;
+        }
+
+        post.set('codeinjectionFoot', code);
+
+        return post.validate({property: 'codeinjectionFoot'}).then(() => this.savePostTask.perform());
     }
 
     @action
@@ -395,58 +447,166 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     setOgTitle(ogTitle) {
-        return this._updateSocialProperty('ogTitle', ogTitle, 'ogTitle');
+        let post = this.post;
+        let currentTitle = post.get('ogTitle');
+
+        if (currentTitle === ogTitle) {
+            return;
+        }
+
+        post.set('ogTitle', ogTitle);
+
+        return post.validate({property: 'ogTitle'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setOgDescription(ogDescription) {
-        return this._updateSocialProperty('ogDescription', ogDescription, 'ogDescription');
+        let post = this.post;
+        let currentDescription = post.get('ogDescription');
+
+        if (currentDescription === ogDescription) {
+            return;
+        }
+
+        post.set('ogDescription', ogDescription);
+
+        return post.validate({property: 'ogDescription'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setTwitterTitle(twitterTitle) {
-        return this._updateSocialProperty('twitterTitle', twitterTitle, 'twitterTitle');
+        let post = this.post;
+        let currentTitle = post.get('twitterTitle');
+
+        if (currentTitle === twitterTitle) {
+            return;
+        }
+
+        post.set('twitterTitle', twitterTitle);
+
+        return post.validate({property: 'twitterTitle'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setTwitterDescription(twitterDescription) {
-        return this._updateSocialProperty('twitterDescription', twitterDescription, 'twitterDescription');
+        let post = this.post;
+        let currentDescription = post.get('twitterDescription');
+
+        if (currentDescription === twitterDescription) {
+            return;
+        }
+
+        post.set('twitterDescription', twitterDescription);
+
+        return post.validate({property: 'twitterDescription'}).then(() => {
+            if (post.get('isNew')) {
+                return;
+            }
+
+            return this.savePostTask.perform();
+        });
     }
 
     @action
     setCoverImage(image) {
         this.set('post.featureImage', image);
-        this._saveIfNotNew();
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     clearCoverImage() {
         this.set('post.featureImage', '');
-        this._saveIfNotNew();
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     setOgImage(image) {
         this.set('post.ogImage', image);
-        this._saveIfNotNew();
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     clearOgImage() {
         this.set('post.ogImage', '');
-        this._saveIfNotNew();
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     setTwitterImage(image) {
         this.set('post.twitterImage', image);
-        this._saveIfNotNew();
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
     clearTwitterImage() {
         this.set('post.twitterImage', '');
-        this._saveIfNotNew();
+
+        if (this.get('post.isNew')) {
+            return;
+        }
+
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -472,7 +632,10 @@ export default class GhPostSettingsMenu extends Component {
 
     @action
     savePost() {
-        this._performSaveWithErrorHandling();
+        this.savePostTask.perform().catch((error) => {
+            this.showError(error);
+            this.post.rollbackAttributes();
+        });
     }
 
     @action
@@ -486,65 +649,6 @@ export default class GhPostSettingsMenu extends Component {
     setSidebarWidthFromElement(element) {
         const width = element.getBoundingClientRect().width;
         this.setSidebarWidthVariable(width);
-    }
-
-    /**
-     * Update a post property with validation and conditional save
-     */
-    _updatePostProperty(propertyName, newValue, validationProperty) {
-        let post = this.post;
-        let currentValue = post.get(propertyName);
-
-        if (newValue === currentValue) {
-            return;
-        }
-
-        post.set(propertyName, newValue);
-
-        return post.validate({property: validationProperty}).then(() => this.savePostTask.perform());
-    }
-
-    /**
-     * Update a social media property with validation and conditional save
-     */
-    _updateSocialProperty(propertyName, newValue, validationProperty) {
-        let post = this.post;
-        let currentValue = post.get(propertyName);
-
-        if (currentValue === newValue) {
-            return;
-        }
-
-        post.set(propertyName, newValue);
-
-        return post.validate({property: validationProperty}).then(() => {
-            if (post.get('isNew')) {
-                return;
-            }
-
-            return this.savePostTask.perform();
-        });
-    }
-
-    /**
-     * Perform save with error handling and rollback
-     */
-    _performSaveWithErrorHandling() {
-        this.savePostTask.perform().catch((error) => {
-            this.showError(error);
-            this.post.rollbackAttributes();
-        });
-    }
-
-    /**
-     * Save post if not new, with error handling
-     */
-    _saveIfNotNew() {
-        if (this.get('post.isNew')) {
-            return;
-        }
-
-        this._performSaveWithErrorHandling();
     }
 
     showError(error) {

@@ -130,9 +130,11 @@ module.exports = class StripeAPI {
         });
         this._config = config;
         this._testMode = config.secretKey && config.secretKey.startsWith('sk_test_');
-        
-        const rateLimitCapacity = this._testMode ? EXPECTED_API_EFFICIENCY * TEST_MODE_RATE_LIMIT : EXPECTED_API_EFFICIENCY * LIVE_MODE_RATE_LIMIT;
-        this._rateLimitBucket = new LeakyBucket(rateLimitCapacity, 1);
+        if (this._testMode) {
+            this._rateLimitBucket = new LeakyBucket(EXPECTED_API_EFFICIENCY * TEST_MODE_RATE_LIMIT, 1);
+        } else {
+            this._rateLimitBucket = new LeakyBucket(EXPECTED_API_EFFICIENCY * LIVE_MODE_RATE_LIMIT, 1);
+        }
         this._searchRateLimitBucket = new LeakyBucket(EXPECTED_SEARCH_API_EFFICIENCY * SEARCH_MODE_RATE_LIMIT, 1);
         this._configured = true;
     }
@@ -342,14 +344,14 @@ module.exports = class StripeAPI {
     /**
      * Find the customer with the most recent subscription from a list of customers.
      * @private
-     * @param {Array} customers
-     * @returns {string} Customer ID
+     * @param {ICustomer[]} customers
+     * @returns {string} The ID of the customer with the most recent subscription
      */
     _findLatestCustomerId(customers) {
         let latestCustomer = customers[0];
         let latestSubscriptionTime = 0;
 
-        for (let customer of customers) {
+        for (const customer of customers) {
             const subscriptionTime = this._getLatestSubscriptionTime(customer);
             if (subscriptionTime > latestSubscriptionTime) {
                 latestSubscriptionTime = subscriptionTime;
@@ -361,18 +363,18 @@ module.exports = class StripeAPI {
     }
 
     /**
-     * Get the most recent subscription time for a customer.
+     * Get the most recent subscription end time for a customer.
      * @private
-     * @param {object} customer
-     * @returns {number} Unix timestamp
+     * @param {ICustomer} customer
+     * @returns {number} The most recent subscription end time, or 0 if no subscriptions
      */
     _getLatestSubscriptionTime(customer) {
-        if (!customer.subscriptions || !customer.subscriptions.data || customer.subscriptions.data.length === 0) {
+        if (!customer.subscriptions?.data?.length) {
             return 0;
         }
 
         let latestTime = 0;
-        for (let subscription of customer.subscriptions.data) {
+        for (const subscription of customer.subscriptions.data) {
             if (subscription.current_period_end && subscription.current_period_end > latestTime) {
                 latestTime = subscription.current_period_end;
             }
@@ -532,38 +534,16 @@ module.exports = class StripeAPI {
      * @returns {Promise<ICheckoutSession>}
      */
     async createCheckoutSession(priceId, customer, options) {
-        const metadata = options.metadata || undefined;
+        const metadata = options.metadata || undefined; // https://docs.stripe.com/api/metadata some limits to how much can be passed
         const customerId = customer ? customer.id : undefined;
         const customerEmail = customer ? customer.email : options.customerEmail;
 
         await this._rateLimitBucket.throttle();
-        
-        const discounts = options.coupon ? [{coupon: options.coupon}] : undefined;
-        const subscriptionData = this._buildSubscriptionData(metadata, priceId, options.trialDays);
+        let discounts;
+        if (options.coupon) {
+            discounts = [{coupon: options.coupon}];
+        }
 
-        const stripeSessionOptions = this._buildCheckoutSessionOptions(
-            customerId,
-            customerEmail,
-            discounts,
-            subscriptionData,
-            options
-        );
-
-        // @ts-ignore
-        const session = await this._stripe.checkout.sessions.create(stripeSessionOptions);
-
-        return session;
-    }
-
-    /**
-     * Build subscription data for checkout session.
-     * @private
-     * @param {object} metadata
-     * @param {string} priceId
-     * @param {number} trialDays
-     * @returns {object}
-     */
-    _buildSubscriptionData(metadata, priceId, trialDays) {
         const subscriptionData = {
             trial_from_plan: true,
             items: [{
@@ -584,39 +564,40 @@ module.exports = class StripeAPI {
             }
         };
 
-        if (typeof trialDays === 'number' && trialDays > 0) {
+        /**
+         * `trial_from_plan` is deprecated.
+         * Replaces it in favor of custom trial period days stored in Ghost
+         */
+        if (typeof options.trialDays === 'number' && options.trialDays > 0) {
             delete subscriptionData.trial_from_plan;
-            subscriptionData.trial_period_days = trialDays;
+            subscriptionData.trial_period_days = options.trialDays;
         }
 
-        return subscriptionData;
-    }
-
-    /**
-     * Build checkout session options.
-     * @private
-     * @param {string} customerId
-     * @param {string} customerEmail
-     * @param {object} discounts
-     * @param {object} subscriptionData
-     * @param {object} options
-     * @returns {object}
-     */
-    _buildCheckoutSessionOptions(customerId, customerEmail, discounts, subscriptionData, options) {
-        const stripeSessionOptions = {
+        let stripeSessionOptions = {
             payment_method_types: this.PAYMENT_METHOD_TYPES,
             success_url: options.successUrl || this._config.checkoutSessionSuccessUrl,
             cancel_url: options.cancelUrl || this._config.checkoutSessionCancelUrl,
-            // @ts-ignore
+            // @ts-ignore - we need to update to latest stripe library to correctly use newer features
             allow_promotion_codes: discounts ? undefined : this._config.enablePromoCodes,
             automatic_tax: {
                 enabled: this._config.enableAutomaticTax
             },
-            metadata: options.metadata,
+            metadata,
             discounts,
+            /*
+            line_items: [{
+                price: priceId
+            }]
+            */
+            // This is deprecated and using the old way of doing things with Plans.
+            // It should be replaced with the line_items entry above when possible,
+            // however, this would lose the "trial from plan" feature which has also
+            // been deprecated by Stripe
             subscription_data: subscriptionData
         };
 
+        /* We are only allowed to specify one of these; email will be pulled from
+           customer object on Stripe side if that object already exists. */
         if (customerId) {
             stripeSessionOptions.customer = customerId;
         } else {
@@ -627,7 +608,10 @@ module.exports = class StripeAPI {
             stripeSessionOptions.customer_update = {address: 'auto'};
         }
 
-        return stripeSessionOptions;
+        // @ts-ignore
+        const session = await this._stripe.checkout.sessions.create(stripeSessionOptions);
+
+        return session;
     }
 
     /**

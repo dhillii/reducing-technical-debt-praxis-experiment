@@ -204,7 +204,7 @@ module.exports = function(CLI) {
    */
   CLI.prototype.profile = function(type, time, cb) {
     const that = this;
-    const dayjs = require('dayjs');
+    const dayjs_local = require('dayjs');
     let cmd
 
     if (type == 'cpu') {
@@ -220,7 +220,7 @@ module.exports = function(CLI) {
       }
     }
 
-    const file = path.join(process.cwd(), dayjs().format('dd-HH:mm:ss') + cmd.ext);
+    const file = path.join(process.cwd(), dayjs_local().format('dd-HH:mm:ss') + cmd.ext);
     time = time || 10000
 
     console.log(`Starting ${cmd.action} profiling for ${time}ms...`)
