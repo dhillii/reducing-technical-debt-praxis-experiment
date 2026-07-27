@@ -77,6 +77,11 @@ _LOCAL_COMPUTED_COLUMNS = [
     "nfr_alignment_score",
 ]
 
+# The same unnumbered source context is supplied to every prompt condition.
+# It localizes SonarCloud findings without turning source-line display into an
+# additional condition-specific intervention.
+LOCATION_CONTEXT_LINES = 3
+
 
 class BatchRunOrchestrator:
     """Orchestrates batch refactoring experiments end-to-end."""
@@ -287,7 +292,11 @@ class BatchRunOrchestrator:
                 logger.warning(f"Error loading source code for {record_id}: {e}")
                 continue
 
-            prompt = self._build_prompt(record_id, source_code)
+            prompt = self._build_prompt(
+                record_id,
+                source_code,
+                sonar_line=row.get("sonar_line"),
+            )
             system_prompt = self._get_system_prompt(run.condition)
 
             requests.append({
@@ -671,21 +680,49 @@ class BatchRunOrchestrator:
         logger.info(f"Loaded {len(mapping)} prompts from {ACTIVE_PROMPTS_FILE.name}")
         return mapping
 
-    def _build_prompt(self, record_id: str, source_code: str) -> str:
-        """Build the refactoring prompt by appending source code to the active prompt."""
+    @staticmethod
+    def _build_location_context(source_code: str, sonar_line: Any) -> str:
+        """Return an unnumbered source excerpt centered on a SonarCloud line."""
+        try:
+            line_number = int(float(sonar_line))
+        except (TypeError, ValueError):
+            return ""
+
+        source_lines = source_code.splitlines()
+        if not source_lines or not 1 <= line_number <= len(source_lines):
+            return ""
+
+        start = max(0, line_number - 1 - LOCATION_CONTEXT_LINES)
+        end = min(len(source_lines), line_number + LOCATION_CONTEXT_LINES)
+        excerpt = "\n".join(source_lines[start:end])
+
+        return (
+            "The static-analysis finding applies at or immediately around the "
+            "following exact excerpt from the complete source file. Use it only "
+            "to locate the relevant function or method; do not return this "
+            "excerpt separately:\n\n"
+            f"{excerpt}"
+        )
+
+    def _build_prompt(self, record_id: str, source_code: str, sonar_line: Any = None) -> str:
+        """Build a prompt with uniform issue-localization context and full source code."""
         _no_fence_reminder = (
             "Return ONLY the raw refactored source code with no markdown fences, "
-            "no ```javascript, no ```, and no explanations."
+            "no code-fence markers, and no explanations."
         )
+        location_context = self._build_location_context(source_code, sonar_line)
+        source_section = f"Complete source code:\n{source_code}"
         active_prompt = self._prompts.get(record_id)
         if not active_prompt or str(active_prompt) == "nan":
             logger.warning(f"No active_prompt found for record_id={record_id}, using fallback")
             return (
                 "Refactor the following code to reduce complexity and improve maintainability. "
                 f"{_no_fence_reminder}\n\n"
-                f"{source_code}"
+                f"{location_context}\n\n"
+                f"{source_section}"
             )
-        return f"{active_prompt}\n\n{_no_fence_reminder}\n\n{source_code}"
+        context_block = f"\n\n{location_context}" if location_context else ""
+        return f"{active_prompt}\n\n{_no_fence_reminder}{context_block}\n\n{source_section}"
 
     def _get_system_prompt(self, condition: str) -> str:
         """Get system prompt based on condition."""

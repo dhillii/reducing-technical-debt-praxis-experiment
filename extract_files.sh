@@ -25,7 +25,7 @@ echo "CSV file found: $CSV_FILE"
 echo ""
 
 # Run the extraction script
-python3 clone_source_files.py \
+python3 utils/clone_source_files.py \
     --csv "$CSV_FILE" \
     --output "sample_source_code" \
     --repos-dir "repos_cache" \

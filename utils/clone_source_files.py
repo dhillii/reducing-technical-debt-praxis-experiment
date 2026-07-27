@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Extract candidate source files from 14 GitHub repositories.
+Extract candidate source files from configured GitHub repositories.
 
 This script:
 1. Identifies 146 unique source files from the experimental dataset CSV
@@ -50,6 +50,26 @@ PROJECT_REPOS = {
     "sequelize-4.44.4": "https://github.com/sequelize/sequelize.git",
     "strapi-3.6.11":    "https://github.com/strapi/strapi.git",
     "webpack-2.7.0":    "https://github.com/webpack/webpack.git",
+    # Cross-language extension: frozen legacy snapshots in the dhillii organization.
+    "ansible-stable-1.9_12_2_2016": "https://github.com/dhillii/ansible-stable-1.9_12_2_2016.git",
+    "buildbot-0.8.14_8_9_2016": "https://github.com/dhillii/buildbot-0.8.14_8_9_2016.git",
+    "calibre-2.85.1_5_12_2017": "https://github.com/dhillii/calibre-2.85.1_5_12_2017.git",
+    "django-1.11.x-stable_3_5_2020": "https://github.com/dhillii/django-1.11.x-stable_3_5_2020.git",
+    "nltk-3.2_3_2_2016": "https://github.com/dhillii/nltk-3.2_3_2_2016.git",
+    "twisted-twisted-15.4.0_9_4_2015": "https://github.com/dhillii/twisted-twisted-15.4.0_9_4_2015.git",
+    "zulip-1.9.x_1_29_2019": "https://github.com/dhillii/zulip-1.9.x_1_29_2019.git",
+    "ant-rel-1.9.0_1_13_2016": "https://github.com/dhillii/ant-rel-1.9.0_1_13_2016.git",
+    "argouml-0.35.1_8_31_2014": "https://github.com/dhillii/argouml-0.35.1_8_31_2014.git",
+    "hadoop-release-2.7.1_7_6_2015": "https://github.com/dhillii/hadoop-release-2.7.1_7_6_2015.git",
+    "jEdit-4.0.1_4_12_2002": "https://github.com/dhillii/jEdit-4.0.1_4_12_2002.git",
+    "jfreechart-1.0.19_7_31_2014": "https://github.com/dhillii/jfreechart-1.0.19_7_31_2014.git",
+    "logging-log4j2-rel-2.5_1_8_2016": "https://github.com/dhillii/logging-log4j2-rel-2.5_1_8_2016.git",
+    "struts-2.3.28_3_18_2016": "https://github.com/dhillii/struts-2.3.28_3_18_2016.git",
+}
+
+# Existing local cache names that differ from the GitHub/Sonar project name.
+PROJECT_CACHE_DIRS = {
+    "django-1.11.x-stable_3_5_2020": "django-stable-1.11.x_3_5_2020",
 }
 
 
@@ -80,7 +100,7 @@ class SourceFileExtractor:
     def read_csv(self):
         """Read CSV and extract unique files per project."""
         files_by_project = defaultdict(set)
-        file_info = {}  # Track full paths
+        file_info = {}  # Track full paths by (project, path)
 
         try:
             with open(self.csv_path, 'r', encoding='utf-8') as f:
@@ -92,12 +112,12 @@ class SourceFileExtractor:
 
                     # Store unique file per project (deduplicate)
                     files_by_project[project].add(file_path)
-                    file_info[file_path] = {
+                    file_info[(project, file_path)] = {
                         'project': project,
                         'file_name': file_name
                     }
 
-            logger.info(f"CSV loaded: {len(file_info)} unique file references")
+            logger.info(f"CSV loaded: {len(file_info)} unique project/file references")
             return files_by_project, file_info
 
         except FileNotFoundError:
@@ -109,31 +129,22 @@ class SourceFileExtractor:
 
     def clone_or_update_repo(self, project_name, repo_url):
         """Clone or update a GitHub repository."""
-        repo_path = self.repos_dir / project_name
+        repo_path = self.repos_dir / PROJECT_CACHE_DIRS.get(project_name, project_name)
 
         try:
             if repo_path.exists():
-                logger.info(f"Updating existing repo: {project_name}")
-                subprocess.run(
-                    ["git", "pull", "origin", "main"],
-                    cwd=repo_path,
-                    capture_output=True,
-                    timeout=60
-                )
-                # Try master if main failed
-                subprocess.run(
-                    ["git", "pull", "origin", "master"],
-                    cwd=repo_path,
-                    capture_output=True,
-                    timeout=60
-                )
+                logger.info(f"Using existing repository snapshot: {project_name}")
             else:
                 logger.info(f"Cloning repo: {project_name} from {repo_url}")
-                subprocess.run(
+                result = subprocess.run(
                     ["git", "clone", "--depth", "1", repo_url, str(repo_path)],
                     capture_output=True,
+                    text=True,
                     timeout=300
                 )
+                if result.returncode != 0:
+                    logger.error(f"Clone failed for {project_name}: {result.stderr.strip()}")
+                    return False
 
             logger.info(f"✓ {project_name} ready")
             return True
@@ -147,7 +158,7 @@ class SourceFileExtractor:
 
     def extract_file(self, project_name, file_path, output_path):
         """Extract a single file from cloned repo."""
-        repo_path = self.repos_dir / project_name
+        repo_path = self.repos_dir / PROJECT_CACHE_DIRS.get(project_name, project_name)
         source_file = repo_path / file_path
 
         if not source_file.exists():
@@ -213,7 +224,7 @@ class SourceFileExtractor:
             logger.info(f"\nExtracting from {project_name} ({len(files)} files)...")
 
             for file_path in sorted(files):
-                file_name = file_info[file_path]['file_name']
+                file_name = file_info[(project_name, file_path)]['file_name']
 
                 # Generate output filename with sequential numbering
                 output_filename = f"file_{file_counter:04d}_{file_name}"
@@ -258,7 +269,7 @@ class SourceFileExtractor:
         logger.info(f"Skipped (already exist): {skipped_count}")
         logger.info(f"Failed: {failed_count}")
         logger.info(f"Total: {extracted_count + skipped_count + failed_count}")
-        logger.info(f"Expected 146 unique files in: {self.output_dir.absolute()}")
+        logger.info(f"Source files expected in: {self.output_dir.absolute()}")
 
         # Save manifest
         self.save_manifest()
